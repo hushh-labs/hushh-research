@@ -114,6 +114,7 @@ const OWNER_POD_ROUTES = new Set([
   "actions/gmail/proposals",
   "browser/capability",
   "browser/tasks",
+  "browser/sessions/forget",
   "tasks",
   "tasks/control",
   "tasks/review",

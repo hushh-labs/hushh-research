@@ -348,6 +348,25 @@ it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths
   await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
 });
 
+it("admits task-independent Browser Forget only with current app control authority and the exact POST route", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control"] } };
+  const route = "browser/sessions/forget";
+  for (const session of [{ ...connection.session, role: "device" }, { ...connection.session, scopes: ["browser.observe"] }]) {
+    pod.currentPodConnection.mockResolvedValueOnce({ ...connection, session });
+    await expect(ownerPodRequest(route, { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  }
+  pod.currentPodConnection.mockResolvedValue(connection);
+  await expect(ownerPodRequest(route, { method: "GET" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  await expect(ownerPodRequest("browser/sessions/forget/all", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+  const body = JSON.stringify({ sec_id: "sec_" + "a".repeat(16), origins: ["https://example.com"] });
+  expect((await ownerPodRequest(route, { method: "POST", body }, ports)).ok).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
 it("admits owner pod browser download save route only when browser.control and files scopes are held", async () => {
   const fetch = vi.fn(async () => Response.json({ verified: true }));
   const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];

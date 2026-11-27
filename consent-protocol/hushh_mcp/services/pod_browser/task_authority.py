@@ -74,10 +74,16 @@ class TaskConsent(BrowserConsentPort):
             raise BrowserRefused("BROWSER_BINDING_REFUSED")
         if self._check_runtime:
             await self._check_runtime()
-        await self._access.check()
-        await self._reviews.check_binding(binding)
+        await self.check_cleanup_binding(binding)
         if self._check_runtime:
             await self._check_runtime()
+
+    async def check_cleanup_binding(self, binding: BrowserBinding) -> None:
+        """Current owner admission for erasure, never execution or observation."""
+        if binding != self._binding or binding.expires_at <= self._clock():
+            raise BrowserRefused("BROWSER_BINDING_REFUSED")
+        await self._access.check()
+        await self._reviews.check_binding(binding)
 
     async def require(
         self, binding: BrowserBinding, purpose: Purpose, private_terms: dict
@@ -195,6 +201,7 @@ async def prepare_task(
     async def check_runtime() -> None:
         if task.closed or task.closing is not None:
             raise BrowserRefused("BROWSER_STOPPED")
+        await runtime._check_private_context_current(task)
         current = runtime.capability()
         if not current.available:
             raise BrowserRefused(current.code)

@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Literal
 from uuid import uuid4
 
@@ -74,6 +74,7 @@ class BrowserTaskRuntime:
         delivery: BrowserDeliveryPort | None = None,
         environment: Literal["development", "uat"] = "development",
         credential_source=None,
+        session_context_check: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._owner, self._pod, self._incarnation = owner_id, pod_id, incarnation
         self._environment: Literal["development", "uat"] = (
@@ -88,6 +89,7 @@ class BrowserTaskRuntime:
         )
         self._delivery = delivery
         self._credential_source = credential_source
+        self._session_context_check = session_context_check
         self._tasks: dict[str, _Task] = {}
         self._request_key = os.urandom(32)
         self._requests: dict[str, str] = {}
@@ -160,6 +162,8 @@ class BrowserTaskRuntime:
         from .credential_use import BrowserCredentialUse
 
         def pending(request):
+            task.private_context = True
+            self._check_private_context(task)
             task.phase, task.code = "needs_owner", "BROWSER_CREDENTIAL_OWNER_REQUIRED"
             task.revision += 1
 
@@ -432,6 +436,42 @@ class BrowserTaskRuntime:
     ) -> None:
         await prepare_task(self, task, access, request)
 
+    @staticmethod
+    def _has_private_context(task: _Task) -> bool:
+        control = task.control
+        credentials = control.credentials if control is not None else None
+        return bool(
+            task.private_context
+            or (control is not None and control._secret_entry)
+            or (credentials is not None and credentials.selection is not None)
+        )
+
+    def _check_private_context(self, task: _Task) -> None:
+        from hushh_mcp.services.pod_config import active_pod_config
+
+        # This is the canonical config's active projection, updated only after
+        # its durable write. Public tasks do not acquire session restrictions.
+        if self._has_private_context(task) and active_pod_config().session_only_lockdown:
+            raise BrowserRefused("BROWSER_SESSION_ONLY")
+
+    async def _check_private_context_current(self, task: _Task) -> None:
+        self._check_private_context(task)
+        if self._has_private_context(task) and self._session_context_check is not None:
+            await self._session_context_check()
+        self._check_private_context(task)
+
+    async def suspend_private_contexts(self, *, pod_id: str) -> None:
+        """Retire live sign-in contexts without erasing remembered ciphertext.
+
+        Unlike update drain this does not disable future public Browser tasks.
+        A repeated lockdown write joins/retries the same lifecycle cleanup.
+        """
+        if pod_id != self._pod:
+            raise BrowserRefused("BROWSER_OWNER_REFUSED")
+        for task in tuple(self._tasks.values()):
+            if not task.closed and self._has_private_context(task):
+                await self._lifecycle.close(task, phase="cancelled", code="BROWSER_SESSION_ONLY")
+
     async def read_activity_receipts(self, access, task_ids):
         import re
 
@@ -549,6 +589,8 @@ class BrowserTaskRuntime:
             if task.closed or task.closing is not None or control is None:
                 raise BrowserRefused("BROWSER_CONTROL_UNAVAILABLE")
             elif operation == "takeover":
+                if control.credentials is not None and control.credentials.selection is not None:
+                    task.private_context = True  # explicit Type myself handoff
                 await control.take_control(interrupt=lambda: self._lifecycle.cancel_worker(task))
                 credentials = control.credentials
                 if credentials is not None and credentials.selection is not None:
@@ -714,6 +756,8 @@ class BrowserTaskRuntime:
             if task.closed or task.control is None or task.control.control_owner != "owner":
                 raise BrowserRefused("BROWSER_OWNER_CONTROL_REQUIRED")
             if operation == "remember":
+                task.private_context = True
+                self._check_private_context(task)
                 state = await task.control.export_session(origins)
                 revision = await task.sessions.remember(
                     task.binding, site, state, approved_origins=origins
@@ -722,6 +766,8 @@ class BrowserTaskRuntime:
             if operation == "restore":
 
                 async def install(state):
+                    task.private_context = True  # before even an uncertain import
+                    self._check_private_context(task)
                     await task.control.import_session(state, origins)
 
                 restored = await task.sessions.restore_for_task(
@@ -780,6 +826,8 @@ class BrowserTaskRuntime:
         request = selection.model_copy(update={"handle": handle, "control_epoch": control_epoch})
         if task.credential_worker is not None and not task.credential_worker.done():
             raise BrowserRefused("BROWSER_CREDENTIAL_ENTRY_ACTIVE")
+        task.private_context = True
+        self._check_private_context(task)
 
         async def run():
             try:

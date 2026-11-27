@@ -939,6 +939,26 @@ live fencing, durable persistence and deletion requests. Physical removal remain
 subject to cloud retention; Forget does not remotely log out a website. Erasure
 inventory includes these objects and requires drained/fenced writers.
 
+Session-only lockdown records the canonical setting durably before suspending
+already-live private sign-in contexts through the existing task lifecycle.
+Execution checks recheck the active projection and sealed setting around
+authority awaits. Public tasks do not acquire this restriction. A failed close
+returns an explicit refusal while retaining lockdown; repeating the setting
+retries cleanup. Encrypted remembered objects survive suspension, and unlocking
+does not resume a terminated task. Live Forget retains exact current-owner and
+binding checks through an erasure-only admission path. Old terminal task ports
+and origin lists remain detached. Canonical Secrets instead calls
+`POST /api/one/pod/browser/sessions/forget` with the selected `sec_id` and current
+exact origins. Its current app `browser.control` authority is rechecked around
+metadata and deletion awaits, independently of Browser/model qualification.
+Authenticated startup recovers an erasure-only custody context even when Browser
+is disabled. No cookie decryption, credential reveal, task binding or model launch
+is needed. This path shares the same generation/CAS transaction and owner writer
+lock as task Forget, joins pending puts, and holds update admission until cleanup
+settles. The receipt reports incomplete close or delete outcomes for explicit retry.
+It covers only that record's current origins; removed origins and old manual
+account labels cannot be reconstructed from the opaque session inventory.
+
 Same-custody restart can rebuild metadata and restore current encrypted objects
 with fresh admission and per-task site/account reuse approval. Record-only
 cross-custody migration and standby synchronization **refuse browser-session

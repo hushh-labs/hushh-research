@@ -39,7 +39,7 @@ export function WebsiteLoginsWorkspace() {
       onSave={async input => { if (await model.save(input, editor.item ?? undefined)) setEditor(null); }} /> : removing ?
       <div className="space-y-3 rounded-xl border p-4" role="group" aria-label="Confirm saved login removal">
         <p>Remove {removing.label}?</p>
-        <p className="text-sm text-muted-foreground">This stops future credential use. To remove a remembered browser sign-in, use Forget in that Browser task.</p>
+        <p className="text-sm text-muted-foreground">This stops future credential use. Use Forget browser sign-in on this login first to remove its remembered sign-in.</p>
         <div className="flex flex-wrap gap-2"><Button variant="destructive" disabled={model.busy || model.uncertain} isLoading={model.busy}
           onClick={() => { void model.remove(removing).then(done => { if (done) setRemoving(null); }); }} data-voice-control-id="website-login-remove-confirm">Remove login</Button>
           <Button variant="secondary" disabled={model.busy} onClick={() => setRemoving(null)} data-voice-control-id="website-login-cancel">Keep login</Button></div>
@@ -59,7 +59,10 @@ export function WebsiteLoginsWorkspace() {
             <Button variant="ghost" size="compact" disabled={model.busy || model.uncertain} onClick={() => setRemoving(item)}
               data-voice-control-id="website-login-remove">Remove</Button>
             <Button variant="secondary" size="compact" disabled={model.busy || model.uncertain} onClick={() => setSharing(item)}
-              data-voice-control-id="website-login-share">Share</Button></div>
+              data-voice-control-id="website-login-share">Share</Button>
+            <Button variant="secondary" size="compact" disabled={model.busy || model.uncertain} onClick={() => { void model.forgetBrowserSignIn(item); }}
+              data-voice-control-id="website-login-forget-browser">Forget browser sign-in</Button></div>
+          <p className="text-xs text-muted-foreground">Forget applies only to the origins above. It keeps this saved login and does not confirm website sign-out or immediate cloud deletion.</p>
         </li>)}</ul>
       </>}
   </section>;

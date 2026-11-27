@@ -41797,6 +41797,105 @@
           "ui"
         ]
       }
+    },
+    {
+      "action_id": "credentials.forget_browser",
+      "surface_id": "secrets_website_logins",
+      "label": "Forget a saved browser sign-in",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login",
+        "forget",
+        "browser"
+      ],
+      "meaning": "Forget the selected saved login’s remembered browser sign-in for only its displayed origins. Keep the login in Secrets. Website sign-out and immediate cloud deletion are not confirmed.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The canonical Secrets control requires a trusted human action, current unlocked owner and the exact selected item origins. It never opens a password or starts a Browser task.",
+        "intended_handler": "forgetBrowserSignIn"
+      },
+      "control_ids": [
+        "website-login-forget-browser"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.forget_browser",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.forget_browser",
+            "label": "Forget a saved browser sign-in",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
     }
   ]
 }

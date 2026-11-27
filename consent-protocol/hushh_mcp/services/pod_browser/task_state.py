@@ -58,6 +58,9 @@ class BrowserTaskState:
     processing_approved: bool = False
     stop_refusal: str | None = None
     model_completed: bool = False
+    # Monotonic for this live context: clearing a login prompt or completing a
+    # fill must not turn its authenticated cookies back into public browsing.
+    private_context: bool = False
     saved_downloads: dict[str, dict] = field(default_factory=dict, repr=False)
     operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     review_operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)

@@ -20,13 +20,13 @@ from hushh_mcp.services.pod_bounded_object import BoundedObjectReader
 from hushh_mcp.services.pod_commit_log import (
     ObjectStore,
     PodCommitLog,
-    PodLogConflict,
     PodLogCursor,
 )
 
 from .consent import BrowserConsentPort
 from .contracts import BrowserBinding, BrowserReadiness, BrowserRefused
 from .session_cipher import BrowserSessionCipher
+from .session_erasure import erase_session_site
 from .session_projection import _SITE, KIND, SessionProjection, refresh_projection
 from .session_projection import ForgetReceipt as ForgetReceipt
 from .session_projection import SiteRevision as SiteRevision
@@ -50,6 +50,7 @@ class BrowserSessions:
         fence_live_contexts: Callable[[str], Awaitable[None]],
         clock: Callable[[], float] = time.time,
         check_session_allowed: Callable[[], Awaitable[None]] | None = None,
+        mutation_lock: asyncio.Lock | None = None,
     ) -> None:
         readiness.require_ready()
         if len(custody_key) != 32 or not owner_id:
@@ -61,7 +62,7 @@ class BrowserSessions:
         self._check_session_allowed = check_session_allowed
         self._projection = SessionProjection()
         self._cursor: PodLogCursor | None = None
-        self._lock = asyncio.Lock()
+        self._lock = mutation_lock if mutation_lock is not None else asyncio.Lock()
         self._blocked: set[str] = set()
         self._forget_epochs: dict[str, int] = {}
         self._forgetting: set[str] = set()
@@ -77,7 +78,11 @@ class BrowserSessions:
     ) -> None:
         if binding.owner_id != self._owner or not _SITE.fullmatch(site):
             raise BrowserRefused("BROWSER_SESSION_OWNER_REFUSED")
-        await self._consent.check_binding(binding)
+        cleanup = getattr(self._consent, "check_cleanup_binding", None) if erasing else None
+        if callable(cleanup):
+            await cleanup(binding)
+        else:
+            await self._consent.check_binding(binding)
         if not erasing and self._check_session_allowed is not None:
             await self._check_session_allowed()
         if site in self._blocked and not forgetting:
@@ -250,37 +255,17 @@ class BrowserSessions:
         self._forgetting.add(site)
         self._forget_epochs[site] = self._forget_epochs.get(site, 0) + 1
         forget_epoch = self._forget_epochs[site]
-        closed = True
-        try:
-            await self._fence(site)
-        except Exception:
-            closed = False
-        async with self._lock:
-            try:
-                seq = await self._refresh()
-                current = self._projection.sites.get(site, SiteRevision())
-                if current.object_key is not None or current.generation == 0:
-                    await self._log.append(
-                        KIND,
-                        {
-                            "operation": "forget",
-                            "site": site,
-                            "generation": current.generation + 1,
-                        },
-                        expected_seq=seq,
-                    )
-                await self._refresh()
-            except (PodLogConflict, RuntimeError):
-                return ForgetReceipt(closed, False, False)
-            deleted = closed
-            for key in self._projection.objects.get(site, set()):
-                try:
-                    await self._store.delete(key)
-                except Exception:
-                    deleted = False
-            if closed and self._forget_epochs[site] == forget_epoch:
-                self._forgetting.discard(site)
-            return ForgetReceipt(closed, True, deleted)
+        receipt = await erase_session_site(
+            log=self._log,
+            store=self._store,
+            site=site,
+            lock=self._lock,
+            check=lambda: self._check(binding, site, forgetting=True, erasing=True),
+            fence=self._fence,
+        )
+        if receipt.fenced and self._forget_epochs[site] == forget_epoch:
+            self._forgetting.discard(site)
+        return receipt
 
     async def recovery_inventory(self) -> tuple[str, ...]:
         """Current published ciphertext objects; same-custody restart inventory.

@@ -356,6 +356,7 @@ snapshots remain owner-readable for explicit unlocked-device import.
 | `POST /api/one/pod/browser-approval/credential-source` | Signed, current owner-pod metadata check of exact `sec_` item source revisions. No password, seed or login lease passes through the Hub. |
 | `POST /api/one/pod/browser/tasks/{task_id}/credentials/use` | Owner control prepares the exact human review; it does not fill or submit. |
 | `POST /api/one/pod/browser/tasks/{task_id}/credentials/transient` | Explicit human Allow, current review and task/control-epoch/origin-bound one-use lease. Its ephemeral recipient key belongs to the active Browser worker. |
+| `POST /api/one/pod/browser/sessions/forget` | Current owner app with `browser.control`, held custody and current pod/incarnation. Closed body: `sec_id` and 1–16 distinct canonical public HTTPS `origins`. Erases only those exact saved-login sessions without a live task, Browser/model launch, password read or qualification bypass. The receipt separates fencing, durable tombstone and deletion requests; website logout and immediate physical deletion are not claimed. |
 | `POST /api/one/pod/agent-chat/browser-activity` | Owner app, `pkm.read`, `browser.observe` and current chat key. Body contains only `conversation_id` and `task_id`. The server reads the actual task outcome and verifies its accepted creation in that conversation before persisting a content-free receipt to the existing encrypted ADK journal. |
 
 `compactActivityReceipts` contains at most eight closed, enum/opaque-ID records,

@@ -9,7 +9,6 @@ qualified deployment policy; public-only policies continue to refuse them.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import os
 from pathlib import Path
 
@@ -32,18 +31,28 @@ from .information_export import PodScopedExports
 from .inpod_launcher import InPodBrowserLauncher
 from .owner_model import resolve_owner_browser_model
 from .review_client import PodBrowserReviews
+from .session_erasure import browser_custody_key
 from .sessions import BrowserSessions
 from .task_contracts import BrowserOwnerAccess
 from .task_runtime import BrowserTaskRuntime
 
 
 class PodBrowserComposition:
-    def __init__(self, *, deployment: BrowserDeployment, authority, log, dek: bytes) -> None:
+    def __init__(
+        self,
+        *,
+        deployment: BrowserDeployment,
+        authority,
+        log,
+        dek: bytes,
+        session_lock: asyncio.Lock | None = None,
+    ) -> None:
         deployment.require_current(authority)
         if log is None or not isinstance(dek, bytes) or len(dek) != 32:
             raise BrowserRefused("BROWSER_RECOVERY_UNAVAILABLE")
         self._deployment, self._authority, self._log = deployment, authority, log
-        self._key = hmac.digest(dek, b"hussh/pod-browser-custody/v1", "sha256")
+        self._key = browser_custody_key(dek)
+        self._session_lock = session_lock if session_lock is not None else asyncio.Lock()
         self._lock = asyncio.Lock()
         self._owner: str | None = None
         self._runtime: BrowserTaskRuntime | None = None
@@ -176,6 +185,7 @@ class PodBrowserComposition:
                     readiness=ready,
                     fence_live_contexts=runtime.fence_live_contexts,
                     check_session_allowed=session_allowed,
+                    mutation_lock=self._session_lock,
                 )
 
             runtime = BrowserTaskRuntime(
@@ -198,6 +208,7 @@ class PodBrowserComposition:
                 public_research_only=not self._deployment.public_policy.interactive,
                 delivery=self._delivery,
                 credential_source=credential_source,
+                session_context_check=session_allowed,
                 environment=(
                     "uat" if getattr(self._authority, "environment", "") == "uat" else "development"
                 ),
@@ -219,11 +230,15 @@ class PodBrowserComposition:
                 self._key = b""
 
 
-def configure_browser_startup(*, authority, log, dek) -> PodBrowserComposition | None:
+def configure_browser_startup(
+    *, authority, log, dek, session_lock=None
+) -> PodBrowserComposition | None:
     if os.getenv("POD_COMPUTER_USE_ENABLED", "").lower() not in {"1", "true"}:
         return None
     deployment = recovered_browser_deployment(authority)
-    return PodBrowserComposition(deployment=deployment, authority=authority, log=log, dek=dek)
+    return PodBrowserComposition(
+        deployment=deployment, authority=authority, log=log, dek=dek, session_lock=session_lock
+    )
 
 
 async def bind_browser_owner(app, access: BrowserOwnerAccess) -> None:
@@ -246,7 +261,13 @@ def install_browser_startup(app, *, log, dek: bytes, logger) -> None:
         authority = active_session_authority()
         if authority is None:
             raise BrowserRefused("BROWSER_RECOVERY_UNAVAILABLE")
-        composition = configure_browser_startup(authority=authority, log=log, dek=dek)
+        cleanup = getattr(app.state, "browser_session_cleanup", None)
+        composition = configure_browser_startup(
+            authority=authority,
+            log=log,
+            dek=dek,
+            session_lock=cleanup.lock if cleanup is not None else None,
+        )
         app.state.browser_composition = composition
     except BrowserRefused as exc:
         discard_bootstrap_channel()

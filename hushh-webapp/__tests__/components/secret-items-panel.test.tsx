@@ -12,6 +12,7 @@ import { stageSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
+import { ApiService } from "@/lib/services/api-service";
 
 const paneFixture = vi.hoisted(() => ({ open: false }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one", useRouter: () => ({ push: vi.fn() }) }));
@@ -34,7 +35,7 @@ vi.mock("@/lib/pkm/secrets-vault-service", () => ({ SecretsVaultService: {
   revealSecret: revealFixture.reveal, listSecrets: revealFixture.list, removeSecret: revealFixture.remove, markFiled: revealFixture.mark,
 } }));
 vi.mock("@/lib/services/kyc-identity-documents-service", () => ({ identityDocumentTypeFor: () => "passport", KycIdentityDocumentsService: { fileDocument: revealFixture.file } }));
-afterEach(() => { paneFixture.open = false; cleanup(); publishValidatedAuthSessionOwner(null); vi.clearAllMocks(); });
+afterEach(() => { paneFixture.open = false; cleanup(); publishValidatedAuthSessionOwner(null); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 /**
  * The secure Secrets card shows a value only for an unlocked vault, and puts it
@@ -68,6 +69,77 @@ function panel(overrides: Partial<Parameters<typeof SecretItemsPanel>[0]> = {}) 
 }
 
 describe("SecretItemsPanel", () => {
+  const browserLogin = { id: "sec_" + "a".repeat(16), label: "Synthetic portal", boundOrigins: ["https://portal.example.com"],
+    staySignedInEnabled: false, revision: 1, updatedAt: "2026-11-26" };
+  const forgotten = { fenced: true, persisted: true, deletion_requested: true, physical_deletion: "subject_to_cloud_retention", remote_logout: false };
+  function browserForgetFixture() {
+    revealFixture.uid = "fixture-a"; revealFixture.key = "fixture-key-a"; revealFixture.authorized = true; revealFixture.privacy = undefined;
+    publishValidatedAuthSessionOwner(revealFixture.uid);
+    credentialFixture.list.mockResolvedValue([browserLogin]);
+    const admission = vi.spyOn(ApiService, "getComputerUseAdmission").mockResolvedValue({ ownerId: "fixture-a", podId: "ha1_fixture", environment: "uat" });
+    const request = vi.spyOn(ApiService, "ownerPodRequest").mockImplementation(async () => Response.json(forgotten));
+    return { admission, request };
+  }
+  it("forgets only selected origins from Secrets without revealing or starting Browser, and retries an incomplete receipt honestly", async () => {
+    const { request } = browserForgetFixture();
+    request.mockResolvedValueOnce(Response.json({ ...forgotten, deletion_requested: false }));
+    render(<WebsiteLoginsWorkspace />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Forget browser sign-in" }));
+    await vi.waitFor(() => expect(screen.getByText(/Browser sign-in removal is incomplete/)).toBeTruthy());
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0]).toEqual(["browser/sessions/forget", expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal),
+      body: JSON.stringify({ sec_id: browserLogin.id, origins: browserLogin.boundOrigins }) }), false, undefined, "ha1_fixture", expect.any(Function)]);
+    expect(credentialFixture.reveal).not.toHaveBeenCalled(); expect(credentialFixture.save).not.toHaveBeenCalled(); expect(credentialFixture.remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Forget browser sign-in" }));
+    await vi.waitFor(() => expect(screen.getByText(/Forgot browser sign-in for these origins/)).toBeTruthy());
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(browserLogin.label)).toBeTruthy();
+    expect(screen.getByText(/Website sign-out is not confirmed; cloud retention may apply/)).toBeTruthy();
+    request.mockResolvedValueOnce(Response.json({ ...forgotten, unverified: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Forget browser sign-in" }));
+    await vi.waitFor(() => expect(screen.getByText(/Browser sign-in removal was not confirmed/)).toBeTruthy());
+    expect(screen.queryByText(/Forgot browser sign-in for these origins/)).toBeNull();
+  });
+  it("refuses changed saved-login origins before Browser cleanup without opening secret fields", async () => {
+    const { admission, request } = browserForgetFixture();
+    const hook = renderHook(() => useWebsiteLogins()); await act(async () => {});
+    credentialFixture.list.mockResolvedValueOnce([{ ...browserLogin, boundOrigins: ["https://changed.example.com"], revision: 2 }]);
+    await act(async () => { expect(await hook.result.current.forgetBrowserSignIn(browserLogin)).toBe(false); });
+    expect(admission).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
+    expect(credentialFixture.reveal).not.toHaveBeenCalled();
+    expect(hook.result.current.message).toBe("This saved login changed. Refresh before forgetting its browser sign-in.");
+  });
+  it.each(["owner", "vault"])("retires Forget before dispatch and after its receipt when the %s changes", async retirement => {
+    const { admission, request } = browserForgetFixture();
+    const retire = () => {
+      if (retirement === "owner") { revealFixture.uid = "fixture-b"; publishValidatedAuthSessionOwner(revealFixture.uid); }
+      else { revealFixture.authorized = false; advanceVaultSessionEpoch(); }
+    };
+    let finishAdmission!: (value: Awaited<ReturnType<typeof ApiService.getComputerUseAdmission>>) => void;
+    admission.mockImplementationOnce(() => new Promise(resolve => { finishAdmission = resolve; }));
+    const hook = renderHook(() => useWebsiteLogins()); await act(async () => {});
+    let pending!: Promise<boolean>;
+    act(() => { pending = hook.result.current.forgetBrowserSignIn(browserLogin); });
+    await vi.waitFor(() => expect(admission).toHaveBeenCalledOnce());
+    act(() => { retire(); hook.rerender(); });
+    await act(async () => { finishAdmission({ ownerId: "fixture-a", podId: "ha1_fixture", environment: "uat" }); await pending; });
+    expect(await pending).toBe(false); expect(request).not.toHaveBeenCalled();
+    expect(hook.result.current.message).toBeNull(); hook.unmount();
+
+    revealFixture.uid = "fixture-a"; revealFixture.authorized = true; publishValidatedAuthSessionOwner(revealFixture.uid); advanceVaultSessionEpoch();
+    let finishRequest!: (value: Response) => void;
+    request.mockImplementationOnce(() => new Promise(resolve => { finishRequest = resolve; }));
+    const currentHook = renderHook(() => useWebsiteLogins()); await act(async () => {});
+    act(() => { pending = currentHook.result.current.forgetBrowserSignIn(browserLogin); });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    const guard = request.mock.calls[0]![5]!;
+    act(() => { retire(); currentHook.rerender(); });
+    expect(guard()).toBe(false); expect(request.mock.calls[0]![1]!.signal!.aborted).toBe(true);
+    await act(async () => { finishRequest(Response.json(forgotten)); await pending; });
+    expect(await pending).toBe(false); expect(currentHook.result.current.message).toBeNull();
+    currentHook.unmount();
+  });
   it("preserves existing credential fields when editing only the private notes", async () => {
     const initial = { label: "Synthetic account", boundOrigins: ["https://example.com"], username: "synthetic-owner",
       password: "SYNTHETIC_PASSWORD", totpSecret: "JBSWY3DPEHPK3PXP", notes: "before", staySignedInEnabled: false };

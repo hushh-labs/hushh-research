@@ -60,6 +60,26 @@ zero idle polling. Azure BYOC and Puppy qualification are paused until dedicated
 pod/hardware handoff. Issue #9511 remains open until the owner accepts those
 journeys and the exact saved-login image/host/model qualifications.
 
+The current PR candidate also closes two source gaps: Session-only now fences
+already-live private Browser contexts, and canonical Secrets can Forget a
+record's current-origin sessions after task teardown without launching Browser.
+Focused verification passed 172 backend tests, 99 frontend tests, and 76
+migration/replay/governance tests after allocating the Browser successor to 467.
+These are source checks, not serving-image or device acceptance.
+
+| Environment | Surface | Walkthrough evidence on 27 November |
+| --- | --- | --- |
+| Dev | Web | Reviewer authentication and vault unlock passed. The public Browser prompt was submitted through a fresh chat after dismissing two authored notices. A critical API failure leaves the Browser journey incomplete. |
+| UAT | Web | Reviewer authentication and vault unlock passed. No accepted Browser task or complete signed-in journey was verified. |
+| Dev and UAT | Native iPhone | Not run; an installed native Simulator journey remains required. |
+| Dev and UAT | Native Android | Not run; an installed native Emulator journey remains required. |
+
+The owner's linked Phase 3 request names Web, iPhone and Android without
+explicitly requiring physical hardware. Simulator/Emulator receipts must name
+their actual targets and do not establish physical-device or human acceptance.
+Neither PR #10040 nor Search Console PR #1149 is recorded here as merged or
+deployed by these local checks.
+
 ## Dev confidential sandbox cutover baseline (23 November 2026)
 
 Source-implemented on `dev` (pending live `hushh-pda-dev` atomic rollout and background Chrome comeback acceptance):

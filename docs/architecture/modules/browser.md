@@ -75,8 +75,19 @@ field cleanup and a fresh safe observation.
 **Stay signed in for this site** defaults off. The saved-login path may retain
 only that origin's revocable session cookies through the existing encrypted
 Browser session store when the owner opts in. Passwords and verification-code
-seeds never become remembered session state. **Forget** and **Pause when I'm
-offline** / Session-only lockdown retain their existing immediate fences.
+seeds never become remembered session state. **Forget** fences reuse and live
+contexts. Session-only lockdown durably records the setting before closing live
+private sign-in contexts through the existing Stop lifecycle. Private actions
+recheck the current sealed setting before an effect; public browsing remains
+available. A failed close retains lockdown and a repeated write retries cleanup.
+Suspension preserves encrypted session objects and never resumes a task by itself.
+Canonical Secrets also offers **Forget browser sign-in** after task teardown or
+restart, including while Browser is disabled or Session-only is active. It uses
+current owner control authority and recovered custody to erase only the selected
+record's current origins; it launches no Browser or model and reads no password.
+The erasure and session writers share their existing owner mutation boundary.
+Earlier removed origins and manually named sign-ins are outside this exact-record
+action; it does not claim an account-wide sweep or remote website logout.
 
 Completed, cancelled and superseded sign-in/review prompts settle to bounded
 static activity receipts in the existing owner-encrypted ADK chat journal.

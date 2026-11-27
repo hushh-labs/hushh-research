@@ -54201,6 +54201,166 @@
       },
       "telemetry_event": "app_intelligence.action",
       "version": 1
+    },
+    {
+      "aliases": [
+        "Forget a saved browser sign-in"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "credentials.forget_browser",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Forget the selected saved login\u2019s remembered browser sign-in for only its displayed origins. Keep the login in Secrets. Website sign-out and immediate cloud deletion are not confirmed.",
+      "execution": {
+        "binding_ref": "render:credentials.forget_browser",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.credentials.forget_browser",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Forget a saved browser sign-in",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "website",
+        "login",
+        "forget",
+        "browser"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
     }
   ],
   "compiler_version": "2026-09-10.10",
@@ -57182,7 +57342,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "7a1ba6d2429931907c680c0eaec150eacd049bc3144c985b47bde20444332d49",
+      "projection_digest": "7e438f1b456631133cba7dfdaaad0c26dc812f6c3ac5d264cc82dcec8bce628b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -57201,7 +57361,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "1784e594654918a0",
+      "source_revision": "cdd3b2fec6a37894",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -58719,7 +58879,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "1784e594654918a0",
+    "source_revision": "cdd3b2fec6a37894",
     "web": {
       "actions": [
         {
@@ -58762,7 +58922,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "fdb7c2b4e401c6a00fd0072d4f2a319e5ba81046f1567033fa732d8c25cc9b76",
+      "projection_digest": "b56f458a06babbdbed35bbfd6fce17ed1bbc7c338169b03ee65f7085d4049972",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -58781,7 +58941,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "1784e594654918a0",
+      "source_revision": "cdd3b2fec6a37894",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -60338,7 +60498,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "1784e594654918a0",
+  "revision": "cdd3b2fec6a37894",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -62396,6 +62556,7 @@
       "actions:credentials.add",
       "actions:credentials.cancel",
       "actions:credentials.edit",
+      "actions:credentials.forget_browser",
       "actions:credentials.refresh",
       "actions:credentials.remove",
       "actions:credentials.save",
@@ -64783,7 +64944,7 @@
     "capability_graph_evolution": "c52f6e303e56ef998e975881a56763f5d1a796c8e3fdd6076b702d02981e523c",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "4b10c0be7067f52fa59f1c0f0e0b214f3c42f0ae7527bf722afac784ee92a662",
+    "kai_action_gateway": "2dff6690208b6ec119c6cdfc32591a80f7e3181c9f435fa0d1ccc1817dc0b847",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -64792,9 +64953,9 @@
     "route_orchestration_index": "f3ae3fa76edfdb6d0b206847d1dda4ed67957a69b405d754af900260fba86d06",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "1784e594654918a0",
+  "source_revision": "cdd3b2fec6a37894",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "1784e594654918a0",
+    "current_graph_revision": "cdd3b2fec6a37894",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -64837,6 +64998,7 @@
           "14c6b22d359cc06b",
           "14eb52dced97297e",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
@@ -65402,6 +65564,7 @@
           "14c2cf10e251484d",
           "14eb52dced97297e",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "19ebeade48749115",
           "1cc9830eefceb8bc",
           "1e083a027555060e",
@@ -65715,6 +65878,7 @@
           "12363284b3810ef5",
           "14c2cf10e251484d",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "19ebeade48749115",
           "1cc9830eefceb8bc",
           "1e083a027555060e",
@@ -66279,6 +66443,7 @@
           "14c6b22d359cc06b",
           "14eb52dced97297e",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
           "19ebeade48749115",
@@ -66829,6 +66994,7 @@
           "0a3470b8dbb69f7a",
           "0e067db9029f2723",
           "14c2cf10e251484d",
+          "1784e594654918a0",
           "19ebeade48749115",
           "1cc9830eefceb8bc",
           "1e083a027555060e",
@@ -67442,6 +67608,7 @@
           "14c6b22d359cc06b",
           "14eb52dced97297e",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
@@ -68023,6 +68190,7 @@
           "14c6b22d359cc06b",
           "14eb52dced97297e",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
@@ -68602,6 +68770,7 @@
           "14c6b22d359cc06b",
           "14eb52dced97297e",
           "1607fca3c0905ff8",
+          "1784e594654918a0",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",

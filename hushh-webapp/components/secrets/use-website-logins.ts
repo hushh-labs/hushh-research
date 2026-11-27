@@ -7,6 +7,7 @@ import { useOwnerPresentationState } from "@/hooks/use-owner-presentation-state"
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
+import { forgetBrowserSignIn } from "@/lib/services/computer-use-client";
 import { WebsiteCredentialError, websiteLoginInput, type WebsiteLoginInput, type WebsiteLoginSummary } from "@/lib/pkm/website-credential";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
@@ -31,18 +32,18 @@ export function useWebsiteLogins() {
   const [visibility, setVisibility] = useState(0);
   const allowed = !!userId && !!vaultKey && !!getVaultOwnerToken() && !privacy?.shielded && privacy?.appIsActive !== false && !privacy?.presentationsRetiring &&
     (!Capacitor.isNativePlatform() || !!privacy) && (typeof document !== "undefined" && document.visibilityState !== "hidden");
-  const owner = useMemo(() => ({ live: false, pending: false, reads: 0, userId, vaultKey, epoch, allowed, visibility, generation: privacy?.generation,
+  const owner = useMemo(() => ({ live: false, pending: false, request: null as AbortController | null, reads: 0, userId, vaultKey, epoch, allowed, visibility, generation: privacy?.generation,
     auth: snapshotValidatedAuthSessionOwner() }), [userId, vaultKey, epoch, privacy?.generation, visibility, allowed]);
   const latest = useRef(owner);
   useLayoutEffect(() => {
     latest.current = owner;
     owner.live = allowed;
-    return () => { owner.live = false; owner.reads += 1; };
+    return () => { owner.live = false; owner.reads += 1; owner.request?.abort(); };
   }, [owner, allowed]);
   useEffect(() => {
     const retire = () => {
       if (document.visibilityState !== "hidden") return;
-      owner.live = false; owner.reads += 1; setVisibility(value => value + 1);
+      owner.live = false; owner.reads += 1; owner.request?.abort(); setVisibility(value => value + 1);
     };
     const resume = () => { if (document.visibilityState === "visible") setVisibility(value => value + 1); };
     document.addEventListener("visibilitychange", retire);
@@ -111,6 +112,37 @@ export function useWebsiteLogins() {
       existing ? "Website login updated." : "Website login saved."),
     remove: (item: WebsiteLoginSummary) => mutate(
       () => SecretsVaultService.removeWebsiteLogin(context(), item), "Login removed from Secrets. Use Forget to remove a remembered browser session."),
+    forgetBrowserSignIn: async (item: WebsiteLoginSummary): Promise<boolean> => {
+      if (!current() || owner.pending || view.uncertain) return false;
+      owner.pending = true; owner.reads += 1;
+      const request = new AbortController(); owner.request = request;
+      setView(previous => ({ ...previous, busy: true, message: null }));
+      try {
+        // Recheck only the owner-visible summary; never open username/password fields.
+        const summaries = await SecretsVaultService.listWebsiteLogins(context());
+        await beforeEffect();
+        const fresh = summaries.find(selected => selected.id === item.id);
+        if (!fresh || fresh.revision !== item.revision || fresh.updatedAt !== item.updatedAt ||
+          JSON.stringify(fresh.boundOrigins) !== JSON.stringify(item.boundOrigins)) throw new Error("BROWSER_SESSION_SELECTION_CHANGED");
+        const receipt = await forgetBrowserSignIn({ ownerId: userId!, secId: fresh.id, origins: fresh.boundOrigins,
+          signal: request.signal, isCurrent: current });
+        await beforeEffect();
+        const done = receipt.fenced && receipt.persisted && receipt.deletion_requested;
+        setView(previous => ({ ...previous, message: done
+          ? "Forgot browser sign-in for these origins. Website sign-out is not confirmed; cloud retention may apply."
+          : "Browser sign-in removal is incomplete. Retry Forget; website sign-out and cloud deletion are not confirmed." }));
+        return done;
+      } catch (error) {
+        if (current()) setView(previous => ({ ...previous, message: error instanceof Error && error.message === "BROWSER_SESSION_SELECTION_CHANGED"
+          ? "This saved login changed. Refresh before forgetting its browser sign-in."
+          : "Browser sign-in removal was not confirmed. Retry Forget; website sign-out and cloud deletion are not confirmed." }));
+        return false;
+      } finally {
+        owner.pending = false;
+        if (owner.request === request) owner.request = null;
+        if (current()) setView(previous => ({ ...previous, busy: false }));
+      }
+    },
     reveal: async (item: WebsiteLoginSummary) => {
       if (!current() || owner.pending) return null;
       const read = ++owner.reads;

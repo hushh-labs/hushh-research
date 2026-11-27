@@ -20,6 +20,51 @@ import type {
 
 type Admission = { ownerId: string; podId: string; environment: string };
 
+export type BrowserSignInForgetReceipt = Readonly<{
+  fenced: boolean;
+  persisted: boolean;
+  deletion_requested: boolean;
+  physical_deletion: "subject_to_cloud_retention";
+  remote_logout: false;
+}>;
+
+/** Owner-selected cleanup does not discover, bind or initialize a Browser task. */
+export async function forgetBrowserSignIn(input: {
+  ownerId: string; secId: string; origins: readonly string[]; signal: AbortSignal; isCurrent: () => boolean;
+}): Promise<BrowserSignInForgetReceipt> {
+  const owner = snapshotValidatedAuthSessionOwner();
+  const current = () => !input.signal.aborted && input.isCurrent() && owner?.userId === input.ownerId && isValidatedAuthSessionOwnerCurrent(owner);
+  const check = () => { if (!current()) throw new Error("BROWSER_OWNER_CHANGED"); };
+  check();
+  const origins = [...input.origins];
+  if (!/^sec_[a-f0-9]{16}$/.test(input.secId) || origins.length < 1 || origins.length > 16 ||
+    new Set(origins).size !== origins.length || origins.some(origin => {
+      try { const url = new URL(origin); return origin.length > 2048 || url.protocol !== "https:" || url.origin !== origin; }
+      catch { return true; }
+    })) throw new Error("BROWSER_SESSION_FORGET_REFUSED");
+  return boundedOwnerRequest(input.signal, async signal => {
+    const requestCurrent = () => current() && !signal.aborted;
+    const checkRequest = () => { if (!requestCurrent()) throw new Error("BROWSER_OWNER_CHANGED"); };
+    const admission = await ApiService.getComputerUseAdmission(signal);
+    checkRequest();
+    if (!admission || admission.ownerId !== input.ownerId || !admission.podId) throw new Error("BROWSER_OWNER_UNAVAILABLE");
+    const response = await ApiService.ownerPodRequest("browser/sessions/forget", {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal,
+      body: JSON.stringify({ sec_id: input.secId, origins }),
+    }, false, undefined, admission.podId, requestCurrent);
+    checkRequest();
+    const value = await readComputerUseJson(response);
+    checkRequest();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("BROWSER_SESSION_FORGET_UNCONFIRMED");
+    const receipt = value as Record<string, unknown>;
+    if (Object.keys(receipt).length !== 5 || typeof receipt.fenced !== "boolean" || typeof receipt.persisted !== "boolean" ||
+      typeof receipt.deletion_requested !== "boolean" || receipt.physical_deletion !== "subject_to_cloud_retention" || receipt.remote_logout !== false) {
+      throw new Error("BROWSER_SESSION_FORGET_UNCONFIRMED");
+    }
+    return receipt as BrowserSignInForgetReceipt;
+  });
+}
+
 function expectedWireEnvironment(admissionEnv: string): ComputerUseEnvironment | null {
   if (admissionEnv === "dev" || admissionEnv === "development") return "development";
   if (admissionEnv === "uat") return "uat";

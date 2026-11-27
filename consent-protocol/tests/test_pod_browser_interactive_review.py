@@ -99,9 +99,10 @@ async def test_redirect_joins_original_scope_and_unknown_parent_cannot_borrow_ne
         await asyncio.gather(work, return_exceptions=True)
 
 
+@pytest.mark.parametrize("termination", ["takeover", "session_only"])
 @pytest.mark.parametrize("operation", ["observe", "click"])
 async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
-    monkeypatch, operation
+    monkeypatch, operation, termination
 ):
     fixture = task_runtime_fixture(monkeypatch)
     fixture.driver.release = asyncio.Event()
@@ -123,6 +124,22 @@ async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
     await asyncio.wait_for(fixture.driver.entered.wait(), 1)
     task = fixture.runtime._tasks[started.binding.task_id]
     try:
+        if termination == "session_only":
+            from hushh_mcp.services import pod_config
+
+            task.private_context = True  # an earlier sign-in/restore in this context
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+            await asyncio.wait_for(
+                fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id), 1
+            )
+            assert task.closed
+            assert task.phase == ("outcome_uncertain" if operation == "click" else "cancelled")
+            assert task.code == (
+                "BROWSER_OUTCOME_UNCERTAIN" if operation == "click" else "BROWSER_SESSION_ONLY"
+            )
+            return
         taking = fixture.runtime.control(
             fixture.owner, task.binding.task_id, "takeover", started.control_epoch
         )
@@ -135,9 +152,11 @@ async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
             assert taken.control_owner == "owner" and taken.phase == "needs_owner"
         assert task.worker.done() and not fixture.driver.release.is_set()
     finally:
-        await fixture.runtime.control(
-            fixture.owner, task.binding.task_id, "cancel", task.control.control_epoch
-        )
+        if not task.closed:
+            await fixture.runtime.control(
+                fixture.owner, task.binding.task_id, "cancel", task.control.control_epoch
+            )
+        assert fixture.admission._states["epoch"].active == 0
     assert fixture.admission._states["epoch"].active == 0
 
 
@@ -176,6 +195,231 @@ async def test_owner_status_and_stop_do_not_wait_behind_a_browser_input(monkeypa
             await pending
     finally:
         fixture.driver.release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize(
+    "context,close_fault",
+    [
+        ("restore", False),
+        ("restore", True),
+        ("type_myself", False),
+        ("public", False),
+        ("forget", False),
+    ],
+)
+async def test_session_only_retires_private_contexts_preserves_cookies_and_keeps_public_work(
+    monkeypatch, tmp_path, context, close_fault
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_config
+    from tests.helpers.pod_browser import _session_fixture
+
+    monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+    sessions, _, store, _, site, state, origins, _ = await _session_fixture(tmp_path)
+    saved = await sessions.remember(binding(), site, state, approved_origins=origins)
+    ciphertext = await store.get(saved.object_key)
+    fixture = task_runtime_fixture(monkeypatch)
+    policy_reads = []
+
+    async def current_session_policy():
+        policy_reads.append(True)
+
+    fixture.runtime._session_context_check = current_session_policy
+    started = await approved_task(fixture)
+    task = fixture.runtime._tasks[started.binding.task_id]
+    if context == "type_myself":
+        task.control.credentials = SimpleNamespace(
+            selection=SimpleNamespace(
+                operation_id="operation_signin", origin="https://example.com"
+            ),
+            owner_pending=True,
+            lease_key=None,
+            prepared=None,
+        )
+    await fixture.runtime.control(
+        fixture.owner, task.binding.task_id, "takeover", started.control_epoch
+    )
+    control = task.control
+    sessions._consent = task.consent
+    sessions._fence = fixture.runtime.fence_live_contexts
+    try:
+        if context in {"restore", "forget"}:
+            imported = []
+
+            async def install(value, approved_origins):
+                imported.append((value, approved_origins))
+
+            monkeypatch.setattr(fixture.driver, "import_session", install, raising=False)
+            task.sessions = sessions
+            terms = {
+                "site": site,
+                "generation": saved.generation,
+                "object": saved.object_key,
+                "digest": saved.digest,
+                "origins": sorted(origins),
+            }
+            fixture.reviews.grants.add(
+                fixture.reviews.identity(task.binding, "session_restore", terms)
+            )
+            assert await fixture.runtime.session(
+                fixture.owner,
+                task.binding.task_id,
+                "restore",
+                "https://example.com",
+                "opaque-account",
+            ) == {"restored": True, "authenticated": False}
+            assert len(imported) == 1
+        assert task.private_context == (context != "public")
+        assert bool(policy_reads) == (context != "public")
+        if context == "type_myself":
+            assert control.credentials.selection is None  # intent survives prompt removal
+        monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True))
+        action = BrowserAction(
+            operation="observe", sequence=control.next_sequence, control_epoch=control.control_epoch
+        )
+        if context == "public":
+            await fixture.runtime.input(fixture.owner, task.binding.task_id, action)
+            assert not policy_reads
+        else:
+            with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+                await fixture.runtime.input(fixture.owner, task.binding.task_id, action)
+        assert (
+            await fixture.runtime.read(fixture.owner, task.binding.task_id)
+        ).binding == task.binding
+        with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
+            await fixture.runtime.suspend_private_contexts(pod_id="another-pod")
+        if context == "forget":
+            receipt = await fixture.runtime.session(
+                fixture.owner,
+                task.binding.task_id,
+                "forget",
+                "https://example.com",
+                "opaque-account",
+            )
+            assert receipt["fenced"] and receipt["persisted"]
+            assert task.closed and fixture.admission._states["epoch"].active == 0
+            assert await store.get(saved.object_key) is None
+            return
+        if close_fault:
+            original_close = fixture.driver.close
+            attempts = []
+
+            async def close():
+                attempts.append(True)
+                if len(attempts) == 1:
+                    raise BrowserRefused("BROWSER_TRANSPORT_UNAVAILABLE")
+                await original_close()
+
+            monkeypatch.setattr(fixture.driver, "close", close)
+            with pytest.raises(BrowserRefused, match="CLOSE_UNCONFIRMED"):
+                await fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id)
+            assert not task.closed and fixture.admission._states["epoch"].active == 1
+            assert (
+                await fixture.runtime.read(fixture.owner, task.binding.task_id)
+            ).code == "BROWSER_CLOSE_UNCONFIRMED"
+        await fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id)
+        assert task.closed == (context != "public")
+        assert await store.get(saved.object_key) == ciphertext  # suspend is not Forget
+        assert await sessions.recovery_inventory() == (saved.object_key,)
+        monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+        if context != "public":
+            status = await fixture.runtime.read(fixture.owner, task.binding.task_id)
+            assert status.phase == "cancelled" and status.code == "BROWSER_SESSION_ONLY"
+            assert task.worker is None and fixture.admission._states["epoch"].active == 0
+            assert fixture.launcher.calls == 1  # unlocking never resumes a closed context
+        else:
+            # Stop remains usable while locked even though public work is allowed.
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+            await fixture.runtime.control(
+                fixture.owner, task.binding.task_id, "cancel", control.control_epoch
+            )
+        monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True))
+        assert (await sessions.forget(task.binding, site)).persisted
+        assert await store.get(saved.object_key) is None
+        fixture.auth.revoked = True
+        with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
+            await sessions.forget(task.binding, site)
+        fixture.auth.revoked = False
+    finally:
+        fixture.auth.revoked = False
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize("config_source", ["active", "durable"])
+async def test_session_only_rechecks_private_authority_after_await_before_effect(
+    monkeypatch, tmp_path, config_source
+):
+    from hushh_mcp.services import pod_config
+
+    monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+    fixture = task_runtime_fixture(monkeypatch)
+    started = await approved_task(fixture)
+    taken = await fixture.runtime.control(
+        fixture.owner, started.binding.task_id, "takeover", started.control_epoch
+    )
+    task = fixture.runtime._tasks[started.binding.task_id]
+    task.private_context = True
+    if config_source == "durable":
+        from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+        log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"S" * 32, owner_id="owner")
+
+        async def durable_policy():
+            if (
+                await pod_config.resolve_pod_config(log, hushh_id=fixture.owner.pod_id)
+            ).session_only_lockdown:
+                raise BrowserRefused("BROWSER_SESSION_ONLY")
+
+        fixture.runtime._session_context_check = durable_policy
+    entered, release = asyncio.Event(), asyncio.Event()
+    authorize = fixture.auth.authorize_action
+
+    async def waiting(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        await authorize(*args, **kwargs)
+
+    monkeypatch.setattr(fixture.auth, "authorize_action", waiting)
+    pending = asyncio.create_task(
+        fixture.runtime.input(
+            fixture.owner,
+            task.binding.task_id,
+            BrowserAction(
+                operation="click",
+                sequence=taken.next_sequence,
+                control_epoch=taken.control_epoch,
+                x=1,
+                y=1,
+            ),
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        if config_source == "durable":
+            await pod_config.record_pod_config(
+                log, hushh_id=fixture.owner.pod_id, changes={"session_only_lockdown": True}
+            )
+            # A lost write acknowledgement must not make a stale cache authority.
+            monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+        else:
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+        release.set()
+        with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+            await asyncio.wait_for(pending, 1)
+        assert "click" not in fixture.driver.calls and not fixture.auth.journal
+        await fixture.runtime.control(
+            fixture.owner, task.binding.task_id, "cancel", task.control.control_epoch
+        )
+        assert task.closed and fixture.admission._states["epoch"].active == 0
+    finally:
+        release.set()
         await asyncio.gather(pending, return_exceptions=True)
         await fixture.runtime.drain()
 
@@ -733,6 +977,7 @@ async def test_saved_secret_never_unwraps_or_submits_without_human_allow():
         ("stop", "lease"),
         ("expiry", "lease"),
         ("update_drain", "lease"),
+        ("session_only", "lease"),
         ("stop", "refusal_cleanup"),
     ],
 )
@@ -807,6 +1052,15 @@ async def test_credential_cancellation_joins_teardown_and_releases_admission(
                 fixture.runtime.control(
                     fixture.owner, task.binding.task_id, "cancel", control.control_epoch
                 )
+            )
+        elif termination == "session_only":
+            from hushh_mcp.services import pod_config
+
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+            shutdown = asyncio.create_task(
+                fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id)
             )
         elif termination == "update_drain":
             shutdown = asyncio.create_task(fixture.runtime.drain())
