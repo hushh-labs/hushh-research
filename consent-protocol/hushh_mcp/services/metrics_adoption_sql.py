@@ -24,6 +24,16 @@ WHERE a.user_id=ANY($1::text[]) AND a.role='assistant' AND a.status='complete'
    AND u.conversation_id=a.conversation_id AND u.role='user' AND u.status='complete'
    AND u.created_at <= a.created_at)
 """
+MEANINGFUL_REPLY_LATEST_SQL = """
+SELECT a.user_id, MAX(a.completed_at) AS latest_completed_at
+FROM agent_chat_messages a
+WHERE a.user_id=ANY($1::text[]) AND a.role='assistant' AND a.status='complete'
+ AND a.error_code IS NULL AND a.completed_at >= $2 AND a.completed_at <= $3
+ AND EXISTS(SELECT 1 FROM agent_chat_messages u WHERE u.user_id=a.user_id
+   AND u.conversation_id=a.conversation_id AND u.role='user' AND u.status='complete'
+   AND u.created_at <= a.created_at)
+GROUP BY a.user_id
+"""
 SOURCE_TABLES = (
     "actor_identity_cache",
     "actor_verified_email_aliases",
