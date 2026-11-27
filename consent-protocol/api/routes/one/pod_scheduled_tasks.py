@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import Field
 
 from api.routes.one.pod_browser import PrivateBrowserRoute
@@ -81,10 +81,25 @@ def owner(authorization, *, write=False):
 
 
 @router.get("")
-async def list_tasks(response: Response, authorization: str | None = Header(default=None)):
+async def list_tasks(
+    response: Response,
+    authorization: str | None = Header(default=None),
+    result_for: Annotated[str | None, Query(pattern=r"^schedule_[a-f0-9]{32}$")] = None,
+    occurrence_id: Annotated[str | None, Query(pattern=r"^[a-f0-9]{32}$")] = None,
+):
     no_store(response)
     try:
         runtime, claims, caller_check = owner(authorization)
+        if result_for is not None or occurrence_id is not None:
+            if result_for is None or occurrence_id is None:
+                raise HTTPException(422, detail={"code": "SCHEDULE_RESULT_REQUEST_INVALID"})
+            authority, _ = verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+            if authority.environment not in {"dev", "development"}:
+                raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
+            result = await scheduled_run_result(runtime, result_for, occurrence_id)
+            await caller_check()
+            verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+            return {"result": result}
         code = None
         authorization_limit_at = None
         try:
@@ -113,6 +128,32 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
         }
     except ScheduleRefused as exc:
         raise refused(exc) from None
+
+
+async def scheduled_run_result(runtime, schedule_id: str, occurrence_id: str) -> dict[str, str]:
+    from google.adk.sessions import Session
+
+    from hushh_mcp.one_adk.scheduled_one_result import native_task_outputs
+    from hushh_mcp.services.pod_scheduled_checkpoint import (
+        ScheduledCheckpoint,
+        validate_schedule_checkpoint,
+    )
+
+    try:
+        occurrence = await runtime.journal.read_settled_occurrence(schedule_id, occurrence_id)
+        row = occurrence.checkpoint_row
+        if row is None or row["capability"] != "agent_one.execute_task.v1":
+            raise ValueError("Missing scheduled model result")
+        checkpoint = ScheduledCheckpoint.model_validate(row["checkpoint"])
+        validate_schedule_checkpoint(row, checkpoint)
+        outputs = native_task_outputs(Session.model_validate(checkpoint.session))
+    except (ValueError, TypeError, ScheduleRefused):
+        raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"}) from None
+    output = next(iter(outputs.values()), {}).get("output")
+    expected = "completed" if occurrence.state == "completed" else "blocked"
+    if not output or output["outcome"] != expected:
+        raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
+    return {"outcome": expected, "summary": output["summary"]}
 
 
 @router.post("")
@@ -164,11 +205,16 @@ class Wake(StrictContract):
     occurrence_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 
 
-class Review(StrictContract):
+class ReviewOccurrence(StrictContract):
     schedule_id: str = Field(pattern=r"^schedule_[a-f0-9]{32}$")
     revision: int = Field(ge=1)
     occurrence_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    pending_handle: str = Field(pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False)
+
+
+class Review(ReviewOccurrence):
+    pending_handle: str | None = Field(
+        default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False
+    )
 
 
 class Approval(StrictContract):
@@ -179,7 +225,8 @@ class Approval(StrictContract):
     receipt: str = Field(pattern=r"^[A-Za-z0-9_-]{32,128}$", repr=False)
 
 
-class Continue(Review):
+class Continue(ReviewOccurrence):
+    pending_handle: str = Field(pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False)
     confirmation_id: str = Field(min_length=1, max_length=256)
     approval: Approval = Field(repr=False)
 
@@ -209,6 +256,8 @@ async def review_task(
     try:
         runtime, claims, caller_check = owner(authorization, write=True)
         authority, _ = verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+        if body.pending_handle is None and authority.environment not in {"dev", "development"}:
+            raise HTTPException(404, detail={"code": "SCHEDULE_REVIEW_UNAVAILABLE"})
         return await review_scheduled_call(
             runtime,
             authority=authority,

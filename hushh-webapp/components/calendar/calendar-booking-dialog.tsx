@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { trackEvent } from "@/lib/observability/client";
+import type { EventResult } from "@/lib/observability/events";
 import { bookingDefaultDuration, bookingInstant, bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
 import { GoogleCalendarError } from "@/lib/services/google-calendar-transport";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -126,6 +128,12 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
     const current = () => mounted.current && (Boolean(followup) || isVaultSessionEpochCurrent(vaultEpoch)) &&
       (!owner || isValidatedAuthSessionOwnerCurrent(owner)) &&
       liveContext.current.accountKey === accountKey && (Boolean(followup) || liveContext.current.token === token) && liveContext.current.userId === userId;
+    let observed = false;
+    const observe = (result: EventResult) => {
+      if (observed || !owner || owner.userId !== userId || !current() || !isVaultSessionEpochCurrent(vaultEpoch)) return;
+      observed = true;
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result });
+    };
     const flagUncertain = () => {
       if (!mounted.current) return;
       setUncertain(true);
@@ -151,10 +159,12 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
           Date.parse(proposed.plan.start_at) !== Date.parse(startAt) ||
           Date.parse(proposed.plan.end_at) !== Date.parse(endAt) ||
           !(Date.parse(proposed.expires_at) > Date.now())) {
+        observe("expected_error");
         setError("Calendar details changed. Schedule again.");
         return;
       }
       if (proposed.plan.board_conflicts.length) {
+        observe("expected_error");
         setConflicts(proposed.plan.board_conflicts);
         setError("This time overlaps a checked calendar. Choose another time.");
         onConflict();
@@ -171,6 +181,7 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
         });
       if (!current()) { flagUncertain(); return; }
       if (result.action !== "create" || !result.event?.id) throw new Error("Calendar did not confirm the event.");
+      if (typeof result.event.id === "string" && result.event.id.trim()) observe("success");
       onConfirmed(result, result.event.start?.dateTime || startAt, draft.accountId, account.google_email);
     } catch (failure) {
       if (!current()) {
@@ -185,6 +196,8 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
       if (executing && !blockedBeforeWrite) {
         flagUncertain();
       } else {
+        // An unconfirmed post-write result is never a failed/confirmed booking.
+        observe(blockedBeforeWrite ? "expected_error" : "error");
         setError(blockedFollowup ? "Calendar or follow-up details changed. Review the meeting and try again." : failure instanceof Error ? failure.message : "Couldn’t schedule the meeting. Try again.");
       }
       onConflict();

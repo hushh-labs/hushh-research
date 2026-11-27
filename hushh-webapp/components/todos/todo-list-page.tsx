@@ -59,7 +59,7 @@ import { NativeTodoWorkspace } from "./native-todo-workspace";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { validWorkspaceTaskDraft, type NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 import { ROUTES } from "@/lib/navigation/routes";
-import { TodoTaskDetail } from "./todo-task-detail";
+import { TodoScheduledRunDetail, TodoTaskDetail } from "./todo-task-detail";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -136,6 +136,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const [selected, setSelected] = useState<readonly TaskCapability[]>([]);
   const [choicesLoaded, setChoicesLoaded] = useState(false);
   const [detail, setDetail] = useState<TodoItem | null>(null);
+  const [scheduleDetailId, setScheduleDetailId] = useState<string | null>(null);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [itemsLoadError, setItemsLoadError] = useState(false);
@@ -168,6 +169,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const schedulesEnabled = writeReady && areScheduledTasksAvailable();
   const inlineSchedules = schedulesEnabled && !customNativePresentationEnabled();
   const schedules = useScheduledTasksModel(schedulesEnabled ? userId ?? "" : "", ROUTES.ONE_TASKS, inlineSchedules && !detail);
+  const scheduleDetailOpen = inlineSchedules && scheduleDetailId !== null;
+  const currentSchedule = schedules.status?.tasks.find(task => task.id === scheduleDetailId);
+  const closeScheduleDetail = useCallback(() => setScheduleDetailId(null), []);
   const hasScheduledRuns = Boolean(schedules.status?.tasks.length);
   const seenScheduleLink = useRef<string | null>(null);
   useEffect(() => {
@@ -181,6 +185,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
+    setScheduleDetailId(null);
     setDeleteRequest(null);
     deleteTriggerRef.current = null;
   }, [writeReady]);
@@ -516,7 +521,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
-        {inlineSchedules ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks inline /> : null}
+        {inlineSchedules ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks inline onOpen={setScheduleDetailId} /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">
@@ -677,11 +682,17 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     </AppPageShell>
   );
 
-  const webChild = writeReady && currentDetail && currentDetail.status !== "deleted";
-  const content = webChild ? (<AppPageShell as="main" width="reading" fitContent><AppPageContentRegion><TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => {
-    void toggleTask(task, complete);
-    if (complete) setDetail(null);
-  }} onRemove={task => { void deleteTask(task).then(() => setDetail(null)); }} /></AppPageContentRegion></AppPageShell>) : fallback;
+  const webChild = scheduleDetailOpen ? (
+    <TodoScheduledRunDetail task={currentSchedule} model={schedules} vaultOwnerToken={vaultOwnerToken} onBack={closeScheduleDetail} />
+  ) : writeReady && currentDetail && currentDetail.status !== "deleted" ? (
+    <TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => {
+      void toggleTask(task, complete);
+      if (complete) setDetail(null);
+    }} onRemove={task => { void deleteTask(task).then(() => setDetail(null)); }} />
+  ) : null;
+  const content = webChild ? (
+    <AppPageShell as="main" width="reading" fitContent><AppPageContentRegion>{webChild}</AppPageContentRegion></AppPageShell>
+  ) : fallback;
   return <NativeTodoWorkspace model={{
     owner: userId, current: isCurrent, ready: writeReady, canAdd: writeReady && !itemsLoading,
     editorId, editorCurrent: id => isCurrent() && editorIdRef.current === id,

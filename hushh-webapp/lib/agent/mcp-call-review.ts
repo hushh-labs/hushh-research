@@ -49,6 +49,12 @@ export function parseMcpCallReview(value: unknown): McpCallReviewReference | nul
       confirmation?.confirmed !== false || original?.name !== payload.toolName) return null;
   const originalArgs = record(original?.args);
   if (!originalArgs || Object.keys(originalArgs).length !== 0) return null;
+  return parseMcpCallReviewReference(payload);
+}
+
+export function parseMcpCallReviewReference(value: unknown): McpCallReviewReference | null {
+  const payload = record(value);
+  if (!payload || payload.kind !== "mcp_call_review" || payload.version !== 1) return null;
   for (const [key, pattern] of Object.entries(patterns)) {
     if (typeof payload[key] !== "string" || !pattern.test(payload[key])) return null;
   }

@@ -62,15 +62,18 @@ def one_scheduler(admitted_task, monkeypatch):
     return SimpleNamespace(task=task, cap=cap, permit=permit)
 
 
-async def _create(world):
+async def _create(world, **overrides):
     task = world.task
     created = await task.runtime.create(
         schedule_request(
-            request_id="actual-one-task",
-            capability="agent_one.execute_task.v1",
-            parameters={"goal": "Complete this synthetic task."},
-            first_run_at=task.clock[0] + 1,
-            authorization_expires_at=task.clock[0] + 500,
+            **{
+                "request_id": "actual-one-task",
+                "capability": "agent_one.execute_task.v1",
+                "parameters": {"goal": "Complete this synthetic task."},
+                "first_run_at": task.clock[0] + 1,
+                "authorization_expires_at": task.clock[0] + 500,
+                **overrides,
+            }
         ),
         grant={"subject_id": task.subject.subject_id, "version": 1},
     )
@@ -115,7 +118,83 @@ async def test_actual_one_task_claim_runs_to_native_terminal_once(
     checkpoint = rows[created["id"]]["checkpoint"]
     assert any(event["output"] for event in checkpoint["session"]["events"])
     assert "pod-task:" not in str(checkpoint)
+    task_list = await world.task.runtime.list()
+    assert "Synthetic task completed." not in str(task_list)
+    body = {"result_for": created["id"], "occurrence_id": result["last_run"]["id"]}
+    response = await _owner_request(
+        world, world.task.session_token, monkeypatch, "", body, method="GET"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "result": {"outcome": outcome, "summary": "Synthetic task completed."}
+    }
+    refused = await _owner_request(
+        world,
+        world.task.session_token,
+        monkeypatch,
+        "",
+        {**body, "occurrence_id": "0" * 32},
+        method="GET",
+    )
+    assert refused.status_code == 404
+    anonymous = await _owner_request(world, "not-an-owner", monkeypatch, "", body, method="GET")
+    assert anonymous.status_code == 401
     world.permit.release.assert_awaited_once()
+
+
+async def test_recurring_agent_occurrences_keep_their_exact_owner_results(
+    one_scheduler, monkeypatch
+):
+    world = one_scheduler
+    first_at = world.task.clock[0] + 120
+    summaries = ["Manual rehearsal result.", "Regular rehearsal result."]
+    replies = [
+        LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="finish_task", args={"outcome": "completed", "summary": summary}
+                        )
+                    )
+                ],
+            )
+        )
+        for summary in summaries
+    ]
+    model = _ScriptedModel(replies)
+    monkeypatch.setattr(ScheduledModel, "build", lambda _self: model)
+    created, _ = await _create(world, repeat="daily", first_run_at=first_at)
+    runtime = world.task.runtime
+    await runtime.control(
+        created["id"],
+        created["revision"],
+        "run_now",
+        confirmed=True,
+        caller_grant={"subject_id": world.task.subject.subject_id, "version": 1},
+    )
+    first = await runtime.run(*runtime.delivery.offer.call_args.args[:3])
+    assert first["next_run_at"] == first_at
+    assert first["state"] == "scheduled"
+    rows, _ = await runtime.journal.snapshot()
+    assert "checkpoint" not in rows[created["id"]]
+    world.task.clock[0] = first_at
+    second = await runtime.run(*runtime.delivery.offer.call_args.args[:3])
+    assert first["last_run"]["id"] != second["last_run"]["id"]
+    for occurrence, summary in zip((first, second), summaries, strict=True):
+        response = await _owner_request(
+            world,
+            world.task.session_token,
+            monkeypatch,
+            "",
+            {"result_for": created["id"], "occurrence_id": occurrence["last_run"]["id"]},
+            method="GET",
+        )
+        assert response.status_code == 200, response.text
+        assert response.json() == {"result": {"outcome": "completed", "summary": summary}}
+    task_list = await runtime.list()
+    assert all(summary not in str(task_list) for summary in summaries)
 
 
 async def _park_native_review(one_scheduler, checkpoint_task, task_hub, monkeypatch):
@@ -257,7 +336,7 @@ async def _cold_restart(world):
     return token, claims
 
 
-async def _owner_request(world, token, monkeypatch, operation, body):
+async def _owner_request(world, token, monkeypatch, operation, body, *, method="POST"):
     import httpx
     from fastapi import FastAPI
 
@@ -273,9 +352,10 @@ async def _owner_request(world, token, monkeypatch, operation, body):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="https://pod.example"
     ) as client:
-        response = await client.post(
-            "/api/one/pod/tasks/" + operation,
-            json=body,
+        response = await client.request(
+            method,
+            "/api/one/pod/tasks" + ("/" + operation if operation else ""),
+            **({"params": body} if method == "GET" else {"json": body}),
             headers={"Authorization": "Bearer " + token},
         )
     assert response.headers["Cache-Control"] == "no-store, private"
@@ -302,14 +382,20 @@ async def test_cold_restart_requires_rebound_owner_confirmation_before_one_effec
         "schedule_id": parked["id"],
         "revision": parked["revision"],
         "occurrence_id": parked["last_run"]["id"],
-        "pending_handle": handle,
     }
+    assert parked["review_available"] is True
+    assert handle not in str(parked)
+    wrong_revision = await _owner_request(
+        world, token, monkeypatch, "review", {**body, "revision": parked["revision"] + 1}
+    )
+    assert wrong_revision.status_code == 409
     refused = await _owner_request(world, "not-an-owner", monkeypatch, "review", body)
     assert refused.status_code == 401
     response = await _owner_request(world, token, monkeypatch, "review", body)
     assert response.status_code == 200, response.text
     replacement = response.json()
     assert replacement["review"]["directiveId"] != pending["review"]["directiveId"]
+    assert replacement["review"]["pendingHandle"] == handle
     assert replacement["review"]["expiresAt"] == pending["review"]["expiresAt"]
     assert replacement["review"]["podReview"]["epoch"] == world.task.authority.epoch
     refreshed = await world.task.runtime.get(parked["id"])
@@ -320,7 +406,10 @@ async def test_cold_restart_requires_rebound_owner_confirmation_before_one_effec
     _, _, pending = await _retained_review(world, created, refreshed)
     continuation = _confirmed(task_hub, connector, handle, marker, pending)
     body.update(
-        revision=refreshed["revision"], confirmation_id=marker, approval=continuation.approval
+        revision=refreshed["revision"],
+        pending_handle=handle,
+        confirmation_id=marker,
+        approval=continuation.approval,
     )
     response = await _owner_request(world, token, monkeypatch, "continue", body)
     assert response.status_code == 200, response.text

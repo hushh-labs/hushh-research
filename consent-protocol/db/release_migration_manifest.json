@@ -397,6 +397,7 @@
     "462_hosted_ace_deployment_target.sql",
     "463_control_plane_kyc_redaction_and_call_indexes.sql",
     "464_one_location_chat_plans.sql",
+    "465_one_product_activity_event_result.sql",
     "467_browser_credential_fill_authority.sql"
   ],
   "environment_overlays": {
@@ -419,14 +420,14 @@
       "029_setup_state_rename.sql",
       "036_relationship_share_grants.sql",
       "037_actor_identity_cache.sql",
+      "041_ria_pick_package_metadata.sql",
+      "042_ria_pick_single_active_record.sql",
+      "043_ria_pick_share_artifacts.sql",
       "047_actor_identity_phone_shadow.sql",
       "049_one_email_kyc_workflows.sql",
       "050_one_kyc_client_connector_registry.sql",
       "051_one_kyc_metadata_token_redaction.sql",
       "052_actor_verified_email_aliases.sql",
-      "041_ria_pick_package_metadata.sql",
-      "042_ria_pick_single_active_record.sql",
-      "043_ria_pick_share_artifacts.sql",
       "053_ria_onboarding_v2_fields.sql",
       "054_ria_license_verification_cache_index.sql",
       "056_public_investor_profiles.sql",
@@ -846,6 +847,7 @@
     "462_hosted_ace_deployment_target.sql": "rollback/462_hosted_ace_deployment_target.rollback.sql",
     "463_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/463_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
     "464_one_location_chat_plans.sql": "rollback/464_one_location_chat_plans.rollback.sql",
+    "465_one_product_activity_event_result.sql": "rollback/465_one_product_activity_event_result.rollback.sql",
     "467_browser_credential_fill_authority.sql": "rollback/467_browser_credential_fill_authority.rollback.sql"
   }
 }

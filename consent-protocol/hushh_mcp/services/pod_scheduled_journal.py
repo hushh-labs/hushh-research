@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from zoneinfo import ZoneInfoNotFoundError
 
 from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND, config_from_records
@@ -21,6 +22,14 @@ MAX_RECENT_RUNS = 5
 MAX_LOG_RECORDS = 30_000
 MAX_LOG_BYTES = 64 * 1024 * 1024
 LOCKDOWN_PAUSED = "SCHEDULE_LOCKDOWN_PAUSED"
+
+
+@dataclass
+class SettledOccurrence:
+    schedule_id: str
+    occurrence_id: str
+    checkpoint_row: dict | None = field(default=None, repr=False)
+    state: str | None = None
 
 
 class ScheduledTaskJournal:
@@ -68,6 +77,7 @@ class ScheduledTaskJournal:
         self,
         *,
         recent_runs: dict[str, dict[str, dict]] | None = None,
+        settled_occurrence: SettledOccurrence | None = None,
         background: bool = False,
     ) -> tuple[dict[str, dict], int]:
         await self.check()
@@ -98,6 +108,22 @@ class ScheduledTaskJournal:
                 raise ScheduleRefused("SCHEDULE_RECOVERY_INVALID")
             rows[row["id"]] = row
             run = row["last_run"]
+            if settled_occurrence and row["id"] == settled_occurrence.schedule_id and previous:
+                before = previous["last_run"]
+                if (
+                    run
+                    and before
+                    and run["id"] == before["id"] == settled_occurrence.occurrence_id
+                    and before["state"] == "running"
+                    and run["state"] in {"completed", "failed"}
+                    and run.get("claim_id")
+                    and before.get("claim_id") == run["claim_id"]
+                    and previous["incarnation"] == row["incarnation"] == self.access.incarnation
+                ):
+                    # Advancing a recurring delivery drops its old checkpoint.
+                    # The preceding sealed revision still owns the exact settled claim.
+                    settled_occurrence.checkpoint_row = row if row.get("checkpoint") else previous
+                    settled_occurrence.state = run["state"]
             if recent_runs is not None and run and run["state"] != "running":
                 runs = recent_runs.setdefault(row["id"], {})
                 runs[run["id"]] = {
@@ -112,6 +138,22 @@ class ScheduledTaskJournal:
             raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
         await self.check()
         return copy.deepcopy(rows), sequence
+
+    async def read_settled_occurrence(
+        self, schedule_id: str, occurrence_id: str
+    ) -> SettledOccurrence:
+        target = SettledOccurrence(schedule_id, occurrence_id)
+        recent_runs: dict[str, dict[str, dict]] = {}
+        rows, _ = await self.snapshot(recent_runs=recent_runs, settled_occurrence=target)
+        row = rows.get(schedule_id)
+        if (
+            not row
+            or row["incarnation"] != self.access.incarnation
+            or occurrence_id not in recent_runs.get(schedule_id, {})
+            or not (target.checkpoint_row or {}).get("checkpoint")
+        ):
+            raise ScheduleRefused("SCHEDULE_RESULT_UNAVAILABLE")
+        return target
 
     async def change(
         self,
@@ -158,6 +200,7 @@ class ScheduledTaskJournal:
                 await self.check_grant(row["grant"])
             except ScheduleRefused:
                 result["state"] = "needs_review"
+                result.pop("review_available", None)
         return result
 
     def view(self, row: dict) -> dict:
@@ -192,6 +235,18 @@ class ScheduledTaskJournal:
         if last_run and last_run["state"] == "running" and last_run["lease_until"] <= self.clock():
             result["state"] = "needs_review"
             result["last_run"] = {**last_run, "state": "outcome_uncertain"}
+        checkpoint = row.get("checkpoint") or {}
+        if (
+            row["capability"] == "agent_one.execute_task.v1"
+            and row["state"] == "needs_review"
+            and last_run
+            and last_run["state"] == "needs_review"
+            and row["incarnation"] == self.access.incarnation
+            and row["authorization_expires_at"] > self.clock()
+            and checkpoint.get("phase") == "needs_review"
+            and len(checkpoint.get("pending") or {}) == 1
+        ):
+            result["review_available"] = True
         return result
 
     async def check_horizon(self, row: dict) -> None:

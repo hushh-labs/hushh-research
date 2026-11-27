@@ -77,7 +77,7 @@ class _ReviewOwner:
             )
         )
 
-    async def prepare(self, pending_handle: str) -> dict:
+    async def prepare(self, pending_handle: str | None) -> dict:
         from hushh_mcp.one_adk.pod_custody_mcp import (
             custody_configuration_admissions,
             custody_configurations,
@@ -89,6 +89,10 @@ class _ReviewOwner:
         markers = pending_confirmations(
             checkpoint.session, checkpoint.pending, self.storage.invocation_id
         )
+        if pending_handle is None and len(markers) == 1:
+            pending_handle = next(iter(markers))
+        if pending_handle is None:
+            raise ScheduleRefused("SCHEDULE_NATIVE_CONFIRMATION_CHANGED")
         pending = checkpoint.pending.get(pending_handle)
         if pending is None or pending_handle not in markers:
             raise ScheduleRefused("SCHEDULE_NATIVE_CONFIRMATION_CHANGED")
@@ -123,7 +127,7 @@ async def review_scheduled_call(
     schedule_id: str,
     revision: int,
     occurrence_id: str,
-    pending_handle: str,
+    pending_handle: str | None,
 ) -> dict:
     from opentelemetry.instrumentation.utils import suppress_instrumentation
 

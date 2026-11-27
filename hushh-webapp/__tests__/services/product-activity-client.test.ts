@@ -16,6 +16,34 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it.each(["success", "error", "expected_error"])("carries only explicit %s with wire support", async result => {
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST"
+      ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012", resultVersion: 1 })));
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body).result).toBe(result);
+    expect(JSON.stringify(posts())).not.toContain("owner-a");
+  });
+
+  it.each([undefined, null, "PRIVATE_RESULT", { secret: "PRIVATE_RESULT" }])("leaves nonliteral results unknown: %j", async result => {
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST"
+      ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012", resultVersion: 1 })));
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_RESULT");
+  });
+
+  it("omits explicit result for an older strict server", async () => {
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
+  });
+
+
   it.each([
     ["gmail_connect_started", "full", "started"],
     ["gmail_connect_result", "complete", "returned"],
@@ -69,6 +97,18 @@ describe("private product observation lifecycle", () => {
       actionId: "observation:hushh_mail_signin_screen_view",
       phase: "returned",
     });
+  });
+
+  it("records the declared Calendar booking result through the private projection", async () => {
+    const client = await fixture();
+    client.observeProductEvent("one_calendar_action", "booking_create", "success");
+    client.observeProductEvent("one_calendar_action", "PRIVATE_MEETING_TITLE", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({
+      actionId: "observation:one_calendar_action:booking_create",
+      phase: "returned",
+    });
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_MEETING_TITLE");
   });
 
   it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(

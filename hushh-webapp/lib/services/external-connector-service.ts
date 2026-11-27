@@ -315,13 +315,12 @@ export class ExternalConnectorService {
   /** Explicit tap only. A failed acknowledgement never triggers an automatic retry. */
   static async confirmMcpCall(input: {
     vaultOwnerToken: string;
-    chatKey: string;
     conversationId: string;
     reference: McpCallPreview;
     configuration?: CustomConnectorConfiguration;
     signal: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
-  }): Promise<McpCallApproval> {
+  } & ({ chatKey: string; scheduled?: never } | { scheduled: true; chatKey?: never })): Promise<McpCallApproval> {
     const payload = await this.mcpReviewRequest(input, "confirm", input.reference.arguments);
     const approval = parseMcpCallApproval(payload, input.reference);
     if (!approval) throw new Error("Confirmation could not be verified. No automatic retry was made.");
@@ -330,7 +329,8 @@ export class ExternalConnectorService {
 
   private static async mcpReviewRequest(input: {
     vaultOwnerToken: string;
-    chatKey: string;
+    chatKey?: string;
+    scheduled?: true;
     conversationId: string;
     reference: McpCallReviewReference;
     configuration?: CustomConnectorConfiguration;
@@ -353,14 +353,17 @@ export class ExternalConnectorService {
         podReview.conversationId !== input.conversationId)) {
       throw new Error("Private connector review changed. Open the review again.");
     }
-    if (!privatePod && podReview) throw new Error("Private agent assignment changed.");
     const privateConfirmation = privatePod && operation === "confirm";
+    if (input.scheduled && (!privateConfirmation || !/^scheduled_[a-f0-9]{32}$/.test(input.conversationId))) {
+      throw new Error("Scheduled connector review is unavailable.");
+    }
+    if (!privatePod && podReview) throw new Error("Private agent assignment changed.");
     const init = {
       method: "POST", cache: "no-store" as RequestCache, signal: input.signal,
       isEffectCurrent: current,
       headers: {
         ...authHeaders(input.vaultOwnerToken),
-        ...(!privateConfirmation ? { [ONE_CHAT_KEY_HEADER]: input.chatKey } : {}),
+        ...(!privateConfirmation && input.chatKey ? { [ONE_CHAT_KEY_HEADER]: input.chatKey } : {}),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(privateConfirmation ? {
