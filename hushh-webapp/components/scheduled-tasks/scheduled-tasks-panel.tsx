@@ -289,7 +289,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
   const title = inTasks ? "Scheduled runs" : "Scheduled tasks";
   const ordered = [...(status?.tasks ?? [])].sort((a, b) => a.next_run_at - b.next_run_at);
   const tasks = preferredScheduledTasks(ordered, selectedId);
-  const canScheduleFile = status?.available && status.templates.includes(FILE_ORGANIZATION_TEMPLATE);
+  const canScheduleFile = inline && status?.available && status.templates.includes(FILE_ORGANIZATION_TEMPLATE);
   const canScheduleAgent = inline && resolveAppEnvironment() === "development" &&
     status?.available && status.templates.includes(ONE_TASK_TEMPLATE);
 
@@ -319,7 +319,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
             if (busy) event.preventDefault();
           }}
         >
-          {placementMessage ? "Hosting" : inline && canScheduleFile ? "Schedule in Files" : "Open Files"}
+          {placementMessage ? "Hosting" : canScheduleFile ? "Schedule in Files" : "Open Files"}
         </Link>
       </Button>
     </div>
@@ -375,7 +375,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
       )}
       {status?.available && status.tasks.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No scheduled runs yet.
+          {inTasks ? "No scheduled runs yet." : "No scheduled tasks. Choose a file in Files to schedule organization."}
         </p>
       )}
       {selectedId && status && !status.tasks.some(task => task.id === selectedId) ? (
