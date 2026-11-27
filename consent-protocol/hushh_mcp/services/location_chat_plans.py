@@ -290,11 +290,12 @@ class LocationChatPlanService:
             if circle_id and (starts_at is not None or (duration_hours or 0) > 24.0)
             else None
         )
+        duration_anchor = starts_at if (starts_at is not None and starts_at > now) else now
         hours, expiry, mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
             share_kind="share",
-            now=now,
+            now=duration_anchor,
             max_hours=max_trip,
         )
         if relative:
@@ -744,7 +745,19 @@ class LocationChatPlanService:
             if row["receipt"] is not None:
                 return self._project(row)
             terms = _loads_json(row["terms"])
-            if (action in _SHARE_ACTIONS) != (envelope is not None):
+            starts_at_raw = terms.get("startsAt")
+            starts_at_dt = (
+                _parse_datetime(starts_at_raw, field_name="startsAt") if starts_at_raw else None
+            )
+            is_future_scheduled = (
+                action == "share_live" and starts_at_dt is not None and starts_at_dt > _utcnow()
+            )
+            if is_future_scheduled:
+                if envelope is not None:
+                    raise _invalid(
+                        "A future-scheduled share must not send your current position before it starts."
+                    )
+            elif (action in _SHARE_ACTIONS) != (envelope is not None):
                 raise _invalid(
                     "An encrypted location is required only when sharing a live location or pin."
                 )
@@ -843,10 +856,41 @@ class LocationChatPlanService:
     ) -> dict[str, Any]:
         operation = f"one-chat-location:{plan_id}"
         if action == "share_live":
-            if envelope is None:
-                raise _invalid("This location share requires an encrypted location.")
             effective_share_mode = str(terms.get("shareMode") or "live")
             effective_share_kind = "pin" if effective_share_mode == "static_pin" else "share"
+            starts_at_raw = terms.get("startsAt")
+            starts_at_dt = (
+                _parse_datetime(starts_at_raw, field_name="startsAt") if starts_at_raw else None
+            )
+            reviewed_expiry = _reviewed_expiry(terms)
+            if starts_at_dt is not None and starts_at_dt > _utcnow():
+                if envelope is not None:
+                    raise _invalid(
+                        "A future-scheduled share must not send your current position before it starts."
+                    )
+                created = self.location.create_grant(
+                    owner_user_id=user_id,
+                    recipient_user_id=person,
+                    recipient_key_id=terms["keyId"],
+                    duration_hours=terms["durationHours"],
+                    duration_mode=terms["durationMode"],
+                    reason="scheduled_trip_share",
+                    share_kind=effective_share_kind,
+                    source_circle_id=terms["circleId"],
+                    enforce_connection=True,
+                    share_mode=effective_share_mode,
+                    precision=terms.get("precision"),
+                    starts_at=starts_at_dt,
+                    task_label=terms.get("taskLabel"),
+                    calendar_event_id=terms.get("calendarEventId"),
+                    _reviewed_expires_at=reviewed_expiry,
+                )
+                return {
+                    "grantId": created["id"],
+                    "expiresAt": created["expiresAt"],
+                }
+            if envelope is None:
+                raise _invalid("This location share requires an encrypted location.")
             self.location._assert_envelope_precision_matches_preference(
                 owner_user_id=user_id,
                 envelope=envelope,
@@ -870,6 +914,7 @@ class LocationChatPlanService:
                 starts_at=terms.get("startsAt"),
                 task_label=terms.get("taskLabel"),
                 calendar_event_id=terms.get("calendarEventId"),
+                _reviewed_expires_at=reviewed_expiry,
             )
             return {
                 "grantId": result["grant"]["id"],

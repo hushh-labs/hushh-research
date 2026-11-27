@@ -821,9 +821,12 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
       if (!validPreview) measuredEnvelopes.add(envelope);
       return envelope;
     }
+    const isFutureScheduled = (plan: MainLocationPlan): boolean =>
+      Boolean(plan.startsAt && Number.isFinite(Date.parse(plan.startsAt)) && Date.parse(plan.startsAt) > Date.now());
     if (direct) {
       // Prepare all encryption locally before the first grant can be created.
-      const envelopes = await settleMainLocationBatch(pending, async plan => prepared.set(plan.planId, await envelopeFor(plan)));
+      const immediatePending = pending.filter((plan) => !isFutureScheduled(plan));
+      const envelopes = await settleMainLocationBatch(immediatePending, async plan => prepared.set(plan.planId, await envelopeFor(plan)));
       const failure = envelopes.find(result => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;
       if (!current()) return;
@@ -866,7 +869,7 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
         plan = existing;
       }
       let envelope: OneLocationEncryptedEnvelope | undefined;
-      if (isPublish(plan.action)) {
+      if (isPublish(plan.action) && !isFutureScheduled(plan)) {
         envelope = prepared.get(plan.planId) ?? await envelopeFor(plan, cached);
         const state = await posture();
         if (state.permission !== "granted" && !(state.permission === "prompt" && measuredEnvelopes.has(envelope)))
@@ -874,6 +877,9 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
         if (state.approximate && envelope.metadata?.precision !== "approximate" || !freshLocation(envelope.capturedAt))
           throw new Error("The location accuracy or measurement changed. Try again for a fresh position.");
         if (readOneLocationControlState(ownerId).paused) throw new Error("Location updates are paused on this device.");
+        if (plan.expiresAt && !(Date.parse(plan.expiresAt) > Date.now()))
+          throw new LocationReviewChanged("This Location review expired. Please send the request again.");
+      } else if (isPublish(plan.action) && isFutureScheduled(plan)) {
         if (plan.expiresAt && !(Date.parse(plan.expiresAt) > Date.now()))
           throw new LocationReviewChanged("This Location review expired. Please send the request again.");
       }

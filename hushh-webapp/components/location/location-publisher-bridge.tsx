@@ -19,7 +19,7 @@
  * (a stored envelope, a registered key, the OS's own answer).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
 
 import {
@@ -271,15 +271,46 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
   stateRef.current = state;
 
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
+  const [scheduleTick, setScheduleTick] = useState(0);
+  const [armedGeofenceCount, setArmedGeofenceCount] = useState(0);
+  const nowMs = Date.now();
   const serverTimedPaused = Boolean(
     settings.settings?.paused_until &&
-      Date.parse(settings.settings.paused_until) > Date.now(),
+      Date.parse(settings.settings.paused_until) > nowMs,
   );
-  const grants = activeOwnerGrants(state).filter((grant) =>
-    !isFixedLocationGrant(grant) && !hasQueuedLocationStop(uid, grant.id) &&
-    (isSmsTriggeredGrant(grant)
-      ? sharing.os === "granted" && !sharing.paused
-      : sharing.effective === "sharing" && !serverTimedPaused));
+  const ownerGrants = activeOwnerGrants(state);
+  const nextScheduledStartMs = ownerGrants.reduce<number | null>((earliest, grant) => {
+    if (!grant.startsAt) return earliest;
+    const ms = Date.parse(grant.startsAt);
+    if (!Number.isFinite(ms) || ms <= nowMs) return earliest;
+    return earliest === null ? ms : Math.min(earliest, ms);
+  }, null);
+  useEffect(() => {
+    if (nextScheduledStartMs === null) return;
+    const remainingMs = nextScheduledStartMs - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      setScheduleTick((n) => n + 1);
+      return;
+    }
+    const delayMs = Math.min(remainingMs + 500, 24 * 60 * 60 * 1000);
+    const timer = window.setTimeout(() => {
+      setScheduleTick((n) => n + 1);
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [nextScheduledStartMs, scheduleTick]);
+  const grants = ownerGrants.filter((grant) => {
+    if (grant.startsAt) {
+      const startsMs = Date.parse(grant.startsAt);
+      if (Number.isFinite(startsMs) && startsMs > nowMs) return false;
+    }
+    return (
+      !isFixedLocationGrant(grant) &&
+      !hasQueuedLocationStop(uid, grant.id) &&
+      (isSmsTriggeredGrant(grant)
+        ? sharing.os === "granted" && !sharing.paused
+        : sharing.effective === "sharing" && !serverTimedPaused)
+    );
+  });
   // Auto-refresh settings when a server-side timed pause expires (US-030).
   useEffect(() => {
     const pausedUntil = settings.settings?.paused_until;
@@ -403,6 +434,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     if (!uid || !vaultOwnerToken) {
       geofenceMonitorRef.current?.dispose();
       geofenceMonitorRef.current = null;
+      setArmedGeofenceCount(0);
       return;
     }
     const monitor = createGeofenceMonitor({
@@ -410,6 +442,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
       getVaultOwnerToken: () => tokenRef.current,
       getVaultKey: () => vaultKeyRef.current,
       getDefaultPrecision: () => sharingRef.current.precision,
+      onArmedCountChange: setArmedGeofenceCount,
     });
     geofenceMonitorRef.current = monitor;
     void monitor.refreshRules().catch(() => undefined);
@@ -420,6 +453,66 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
       }
     };
   }, [uid, vaultOwnerToken]);
+
+  // Keep a lightweight foreground watch while armed geofence rules exist without
+  // an active outgoing share (when `publishing` is true, the main watch loop
+  // already feeds every fix into `geofenceMonitorRef.current.evaluatePoint`).
+  const geofenceStandaloneWatch = Boolean(
+    uid &&
+      vaultOwnerToken &&
+      armedGeofenceCount > 0 &&
+      !publishing &&
+      sharing.os !== "denied",
+  );
+  useEffect(() => {
+    if (!geofenceStandaloneWatch) return;
+    let cancelled = false;
+    let watchId: string | null = null;
+    void (async () => {
+      try {
+        const started = await OneLocationService.watchCurrentPosition(
+          (point) => {
+            if (cancelled) return;
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "hidden"
+            ) {
+              return;
+            }
+            void geofenceMonitorRef.current
+              ?.evaluatePoint(point)
+              .catch(() => undefined);
+          },
+          (error) => {
+            console.warn(
+              "[LocationPublisherBridge] Geofence watch error:",
+              error.message,
+            );
+          },
+        );
+        if (cancelled) {
+          void OneLocationService.clearLocationWatch(started).catch(
+            () => undefined,
+          );
+          return;
+        }
+        watchId = started;
+      } catch (error) {
+        console.warn(
+          "[LocationPublisherBridge] Could not start geofence watch:",
+          error,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (watchId) {
+        void OneLocationService.clearLocationWatch(watchId).catch(
+          () => undefined,
+        );
+      }
+    };
+  }, [geofenceStandaloneWatch]);
 
   // The Location workspace maintains its own public link while it is open.
   // In Chat an active link needs updates even when there are no private grants.

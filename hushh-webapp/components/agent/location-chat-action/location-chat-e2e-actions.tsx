@@ -12,7 +12,10 @@ import {
   resumeLocationUpdates,
 } from "@/lib/location/account-settings";
 import { coarsenPoint } from "@/lib/location/coarsen";
-import { checkGeofenceArrivalNow } from "@/lib/location/geofence-monitor";
+import {
+  checkGeofenceArrivalNow,
+  dispatchLocationGeofencesChanged,
+} from "@/lib/location/geofence-monitor";
 import { indexRecipientsByUserId } from "@/lib/location/publisher";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
@@ -271,35 +274,78 @@ export function LocationChatE2eActions({
               let publicLng: number | null = null;
               let publicPlaceId: string | null = null;
               let displayLabel = label || "Destination";
-              try {
-                const { point } = await captureChatLocation();
-                const nearby = await OneLocationService.nearbyPlaces({
-                  vaultOwnerToken: token,
-                  lat: point.latitude,
-                  lng: point.longitude,
-                  category: "all",
-                });
-                const needle = normalizeLabel(label);
-                const first =
-                  nearby.find(
-                    (place) =>
-                      normalizeLabel(place.name ?? place.text ?? "").includes(needle) &&
-                      typeof place.latitude === "number" &&
-                      typeof place.longitude === "number",
-                  ) ??
-                  nearby.find(
-                    (place) =>
-                      typeof place.latitude === "number" &&
-                      typeof place.longitude === "number",
-                  );
-                if (first && typeof first.latitude === "number" && typeof first.longitude === "number") {
-                  publicLat = first.latitude;
-                  publicLng = first.longitude;
-                  publicPlaceId = first.placeId ?? null;
-                  displayLabel = first.name || first.text || displayLabel;
+              if (label) {
+                let biasLat: number | undefined;
+                let biasLng: number | undefined;
+                try {
+                  const { point } = await captureChatLocation();
+                  biasLat = point.latitude;
+                  biasLng = point.longitude;
+                } catch {
+                  // Place search works globally even without a current GPS bias.
                 }
-              } catch {
-                // Allow arming with label; user can trigger manually or on next fix.
+                try {
+                  const suggestions = await OneLocationService.placesAutocomplete({
+                    vaultOwnerToken: token,
+                    input: label,
+                    lat: biasLat,
+                    lng: biasLng,
+                  });
+                  const topMatch = suggestions.find((item) => Boolean(item.placeId));
+                  if (topMatch?.placeId) {
+                    const details = await OneLocationService.placeDetails({
+                      vaultOwnerToken: token,
+                      placeId: topMatch.placeId,
+                    });
+                    if (
+                      typeof details.latitude === "number" &&
+                      Number.isFinite(details.latitude) &&
+                      typeof details.longitude === "number" &&
+                      Number.isFinite(details.longitude)
+                    ) {
+                      publicLat = details.latitude;
+                      publicLng = details.longitude;
+                      publicPlaceId = details.placeId ?? topMatch.placeId;
+                      displayLabel = details.label || topMatch.name || topMatch.text || displayLabel;
+                    }
+                  }
+                } catch {
+                  // Fall through to strict name-matched nearby lookup below.
+                }
+                if (
+                  (publicLat === null || publicLng === null) &&
+                  typeof biasLat === "number" &&
+                  typeof biasLng === "number"
+                ) {
+                  try {
+                    const nearby = await OneLocationService.nearbyPlaces({
+                      vaultOwnerToken: token,
+                      lat: biasLat,
+                      lng: biasLng,
+                      category: "all",
+                    });
+                    const needle = normalizeLabel(label);
+                    const exactNearby = nearby.find(
+                      (place) =>
+                        needle.length > 0 &&
+                        normalizeLabel(place.name ?? place.text ?? "").includes(needle) &&
+                        typeof place.latitude === "number" &&
+                        typeof place.longitude === "number",
+                    );
+                    if (
+                      exactNearby &&
+                      typeof exactNearby.latitude === "number" &&
+                      typeof exactNearby.longitude === "number"
+                    ) {
+                      publicLat = exactNearby.latitude;
+                      publicLng = exactNearby.longitude;
+                      publicPlaceId = exactNearby.placeId ?? null;
+                      displayLabel = exactNearby.name || exactNearby.text || displayLabel;
+                    }
+                  } catch {
+                    // Leave unresolved; never substitute an unrelated nearby place.
+                  }
+                }
               }
               if (!active) return;
               setResolvedPlace({
@@ -492,6 +538,7 @@ export function LocationChatE2eActions({
                     vaultOwnerToken: token,
                     ruleId: rule.id,
                   });
+                  dispatchLocationGeofencesChanged(ownerId);
                   setRules((prev) => prev.filter((item) => item.id !== rule.id));
                 } else if (actionId === "check_now") {
                   const res = await checkGeofenceArrivalNow({
@@ -501,6 +548,7 @@ export function LocationChatE2eActions({
                     vaultOwnerToken: token,
                   });
                   if (res.triggered) {
+                    dispatchLocationGeofencesChanged(ownerId);
                     setRules((prev) => prev.filter((item) => item.id !== rule.id));
                     setStatus(`Triggered arrival rule for ${rule.placeLabel}.`);
                   } else {
@@ -561,6 +609,7 @@ export function LocationChatE2eActions({
                   vaultOwnerToken: token,
                   ruleId: armedRule.id,
                 });
+                dispatchLocationGeofencesChanged(ownerId);
                 setRules([]);
                 setStatus("Arrival rule cancelled.");
               } else if (actionId === "check_now") {
@@ -571,6 +620,7 @@ export function LocationChatE2eActions({
                   vaultOwnerToken: token,
                 });
                 if (res.triggered) {
+                  dispatchLocationGeofencesChanged(ownerId);
                   setRules([]);
                   setStatus(`Arrived at ${armedRule.placeLabel} — rule executed.`);
                 } else {
@@ -634,13 +684,23 @@ export function LocationChatE2eActions({
             setError("No connected contact matched. Ask with the person’s exact connection name.");
             return;
           }
+          const targetKind = resolvedPlace?.placeKind ?? "public_place";
+          if (
+            targetKind === "public_place" &&
+            (resolvedPlace?.publicLat == null || resolvedPlace?.publicLng == null)
+          ) {
+            setError(
+              `Couldn’t verify map coordinates for “${placeLabel}”. Try asking with a more specific place name or address.`,
+            );
+            return;
+          }
           setBusy(true);
           setError(undefined);
           try {
             const { rule } = await OneLocationService.createGeofence({
               vaultOwnerToken: token,
               triggerType,
-              placeKind: resolvedPlace?.placeKind ?? "public_place",
+              placeKind: targetKind,
               placeLabel,
               publicPlaceId: resolvedPlace?.publicPlaceId,
               publicLat: resolvedPlace?.publicLat,
@@ -650,6 +710,7 @@ export function LocationChatE2eActions({
               shareDurationHours: triggerType === "share_on_arrival" ? (proposal.durationHours ?? 1) : null,
               precision: proposal.precision ?? null,
             });
+            dispatchLocationGeofencesChanged(ownerId);
             setRules([rule]);
             setStatus(`Arrival rule armed for ${rule.placeLabel}.`);
             setSettled(true);

@@ -9701,3 +9701,169 @@ def test_precision_guard_enforces_city_and_allows_explicit_precise_override(monk
             share_kind="share",
         )
     assert default_failure.value.code == "LOCATION_PRECISION_MISMATCH"
+
+
+def test_revoke_all_owner_grants_builds_valid_sos_exclusion_sql(monkeypatch):
+    service = OneLocationAgentService()
+    executed: list[tuple[str, dict[str, object]]] = []
+
+    def _capture_many(sql, params=None):
+        executed.append((str(sql), dict(params or {})))
+        return []
+
+    monkeypatch.setattr(service, "_execute_many", _capture_many)
+    service.revoke_all_owner_grants(
+        owner_user_id="owner_1", include_sos=False, include_public_links=False
+    )
+    sql_no_sos, params_no_sos = executed[-1]
+    assert "AND NOT (AND" not in sql_no_sos
+    assert "sos.metadata" not in sql_no_sos
+    assert "= CAST(:is_sos_lane AS BOOLEAN)" in sql_no_sos
+    assert params_no_sos == {"owner_user_id": "owner_1", "is_sos_lane": False}
+
+    # Negative control: include_sos=True omits the SOS lane filter and binding.
+    service.revoke_all_owner_grants(
+        owner_user_id="owner_1", include_sos=True, include_public_links=False
+    )
+    sql_with_sos, params_with_sos = executed[-1]
+    assert ":is_sos_lane" not in sql_with_sos
+    assert params_with_sos == {"owner_user_id": "owner_1"}
+
+
+def test_store_encrypted_envelope_enforces_per_grant_city_precision_and_future_start(monkeypatch):
+    service = OneLocationAgentService()
+    future_start = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+    grant_row = {
+        "id": "00000000-0000-0000-0000-000000000123",
+        "owner_user_id": "owner_1",
+        "recipient_user_id": "recipient_1",
+        "recipient_key_id": "key-1",
+        "status": "active",
+        "duration_mode": "timed",
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
+        "metadata": {"share_kind": "share", "precision": "city"},
+    }
+    envelope = {
+        "ciphertext": "ct",
+        "iv": "iv",
+        "senderEphemeralPublicKeyJwk": {"kty": "EC"},
+        "metadata": {"precision": "precise"},
+    }
+
+    def _fake_one(sql, params=None):
+        sql_text = str(sql)
+        if "FROM one_location_share_grants" in sql_text:
+            return dict(grant_row)
+        if "one_location_account_settings" in sql_text:
+            return {"sharing_state": "on", "precision": "precise"}
+        return None
+
+    monkeypatch.setattr(service, "_execute_one", _fake_one)
+    # Per-grant city precision must reject subsequent precise updates even when account default is precise.
+    with pytest.raises(OneLocationAgentError) as prec_err:
+        service.store_encrypted_envelope(
+            owner_user_id="owner_1",
+            grant_id=grant_row["id"],
+            envelope=envelope,
+            _key_writer_guarded=True,
+        )
+    assert prec_err.value.code == "LOCATION_PRECISION_MISMATCH"
+
+    # Future starts_at blocks both premature publishing and premature recipient reads.
+    grant_row["metadata"] = {"share_kind": "share", "starts_at": future_start}
+    with pytest.raises(OneLocationAgentError) as pub_err:
+        service.store_encrypted_envelope(
+            owner_user_id="owner_1",
+            grant_id=grant_row["id"],
+            envelope={**envelope, "metadata": {"precision": "precise"}},
+            _key_writer_guarded=True,
+        )
+    assert pub_err.value.code == "LOCATION_GRANT_NOT_STARTED"
+
+    monkeypatch.setattr(service, "_expire_stale_grants", lambda *_: None)
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda sql, params=None: (
+            {**grant_row, "recipient_key_active": True}
+            if "FROM one_location_share_grants" in str(sql)
+            else None
+        ),
+    )
+    with pytest.raises(OneLocationAgentError) as view_err:
+        service.view_latest_envelope(recipient_user_id="recipient_1", grant_id=grant_row["id"])
+    assert view_err.value.code == "LOCATION_GRANT_NOT_STARTED"
+
+
+def test_geofence_trigger_rearms_rule_when_action_fails_and_succeeds_on_retry(monkeypatch):
+    from hushh_mcp.services.one_location_geofence_service import OneLocationGeofenceService
+
+    state = {"status": "armed", "triggered_at": None}
+    rule_id = "00000000-0000-0000-0000-000000000999"
+
+    def _rule_row():
+        return {
+            "id": rule_id,
+            "owner_user_id": "owner_1",
+            "trigger_type": "stop_on_arrival",
+            "place_kind": "saved_home",
+            "place_label": "Home",
+            "public_place_id": None,
+            "public_lat": None,
+            "public_lng": None,
+            "radius_meters": 250,
+            "recipient_user_ids": [],
+            "share_duration_hours": None,
+            "precision": None,
+            "status": state["status"],
+            "triggered_at": state["triggered_at"],
+            "expires_at": None,
+            "metadata": {},
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    def _fake_exec_one(sql, params=None):
+        sql_text = str(sql)
+        if "SET status = 'triggered'" in sql_text:
+            if state["status"] != "armed":
+                return None
+            state["status"] = "triggered"
+            state["triggered_at"] = datetime.now(timezone.utc)
+            return _rule_row()
+        if "SET status = 'armed'" in sql_text:
+            state["status"] = "armed"
+            state["triggered_at"] = None
+            return {"id": rule_id}
+        if "SELECT * FROM one_location_geofence_rules" in sql_text:
+            return _rule_row()
+        return None
+
+    attempts = {"count": 0}
+
+    class _FakeAgent:
+        def revoke_all_owner_grants(self, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise RuntimeError("transient db error")
+            return {"revokedCount": 2, "revokedGrantIds": ["g1", "g2"], "revokedPublicLinkIds": []}
+
+        def _insert_event(self, **kwargs):
+            return None
+
+    geofence = OneLocationGeofenceService(agent_service=_FakeAgent())
+    monkeypatch.setattr(geofence, "_execute_one", _fake_exec_one)
+
+    # First attempt fails -> rule reverts to armed instead of staying permanently triggered.
+    with pytest.raises(RuntimeError, match="transient db error"):
+        geofence.trigger_rule(owner_user_id="owner_1", rule_id=rule_id)
+    assert state["status"] == "armed"
+
+    # Retry succeeds and marks rule triggered; subsequent call is idempotent alreadyTriggered=True.
+    ok = geofence.trigger_rule(owner_user_id="owner_1", rule_id=rule_id)
+    assert ok["alreadyTriggered"] is False
+    assert ok["revokedCount"] == 2
+    assert state["status"] == "triggered"
+
+    second = geofence.trigger_rule(owner_user_id="owner_1", rule_id=rule_id)
+    assert second["alreadyTriggered"] is True

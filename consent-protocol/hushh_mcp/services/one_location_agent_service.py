@@ -997,6 +997,21 @@ def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
     return expires_at <= _utcnow()
 
 
+def _grant_starts_at_is_future(row: dict[str, Any], now: datetime | None = None) -> bool:
+    starts_at_raw = row.get("starts_at")
+    if starts_at_raw is None:
+        metadata = _loads_json(row.get("metadata"))
+        if isinstance(metadata, dict):
+            starts_at_raw = metadata.get("starts_at")
+    if starts_at_raw is None or starts_at_raw == "":
+        return False
+    try:
+        starts_at = _parse_datetime(starts_at_raw, field_name="starts_at")
+    except OneLocationAgentError:
+        return False
+    return starts_at > (now or _utcnow())
+
+
 def _payload_expires_at_is_past(grant: dict[str, Any]) -> bool:
     expires_at_raw = grant.get("expiresAt")
     if not expires_at_raw:
@@ -6541,6 +6556,7 @@ class OneLocationAgentService:
         calendar_event_id: str | None = None,
         _key_writer_guarded: bool = False,
         _auto_approve_until: datetime | None = None,
+        _reviewed_expires_at: datetime | str | None = None,
     ) -> dict[str, Any]:
         if share_kind == "pin":
             raise OneLocationAgentError(
@@ -6584,6 +6600,7 @@ class OneLocationAgentService:
                     task_label=task_label,
                     calendar_event_id=calendar_event_id,
                     _key_writer_guarded=True,
+                    _reviewed_expires_at=_reviewed_expires_at,
                     **({"_auto_approve_until": _auto_approve_until} if _auto_approve_until else {}),
                 )
             resolved_kind = share_kind or _classify_share_kind(reason)
@@ -6620,19 +6637,46 @@ class OneLocationAgentService:
                 "Choose who can be auto-approved.",
                 status_code=422,
             )
+        starts_at_dt = (
+            _parse_datetime(starts_at, field_name="startsAt") if starts_at is not None else None
+        )
+        now_utc = _utcnow()
+        duration_anchor = (
+            starts_at_dt if (starts_at_dt is not None and starts_at_dt > now_utc) else now_utc
+        )
         resolved_kind = share_kind or _classify_share_kind(reason)
         trip_max = (
             720.0
-            if source_circle_id and (starts_at is not None or (duration_hours or 0) > 24.0)
+            if source_circle_id and (starts_at_dt is not None or (duration_hours or 0) > 24.0)
             else None
         )
         duration, expires_at, resolved_duration_mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
             share_kind=resolved_kind,
-            now=_utcnow(),
+            now=duration_anchor,
             max_hours=trip_max,
         )
+        explicit_expiry_override = False
+        reviewed_expires_dt = (
+            _parse_datetime(_reviewed_expires_at, field_name="expiresAt")
+            if _reviewed_expires_at is not None
+            else None
+        )
+        if (
+            reviewed_expires_dt is not None
+            and resolved_duration_mode == TIMED_LOCATION_SHARE_DURATION_MODE
+        ):
+            if reviewed_expires_dt <= duration_anchor:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_EXPIRED",
+                    "The reviewed location share end time has already passed.",
+                    status_code=409,
+                )
+            expires_at = reviewed_expires_dt
+            explicit_expiry_override = True
+        elif starts_at_dt is not None and starts_at_dt > now_utc and expires_at is not None:
+            explicit_expiry_override = True
         if _auto_approve_until is not None:
             # The request duration was validated above. A rule ending in five
             # minutes may grant five minutes despite the normal 15-minute minimum.
@@ -6651,6 +6695,7 @@ class OneLocationAgentService:
             # The NUMERIC(6,2) duration is only a display value. Access and
             # the signed capability both use the exact timestamp below.
             duration = max(0.01, round(remaining / 3600, 2))
+            explicit_expiry_override = True
         if resolved_kind == "sos" and not self._is_sms_contact(
             owner_user_id=owner_user_id, contact_user_id=recipient_user_id
         ):
@@ -6670,7 +6715,7 @@ class OneLocationAgentService:
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
                 duration_hours=duration,
-                **({"expires_at": expires_at} if _auto_approve_until is not None else {}),
+                **({"expires_at": expires_at} if explicit_expiry_override and expires_at else {}),
             )
             if duration is not None
             else None
@@ -6862,6 +6907,7 @@ class OneLocationAgentService:
         starts_at: datetime | str | None = None,
         task_label: str | None = None,
         calendar_event_id: str | None = None,
+        _reviewed_expires_at: datetime | str | None = None,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.
 
@@ -6899,19 +6945,50 @@ class OneLocationAgentService:
                 "The approved recipient key is required.",
                 status_code=422,
             )
+        starts_at_dt = (
+            _parse_datetime(starts_at, field_name="startsAt") if starts_at is not None else None
+        )
+        now_for_duration = _utcnow()
+        duration_anchor = (
+            starts_at_dt
+            if (starts_at_dt is not None and starts_at_dt > now_for_duration)
+            else now_for_duration
+        )
         resolved_kind = share_kind or _classify_share_kind(reason)
         trip_max = (
             720.0
-            if source_circle_id and (starts_at is not None or (duration_hours or 0) > 24.0)
+            if source_circle_id and (starts_at_dt is not None or (duration_hours or 0) > 24.0)
             else None
         )
         duration, expires_at, resolved_duration_mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
             share_kind=resolved_kind,
-            now=_utcnow(),
+            now=duration_anchor,
             max_hours=trip_max,
         )
+        explicit_expiry_override = False
+        reviewed_expires_dt = (
+            _parse_datetime(_reviewed_expires_at, field_name="expiresAt")
+            if _reviewed_expires_at is not None
+            else None
+        )
+        if (
+            reviewed_expires_dt is not None
+            and resolved_duration_mode == TIMED_LOCATION_SHARE_DURATION_MODE
+        ):
+            if reviewed_expires_dt <= duration_anchor:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_EXPIRED",
+                    "The reviewed location share end time has already passed.",
+                    status_code=409,
+                )
+            expires_at = reviewed_expires_dt
+            explicit_expiry_override = True
+        elif (
+            starts_at_dt is not None and starts_at_dt > now_for_duration and expires_at is not None
+        ):
+            explicit_expiry_override = True
         # Record which relationship authorized this share. When the caller names
         # a Circle it must be that Circle; otherwise a Circle-only peer still
         # gets its source Circle stamped, so revoking the Circle later revokes
@@ -6974,6 +7051,7 @@ class OneLocationAgentService:
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
                 duration_hours=duration,
+                **({"expires_at": expires_at} if explicit_expiry_override and expires_at else {}),
             )
             if duration is not None
             else None
@@ -7555,13 +7633,24 @@ class OneLocationAgentService:
                 "A shared location pin cannot be updated.",
                 status_code=409,
             )
+        if _grant_starts_at_is_future(grant_row):
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_STARTED",
+                "This scheduled location share has not started yet.",
+                status_code=409,
+            )
         _assert_sharing_not_off(
             self._execute_one, owner_user_id=owner_user_id, share_kind=grant_share_kind
+        )
+        grant_precision = (
+            str(grant_row.get("precision") or grant_meta.get("precision") or "").strip().lower()
+            or None
         )
         self._assert_envelope_precision_matches_preference(
             owner_user_id=owner_user_id,
             envelope=envelope,
             share_kind=grant_share_kind,
+            reviewed_precision=grant_precision,
         )
         is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
         if _grant_expires_at_is_past(grant_row):
@@ -7736,6 +7825,12 @@ class OneLocationAgentService:
                 "LOCATION_GRANT_NOT_ACTIVE",
                 "The secure recipient key changed. Ask the owner to share again.",
                 status_code=410,
+            )
+        if _grant_starts_at_is_future(grant_row):
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_STARTED",
+                "This scheduled location share has not started yet.",
+                status_code=409,
             )
         row = self._execute_one(
             """
@@ -8410,6 +8505,10 @@ class OneLocationAgentService:
             WHERE g.recipient_user_id = :user_id
               AND g.status = 'active'
               AND (g.expires_at IS NULL OR g.expires_at > NOW())
+              AND (
+                g.metadata->>'starts_at' IS NULL
+                OR (g.metadata->>'starts_at')::timestamptz <= NOW()
+              )
             ORDER BY envelope.captured_at DESC
             LIMIT 100
             """,
@@ -8418,7 +8517,11 @@ class OneLocationAgentService:
         active_owners = self._live_location_account_ids(
             [str(row["owner_user_id"]) for row in rows if row.get("owner_user_id")]
         )
-        rows = [row for row in rows if row.get("owner_user_id") in active_owners]
+        rows = [
+            row
+            for row in rows
+            if row.get("owner_user_id") in active_owners and not _grant_starts_at_is_future(row)
+        ]
         markers: list[dict[str, Any]] = []
         for row in rows:
             grant = self._grant_payload(row)
@@ -12594,7 +12697,10 @@ class OneLocationAgentService:
         include_public_links: bool = True,
     ) -> dict[str, Any]:
         """Immediately revoke all active outgoing shares (US-022 instant stop / US-034 Home arrival)."""
-        lane_filter = "" if include_sos else f"AND NOT ({_share_lane_match_sql('sos')})"
+        lane_filter = "" if include_sos else _SHARE_LANE_MATCH_SQL.format(alias="")
+        query_params: dict[str, Any] = {"owner_user_id": owner_user_id}
+        if not include_sos:
+            query_params["is_sos_lane"] = False
         rows = self._execute_many(
             f"""
             UPDATE one_location_share_grants
@@ -12603,8 +12709,8 @@ class OneLocationAgentService:
               AND status = 'active'
               {lane_filter}
             RETURNING id, recipient_user_id
-            """,  # nosec B608 - static lane filter fragment
-            {"owner_user_id": owner_user_id},
+            """,  # nosec B608 - static lane filter fragment with bound :is_sos_lane
+            query_params,
         )
         revoked_ids = [str(r["id"]) for r in rows if r.get("id")]
         revoked_links: list[str] = []

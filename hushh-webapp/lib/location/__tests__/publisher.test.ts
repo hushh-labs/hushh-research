@@ -382,4 +382,79 @@ describe("publishPointToGrants", () => {
     });
     expect(result.published).toHaveLength(1);
   });
+
+  it("enforces per-grant city precision even when account preference is precise", async () => {
+    const seenPoints: PlainLocationPoint[] = [];
+    const storedMeta: Array<{ grantId: string; precision: unknown }> = [];
+    const cityGrant: OneLocationGrant = {
+      ...grant("g-city", "alice", "k-alice"),
+      precision: "city",
+    };
+    const exactGrant: OneLocationGrant = grant("g-exact", "bob", "k-bob");
+
+    const result = await publishPointToGrants({
+      point: POINT,
+      grants: [cityGrant, exactGrant],
+      recipientsByUserId: {
+        alice: recipient("alice", "k-alice"),
+        bob: recipient("bob", "k-bob"),
+      },
+      precision: "precise",
+      vaultOwnerToken: "token",
+      encrypt: vi.fn(async ({ point, recipientKeyId }) => {
+        seenPoints.push(point);
+        return {
+          recipientKeyId,
+          algorithm: "ECDH-P256-AES256-GCM",
+          ciphertext: `ct:${recipientKeyId}:${point.precision}`,
+          iv: "iv",
+          senderEphemeralPublicKeyJwk: { kty: "EC" },
+          capturedAt: point.capturedAt,
+          sourcePlatform: "web",
+        };
+      }),
+      store: vi.fn(async ({ grantId, envelope }) => {
+        storedMeta.push({ grantId, precision: envelope.metadata?.precision });
+        return { envelope, recipientAlerted: null };
+      }),
+      now: () => NOW,
+    });
+
+    expect(result.published).toHaveLength(2);
+    expect(result.published.find((p) => p.grantId === "g-city")?.precision).toBe("city");
+    expect(result.published.find((p) => p.grantId === "g-exact")?.precision).toBe("precise");
+    expect(storedMeta).toEqual([
+      { grantId: "g-city", precision: "city" },
+      { grantId: "g-exact", precision: "precise" },
+    ]);
+    const cityPoint = seenPoints.find((pt) => pt.precision === "city");
+    expect(cityPoint).toBeDefined();
+    expect(cityPoint?.accuracyM).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it("refuses to publish to a future-scheduled grant before its startsAt time", async () => {
+    const store = vi.fn(async () => ({
+      envelope: {} as OneLocationEncryptedEnvelope,
+      recipientAlerted: null,
+    }));
+    const futureGrant: OneLocationGrant = {
+      ...grant("g-future", "alice", "k-alice"),
+      startsAt: new Date(NOW + 3_600_000).toISOString(),
+    };
+    const result = await publishPointToGrants({
+      point: POINT,
+      grants: [futureGrant],
+      recipientsByUserId: { alice: recipient("alice", "k-alice") },
+      precision: "precise",
+      vaultOwnerToken: "token",
+      encrypt: fakeEncrypt(),
+      store,
+      now: () => NOW,
+    });
+    expect(result.published).toHaveLength(0);
+    expect(result.failures).toEqual([
+      { grantId: "g-future", code: "store_failed", reason: "grant_not_started" },
+    ]);
+    expect(store).not.toHaveBeenCalled();
+  });
 });
