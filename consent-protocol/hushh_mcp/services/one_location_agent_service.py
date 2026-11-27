@@ -6320,25 +6320,6 @@ class OneLocationAgentService:
                     ),
                     "source_circle_id": source_circle_id,
                 }
-                if params.get("auto_approve_until") is not None:
-                    longer_share = conn.execute(
-                        text(
-                            """SELECT id FROM one_location_share_grants
-                               WHERE owner_user_id = :owner_user_id
-                                 AND recipient_user_id = :recipient_user_id AND status = 'active'
-                                 AND (expires_at IS NULL OR expires_at > :expires_at)
-                            """
-                            + _share_lane_match_sql()
-                            + " FOR UPDATE"
-                        ),
-                        params,
-                    ).first()
-                    if longer_share:
-                        raise OneLocationAgentError(
-                            "LOCATION_AUTO_APPROVE_EXISTING_SHARE",
-                            "An existing share lasts longer. Review this request.",
-                            status_code=409,
-                        )
                 # Replacement is scoped to ONE LANE, and there are exactly two
                 # of them: the emergency lane (`share_kind == 'sos'`) and
                 # everything else. An SOS grant must never supersede a normal
@@ -6349,7 +6330,7 @@ class OneLocationAgentService:
                 # NOT one lane per share kind: `drive_to`, `check_in`,
                 # `pick_me_up` and plain `share` all sit in the non-emergency
                 # lane together and go on replacing each other exactly as before.
-                conn.execute(
+                replaced_shares = conn.execute(
                     text(
                         """
                         UPDATE one_location_share_grants
@@ -6361,11 +6342,21 @@ class OneLocationAgentService:
                         # lane itself is BOUND as `:is_sos_lane`; nothing
                         # caller-supplied reaches this statement.
                         + _share_lane_match_sql()
-                        + """
-                        """
+                        + " RETURNING expires_at"
                     ),
                     params,
                 )
+                # Refusing rolls the lane replacement back in the same transaction.
+                # A timed rule cannot shorten an independently authorized longer share.
+                if params.get("auto_approve_until") is not None and any(
+                    expiry is None or expiry > params["expires_at"]
+                    for expiry in replaced_shares.scalars()
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_EXISTING_SHARE",
+                        "An existing share lasts longer. Review this request.",
+                        status_code=409,
+                    )
                 row = (
                     conn.execute(
                         text(
