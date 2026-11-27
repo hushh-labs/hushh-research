@@ -17,6 +17,88 @@ flowchart TD
 
 ## Metrics aggregate source
 
+### Opt-in all-account feature observations
+
+The same signed route accepts a separate request variant with exactly
+`reportKind: "feature_observations"`, `definitionVersion: "1"`, the existing
+period/generation/scope fields, and integer `cutoffAt` UTC epoch milliseconds.
+This does not change the native adoption v1/v2 request, binding or saved reports.
+An independently approved `ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON`, or
+`ONE_METRICS_UAT_FEATURE_OBSERVATIONS_BINDING_JSON`, is required. Its exact fields
+are the native binding fields plus `reportKind: "feature_observations"`; version
+is `"1"`, and UAT retains its exact database-name/user pins. The existing lane,
+project, enabled flag, HMAC purpose, signing secret and reporting policy remain
+authoritative. The existing secret-backed runtime JSON can hydrate these optional
+bindings using `one_metrics_feature_observations_binding_json` or
+`one_metrics_uat_feature_observations_binding_json`; explicit existing env values
+keep precedence. No deployment tooling or HMAC mount changes are needed. Missing
+approval stays unavailable. No activation is installed.
+
+Only UTC windows of 7, 14, 30 or 90 selected days within the existing 90-day
+lookback are accepted. `cutoffAt` is exclusive: a closed window ends at the next
+UTC midnight; a current-day window needs a collector-frozen cutoff no more than
+60 seconds old and no later than the source clock. At UTC midnight, clamp the
+current cutoff to that day's start. It is not an account override or browser
+query knob. Source-observation reads use `< cutoffAt`; existing inclusive native
+outcome adapters receive the preceding microsecond.
+
+The aggregate applies the same current registered identity, reporting exclusions,
+lifecycle/deletion barriers, UAT database authority and 5,000-candidate overflow
+sentinel. It admits one read through the existing aggregate lock/pool and keeps
+five-second SQL, one-second lock and twenty-second total deadlines. The additional
+candidate branch is expiry/time bounded through the existing expiry index. SQL
+materializes at most 100,001 retained rows, rejects more than 100,000, and refuses
+more than 256 reviewed feature rows. The response ceiling is 262,144 bytes.
+Neither retention nor collection enrollment, schema, IAM, services or BigQuery is
+changed. Query workload remains subject to source qualification before approval.
+
+The response includes exact `period`, `cutoffAt`, generation/scope,
+`catalogRevision`, `sourceCheckedAt`, `sourceWatermark`, and `reconciled`.
+`catalogRevision` identifies the compiled environment-specific action catalogue.
+`coverage` has `mode: "best_effort"`, `retentionDays: 7`, integer UTC-ms
+`retainedFrom/retainedThrough`, `windowFullyRetained`, candidate-population
+`eligibleAccounts/captureEnabledAccounts`, `dailyCappedAccounts`, and
+`unmappedObservations`. These are candidate counts, not the total registered
+population. An older selection exposes its retained intersection and never
+claims complete 14/30/90-day capture. Epoch resets, best-effort transport and
+previously expired records cannot be reconstructed by this read.
+
+`totals` contains independently deduplicated `observedAccounts`, `observations`
+and `correlatedAttempts`. Each `features` row contains reviewed `actionId`,
+`agentId`, `source`, `label`, `kind`, distinct `observedAccounts` across phases,
+`allSourceObservedAccounts` independently deduplicated across reviewed sources,
+`observations`, `uncorrelatedObservations`, and five `phases` with integer
+`accounts/observations`. Each row also contains four `results` groups with the
+same count shape: `success`, `error`, `expected_error`, `unclassified`. Only the
+explicit optional `event_result` metadata supplies those groups. A bounded schema
+read selects one of two fixed query variants: absent column means all
+unclassified; an exact text column allows its finite explicit values. A wrong
+column type refuses the read. There is no startup dependency, migration,
+backfill, or inference from legacy phases. Result-user groups overlap and are
+never summed to derive feature users. These are reported results, separate from
+domain-confirmed effects. `attempts` contains `started`, `returned`, `failed`,
+`cancelled`, `blocked`, `possibleIncomplete` and `inProgress`. Only non-null
+operation keys correlate attempts; generic observations remain uncorrelated.
+`byAgent` independently groups reviewed agent IDs with distinct `observedAccounts`,
+`observations` and `correlatedAttempts`; feature-user counts are not added to
+derive agent users. At most 128 observed agents and 4,096 compiled action
+descriptors are admitted. Phase/source users are never added to derive unique feature users. Distinct
+client/runtime action IDs are not aliases merely because their labels match.
+Unknown, retired or reowned catalogue records contribute only to the aggregate
+unmapped count; their raw IDs and owner information are not exported.
+
+`confirmed` separately returns `coverage: "partial"`, `outcomeAccounts`,
+`confirmedOutcomes` and the native ten-agent `bySubagent` counts, using unchanged
+domain proof and deduplication rules over the selected window. These subagent
+counts are non-additive: a reviewed effect can support several agent proofs.
+A generic `returned` phase is not a verified business success. Legacy `failed`
+records can include pre-change expected-error blocks; missing observations are
+not failures, inactivity, or inferred cancellations. Neither observed phases nor
+attempts are joined to effects in a way that multiplies counts. No owner ID,
+operation key, content, recipient or attachment information leaves the source.
+
+### Native adoption v1/v2
+
 `POST /api/one/metrics/adoption` is a server-only read for Metrics #184. It is
 not a browser/native owner export, account directory, campaign or mail endpoint.
 The Metrics collector signs its exact JSON bytes with HMAC-SHA256 over
@@ -59,7 +141,9 @@ cutoff. This option expires at UTC midnight and is unavailable in production.
 The request contains exactly `period: {startDate,endDate,timezone}`,
 `definitionVersion`, `sourceGeneration`, `scopeDigest`. Closed dates use complete
 source calendar days and a half-open timestamp interval, including DST days.
-All requests must be within seven days and the explicitly reviewed coverage start.
+Native v1 requests must be within seven days and the explicitly reviewed coverage
+start. Native v2 admits closed windows up to 90 days, retaining its declared
+coverage window and partial-history semantics.
 There is no owner/account override or source URL/query supplied by the caller.
 
 The proposed meaningful-activity definition is a persisted successful assistant
@@ -81,21 +165,24 @@ never a valid empty aggregate. Identity/policy/binding changes refuse
 the result. No source RLS policy, grant, table, retention or record is modified;
 an RLS-filtered role must fail rather than return a misleading global zero.
 
-Fifty candidate accounts is the existing lifecycle/identity helper boundary, not
-a sample or a new numerical operating target. Overflow or an existing domain
+Fifty accounts is the lifecycle/identity batch size; 5,001 candidate rows signal
+overflow of the 5,000-account global bound. Neither is a sample. Overflow or an existing domain
 adapter's limit refuses the whole result. This candidate therefore does not yet
 establish large-population capacity. Five-second SQL/one-second lock bounds and
 the twenty-second overall ceiling are safety bounds requiring native workload
 qualification before activation, not accepted performance objectives. The read
 can reserve two existing pool connections; qualify concurrency accordingly.
 
-The response contains only the two aggregate metric values and their
+The native v1 response contains the two aggregate metric values and their
 `coverage/unit/basis`, source generation/scope/definition, requested period,
 source snapshot/check timestamps and reconciliation status. Coverage remains
 **partial**: retained positive records do not prove complete capture or historical
 deletion/identity coverage. Missing observations never establish inactivity.
 No user ID, email/phone, prompt, result body, effect key or resource handle leaves
-the backend. The database snapshot time is not an all-device ingestion watermark.
+the backend. Native v2 additionally returns the established per-subagent counts,
+new/returning active accounts, mature cohort retention and coverage window, with
+each metric independently scoped. The database snapshot time is not an
+all-device ingestion watermark.
 
 All responses are `private, no-store`. Disabled scope is 404, bad signature 401,
 invalid request 400 and unavailable/changed/overflow source 503, with neutral
