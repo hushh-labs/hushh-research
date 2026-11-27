@@ -163,6 +163,16 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // Capacitor replaces userContentController after its configuration
         // hook. Install against the final controller before WK creates the
         // document. This selects rendering, never operation/information authority.
+        #if DEBUG && targetEnvironment(simulator)
+        if Bundle.main.bundleIdentifier == "com.hushh.app",
+           Bundle.main.object(forInfoDictionaryKey: "HushhSharedDevSimulator") as? String == "true" {
+            configuration.userContentController.addUserScript(WKUserScript(source: """
+                if (location.protocol === 'app:' && location.hostname === 'localhost') {
+                  Object.defineProperty(window, '__HUSHH_SHARED_DEV_SIMULATOR__', { value: true });
+                }
+                """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        #endif
         configuration.userContentController.addUserScript(WKUserScript(
             source: """
                 const __hushhCrypto = globalThis.crypto;

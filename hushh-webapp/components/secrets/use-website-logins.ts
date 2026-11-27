@@ -20,7 +20,7 @@ type View = {
   uncertain: boolean;
   message: string | null;
 };
-const EMPTY: View = { items: [], loading: false, failed: false, busy: false, uncertain: false, message: null };
+const EMPTY: View = { items: [], loading: true, failed: false, busy: false, uncertain: false, message: null };
 
 /** One unlocked presentation owns every read and mutation. Credentials and
  * drafts never survive lock, identity replacement or a private-screen exit. */

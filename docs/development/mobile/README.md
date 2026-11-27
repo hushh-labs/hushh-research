@@ -250,6 +250,13 @@ remains failure; successful assertions with unverified cleanup also fail. This
 proves app-process absence only, not cleanup of every WebKit child or XCTest
 runner. Direct invocations of that smoke must run the same host cleanup.
 
+For a current Dev iPhone review, use
+`.agents/skills/mobile-native/scripts/run-ios-sim.sh --latest-dev <Dev-simulator-UDID>`.
+The launcher checks that the reviewed commit contains the live Dev tip, checks
+the tip again before installation, and compares bundled and installed web
+assets and native code. It prints the source commit, Dev base, device and SDK.
+Use the explicit device ID when Dev and UAT phones are both running.
+
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
 and a pinned id fails only after a full build. Simulator launches resolve a

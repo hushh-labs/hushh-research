@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { nativeHistoryProjection } from "@/components/agent/native-history-presentation";
+import { nativeDrawerChoiceAllowed, validNativeDrawerProjection } from "@/lib/capacitor/native-drawers";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 
 const conversations: AgentChatConversation[] = [
@@ -52,6 +53,40 @@ describe("AgentHistorySidebar", () => {
     expect(remove).toHaveBeenCalledWith("conv_1");
     const puppy = nativeHistoryProjection({ ...port, surface: "puppy" }, handles);
     expect(puppy.actions.rows.has(first.deleteActionId!)).toBe(false);
+  });
+  it("pins the main stream and gives only focused One chats the owner's category action", async () => {
+    const categorize = vi.fn(), selectMain = vi.fn();
+    const port = { owner: "test-owner", vaultEpoch: 1, ready: true, open: true, surface: "one" as const,
+      conversations: [{ ...conversations[0], id: "pinned" }, { ...conversations[0], id: "legacy", title: "One" },
+        { ...conversations[0], category: "Travel", category_source: "custom" as const }], selected: null, pending: null, loading: false,
+      create: vi.fn(), select: vi.fn(), rename: vi.fn(), remove: vi.fn(), setOpen: vi.fn(), categorize,
+      pinnedOne: { id: "pinned", selected: true, waiting: 2, select: selectMain } };
+    const { sections, historyCategories, actions } = nativeHistoryProjection(port);
+    const state = { documentId: "test", ownerEpoch: "epoch", ownerGeneration: 1, revision: 1, family: "history" as const,
+      updateSequence: 1, privacyGeneration: 0, appearance: "light" as const, accentHex: "#112233", foregroundHex: "#112233",
+      title: "Chats", open: true, enabled: true, backEnabled: false, sections, historyCategories };
+    const event = { ...state, action: "row" as const, interactionGeneration: 1, sequence: 1 };
+    expect(validNativeDrawerProjection(state)).toBe(true);
+    const pin = sections[0].rows[0];
+    expect(pin).toMatchObject({ label: "One", selected: true, trailing: "2" });
+    expect(pin.deleteActionId).toBeUndefined();
+    await actions.rows.get(pin.id)?.({ ...event, rowId: pin.id });
+    expect(selectMain).toHaveBeenCalledOnce();
+    expect(nativeHistoryProjection({ ...port, conversations: [] }).sections[0].rows[0].id).toBe(pin.id);
+    const chats = sections.flatMap(section => section.rows).filter(row => row.historyTopic);
+    expect(chats).toHaveLength(1);
+    const rowId = chats[0].historyTopic!.actionId!;
+    expect(historyCategories).toContain("Travel");
+    expect(nativeDrawerChoiceAllowed({ ...event, rowId, text: "x".repeat(33) }, state)).toBe(false);
+    for (const text of ["  Trips  ", undefined]) {
+      const choice = { ...event, rowId, text };
+      expect(nativeDrawerChoiceAllowed(choice, state)).toBe(true);
+      await actions.rows.get(rowId)?.(choice);
+    }
+    expect(categorize.mock.calls).toEqual([["conv_1", "Trips"], ["conv_1", null]]);
+    const puppy = nativeHistoryProjection({ ...port, surface: "puppy" });
+    expect(puppy.sections.flatMap(section => section.rows).some(row => row.id === pin.id || row.historyTopic?.actionId)).toBe(false);
+    expect(sections.flatMap(section => section.rows).some(row => row.label === "To-do List")).toBe(false);
   });
   it("keeps native row handles opaque and delegates normalized edits to the existing owner", async () => {
     const rename = vi.fn(), select = vi.fn(), remove = vi.fn(), create = vi.fn();

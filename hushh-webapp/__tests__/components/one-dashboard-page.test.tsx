@@ -6,7 +6,7 @@ import { nativeLauncherAgent } from "@/components/dashboard/native-one-dashboard
 import type { OneAgentMode } from "@/components/dashboard/one-agent-roster";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const schedule = vi.hoisted(() => ({
   owner: "owner",
@@ -28,12 +28,14 @@ vi.mock("@/lib/services/pod-scheduled-tasks", async (importOriginal) => ({
 vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: () => undefined }));
 
 describe("Scheduled tasks placement", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    publishValidatedAuthSessionPrincipal(null);
+    vi.unstubAllEnvs();
+  });
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     schedule.owner = "owner";
-    publishValidatedAuthSessionOwner(null);
-    publishValidatedAuthSessionOwner(schedule.owner);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: schedule.owner, ownerId: schedule.owner, accountGeneration: 0 });
     schedule.hosting.mockReset();
     schedule.status.mockReset();
     schedule.status.mockResolvedValue({ available: true, tasks: [] });
@@ -75,7 +77,7 @@ describe("Scheduled tasks placement", () => {
     const view = render(<ScheduledTasksPanel ownerId="owner" />);
     fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
     schedule.owner = "next-owner";
-    publishValidatedAuthSessionOwner(schedule.owner);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: schedule.owner, ownerId: schedule.owner, accountGeneration: 0 });
     view.rerender(<ScheduledTasksPanel ownerId="next-owner" />);
     await act(async () => { settle({ hostingMode: "byoc", hushhId: "old-pod" }); });
     expect(schedule.status).not.toHaveBeenCalled();

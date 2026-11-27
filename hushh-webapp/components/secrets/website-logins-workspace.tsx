@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { useOwnerPresentationState } from "@/hooks/use-owner-presentation-state";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -26,6 +27,8 @@ export function WebsiteLoginsWorkspace() {
   useBackLayer(ROUTES.PKM_LOGINS, !model.locked && (editor || removing || sharing) ? 2 : 0, close);
   if (model.locked) return <p role="status">Unlock your vault to manage website logins.</p>;
   return <section className="space-y-4" aria-label="Saved website logins">
+    <NativeTestBeacon routeId={ROUTES.PKM_LOGINS} marker="native-route-pkm-logins" authState="authenticated"
+      dataState={model.loading ? "loading" : model.failed || model.uncertain ? "error" : model.items.length ? "loaded" : "empty-valid"} />
     <p className="text-sm text-muted-foreground">Website passwords stay encrypted in your PKM and hidden from the AI model. Your private agent can use a login only on its approved websites and within an authorized task.</p>
     {model.message ? <p role="status" className="text-sm">{model.message}</p> : null}
     {model.failed ? <p role="alert" className="text-sm">Saved logins could not be refreshed. Previously loaded entries remain visible.</p> : null}

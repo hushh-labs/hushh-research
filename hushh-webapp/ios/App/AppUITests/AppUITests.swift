@@ -1864,6 +1864,8 @@ final class AppUITests: XCTestCase {
             guard native.exists, search.exists, search.isHittable else {
                 XCTFail("PRODUCT_HISTORY_NATIVE_RENDERER_MISSING"); return
             }
+            XCTAssertTrue(app.buttons["native-history-row-one-stream"].exists, "History includes the pinned main chat on Dev")
+            XCTAssertFalse(app.buttons["native-history-row-todos"].exists, "Tasks lives in One Profile")
             XCTAssertFalse(web.buttons["Search chats"].firstMatch.isHittable)
             XCTAssertFalse(composer.isHittable, "The covered React editor must be isolated")
             let frame = native.frame
@@ -3752,11 +3754,10 @@ final class AppUITests: XCTestCase {
             let end = web.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.18 : 0.82, dy: 0.60))
             start.press(forDuration: 0.06, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
         }
-        drag(true); settled("KYC")
+        drag(true); settled("Follow-ups")
         drag(true); settled("Receipts")
-        drag(false); settled("KYC")
+        drag(false); settled("Follow-ups")
         tab("Overview").tap(); settled("Overview")
-        XCTAssertFalse(web.staticTexts["Connect Mail to set up receipts and KYC requests."].exists)
         perfTapNav(app, label: "Chat")
         XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable)
         XCTAssertTrue((composer.value as? String) == draft, "MAIL_RETURN_CHANGED_UNSENT_DRAFT")
@@ -6798,6 +6799,31 @@ final class AppUITests: XCTestCase {
         ])
     }
 
+    func testWebsiteLoginEditorCancelsToSavedLogins() throws {
+        let route = reviewerRoute(name: "website-logins", redirect: "/one/pkm/logins",
+                                  marker: "native-route-pkm-logins", allowedDataStates: ["loaded", "empty-valid"])
+        let app = launchApp(route)
+        _ = try waitForSatisfiedStatus(app, route: route, timeout: 90)
+        let web = app.webViews.firstMatch
+        let add = web.buttons["Add website login"].firstMatch
+        XCTAssertTrue(waitForAdmittedControl(add))
+        add.tap()
+        XCTAssertTrue(web.textFields["Login name"].firstMatch.waitForExistence(timeout: 5))
+        let cancel = web.buttons["Cancel"].firstMatch
+        let dock = app.textViews["native-dock-editor"].firstMatch
+        func cancelIsReachable() -> Bool {
+            let bottom = dock.exists && dock.isHittable ? min(dock.frame.minY, web.frame.maxY) : web.frame.maxY
+            return cancel.exists && cancel.isHittable && cancel.frame.midY < bottom
+        }
+        for _ in 0..<5 where !cancelIsReachable() {
+            web.swipeUp()
+        }
+        guard cancelIsReachable() else { return XCTFail("Cancel did not scroll into the visible editor.") }
+        cancel.tap()
+        XCTAssertTrue(web.buttons["Refresh"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(web.textFields["Login name"].firstMatch.exists)
+    }
+
     func testConsentAndProfileRoutes() throws {
         try assertRoutes([
             reviewerRoute(name: "consents", redirect: "/one/consent", marker: "native-route-consents"),
@@ -6807,7 +6833,8 @@ final class AppUITests: XCTestCase {
                 marker: "native-route-home",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
-            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc"),
+            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc",
+                          allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]),
             reviewerRoute(
                 name: "one-location",
                 redirect: "/one/location",

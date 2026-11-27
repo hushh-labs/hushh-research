@@ -1,6 +1,7 @@
+import { isSharedDevIosSimulator } from "@/lib/app-env";
 import { splitSpokenNames } from "@/lib/one-location/resolve-spoken-names";
 
-export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED === "true";
+export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED === "true" || isSharedDevIosSimulator();
 
 export const locationRecoveryActions = ["setup_location", "enable_location", "enable_device_location", "resume_updates"] as const;
 export const locationSafetyActions = ["sos_review", "sos_stop", "sms_contacts"] as const;

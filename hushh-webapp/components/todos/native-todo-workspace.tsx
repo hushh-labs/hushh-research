@@ -1,6 +1,6 @@
 "use client";
 
-import { createNativeWorkspaceHandles } from "@/lib/capacitor/use-native-workspace-handoff";
+import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
 
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -13,10 +13,9 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate, type DueReceiptItem } from "./todo-list-presentation";
-import { preferredScheduledTasks, scheduledRunSummary, scheduledTaskLabels, type useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 
 export type NativeTodoModel = {
-  owner: string | null; current: () => boolean; ready: boolean; loading: boolean;
+  owner: string | null; current: () => boolean; ready: boolean; loading: boolean; canAdd: boolean;
   pending: TodoItem[]; completed: TodoItem[]; receipts: DueReceiptItem[];
   editorId: string | null; editorCurrent: (id: string) => boolean;
   draft: NativeWorkspaceTaskDraft; readDraft: () => NativeWorkspaceTaskDraft; inputRevision: () => number;
@@ -24,6 +23,8 @@ export type NativeTodoModel = {
   openEditor: () => void; closeEditor: () => void;
   busy: boolean; savingTaskIds: ReadonlySet<string>; doneToday: number; totalToday: number;
   errors: readonly { label: string; retry: () => void }[];
+  webChildOpen?: boolean; openSchedules?: () => void;
+  openSources?: () => void; sourcesEnabled?: boolean; calendarIncomplete?: boolean;
   overflowHref: string | null;
   save: (draft: { title: string; date: string | null; time: string | null; notes: string | null }) => Promise<boolean>;
   toggle: (task: TodoItem, complete: boolean) => Promise<void>;
@@ -32,16 +33,14 @@ export type NativeTodoModel = {
 
 /** Feature values and callbacks only. Admission, retirement, feedback and draft
  * ordering belong to the same workspace boundary as Memory and Wallet. */
-type ScheduledRuns = { schedules?: ReturnType<typeof useScheduledTasksModel>; selectedSchedule?: string | null };
-
-export function NativeTodoWorkspace({ model, fallback, schedules, selectedSchedule }: ScheduledRuns & { model: NativeTodoModel; fallback: ReactNode }) {
+export function NativeTodoWorkspace({ model, fallback }: { model: NativeTodoModel; fallback: ReactNode }) {
   const presentation = useNativeWorkspacePresentation();
   const failed = presentation.status.phase === "web" && (presentation.status.reason === "unsupported" || presentation.status.reason === "failure");
   if (!customNativePresentationEnabled() || !model.owner || !model.ready || failed) return presentation.status.held ? <div aria-busy="true" /> : fallback;
-  return <NativeTodoBody model={model} presentation={presentation} schedules={schedules} selectedSchedule={selectedSchedule} />;
+  return <NativeTodoBody model={model} presentation={presentation} fallback={fallback} />;
 }
 
-function NativeTodoBody({ model, presentation, schedules, selectedSchedule }: ScheduledRuns & { model: NativeTodoModel; presentation: ReturnType<typeof useNativeWorkspacePresentation> }) {
+function NativeTodoBody({ model, presentation, fallback }: { model: NativeTodoModel; presentation: ReturnType<typeof useNativeWorkspacePresentation>; fallback: ReactNode }) {
   const router = useRouter();
   const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const contentFrame = useRef<HTMLDivElement>(null);
@@ -49,17 +48,18 @@ function NativeTodoBody({ model, presentation, schedules, selectedSchedule }: Sc
   const [selection, setSelection] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
+  const showCompleted = completedOpen && model.completed.length > 0;
   const [page, setPage] = useState(0);
   const saving = useRef(false), mounted = useRef(false);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const latest = useRef({ model, pathname });
   useLayoutEffect(() => { latest.current = { model, pathname }; });
   const current = () => mounted.current && latest.current.pathname === ROUTES.ONE_TASKS && latest.current.model.current();
+  const { handoff, activationRevision } = useNativeWorkspaceHandoff(presentation.retireForWeb, model.owner);
   const handles = useMemo(() => createNativeWorkspaceHandles(String(model.owner)), [model.owner]);
   const closeEditor = () => { if (!saving.current) latest.current.model.closeEditor(); };
   const back = () => {
     if (saving.current || latest.current.model.busy) return true;
-    if (schedules?.open) return schedules.close();
     if (confirmDelete) { setConfirmDelete(false); return true; }
     if (editing) { closeEditor(); return true; }
     if (selection) { setSelection(null); return true; }
@@ -77,53 +77,45 @@ function NativeTodoBody({ model, presentation, schedules, selectedSchedule }: Sc
   const selected = [...model.pending, ...model.completed].find(task => task.id === selection);
   const open = (href: string) => { if (href.startsWith("/")) router.push(href); else window.open(href, "_blank", "noopener,noreferrer"); };
   let title = "Your tasks";
-  if (schedules?.open) {
-    title = "Scheduled runs";
-    const { status, checking, placementMessage, message } = schedules;
-    const rows = preferredScheduledTasks(status?.tasks ?? [], selectedSchedule);
-    if (placementMessage || message) section("schedule-message", [read("schedule-message", placementMessage || message)]);
-    else if (checking) section("schedule-loading", [read("schedule-loading", "Checking your private agent…")]);
-    else if (status && !status.available) section("schedule-unavailable", [read("schedule-unavailable", "Scheduling is unavailable on this Pod.")]);
-    else if (status && rows.length === 0) section("schedule-empty", [read("schedule-empty", "No scheduled tasks")]);
-    if (selectedSchedule && status && !rows.some(task => task.id === selectedSchedule)) {
-      section("schedule-not-found", [read("schedule-not-found", "This schedule wasn’t found on your current Pod.")]);
-    }
-    section("scheduled-runs", rows.map(task => read(`schedule:${task.id}`, task.title,
-      `${scheduledTaskLabels[task.state]} · ${scheduledRunSummary(task)}`)));
-    section("schedule-actions", [
-      action("schedule-refresh", "Refresh", schedules.refresh, { enabled: !checking }),
-      action("schedule-files", "Open Files", () => open(ROUTES.ONE_FILES), { chevron: true }),
-      action("schedule-close", "Close", schedules.close),
-    ]);
-  } else if (editing) title = "Add item";
+  if (editing) title = "Add item";
   else if (selected) {
     title = confirmDelete ? "Delete item?" : "Task";
     section("detail", [read("title", selected.title, [selected.date, selected.time, selected.sourceAgent && TODO_SOURCE_LABELS[selected.sourceAgent]].filter(Boolean).join(" · ")),
       ...(selected.notes ? [read("notes", selected.notes)] : [])]);
     if (confirmDelete) section("confirm", [read("delete-info", "This removes the item from your to-do list.", "Calendar events and emails stay in place."),
-      action("delete-confirm", "Delete", async () => { setConfirmDelete(false); setSelection(null); await model.remove(selected); }, { destructive: true }),
+      action("delete-confirm", "Delete", () => { setConfirmDelete(false); setSelection(null); void model.remove(selected); }, { destructive: true }),
       action("delete-cancel", "Cancel", () => setConfirmDelete(false))]);
-    else section("actions", [action("toggle", selected.status === "done" ? "Mark as not completed" : "Mark as completed", () => model.toggle(selected, selected.status !== "done"), { symbol: "checkmark.circle" }),
+    else section("actions", [action("toggle", selected.status === "done" ? "Mark as not completed" : "Mark as completed", () => {
+      if (selected.status !== "done") setSelection(null);
+      void model.toggle(selected, selected.status !== "done");
+    }, { symbol: "checkmark.circle" }),
       ...(selected.link ? [action("open", selected.sourceAgent === "calendar" && !selected.link.startsWith("/") ? "Join" : "Open", () => open(selected.link!), { chevron: true })] : []),
       action("delete", "Delete item", () => setConfirmDelete(true), { destructive: true, symbol: "trash" })]);
   } else {
-    section("summary", [action("add", "Add item", model.openEditor, { enabled: !model.loading && !model.busy, symbol: "plus" }),
-      ...(schedules ? [action("scheduled", "Scheduled runs", () => schedules.changeOpen(true), { chevron: true })] : []),
+    section("summary", [action("add", "Add item", model.openEditor, { enabled: model.canAdd && !model.busy, symbol: "plus" }),
+      ...(model.openSources ? [action("sources", "Task sources", () => handoff(current,
+        () => latest.current.model.sourcesEnabled === true, () => latest.current.model.openSources?.()),
+        { enabled: model.sourcesEnabled === true, chevron: true })] : []),
+      ...(model.openSchedules ? [action("scheduled", "Scheduled runs", () => handoff(current,
+        () => Boolean(latest.current.model.openSchedules), () => latest.current.model.openSchedules?.()),
+        { chevron: true })] : []),
       ...(model.totalToday > 0 ? [read("today", `${model.doneToday} of ${model.totalToday} done today`)] : [])]);
     section("errors", model.errors.flatMap((error, i) => [read(`error-${i}`, error.label), action(`retry-${i}`, "Retry", error.retry)]));
+    if (model.calendarIncomplete) section("calendar-incomplete", [read("calendar-incomplete", "Some Calendar events aren’t shown."),
+      action("calendar", "Open Calendar", () => open("/one/calendar"), { chevron: true })]);
     if (model.loading) section("loading", [read("loading", "Loading your list…")]);
     else {
-      section("completed-toggle", model.completed.length ? [action("completed", "Completed", () => { setCompletedOpen(value => !value); setPage(0); }, { trailing: String(model.completed.length), selected: completedOpen, symbol: "checkmark.circle" })] : []);
-      const visible = completedOpen ? model.completed : model.pending;
+      section("completed-toggle", model.completed.length ? [action("completed", "Completed", () => { setCompletedOpen(value => !value); setPage(0); }, { trailing: String(model.completed.length), selected: showCompleted, symbol: "checkmark.circle" })] : []);
+      const visible = showCompleted ? model.completed : model.pending;
       // One bounded window, including receipts; no record is silently truncated.
       const index = Math.min(page, Math.max(0, Math.ceil(visible.length / 24) - 1));
       for (const [i, group] of groupByDate(visible.slice(index * 24, (index + 1) * 24)).entries()) section(`group-${i}`, group.tasks.map(task => action(`task-${task.id}`, task.title,
         () => { setConfirmDelete(false); setSelection(task.id); }, { detail: [task.time, task.sourceAgent && TODO_SOURCE_LABELS[task.sourceAgent], task.notes].filter(Boolean).join(" · ") || undefined, chevron: true, pending: model.savingTaskIds.has(task.id) })), `${group.label}${group.overdue ? " · Overdue" : ""}`);
-      if (!visible.length && !model.receipts.length && !model.errors.length) section("empty", [read("empty", completedOpen ? "No completed tasks" : model.completed.length ? "No pending tasks" : "No tasks yet", "Add an item to get started.")]);
+      if (!visible.length && !model.receipts.length && !model.errors.length) section("empty", [read("empty", showCompleted ? "No completed tasks" : model.completed.length ? "No pending tasks" : "No tasks yet", "Add an item to get started.")]);
       section("paging", [
         ...(index > 0 ? [action("previous", "Previous tasks", () => setPage(index - 1))] : []),
         ...((index + 1) * 24 < visible.length ? [action("next", "More tasks", () => setPage(index + 1))] : [])]);
-      if (!completedOpen) section("receipts", model.receipts.slice(0, 24).map(receipt => action(`receipt-${receipt.id}`, receipt.merchantName, () => open(receipt.href),
+      if (!showCompleted) section("receipts", model.receipts.slice(0, 24).map(receipt => action(`receipt-${receipt.id}`, receipt.merchantName, () => open(receipt.href),
         { detail: [receipt.statusLabel, receipt.amount, receipt.date, receipt.title].filter(Boolean).join(" · "), chevron: true })), "Receipts & Due Payments");
       if (model.receipts.length > 24) section("more-receipts", [action("more-receipts", "View all receipts", () => open(model.receipts[0]!.href))]);
       if (model.overflowHref) section("requests", [action("requests", "View all pending requests", () => open(model.overflowHref!), { chevron: true })]);
@@ -141,9 +133,10 @@ function NativeTodoBody({ model, presentation, schedules, selectedSchedule }: Sc
     },
     onSaved: closeEditor, onCancel: closeEditor,
   } : undefined;
-  const active = pathname === ROUTES.ONE_TASKS;
+  const active = pathname === ROUTES.ONE_TASKS && !model.webChildOpen;
   const phase = useNativeWorkspace({ owner: model.owner!, content: { workspace: "tasks", page: "overview", title, enabled: active, backEnabled: false, sections }, actions, current,
-    editor, editorKind: "task", presentationOwner: presentation.owner, contentFrame, active, back });
+    editor, editorKind: "task", presentationOwner: presentation.owner, contentFrame, active, back, activationRevision });
+  if (phase === "web" && !presentation.status.held && model.webChildOpen) return fallback;
   return <AppPageShell as="main" ref={contentFrame} width="reading" aria-busy={phase !== "native"} data-native-todo-workspace={phase}
     nativeTest={{ routeId: ROUTES.ONE_TASKS, marker: phase === "native" ? "native-route-one-tasks" : "native-todo-admission", authState: "authenticated",
       dataState: phase === "blocked" ? "error" : phase !== "native" ? "booting" : model.loading ? "loading" : model.pending.length || model.completed.length ? "loaded" : "empty-valid" }} />;

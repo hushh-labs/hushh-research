@@ -3,9 +3,9 @@
 import { createNativeWorkspaceHandles } from "@/lib/capacitor/use-native-workspace-handoff";
 
 
-import { NativeConnectWorkspace, type NativeConnectPerson } from "../native-connect-workspace";
+import type { NativeConnectModel, NativeConnectPerson } from "../native-connect-workspace";
 import { CircleDiscoveryCardBody, type CircleDiscoveryCardModel } from "../circle-discovery-card";
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import {
   useCallback,
   useContext,
@@ -228,7 +228,13 @@ export function ConnectCirclesTab({
   onCreateDialogOpenChange,
   nativePresentation,
 }: {
-  nativePresentation?: { fallbackTabs?: ReactNode; includeIdeas?: boolean; ideas: CircleDiscoveryCardModel; frameRef: RefObject<HTMLDivElement | null>; selectSurface: (surface: "all" | "circles") => void };
+  nativePresentation?: {
+    fallbackTabs?: ReactNode;
+    includeIdeas?: boolean;
+    ideas: CircleDiscoveryCardModel;
+    selectSurface: NativeConnectModel["selectSurface"];
+    render: (model: NativeConnectModel | null, body: ReactNode) => ReactNode;
+  };
   onSearchActiveChange?: (active: boolean) => void;
   /** Lets the page keep its native beacon and voice metadata truthful without
    *  hoisting circle state into a 2,400-line component. */
@@ -281,8 +287,10 @@ export function ConnectCirclesTab({
     () => (vaultOwnerToken && loadedForSession ? loaded.circles : []),
     [loaded.circles, loadedForSession, vaultOwnerToken],
   );
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [fetching, setLoading] = useState(true);
+  const [loadError, setError] = useState<string | null>(null);
+  const loading = fetching || Boolean(vaultOwnerToken && !loadedForSession);
+  const error = loadedForSession ? loadError : null;
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [detailReloadToken, setDetailReloadToken] = useState(0);
@@ -320,8 +328,10 @@ export function ConnectCirclesTab({
   const joinCode =
     String(searchParams.get(CIRCLE_JOIN_CODE_PARAM) || "").trim() || undefined;
   const trackedSurfaceRef = useRef<string | null>(null);
+  const loadCircles = !nativePresentation || isActive;
 
   useEffect(() => {
+    if (!isActive) return;
     const signature = `${action ?? "list"}:${circleIdParam ? "detail" : "none"}:${joinCode ? "code" : "none"}`;
     if (trackedSurfaceRef.current === signature) return;
     trackedSurfaceRef.current = signature;
@@ -339,7 +349,7 @@ export function ConnectCirclesTab({
       entrySurface: "connect_circles",
       targetType: "circle",
     });
-  }, [action, circleIdParam, joinCode]);
+  }, [isActive, action, circleIdParam, joinCode]);
 
   useEffect(() => {
     if (!vaultOwnerToken) {
@@ -348,6 +358,7 @@ export function ConnectCirclesTab({
       setLoading(false);
       return;
     }
+    if (!loadCircles) return;
     let cancelled = false;
     // Only blank the list when there is nothing painted yet. A refresh of a
     // list already on screen is not a loading state, and reporting one made
@@ -396,12 +407,12 @@ export function ConnectCirclesTab({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vaultOwnerToken, currentUserId, reloadToken, refreshToken]);
+  }, [vaultOwnerToken, currentUserId, reloadToken, refreshToken, loadCircles]);
 
   useEffect(() => {
     onStateChange?.({
       ownerId: currentUserId,
-      loading: loading || Boolean(vaultOwnerToken && !loadedForSession),
+      loading,
       error,
       count: circles.length,
       circles,
@@ -411,7 +422,6 @@ export function ConnectCirclesTab({
     circles,
     currentUserId,
     error,
-    loadedForSession,
     loading,
     onStateChange,
     vaultOwnerToken,
@@ -797,6 +807,7 @@ export function ConnectCirclesTab({
 
   const wrapNative = (fallback: ReactNode, rich = false) => {
     if (!nativePresentation) return fallback;
+    if (!isActive) return nativePresentation.render(null, fallback);
     const people: NativeConnectPerson[] = [...owned, ...joined].map(circle => {
       const kind = systemKindOf(circle);
       const destructive = circle.viewerCapabilities?.canDeleteCircle === true && !kind && !circle.isSystem ? "delete" : circle.viewerCapabilities?.canLeaveCircle === true ? "leave" : null;
@@ -841,7 +852,7 @@ export function ConnectCirclesTab({
       confirm: { key: `type-delete:${pendingType}`, label: "Delete type", enabled: !busy, destructive: true, run: confirmPendingType },
       cancel: () => { if (!listMutationRef.current) setPendingTypeDraft(null); },
     } : undefined;
-    return <NativeConnectWorkspace fallback={fallback} model={{
+    return nativePresentation.render({
       confirmation,
       task: creating, page: creating ? peopleStep ? "circle-people" : "circle-create" : "overview",
       ...(creating && createDestination ? { editor: {
@@ -852,11 +863,12 @@ export function ConnectCirclesTab({
         busy: busy || creation.saving, canSave: creation.canSubmit, error: creation.error || creation.typeError,
         save: creation.prepare, onSaved: creation.advance, onCancel: cancelCreate,
       } } : {}),
-      variant: "circles", frameRef: nativePresentation.frameRef, owner: currentUserId,
+      variant: "circles", owner: currentUserId,
       current: () => listSessionRef.current === listSession && Boolean(vaultOwnerToken),
       surface: "circles", selectSurface: nativePresentation.selectSurface, view: creating ? `create-${creation.step}` : "circles", setView: () => {},
       directory: "", directories: [], query: peopleStep ? addPeople.query : circleQuery, setQuery: peopleStep ? addPeople.changeQuery : setCircleQuery, searchLabel: peopleStep ? "Search contacts" : "Search your and joined circles",
-      summary: peopleStep ? `${addPeople.selected.length} selected · ${addPeople.limit > 0 ? `Choose up to ${addPeople.limit} people` : !addPeople.loading && !addPeople.failed ? "This Circle is full" : "Loading capacity…"}` : !creating && !loading && !error ? `Your circles · ${owned.length} · Joined circles · ${joined.length}` : undefined,
+      summary: peopleStep ? `${addPeople.selected.length} selected · ${addPeople.limit > 0 ? `Choose up to ${addPeople.limit} people` : !addPeople.loading && !addPeople.failed ? "This Circle is full" : "Loading capacity…"}` : creating ? undefined
+        : loading || !loadedForSession || error ? "Your circles" : `Your circles · ${owned.length} · Joined circles · ${joined.length}`,
       heading: peopleStep ? "Add people" : "Your circles", people, loading: peopleStep ? addPeople.loading : loading, error: peopleStep ? addPeople.failed ? "Could not load your contacts." : null : error,
       empty: peopleStep ? addPeople.query ? "No contacts match that name." : "No connections to add yet. You can add people later." : circleQuery.trim() ? "No matching circles" : "No circles yet",
       actions: creating ? taskActions : [
@@ -872,8 +884,8 @@ export function ConnectCirclesTab({
           ...(ideas.expanded && ideas.needsSetup ? [{ key: "ideas-setup", label: "Finish setting up One", run: ideas.onSetupCircles }] : []),
         ] : []),
       ], footer: peopleStep && addPeople.hasMore ? [{ key: "people-more", label: "Load more contacts", enabled: !addPeople.loading && !addPeople.saving, run: addPeople.more }] : [], selectionMode: false, selectionCount: 0, selectionLimit: 0, cancelSelection: () => {},
-      webOnly: rich || !isActive, webChildOpen: createDialogOpen,
-    }} />;
+      webOnly: rich, webChildOpen: createDialogOpen,
+    }, fallback);
   };
 
   if (

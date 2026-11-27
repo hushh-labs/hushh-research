@@ -15,7 +15,7 @@ async function open(page: Page, width: number, journey: string) {
   await page.route("http://localhost/followups", (route) =>
     route.fulfill({
       contentType: "text/html; charset=utf-8",
-      body: `<html data-journey="${journey}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fixture.css}</style></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>`,
+      body: `<!doctype html><html data-journey="${journey}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fixture.css}</style></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>`,
     }),
   );
   await page.route("http://localhost/fixture.js", (route) =>
@@ -130,7 +130,10 @@ for (const width of [393, 1280]) {
     await expect(
       page.getByText("7 conversations", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("4 need you · 2 waiting")).toBeVisible();
+    const board = page.getByRole("region", { name: "Follow-ups", exact: true });
+    await expect(board.locator("header p")).toHaveText("4 need you · 2 waiting");
+    await expect(board.getByRole("region", { name: "To Do", exact: true }).getByRole("article")).toHaveCount(4);
+    await expect(board.getByRole("region", { name: "In Progress", exact: true }).getByRole("article")).toHaveCount(2);
     await page.screenshot({
       path: info.outputPath("followups.png"),
       fullPage: true,
