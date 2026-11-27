@@ -320,7 +320,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const liveTasks = useTodoLiveTasks({
     userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady && choicesLoaded, tasks, selectedCapabilities: selected,
   });
-  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading } = liveTasks;
+  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadError, emailReadError, emailReadLoading } = liveTasks;
   const gmail = useGmailConnectorStatus({
     userId: writeReady && selected.includes("gmail") ? userId : null,
     idTokenProvider: user && selected.includes("gmail") ? idTokenProvider : null,
@@ -656,8 +656,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
               </HelperText>
             </div>
           </SurfaceCard>
-        ) : !itemsLoaded || itemsLoading ||
-          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0) ? (
+        ) : !itemsLoaded || itemsLoading ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -682,7 +681,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
                 {tasks.every(task => task.status === "deleted") ? "No tasks yet" : "No pending tasks"}
               </MediumRowLabel>
               <HelperText as="p" data-profile-role="description" className="mt-1">
-                {tasks.every(task => task.status === "deleted")
+                {liveTasks.sourceLoading
+                  ? "Checking connected task sources…"
+                  : tasks.every(task => task.status === "deleted")
                   ? "Add an item to get started."
                   : "New tasks will appear here."}
               </HelperText>
