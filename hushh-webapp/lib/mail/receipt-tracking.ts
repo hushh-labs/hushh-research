@@ -177,6 +177,11 @@ export function trackBill(doc: ReceiptTrackingDoc, input: NewBill, ctx: Ctx): Re
   return withEvent({ ...doc, bills: [...doc.bills, bill], hiddenPatterns: doc.hiddenPatterns.filter((key) => key !== input.patternKey) }, "bill_added", bill.id, { name: bill.name, source: bill.source }, ctx);
 }
 
+/** Track several bills as one saved change: every one of them is saved, or none is. */
+export function trackBills(doc: ReceiptTrackingDoc, inputs: readonly NewBill[], ctx: Ctx): ReceiptTrackingDoc {
+  return inputs.reduce((current, input) => trackBill(current, input, ctx), doc);
+}
+
 function updateBill(doc: ReceiptTrackingDoc, id: string, change: (bill: TrackedBill) => TrackedBill): ReceiptTrackingDoc {
   return { ...doc, bills: doc.bills.map((bill) => (bill.id === id ? change(bill) : bill)) };
 }

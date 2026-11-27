@@ -63,6 +63,7 @@ export function MailWhySheet({
   target,
   vaultOwnerToken,
   expectedAccount,
+  readMessage,
   onClose,
   onReconnect,
   onUnlock,
@@ -70,6 +71,11 @@ export function MailWhySheet({
   target: WhyTarget | null;
   vaultOwnerToken: string | null;
   expectedAccount: string | null;
+  /**
+   * Reads one message for a mailbox the shared hub cannot serve: a private agent
+   * answers from its own runtime. Absent, the shared Mail reader is used.
+   */
+  readMessage?: (sourceId: string, signal: AbortSignal) => Promise<OpenedOverviewMessage>;
   onClose: () => void;
   onReconnect: () => void;
   onUnlock: () => void;
@@ -86,14 +92,17 @@ export function MailWhySheet({
   const sourceId = viewing?.sourceId ?? null;
   useEffect(() => {
     if (!sourceId) return;
-    if (!vaultOwnerToken) {
+    if (!readMessage && !vaultOwnerToken) {
       setLoaded({ status: "error", error: new MailOverviewError("auth_missing") });
       return;
     }
     const controller = new AbortController();
     setLoaded({ status: "loading" });
-    openMailMessage({ vaultOwnerToken, expectedAccount, sourceId, signal: controller.signal })
-      .then(({ message }) => {
+    (readMessage
+      ? readMessage(sourceId, controller.signal)
+      : openMailMessage({ vaultOwnerToken: vaultOwnerToken as string, expectedAccount, sourceId, signal: controller.signal }).then(({ message }) => message)
+    )
+      .then((message) => {
         if (!controller.signal.aborted) setLoaded({ status: "ready", message });
       })
       .catch((raw: unknown) => {
@@ -102,7 +111,7 @@ export function MailWhySheet({
         if (error.reason !== "aborted") setLoaded({ status: "error", error });
       });
     return () => controller.abort();
-  }, [sourceId, vaultOwnerToken, expectedAccount, attempt]);
+  }, [sourceId, vaultOwnerToken, expectedAccount, readMessage, attempt]);
 
   const close = useCallback(() => {
     setViewing(null);
@@ -111,8 +120,9 @@ export function MailWhySheet({
 
   const failure = loaded.status === "error" ? mailReadFailureCopy(loaded.error) : null;
   const message = loaded.status === "ready" ? loaded.message : null;
+  // A message opened from a list has no day of its own; none is invented.
   const eyebrow = viewing
-    ? `${viewing.from} · ${formatEvidenceDay(viewing.on)}`
+    ? [viewing.from, viewing.on ? formatEvidenceDay(viewing.on) : ""].filter(Boolean).join(" · ")
     : "Why this?";
 
   return (

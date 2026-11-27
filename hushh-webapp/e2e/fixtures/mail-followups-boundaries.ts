@@ -163,6 +163,15 @@ export const MailFollowupsService = {
     }
     return { account, connection, address: account + "@example.test" };
   },
+  recent: async (box: FollowupMailbox) => ({
+    items: [
+      {
+        source: finding(box.account).source,
+        subject: "Signed agreement",
+        sender: "Lab contact",
+      },
+    ],
+  }),
   search: async (box: FollowupMailbox) => ({
     items: [
       {

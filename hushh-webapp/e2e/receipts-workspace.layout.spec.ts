@@ -41,7 +41,7 @@ test.afterEach(() => expect(paymentCalls).toEqual([]));
 
 async function showRecurring(page: Page) {
   await page.getByRole("tab", { name: "Recurring" }).click();
-  await expect(page.getByRole("heading", { name: "Recurring payments" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose your bills" })).toBeVisible();
 }
 
 /** The bottom bar must never cover the last thing on the screen once it is scrolled into view. */
@@ -84,17 +84,17 @@ for (const width of [393, 1024, 1440]) {
     await showRecurring(page);
     await expect(page.getByRole("button", { name: /History/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Add bill/ })).toBeVisible();
-    await expect(page.getByTestId("recurring-view")).toContainText("It doesn’t pay them.");
+    await expect(page.getByTestId("recurring-view")).toContainText("It doesn’t pay bills.");
+    await expect(page.getByText(/Step \d of/)).toHaveCount(0);
+    await expect(page.getByTestId("bill-count")).toContainText("recurring payments");
     const rows = page.getByTestId("bill-row");
     const electricity = rows.filter({ hasText: "Electricity bill" });
-    await expect(electricity).toContainText("Next 26 Dec");
+    await expect(electricity).toContainText("Monthly · 26 Dec");
     await expect(electricity).toContainText("Last");
     await expect(electricity).toContainText("₹1,780");
     await expect(electricity).toContainText("est.");
     await expect(rows.filter({ hasText: "Maple Homes" })).toContainText("₹24,000");
-    await expect(rows.filter({ hasText: "Maple Homes" })).toContainText("receipts show ₹24,000 paid");
-    await expect(rows.filter({ hasText: "Wi-Fi" })).toContainText("Next 30 Dec");
-    await expect(page.getByTestId("next-payment")).toContainText("Electricity bill · 26 Dec 2026 · Amount when the bill arrives");
+    await expect(rows.filter({ hasText: "Wi-Fi" })).toContainText("Monthly · 30 Dec");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: testInfo.outputPath(`recurring-${width}.png`), animations: "disabled" });
   });
@@ -104,27 +104,28 @@ test("Track, skip, change date and stop a bill; each choice survives a reload an
   await openReceipts(page, 393);
   await showRecurring(page);
   const wifi = () => page.getByTestId("bill-row").filter({ hasText: "Wi-Fi" });
-  await wifi().getByRole("button", { name: "Track bill" }).click();
+  await wifi().getByRole("checkbox", { name: "Select Wi-Fi" }).check();
+  await expect(page.getByTestId("bill-selection-bar")).toContainText("1 bill selected");
+  await page.getByRole("button", { name: "Track selected bills" }).click();
   await expect(wifi()).toHaveAttribute("data-bill-status", "tracking");
-  await expect(page.getByTestId("next-payment")).toContainText("Wi-Fi");
 
   await wifi().getByTestId("bill-menu").click();
   await page.getByRole("menuitem", { name: "Skip this one" }).click();
   await expect(page.getByTestId("recurring-notice")).toContainText("Skipped Wi-Fi on 30 Dec. Next is 30 Jan.");
-  await expect(wifi()).toContainText("Next 30 Jan");
+  await expect(wifi()).toContainText("30 Jan");
 
   await wifi().getByTestId("bill-menu").click();
   await page.getByRole("menuitem", { name: "Change date" }).click();
   await page.getByLabel("Next bill date").fill("2027-02-03");
   await page.getByRole("button", { name: "Save date" }).click();
-  await expect(wifi()).toContainText("Next 3 Feb");
-  await expect(wifi()).toContainText("your date");
+  await expect(wifi()).toContainText("3 Feb");
+  await expect(wifi()).not.toContainText("est.");
 
   await page.reload();
   await awaitProductFont(page);
   await showRecurring(page);
   await expect(wifi()).toHaveAttribute("data-bill-status", "tracking");
-  await expect(wifi()).toContainText("Next 3 Feb");
+  await expect(wifi()).toContainText("3 Feb");
 
   await page.getByRole("button", { name: /History/ }).click();
   const history = page.getByTestId("history-sheet");
