@@ -94,7 +94,7 @@ SENTINEL_MODEL_GATEWAY_URL: "http://sentinel-egress-proxy.hussh-sandbox-system.s
 EOF
 
 EDGE_SECRETS="HUSSH_EDGE_ADMIN_TOKEN=sandbox-edge-admin-token:latest,HUSSH_SANDBOX_IDENTITY_MASTER_KEY=sandbox-edge-identity-master-key:latest,SENTINEL_CONTROL_TOKEN=sentinel-control-token:latest"
-for pub_secret in CONSENT_ED25519_PUBLIC_KEYS OWNER_FEED_ED25519_PUBLIC_KEYS; do
+for pub_secret in CONSENT_ED25519_PUBLIC_KEYS OWNER_FEED_ED25519_PUBLIC_KEYS GOOGLE_IOS_CONNECTOR_CLIENT_ID; do
   if gcloud secrets describe "${pub_secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
     EDGE_SECRETS="${EDGE_SECRETS},${pub_secret}=${pub_secret}:latest"
   fi
