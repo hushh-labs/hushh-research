@@ -41,7 +41,13 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
       try {
         const status = await client.status(request.signal);
         if (!status.available || !status.templates.includes(FILE_ORGANIZATION_TEMPLATE)) {
-          if (!request.signal.aborted) setError("File scheduling is unavailable on your private agent.");
+          if (!request.signal.aborted) {
+            setError(
+              status.code === "SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED" || status.code === "SCHEDULE_DELIVERY_NOT_CONFIGURED"
+                ? "File scheduling requires a Personal Sandbox or BYOC pod. Switch your hosting in Settings > Hosting to enable scheduled runs."
+                : "File scheduling is unavailable on your private agent.",
+            );
+          }
           return;
         }
         const entries = await withUnlockedFilesConnection({ ...credentials, signal: request.signal }, async hosting => {
