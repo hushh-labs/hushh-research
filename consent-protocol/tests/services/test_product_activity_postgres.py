@@ -5,6 +5,7 @@ drops its own database because migration201 deliberately governs public DDL.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -1381,7 +1382,7 @@ async def _assert_all_account_feature_aggregate(url):
                 action_id,
                 catalog["revision"],
                 phase,
-                operation,
+                hashlib.sha256(operation.encode()).hexdigest() if operation is not None else None,
                 observed,
                 at - timedelta(seconds=1) if expired else observed + timedelta(days=7),
             )
@@ -1534,11 +1535,14 @@ async def _assert_all_account_feature_aggregate(url):
         await conn.execute("""CREATE TEMP TABLE one_product_activity_observations
           (LIKE public.one_product_activity_observations INCLUDING DEFAULTS INCLUDING CONSTRAINTS)
           ON COMMIT DROP""")
+        # The prior public-table query was already prepared on this connection.
+        # Reprepare after introducing its isolated temporary overflow table.
+        await conn.reload_schema_state()
         # The source-row sentinel must reject a truncation instead of publishing it.
         await conn.execute(
             """INSERT INTO one_product_activity_observations
           (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at)
-          SELECT lpad(to_hex(i),64,'0'),$1,$2,'agent_email',$3,$4,'client_reported','returned',NULL,$5,$5+INTERVAL '7 days'
+          SELECT lpad(to_hex(i),64,'0'),$1,$2,'agent_email',$3,$4,'client_reported','returned',NULL,$5::timestamptz,$5::timestamptz+INTERVAL '7 days'
           FROM generate_series(10000,110001) i""",
             owners[0],
             generations[owners[0]],
