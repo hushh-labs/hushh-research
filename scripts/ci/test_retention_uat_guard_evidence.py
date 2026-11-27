@@ -80,6 +80,28 @@ def qualify(run, job, log, source, environment="uat", workflow=None):
 
 
 class UatGuardEvidenceTest(unittest.TestCase):
+    def test_main_train_and_partition_reader_require_the_exact_static_tuple(self):
+        for publication_blob, size in (
+            ("f64c9be54ef556d959cc31f082ae2322a9e833d8", 34348),
+            ("e747e1a3a2adcfb651eefe06679481770ffd48d7", 34465),
+        ):
+            source = {
+                base.OWNER: {"sha": "697d819d55d46716505ffe4e3b0c2b8b9482a611", "size": 99773},
+                base.WORKFLOW: {"sha": "d3f33618aa93361afea1cf99dadd8717ef263cd3", "size": 22339},
+                evidence.PUBLICATION: {"sha": publication_blob, "size": size},
+                "scripts/ci/retention_pass_diagnostics.py": {
+                    "sha": "86ffd27e4c189c63ec493a662b9e843b815996ed", "size": 6608,
+                },
+            }
+            with self.subTest(publication=publication_blob):
+                self.assertTrue(evidence._reviewed(source, source[base.WORKFLOW], static=True))
+                for path in source:
+                    for field, replacement in (("sha", "f" * 40), ("size", source[path]["size"] + 1)):
+                        changed = copy.deepcopy(source)
+                        changed[path][field] = replacement
+                        self.assertFalse(evidence._reviewed(changed, changed[base.WORKFLOW], static=True))
+                self.assertFalse(evidence._reviewed(source, {"sha": "f" * 40, "size": 22339}, static=True))
+
     def test_exact_guard_refusal_qualifies_under_each_reviewed_source(self):
         for diagnostic in sorted(evidence.DIAGNOSTICS):
             for profile in evidence.SOURCE_PROFILES:

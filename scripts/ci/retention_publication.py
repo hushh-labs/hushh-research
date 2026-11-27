@@ -443,7 +443,7 @@ def _inventory_response(owner, response, expected_total, offset, seen, *, search
     _require(
         owner,
         type(count) is int
-        and 0 <= count <= _HISTORY_SEARCH_LIMIT
+        and 0 <= count
         and (search_sample or count < _HISTORY_SEARCH_LIMIT)
         and (expected_total is None or count == expected_total)
         and isinstance(runs, list)
@@ -536,10 +536,12 @@ def _creation_times(owner, runs, first, last):
 def _inventory(owner, repository, *, partition_capped=False):
     """Finish bounded metadata discovery before any checkpoint can end the walk."""
     first_page = _inventory_page(owner, repository, 1)
-    if not partition_capped or first_page.get("total_count") != _HISTORY_SEARCH_LIMIT:
+    count = first_page.get("total_count")
+    if not partition_capped or type(count) is not int or count < _HISTORY_SEARCH_LIMIT:
         return _complete_inventory_window(owner, repository, first_page, set())
 
-    # GitHub caps filtered searches at 1,000. Partition on immutable creation
+    # GitHub limits accessible search rows to 1,000 even when total_count is
+    # larger. Partition every saturated window on immutable creation
     # timestamps and retain every window, including old runs with recent reruns.
     seen, sampled, collected = set(), set(), []
     windows = [(None, None, first_page)]
@@ -548,7 +550,8 @@ def _inventory(owner, repository, *, partition_capped=False):
         created = _creation_filter(first, last)
         if response is None:
             response = _inventory_page(owner, repository, 1, created)
-        if response.get("total_count") != _HISTORY_SEARCH_LIMIT:
+        count = response.get("total_count")
+        if type(count) is not int or count < _HISTORY_SEARCH_LIMIT:
             rows = _complete_inventory_window(owner, repository, response, seen, created)
             _creation_times(owner, rows, first, last)
             collected.extend(rows)
@@ -605,7 +608,7 @@ def assert_published(owner, repository, environment):
     """Inspect executions that can follow the exact published Save boundary, regardless of run ID."""
     other = owner.SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
     relevant = []
-    for run in _inventory(owner, repository, partition_capped=environment == "uat"):
+    for run in _inventory(owner, repository, partition_capped=True):
         if (
             run.get("path") != WORKFLOW
             or run.get("head_branch") != "main"
