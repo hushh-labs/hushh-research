@@ -18,3 +18,9 @@ const FIXTURE_USER = {
 export function useAuth() {
   return { user: FIXTURE_USER, userId: FIXTURE_USER.uid };
 }
+
+// Synthetic HTTP transport boundary: production ReferralService and apiJson
+// serialize/parse real contracts; the browser intercepts every request.
+export const ApiService = {
+  apiFetch: (path: string, options?: RequestInit) => globalThis.fetch(path, options),
+};
