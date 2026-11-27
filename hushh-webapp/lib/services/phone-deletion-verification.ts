@@ -11,6 +11,11 @@ import {
   signOut as firebaseSignOut,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
+import {
+  isInteractiveRecaptchaChallengeOpen,
+  WEB_VERIFY_INITIAL_TIMEOUT_MS,
+  WEB_VERIFY_INTERACTIVE_EXTENSION_MS,
+} from "@/lib/auth/recaptcha-challenge-dom";
 import { HushhAuth } from "@/lib/capacitor";
 import type { PhoneLinkConflict } from "./firebase-phone-link";
 import type { PhoneLinkIntent } from "@/lib/capacitor/types/auth";
@@ -157,7 +162,59 @@ export async function startDeletionPhoneProof(
     if (!user || user.uid !== context.expectedUserId) throw new Error("session_changed");
     if (!recaptchaVerifier) throw new Error("recaptcha_unavailable");
     const provider = new PhoneAuthProvider(auth);
-    const verificationId = await provider.verifyPhoneNumber(normalizedPhoneNumber, recaptchaVerifier);
+    const verificationId = await new Promise<string>((resolve, reject) => {
+      if (context.signal?.aborted) {
+        reject(new Error("session_changed"));
+        return;
+      }
+      let settled = false;
+      let extended = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error("session_changed"));
+      };
+      const expire = () => {
+        if (settled) return;
+        if (!extended && isInteractiveRecaptchaChallengeOpen()) {
+          extended = true;
+          timer = setTimeout(expire, WEB_VERIFY_INTERACTIVE_EXTENSION_MS);
+          return;
+        }
+        settled = true;
+        context.signal?.removeEventListener("abort", onAbort);
+        try {
+          (recaptchaVerifier as { clear?: () => void }).clear?.();
+        } catch {
+          // Ignore verifier clear errors on timeout.
+        }
+        reject(
+          Object.assign(new Error("Sending the verification code took too long. Request a new code."), {
+            code: "phone-verification-start-timeout",
+          }),
+        );
+      };
+      timer = setTimeout(expire, WEB_VERIFY_INITIAL_TIMEOUT_MS);
+      context.signal?.addEventListener("abort", onAbort, { once: true });
+      Promise.resolve(provider.verifyPhoneNumber(normalizedPhoneNumber, recaptchaVerifier)).then(
+        (id) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          context.signal?.removeEventListener("abort", onAbort);
+          resolve(id);
+        },
+        (err) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          context.signal?.removeEventListener("abort", onAbort);
+          reject(err);
+        },
+      );
+    });
     if (auth.currentUser !== user) throw new Error("session_changed");
     return { verificationId };
   } catch (error) {

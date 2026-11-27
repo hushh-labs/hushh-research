@@ -87,12 +87,27 @@ export function PhoneMandatePageContent() {
     sessionVerificationRequired,
     retrySessionVerification,
     startPhoneVerification,
+    startPhoneReplacement,
     confirmPhoneVerification,
     confirmPhoneTransfer, confirmPhoneLinkedDeletion,
     refreshUser,
     signOut,
   } = useAuth();
   const recoveryHandoff = usePhoneRecoveryHandoff(user, signOut);
+
+  const startOnboardingPhoneVerification = useCallback(
+    (targetPhone: string, options?: { resendCode?: boolean; transport?: "sms" }) => {
+      const normalizedTarget = String(targetPhone ?? "").trim();
+      const hasDifferentUnclaimedProviderPhone =
+        !phoneNumber &&
+        Boolean(user?.phoneNumber && user.phoneNumber !== normalizedTarget);
+      if (hasDifferentUnclaimedProviderPhone && typeof startPhoneReplacement === "function") {
+        return startPhoneReplacement(targetPhone, options);
+      }
+      return startPhoneVerification(targetPhone, options);
+    },
+    [phoneNumber, startPhoneReplacement, startPhoneVerification, user?.phoneNumber],
+  );
 
   useEffect(() => {
     if (loading || user) {
@@ -405,7 +420,7 @@ export function PhoneMandatePageContent() {
               key={user.uid}
               mode="link"
               currentPhoneNumber={phoneNumber}
-              startVerification={startPhoneVerification}
+              startVerification={startOnboardingPhoneVerification}
               confirmVerification={confirmPhoneVerification}
               confirmTransfer={confirmPhoneTransfer}
               confirmLinkedDeletion={confirmPhoneLinkedDeletion}
