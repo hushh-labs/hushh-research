@@ -7,22 +7,23 @@ import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/l
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CredentialsVaultService, sealTransientCredentialUse } from "@/lib/pkm/credentials-vault-service";
+import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
+import { assertBrowserCredentialFillEligible, sealTransientCredentialUse, type BrowserLoginSelection } from "@/lib/pkm/website-credential-lease";
+import { WebsiteCredentialError, type WebsiteLoginSummary } from "@/lib/pkm/website-credential";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, subscribeAuthSessionGeneration, getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { useVault } from "@/lib/vault/vault-context";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { ApiService } from "@/lib/services/api-service";
-import { agentRecipientFromBinding } from "@/lib/one/ai-selection-recipient";
 import type { ComputerUseSnapshot } from "@/lib/computer-use/contracts";
 import type { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 
-type LoginChoice = Readonly<{ id: string; label: string; hint: string; transient: boolean }>;
+type LoginChoice = WebsiteLoginSummary;
+type Prepared = { item: WebsiteLoginSummary; selection: BrowserLoginSelection; reviewId: string; operationId: string; epoch: number; leaseKeyId: string };
 const EMPTY_VIEW: Readonly<{ open: boolean; rows: readonly LoginChoice[]; loading: boolean }> = { open: false, rows: [], loading: false };
 
-/** Owner-only picker. Vault-only secrets are sealed transiently inside the existing vault helper. */
-export function ComputerUseCredentials({ controller, snapshot, route, pending }: {
-  controller: ComputerUseTaskController; snapshot: ComputerUseSnapshot; route: string; pending: boolean;
+/** Fixed host security chrome. Only Allow can approve and dispatch a one-use lease. */
+export function ComputerUseCredentials({ controller, snapshot, route, pending, onTypeMyself }: {
+  controller: ComputerUseTaskController; snapshot: ComputerUseSnapshot; route: string; pending: boolean; onTypeMyself: () => void;
 }) {
   const { vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
   const authGeneration = useSyncExternalStore(subscribeAuthSessionGeneration, getAuthSessionGeneration, () => null);
@@ -37,9 +38,6 @@ export function ComputerUseCredentials({ controller, snapshot, route, pending }:
     [controller, epoch, vaultKey, privacy?.generation, allowed, visibility, authGeneration]);
   const latest = useRef(presentation);
   const request = useRef<AbortController | null>(null);
-  const chooserOwner = useRef<ReturnType<typeof snapshotValidatedAuthSessionOwner>>(null);
-  const chooserRequest = useRef<{ operationId: string; epoch: number; origin: string } | null>(null);
-  const chooserPresentation = useRef(presentation);
   useLayoutEffect(() => {
     latest.current = presentation;
     presentation.live = allowed;
@@ -62,87 +60,102 @@ export function ComputerUseCredentials({ controller, snapshot, route, pending }:
   };
   const [view, setView] = useOwnerPresentationState(presentation, EMPTY_VIEW);
   const { open, rows, loading } = view;
+  const [prepared, setPrepared] = useOwnerPresentationState<Prepared | null>(presentation, null);
+  const [dispatching, setDispatching] = useOwnerPresentationState(presentation, false);
   const close = () => { request.current?.abort(); setView(EMPTY_VIEW); };
   useBackLayer(route, open ? 5 : 0, () => { close(); return true; });
 
+  const selection = snapshot.credentialRequest;
+  const assertCurrent = () => {
+    const latest = controller.getSnapshot();
+    if (!presentationCurrent() || !owner || !isValidatedAuthSessionOwnerCurrent(owner) || !latest.verified ||
+      !selection || latest.snapshot?.controlEpoch !== snapshot.controlEpoch ||
+      latest.snapshot?.credentialRequest?.operationId !== selection.operationId ||
+      latest.snapshot.credentialRequest.leaseKey.id !== selection.leaseKey.id ||
+      latest.snapshot.credentialRequest.origin !== selection.origin || latest.snapshot.controlOwner !== "agent") throw new Error("BROWSER_CREDENTIAL_SELECTION_CHANGED");
+  };
+  const context = () => {
+    assertCurrent();
+    return { userId: owner!.userId, vaultKey, vaultOwnerToken: getVaultOwnerToken(), beforeEffect: async () => assertCurrent() };
+  };
   async function choose(): Promise<void> {
-    const owner = snapshotValidatedAuthSessionOwner();
-    const selection = snapshot.credentialRequest;
-    const vaultOwnerToken = getVaultOwnerToken();
-    if (!selection || owner?.userId !== controller.binding.ownerId || !presentationCurrent() || !vaultKey || !vaultOwnerToken) {
-      morphyToast.info("Unlock Website logins to choose an account, or take control to sign in privately.");
-      return;
-    }
-    chooserOwner.current = owner;
-    chooserPresentation.current = presentation;
-    chooserRequest.current = { operationId: selection.operationId, epoch: snapshot.controlEpoch, origin: selection.origin };
+    if (!selection || !allowed || pending || dispatching) return;
     const abort = new AbortController();
     request.current?.abort(); request.current = abort;
-    const current = () => {
-      const latest = controller.getSnapshot();
-      if (!presentationCurrent() || abort.signal.aborted || !isValidatedAuthSessionOwnerCurrent(owner) || !latest.verified
-        || latest.snapshot?.controlEpoch !== snapshot.controlEpoch
-        || latest.snapshot?.credentialRequest?.operationId !== selection.operationId) throw new Error("BROWSER_OWNER_CHANGED");
-    };
     setView({ open: true, rows: [], loading: true });
     try {
-      const transport = controller.transport.credentials;
-      if (!transport) throw new Error("BROWSER_CREDENTIALS_UNAVAILABLE");
-      const [summaries, available] = await Promise.all([
-        CredentialsVaultService.list({ userId: owner.userId, vaultKey, vaultOwnerToken, beforeEffect: async () => current() }),
-        transport(controller.binding, selection.origin, abort.signal),
-      ]);
-      current();
-      const admitted = new Set(available.map(item => item.handle));
-      const rows = summaries.filter(item => (admitted.has(item.id) || item.autonomyPolicy === "vault_only") && item.boundOrigins.includes(selection.origin))
-        .map(item => ({ id: item.id, label: item.label, hint: item.usernameHint, transient: item.autonomyPolicy === "vault_only" }));
-      setView({ open: true, rows, loading: false });
+      const summaries = await SecretsVaultService.listWebsiteLogins(context());
+      assertCurrent();
+      if (!abort.signal.aborted) setView({ open: true, rows: summaries.filter(item => item.boundOrigins.includes(selection.origin)), loading: false });
     } catch {
-      if (presentationCurrent() && !abort.signal.aborted) { close(); morphyToast.error("Couldn’t load saved logins. Take control to sign in privately."); }
+      if (presentationCurrent() && !abort.signal.aborted) { close(); morphyToast.error("Couldn’t load saved logins. Type the sign-in yourself or try again."); }
     } finally { if (request.current === abort) setView(value => ({ ...value, loading: false })); }
   }
-
-  function use(id: string, transient: boolean): void {
-    const owner = chooserOwner.current;
-    const chosen = chooserRequest.current;
-    close();
-    const operation = (async () => {
-      const selection = snapshot.credentialRequest;
-      const vaultOwnerToken = getVaultOwnerToken();
-      if (!presentationCurrent() || chooserPresentation.current !== presentation || !owner || owner.userId !== controller.binding.ownerId || !vaultKey || !vaultOwnerToken || !selection
-        || chosen?.operationId !== selection.operationId || chosen.epoch !== snapshot.controlEpoch || chosen.origin !== selection.origin) throw new Error("BROWSER_OWNER_CHANGED");
-      const current = () => {
-        const latest = controller.getSnapshot();
-        if (!presentationCurrent() || !isValidatedAuthSessionOwnerCurrent(owner) || !latest.verified || latest.snapshot?.controlEpoch !== snapshot.controlEpoch
-          || latest.snapshot?.credentialRequest?.operationId !== selection.operationId) throw new Error("BROWSER_CREDENTIAL_SELECTION_CHANGED");
-      };
-      current();
-      if (!transient) return controller.useCredential(id);
-      if (!snapshot.authorizationExpiresAt || snapshot.authorizationExpiresAt <= Date.now() / 1000) throw new Error("BROWSER_AUTHORIZATION_EXPIRED");
-      const context = await ApiService.ownerCredentialSealContext(owner.userId, () => { try { current(); return true; } catch { return false; } });
-      const recipient = await agentRecipientFromBinding(context, { requiredScope: "browser.control", ownerCloudOnly: false });
-      current();
-      const payload = await sealTransientCredentialUse({ userId: owner.userId, vaultKey, vaultOwnerToken, beforeEffect: async () => current() }, id,
-        { ...controller.binding, taskExpiresAt: snapshot.authorizationExpiresAt, operationId: selection.operationId, controlEpoch: snapshot.controlEpoch, origin: selection.origin, recipient });
-      current();
-      return controller.useTransientCredential(id, payload);
-    })();
-    morphyToast.promise(operation, { loading: "Preparing private sign-in…", success: "Private sign-in requested.",
-      error: "Couldn’t confirm private sign-in. Check the current task before continuing." });
-    void operation.catch(() => undefined);
+  async function prepare(item: WebsiteLoginSummary, rememberSession = item.staySignedInEnabled): Promise<void> {
+    if (!selection || pending || dispatching) return;
+    setPrepared(null); close(); setDispatching(true);
+    try {
+      const fresh = await SecretsVaultService.websiteLoginSnapshot(context(), item.id);
+      assertCurrent();
+      if (fresh.item.revision !== item.revision || fresh.item.updated_at !== item.updatedAt) throw new Error("BROWSER_CREDENTIAL_SELECTION_CHANGED");
+      assertBrowserCredentialFillEligible(fresh.item);
+      const selected = { recordRevision: fresh.item.revision, sourceContentRevision: fresh.contentRevision, sourceManifestRevision: fresh.manifestRevision, rememberSession };
+      await controller.prepareCredential(item.id, selected);
+      assertCurrent();
+      const review = controller.getSnapshot().snapshot?.review;
+      if (review?.purpose !== "credential_fill") throw new Error("BROWSER_CREDENTIAL_REVIEW_REQUIRED");
+      setPrepared({ item, selection: selected, reviewId: review.id, operationId: selection.operationId, epoch: snapshot.controlEpoch, leaseKeyId: selection.leaseKey.id });
+    } catch (error) {
+      if (presentationCurrent()) morphyToast.error(error instanceof WebsiteCredentialError && error.code === "WEBSITE_BROWSER_MANUAL_REQUIRED"
+        ? "Use Type myself for this saved login." : "Couldn’t prepare this sign-in. Check the current task before continuing.");
+    } finally { if (presentationCurrent()) setDispatching(false); }
   }
-
-  return <>
-    <ShellActionSurface variant="pill" className="min-h-11" disabled={!allowed || pending || snapshot.inputPending || snapshot.credentialEntryActive || Boolean(snapshot.review)}
-      onClick={() => { void choose(); }}>Use saved login</ShellActionSurface>
+  async function allow(): Promise<void> {
+    if (!prepared || !selection || pending || dispatching) return;
+    setDispatching(true);
+    try {
+      assertCurrent();
+      const review = controller.getSnapshot().snapshot?.review;
+      if (review?.purpose !== "credential_fill" || review.id !== prepared.reviewId || prepared.operationId !== selection.operationId ||
+        prepared.epoch !== snapshot.controlEpoch || prepared.leaseKeyId !== selection.leaseKey.id) throw new Error("BROWSER_CREDENTIAL_SELECTION_CHANGED");
+      // This explicit human action consumes the existing exact review receipt.
+      await controller.review(prepared.reviewId);
+      assertCurrent();
+      if (controller.getSnapshot().snapshot?.review) throw new Error("BROWSER_CREDENTIAL_REVIEW_REQUIRED");
+      if (!snapshot.authorizationExpiresAt) throw new Error("BROWSER_AUTHORIZATION_EXPIRED");
+      const payload = await sealTransientCredentialUse(context(), prepared.item.id, { ...prepared.selection,
+        podId: controller.binding.podId, taskId: controller.binding.taskId, incarnation: controller.binding.incarnation,
+        taskExpiresAt: snapshot.authorizationExpiresAt, operationId: selection.operationId, controlEpoch: snapshot.controlEpoch,
+        origin: selection.origin, leaseKey: selection.leaseKey });
+      assertCurrent();
+      await controller.useTransientCredential(prepared.item.id, payload);
+      if (presentationCurrent()) setPrepared(null);
+    } catch {
+      if (presentationCurrent()) { setPrepared(null); morphyToast.error("Sign-in was not confirmed. Check the current task; it will not be sent again automatically."); }
+    } finally { if (presentationCurrent()) setDispatching(false); }
+  }
+  return <section className="space-y-2" aria-label="Private website sign-in" data-testid="browser-saved-login-prompt">
+    <p className="font-medium">Sign in to {selection?.origin}?</p>
+    <p className="text-xs text-muted-foreground">Only you can allow this sign-in. One never sees your password.</p>
+    {prepared ? <><p className="text-sm">{prepared.item.label}</p>
+      <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={prepared.selection.rememberSession} disabled={pending || dispatching}
+        onChange={event => { void prepare(prepared.item, event.target.checked); }} />Stay signed in for this site</label></> : null}
+    <div className="flex flex-wrap gap-2">
+      <ShellActionSurface variant="pill" className="min-h-11" disabled={!allowed || pending || dispatching || snapshot.credentialEntryActive ||
+        Boolean(snapshot.review && snapshot.review.purpose !== "credential_fill")}
+        onClick={() => { void choose(); }}>Choose saved login</ShellActionSurface>
+      <ShellActionSurface variant="pill" className="min-h-11" disabled={!allowed || pending || dispatching || !prepared}
+        onClick={() => { void allow(); }}>Allow</ShellActionSurface>
+      <ShellActionSurface variant="pill" className="min-h-11" disabled={pending || dispatching}
+        onClick={() => { setPrepared(null); close(); onTypeMyself(); }}>Type myself</ShellActionSurface>
+    </div>
     <Dialog open={open} onOpenChange={next => { if (!next) close(); }} modal>
-      <DialogContent><DialogHeader><DialogTitle>Choose a website login</DialogTitle>
-        <DialogDescription>Only saved logins for this approved website are available. Passwords stay hidden from the AI model.</DialogDescription></DialogHeader>
+      <DialogContent><DialogHeader><DialogTitle>Choose a saved login</DialogTitle>
+        <DialogDescription>Only logins for the verified website are shown. Choosing an account does not sign in.</DialogDescription></DialogHeader>
         {loading ? <p role="status">Loading saved logins…</p> : rows.length ? rows.map(row =>
-          <ShellActionSurface key={row.id} variant="pill" className="min-h-11" onClick={() => use(row.id, row.transient)}>
-            {row.label}{row.hint ? ` · ${row.hint}` : ""}
-          </ShellActionSurface>) : <p role="status">No available saved login. Take control to sign in privately.</p>}
+          <ShellActionSurface key={row.id} variant="pill" className="min-h-11" onClick={() => { void prepare(row); }}>{row.label}</ShellActionSurface>
+        ) : <p role="status">No saved login for this site. Choose Type myself to sign in privately.</p>}
       </DialogContent>
     </Dialog>
-  </>;
+  </section>;
 }

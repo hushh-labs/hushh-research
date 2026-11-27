@@ -2036,42 +2036,33 @@
   },
   {
     "route": "/one/pkm/logins",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/profile/pkm-settings-shell.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
     "voicePlaybook": {
-      "playbookId": "route.one.pkm.logins",
-      "purpose": "Help the owner open secure website login controls. Passwords and verification secrets stay outside chat and model processing.",
-      "screen": "pkm_logins",
+      "playbookId": "route.one.pkm.logins.compatibility",
+      "purpose": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+      "screen": "pkm",
       "entryCue": "",
       "proactivity": "ambient",
-      "primaryActionId": "route.one_pkm_logins",
-      "happyPathActionIds": [
-        "route.one_pkm_logins"
-      ],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
-        "blocked": "Explain the current guard and retain the goal.",
+        "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
-        "failed": "Acknowledge the failure without claiming completion.",
+        "failed": "Acknowledge the redirect failure without claiming completion.",
         "timeout": "Retain the goal and offer one safe retry.",
-        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "callbackError": "Return to the verified root Chat route without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Navigation is complete after the secure website login page opens. Credential edits require the owner to use its private controls.",
-      "nextRoute": "/one/pkm/logins",
+      "completionBoundary": "The redirect completes after Memory opens; secret use still requires the unlocked owner and explicit Allow.",
+      "nextRoute": "/one/pkm",
       "returnPolicy": "stay",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "outOfScopeBehavior": "Use the canonical Memory Secrets controls."
     },
     "backVerification": {
+      "kind": "redirect",
+      "reason": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
       "cases": [
         {
           "href": "/one/pkm/logins",
@@ -2081,8 +2072,7 @@
             "transitionMode": "full"
           }
         }
-      ],
-      "kind": "parent"
+      ]
     }
   },
   {

@@ -4968,14 +4968,12 @@
       "native_surface_id": "native-route-pkm-logins",
       "page_file": "app/one/pkm/logins/page.tsx",
       "pathname": "/one/pkm/logins",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.one_pkm_logins"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
-        "playbook_id": "route.one.pkm.logins"
+        "playbook_id": "route.one.pkm.logins.compatibility"
       }
     },
     {
@@ -7451,21 +7449,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "467818b237107d96e7058a5a1be19282f10c1ba9ef3a98f685c6f34167b31859",
+    "action_gateway": "4b10c0be7067f52fa59f1c0f0e0b214f3c42f0ae7527bf722afac784ee92a662",
     "agent_registry": "38b8995d5963099d8a81afd4fe0631fbe21c1da4ac92f3679ff115590f92e066",
     "cache_manifest": "c93156b53a2ffc21d245b7926d7268d842206406bca2263d3948852c90e0d995",
     "data_plane": "6f22c833403cbeee8c8682faf79489b3297edfb31564ef8204f3ca638b14a5f0",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "5c75d48168b59f7a78fec7857999cca200e74f5504689c89670b1075afae973b",
-    "route_index": "90b14044e5196dd7aacf1ecac607d4abb362bec5c1c10dcab9d1b3e9935b9156",
-    "route_layout": "7a490418df00384bca553fb7fd1486d7fa1768e13e36194eb42db3d11db3e42d",
-    "surface_map": "3a957ab0696082c27ee907bf957a3057d6dae6f98fcaaaa481d6738217fc8de6",
+    "route_index": "f3ae3fa76edfdb6d0b206847d1dda4ed67957a69b405d754af900260fba86d06",
+    "route_layout": "310db01afe359bc9fc1948cc104f763522d427c6a03e233c1612bde724091697",
+    "surface_map": "7fa786fab70132b0f173462454816752fb77e2f4499e507a98524b6400031fb9",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 358,
+    "actions": 357,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,

@@ -14,6 +14,7 @@ const NON_REQUESTABLE_PROJECTION_STATES = new Set<string>([
 ]);
 
 type ExposureManifest = {
+  domain?: string;
   externalizable_paths?: string[];
   paths?: Array<{
     json_path?: string;
@@ -48,6 +49,8 @@ function privateScopeRoots(manifest: ExposureManifest): string[] {
 
 /** The same manifest admission applies to exact exports and owner-labelled projections. */
 export function externalizableManifestLeaves(manifest: ExposureManifest): string[] {
+  // Retired credentials are not a new unknown/public domain, even if an old manifest claimed exposure.
+  if (manifest.domain?.trim().toLowerCase() === "credentials") return [];
   const leaves = new Set(
     (manifest.paths ?? [])
       .filter(

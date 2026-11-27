@@ -409,7 +409,7 @@ async def test_private_entry_bridge_scrubs_worker_buffers_and_rechecks_before_ne
     )
     request = CredentialUseRequest(
         operation_id="credential_bridge",
-        handle="cred_" + "a" * 32,
+        handle="sec_" + "a" * 16,
         origin="https://example.com",
         control_epoch=1,
         targets={
@@ -436,6 +436,36 @@ async def test_private_entry_bridge_scrubs_worker_buffers_and_rechecks_before_ne
         assert "close" not in driver.calls  # pre-effect refusal preserves manual fallback
         driver.refuse_target = False
         await host.verify_credential_targets(request)
+        public = await host.prepare_credential_lease(request)
+        from uuid import uuid4
+
+        from hushh_mcp.services import pod_sealed_envelope as sealed
+        from hushh_mcp.services.pod_browser.credential_transient import PURPOSE
+
+        lease.username.clear()
+        lease.password.clear()
+        lease.envelope = sealed.seal(
+            {"username": "synthetic-user", "password": "synthetic-private-password"},
+            purpose=PURPOSE,
+            pod_public_key_raw=sealed.b64url_decode(public["public_key"], length=32),
+            aad={
+                "purpose": PURPOSE.name,
+                "ownerId": bound.owner_id,
+                "credentialId": request.handle,
+                "recordRevision": 1,
+                "sourceContentRevision": 1,
+                "sourceManifestRevision": 1,
+                "podId": bound.pod_id,
+                "leaseKeyId": public["id"],
+                "taskId": bound.task_id,
+                "incarnation": bound.incarnation,
+                "controlEpoch": request.control_epoch,
+                "origin": request.origin,
+                "operationId": request.operation_id,
+                "expiresAt": min(int(time.time()) + 60, public["expires_at"]),
+                "nonce": str(uuid4()),
+            },
+        )
         if revoke_before_network:
             with pytest.raises(BrowserRefused):
                 await host.fill_credentials(request, lease, scope=scope, check=current)
@@ -445,9 +475,8 @@ async def test_private_entry_bridge_scrubs_worker_buffers_and_rechecks_before_ne
                 "cleared": True,
             }
         assert pool.calls == (0 if revoke_before_network else 1)
-        assert worker_leases and all(
-            not any(item.password) and not any(item.username) for item in worker_leases
-        )
+        assert worker_leases
+        assert all(not any(item.password) and not any(item.username) for item in worker_leases)
         assert broker._credential_check is None and host._scope is None
         assert "type" not in driver.calls and "observe" not in driver.calls
     finally:

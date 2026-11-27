@@ -101,7 +101,7 @@ const OWNER_POD_ROUTES = new Set([
   "memory/provider-consent",
   "status",
   "config",
-  "credentials",
+  "agent-chat/browser-activity",
   "circle-rules",
   "circle-rules/preview",
   "turn/stream",
@@ -142,9 +142,8 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
-  /^browser\/tasks\/browser_[a-f0-9]{32}\/credentials(?:\/(?:use|transient))?$/,
+  /^browser\/tasks\/browser_[a-f0-9]{32}\/credentials\/(use|transient)$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
-  /^credentials\/cred_[a-f0-9]{32}$/,
   /^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/,
   /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
@@ -324,12 +323,12 @@ export async function ownerPodRequest(
     }
   }
   const validateBrowserSession = (session: OwnerPodConnection["session"]) => {
+    if (route === "agent-chat/browser-activity" && (method !== "POST" || session.role !== "app" || !session.scopes.includes("pod.status") || !session.scopes.includes("pkm.read") || !session.scopes.includes("browser.observe"))) throw new Error("POD_CHAT_REQUEST_INVALID");
     if (route.startsWith("browser/")) {
       const read =
         route === "browser/capability" ||
         (route === "browser/tasks" && method === "GET") ||
         /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
-      const credentialCatalog = /^browser\/tasks\/browser_[a-f0-9]{32}\/credentials$/.test(route);
       const isDownloadSave =
         /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/.test(
           route,
@@ -345,16 +344,12 @@ export async function ownerPodRequest(
         (isDownloadSave &&
           (!session.scopes.includes("files.read") ||
             !session.scopes.includes("files.manage"))) ||
-        method !== (read || credentialCatalog ? "GET" : "POST")
+        method !== (read ? "GET" : "POST")
       ) {
         throw new Error("POD_BROWSER_REQUEST_REFUSED");
       }
     }
-    if (route === "credentials" || /^credentials\/cred_[a-f0-9]{32}$/.test(route)) {
-      const allowedMethod = route === "credentials" ? method === "POST" : method === "GET" || method === "DELETE";
-      if (!allowedMethod || session.role !== "app" || !session.scopes.includes("pod.config") ||
-          (method === "GET" && body != null)) throw new Error("POD_CREDENTIAL_REQUEST_REFUSED");
-    }
+
   };
   validateBrowserSession(session);
   if (

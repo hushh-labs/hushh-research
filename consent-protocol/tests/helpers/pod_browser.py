@@ -74,6 +74,13 @@ class Authority:
     approved: bool = False
     journal: list = field(default_factory=list)
 
+    async def consume_credential_nonce(self, bound, nonce):
+        await self.check_binding(bound)
+        used = self.__dict__.setdefault("_credential_nonces", set())
+        if nonce in used:
+            raise BrowserRefused("BROWSER_ACTION_REPLAY")
+        used.add(nonce)
+
     async def check_binding(self, value):
         if self.revoked or value.owner_id != "owner" or value.incarnation != "epoch":
             raise BrowserRefused("BROWSER_BINDING_REFUSED")
@@ -162,6 +169,14 @@ class _BrowserConsent(Authority):
         await self.check_binding(bound)
         if (purpose, json.dumps(terms, sort_keys=True)) not in self.grants:
             raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+        if purpose == "credential_fill":
+
+            async def recheck():
+                await self.check_binding(bound)
+                if (purpose, json.dumps(terms, sort_keys=True)) not in self.grants:
+                    raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+            return recheck
 
 
 def _remembered(now=1000):
@@ -369,6 +384,14 @@ def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
             await self.check_binding(bound)
             if self.identity(bound, purpose, terms) not in self.grants:
                 raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+            if purpose == "credential_fill":
+
+                async def recheck():
+                    await self.check_binding(bound)
+                    if self.identity(bound, purpose, terms) not in self.grants:
+                        raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+                return recheck
 
         async def offer_review(self, bound, purpose, terms):
             identity = self.identity(bound, purpose, terms)

@@ -1,3 +1,4 @@
+import { compactActivityReceipts } from "@/lib/agent/compact-activity-receipt";
 import { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 export { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 import { loadAgentTurnFinancialProjection } from "@/lib/kai/plaid-vault/agent-turn-nws";
@@ -123,6 +124,7 @@ export type AgentChatMessage = {
   completed_at?: string | null;
   metadata?: {
     kind?: string;
+    compactActivityReceipts?: import("@/lib/agent/compact-activity-receipt").CompactActivityReceipt[];
     display?: string;
     locationChatProposal?: MainLocationProposal;
     locationReplyFor?: string;
@@ -3415,6 +3417,7 @@ export async function getAgentChatHistory(input: {
         kind?: string;
         display?: string;
         locationChatProposal?: unknown;
+        compactActivityReceipts?: unknown;
         structuredExperience?: {
           activityType?: string;
           content?: unknown;
@@ -3483,6 +3486,8 @@ export async function getAgentChatHistory(input: {
         completed_at: message.completed_at,
         metadata: message.metadata
           ? {
+              ...(message.role === "assistant" && compactActivityReceipts(message.metadata.compactActivityReceipts).length
+                ? { compactActivityReceipts: compactActivityReceipts(message.metadata.compactActivityReceipts) } : {}),
               kind: message.metadata.kind,
               display: message.metadata.display,
               ...(locationChatProposal ? { locationChatProposal } : {}),

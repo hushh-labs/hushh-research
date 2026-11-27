@@ -237,6 +237,9 @@ export function evaluateReservedWrite(params: {
 }): ReservedRefusal[] {
   const canonicalDomain = String(params.domain ?? "").trim().toLowerCase();
   const writerId = String(params.writerId ?? "").trim().toLowerCase();
+  // Retired password storage is readable only by the unlocked owner importer.
+  // It must never inherit the permissive unknown-domain writer fallback.
+  if (canonicalDomain === "credentials") return [{ domain: canonicalDomain, branch: "*", writerId, reason: "writer_not_listed" }];
   const catalogued = writer(writerId);
   if (catalogued?.writerClass === "migration") return [];
   const mode = String(params.authorizationMode ?? "").trim().toLowerCase();

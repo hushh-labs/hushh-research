@@ -1,8 +1,5 @@
-import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
-import { WebsiteLoginsWorkspace } from "@/components/secrets/website-logins-workspace";
+import { redirect } from "next/navigation";
+import { ROUTES } from "@/lib/navigation/routes";
 
-export default function WebsiteLoginsPage() {
-  return <PkmSettingsShell title="Website logins" description="Private sign-in for your approved website tasks.">
-    <WebsiteLoginsWorkspace />
-  </PkmSettingsShell>;
-}
+/** Old bookmarks lead to the single canonical Secrets area in Memory. */
+export default function LegacyWebsiteLoginsPage() { redirect(ROUTES.PKM); }

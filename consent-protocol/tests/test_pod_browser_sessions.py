@@ -328,3 +328,49 @@ def test_remembered_object_reader_bounds_before_materializing(declared, chunks, 
     else:
         assert read_bounded_response(response, max_bytes=8) == b"12345678"
     assert response.closed
+
+
+async def test_session_only_refuses_save_restore_but_preserves_forget(tmp_path):
+    sessions, auth, store, log, site, state, origins, closed = await _session_fixture(tmp_path)
+    current = await sessions.remember(binding(), site, state, approved_origins=origins)
+
+    async def lockdown():
+        raise BrowserRefused("BROWSER_SESSION_ONLY")
+
+    sessions._check_session_allowed = lockdown
+
+    async def install(value):
+        pytest.fail("locked-down session must never install")
+
+    with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+        await sessions.remember(binding(), site, state, approved_origins=origins)
+    with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+        await sessions.restore_for_task(binding(), site, approved_origins=origins, install=install)
+    assert (await sessions.forget(binding(), site)).persisted
+    assert await store.get(current.object_key) is None
+
+
+async def test_cookie_opt_in_reuses_same_login_allow_and_never_retains_local_storage(tmp_path):
+    sessions, auth, store, log, site, state, origins, closed = await _session_fixture(tmp_path)
+
+    async def no_second_review(*args):
+        pytest.fail("compound Allow must not create a second session approval")
+
+    auth.require = no_second_review
+    checked = []
+
+    async def same_allow():
+        checked.append(True)
+
+    with pytest.raises(BrowserRefused, match="ORIGINS_REFUSED"):
+        await sessions.remember(
+            binding(), site, state, approved_origins=origins, credential_authorization=same_allow
+        )
+    cookies_only = state.model_copy(update={"origins": ()})
+    saved = await sessions.remember(
+        binding(), site, cookies_only, approved_origins=origins, credential_authorization=same_allow
+    )
+    assert len(checked) == 2
+    raw = await store.get(saved.object_key)
+    opened = sessions._cipher.open(raw, site, saved.generation, saved.object_key)
+    assert b'"origins":[]' in opened and b"localStorage" not in opened

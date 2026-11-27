@@ -2894,6 +2894,8 @@ class ConsentDBService:
             "p_source_manifest_revision": source_manifest_revision,
         }
 
+        if str(envelope_aad.get("machine_scope") or "").startswith("attr.credentials."):
+            return False  # Legacy approval is never aliased into canonical Secrets.
         if is_paid_grant(grant_metadata):
             return await complete_paid_refresh(params, grant_metadata)
         from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope

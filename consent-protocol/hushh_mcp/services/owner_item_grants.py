@@ -28,9 +28,9 @@ class OwnerItemGrantRefused(ValueError):
 class OwnerItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    credential_id: str = Field(pattern=r"^cred_[a-f0-9]{32}$")
-    branch: str = Field(default="secrets", pattern=r"^(summary|secrets)$")
-    recipient_kind: Literal["owner_pod", "registered_app"] = "owner_pod"
+    secret_id: str = Field(pattern=r"^sec_[a-f0-9]{16}$")
+    branch: Literal["items"] = "items"
+    recipient_kind: Literal["registered_app"] = "registered_app"
     pod_id: str | None = Field(default=None, min_length=1, max_length=256)
     pod_key_id: str | None = Field(default=None, min_length=1, max_length=128)
     recipient_app_id: str | None = Field(default=None, min_length=1, max_length=128)
@@ -40,10 +40,7 @@ class OwnerItemRequest(BaseModel):
 
     @model_validator(mode="after")
     def exact_recipient(self):
-        if self.recipient_kind == "owner_pod":
-            if not self.pod_id or not self.pod_key_id or self.recipient_app_id:
-                raise ValueError("exact owner pod required")
-        elif not self.recipient_app_id or self.pod_id or self.pod_key_id:
+        if not self.recipient_app_id or self.pod_id or self.pod_key_id:
             raise ValueError("exact registered application required")
         return self
 
@@ -91,33 +88,11 @@ async def registered_recipient(
     }
 
 
-async def owner_recipient(owner_id: str, pod_id: str, key_id: str) -> str:
-    from hushh_mcp.services.compute_backend import is_private_pod_row
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-    from hushh_mcp.services.pod_access_audit import resolve_serving_owner_hushh_id
-    from hushh_mcp.services.pod_connector_keypair_service import parse_pod_public_key
-
-    registry = PersonalAgentRegistryRepo()
-    row = await registry.get_by_hushh_id(pod_id)
-    if (
-        not row
-        or row.get("user_id") != owner_id
-        or not is_private_pod_row(row)
-        or await resolve_serving_owner_hushh_id(owner_id, registry=registry) != pod_id
-        or row.get("pod_key_id") != key_id
-    ):
-        raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
-    try:
-        return parse_pod_public_key(str(row.get("pod_pubkey") or ""), key_id).public_key_b64
-    except ValueError:
-        raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED") from None
-
-
 def owner_item_binding(metadata: dict, owner_id: str, scope: str) -> dict:
     binding = metadata.get("owner_item_grant")
     if (
         not is_owner_item_grant_scope(scope)
-        or not scope.startswith("attr.credentials.")
+        or not scope.startswith("attr.secrets.items.")
         or not isinstance(binding, dict)
         or binding.get("owner_id") != owner_id
         or metadata.get("commercial_required") is True
@@ -133,16 +108,7 @@ def owner_item_binding(metadata: dict, owner_id: str, scope: str) -> dict:
             raise OwnerItemGrantRefused("OWNER_ITEM_AUTHORITY_REFUSED")
     if binding["duration_hours"] > 8760:
         raise OwnerItemGrantRefused("OWNER_ITEM_AUTHORITY_REFUSED")
-    if binding.get("recipient_kind", "owner_pod") == "owner_pod":
-        if (
-            metadata.get("developer_app_id") != "agent_one"
-            or not binding.get("pod_id")
-            or not binding.get("pod_key_id")
-            or metadata.get("connector_key_id") != binding["pod_key_id"]
-            or metadata.get("recipient_agent_id", "agent_one") != "agent_one"
-        ):
-            raise OwnerItemGrantRefused("OWNER_ITEM_AUTHORITY_REFUSED")
-    elif binding.get("recipient_kind") == "registered_app":
+    if binding.get("recipient_kind") == "registered_app":
         if (
             not binding.get("app_id")
             or metadata.get("developer_app_id") != binding["app_id"]
@@ -163,13 +129,10 @@ async def require_owner_item_binding(
     from hushh_mcp.consent.paid_admission import verify_source_revisions
 
     binding = owner_item_binding(metadata, owner_id, scope)
-    if binding.get("recipient_kind", "owner_pod") == "owner_pod":
-        public_key = await owner_recipient(owner_id, binding["pod_id"], binding["pod_key_id"])
-    else:
-        recipient = await registered_recipient(binding["app_id"], binding["key_id"], scope=scope)
-        if recipient["agent_id"] != binding["agent_id"]:
-            raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
-        public_key = recipient["public_key"]
+    recipient = await registered_recipient(binding["app_id"], binding["key_id"], scope=scope)
+    if recipient["agent_id"] != binding["agent_id"]:
+        raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
+    public_key = recipient["public_key"]
     if metadata.get("connector_public_key") != public_key or metadata.get(
         "recipient_key_fingerprint"
     ) != connector_key_fingerprint(public_key):
@@ -193,32 +156,19 @@ async def create_owner_item_request(owner_id: str, body: OwnerItemRequest) -> di
     from db.connection import get_pool
     from hushh_mcp.services.consent_db import ConsentDBService
 
-    scope = f"attr.credentials.{body.branch}.{body.credential_id}"
+    scope = f"attr.secrets.items.{body.secret_id}"
     if not is_owner_item_grant_scope(scope):
         raise OwnerItemGrantRefused("OWNER_ITEM_SCOPE_REFUSED")
-    if body.recipient_kind == "owner_pod":
-        if not body.pod_id or not body.pod_key_id:
-            raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
-        public_key = await owner_recipient(owner_id, body.pod_id, body.pod_key_id)
-        recipient = {
-            "app_id": "agent_one",
-            "agent_id": "agent_one",
-            "key_id": body.pod_key_id,
-            "public_key": public_key,
-            "label": "Your private agent",
-            "fingerprint": connector_key_fingerprint(public_key),
-        }
-    else:
-        if not body.recipient_app_id:
-            raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
-        recipient = await registered_recipient(body.recipient_app_id, scope=scope)
-        public_key = recipient["public_key"]
+    if not body.recipient_app_id:
+        raise OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
+    recipient = await registered_recipient(body.recipient_app_id, scope=scope)
+    public_key = recipient["public_key"]
     request_id = (
         "owneritem_" + uuid.uuid5(uuid.NAMESPACE_URL, f"{owner_id}:{body.operation_id}").hex
     )
     binding = {
         "owner_id": owner_id,
-        **body.model_dump(exclude={"operation_id", "credential_id", "branch"}),
+        **body.model_dump(exclude={"operation_id", "secret_id", "branch"}),
     }
     if body.recipient_kind == "registered_app":
         binding.update({key: recipient[key] for key in ("app_id", "agent_id", "key_id")})
@@ -233,9 +183,7 @@ async def create_owner_item_request(owner_id: str, body: OwnerItemRequest) -> di
         "recipient_key_fingerprint": connector_key_fingerprint(public_key),
         "scope_handle": scope_handle_for_machine_scope(owner_id, scope),
         "expiry_hours": body.duration_hours,
-        "refresh_policy": "continuous_until_expiry"
-        if body.recipient_kind == "owner_pod"
-        else "snapshot",
+        "refresh_policy": "snapshot",
         "requester_actor_type": "self",
         "requester_entity_id": owner_id,
     }
@@ -270,7 +218,7 @@ async def create_owner_item_request(owner_id: str, body: OwnerItemRequest) -> di
                 action="REQUESTED",
                 request_id=request_id,
                 token_id="req_" + request_id,
-                scope_description="Private website login access",
+                scope_description="Private Secrets item access",
                 expires_at=now + 900_000,
                 poll_timeout_at=now + 900_000,
                 metadata=metadata,
@@ -283,21 +231,7 @@ async def create_owner_item_request(owner_id: str, body: OwnerItemRequest) -> di
         "recipient_key_fingerprint": metadata["recipient_key_fingerprint"],
         "duration_hours": body.duration_hours,
         "recipient": recipient,
-        "selection": {
-            "owner_id": owner_id,
-            "pod_id": body.pod_id,
-            "pod_key_id": body.pod_key_id,
-            "field": {
-                "domain": "credentials",
-                "path": f"{body.branch}.{body.credential_id}",
-                "export_revision": 1,
-                "source_content_revision": body.source_content_revision,
-                "source_manifest_revision": body.source_manifest_revision,
-                "grant_ref": request_id,
-            },
-        }
-        if body.recipient_kind == "owner_pod"
-        else None,
+        "selection": None,
     }
 
 
@@ -370,7 +304,7 @@ async def commit_owner_item_terminal(service, event: dict, connection=None) -> i
     await _request_lock(connection, str(event["request_id"]))
     await connection.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
-        event["user_id"] + ":credentials",
+        event["user_id"] + ":secrets",
     )
     latest = await connection.fetchrow(
         "SELECT id,user_id,agent_id,scope,action,metadata FROM consent_audit WHERE request_id=$1 ORDER BY issued_at DESC,id DESC LIMIT 1",

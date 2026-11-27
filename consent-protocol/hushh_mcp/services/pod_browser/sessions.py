@@ -49,6 +49,7 @@ class BrowserSessions:
         readiness: BrowserReadiness,
         fence_live_contexts: Callable[[str], Awaitable[None]],
         clock: Callable[[], float] = time.time,
+        check_session_allowed: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         readiness.require_ready()
         if len(custody_key) != 32 or not owner_id:
@@ -57,6 +58,7 @@ class BrowserSessions:
         self._store, self._log, self._consent = store, log, consent
         self._cipher = BrowserSessionCipher(owner_id, custody_key)
         self._fence, self._clock = fence_live_contexts, clock
+        self._check_session_allowed = check_session_allowed
         self._projection = SessionProjection()
         self._cursor: PodLogCursor | None = None
         self._lock = asyncio.Lock()
@@ -70,10 +72,14 @@ class BrowserSessions:
     def site_id(self, origin: str, account_id: str) -> str:
         return self._cipher.site_id(origin, account_id)
 
-    async def _check(self, binding: BrowserBinding, site: str, *, forgetting: bool = False) -> None:
+    async def _check(
+        self, binding: BrowserBinding, site: str, *, forgetting: bool = False, erasing: bool = False
+    ) -> None:
         if binding.owner_id != self._owner or not _SITE.fullmatch(site):
             raise BrowserRefused("BROWSER_SESSION_OWNER_REFUSED")
         await self._consent.check_binding(binding)
+        if not erasing and self._check_session_allowed is not None:
+            await self._check_session_allowed()
         if site in self._blocked and not forgetting:
             raise BrowserRefused("BROWSER_SESSION_FORGOTTEN")
 
@@ -90,6 +96,7 @@ class BrowserSessions:
         state: RememberedState,
         *,
         approved_origins: frozenset[str],
+        credential_authorization: Callable[[], Awaitable[None]] | None = None,
     ) -> SiteRevision:
         state = state.for_origins(approved_origins, now=self._clock())
         raw = state.model_dump_json().encode()
@@ -110,7 +117,12 @@ class BrowserSessions:
                 "origins": sorted(approved_origins),
                 "state": state.model_dump(mode="json"),
             }
-            await self._consent.require(binding, "session_remember", terms)
+            if credential_authorization is None:
+                await self._consent.require(binding, "session_remember", terms)
+            else:
+                if state.origins or len(approved_origins) != 1:
+                    raise BrowserRefused("BROWSER_SESSION_ORIGINS_REFUSED")
+                await credential_authorization()
             key = f"browser/sessions/{secrets.token_hex(16)}.bin"
             sealed = self._cipher.seal(raw, site, prior.generation, key)
             intent = await self._log.append(
@@ -126,7 +138,10 @@ class BrowserSessions:
             try:
                 await self._store.put(key, sealed)
                 await self._check(binding, site, forgetting=True)
-                await self._consent.require(binding, "session_remember", terms)
+                if credential_authorization is None:
+                    await self._consent.require(binding, "session_remember", terms)
+                else:
+                    await credential_authorization()
                 if self._forget_epochs.get(site, 0) != started_epoch:
                     raise BrowserRefused("BROWSER_SESSION_FORGOTTEN")
                 await self._log.append(
@@ -230,7 +245,7 @@ class BrowserSessions:
             return True  # stored sign-in imported, NOT authenticated by the website
 
     async def forget(self, binding: BrowserBinding, site: str) -> ForgetReceipt:
-        await self._check(binding, site, forgetting=True)
+        await self._check(binding, site, forgetting=True, erasing=True)
         self._blocked.add(site)  # before waiting for a save/restore or worker close
         self._forgetting.add(site)
         self._forget_epochs[site] = self._forget_epochs.get(site, 0) + 1

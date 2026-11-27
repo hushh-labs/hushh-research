@@ -4708,19 +4708,23 @@ export class ApiService {
     };
   }
 
-  /** Public-key context for an explicit credential-custody action, bound to
-   * the current owner and unlocked vault generation. This does not issue a grant. */
-  static async ownerCredentialSealContext(expectedOwnerId: string, isCurrent?: () => boolean): Promise<import("@/lib/one/ai-selection-recipient").AiSelectionSealContext> {
-    const principal = snapshotValidatedAuthSessionPrincipal();
-    const epoch = snapshotVaultSessionEpoch();
-    const current = () => !!principal && principal.ownerId === expectedOwnerId && isFirebaseSessionOwnerCurrent(principal) &&
-      isVaultSessionEpochCurrent(epoch) && (isCurrent?.() ?? true);
-    if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED");
-    const transport = await this.ownerPodTransport();
-    const { currentPodConnection } = await import("./owner-pod-endpoint");
-    const connection = await currentPodConnection(expectedOwnerId, transport);
-    if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED");
-    return { userId: expectedOwnerId, ...connection, transport };
+  /** Persist only the task's server-observed, content-free activity receipt. */
+  static async syncBrowserActivity(input: { conversationId: string; taskId: string; podId: string; vaultKey: string; isCurrent: () => boolean }) {
+    const { parseCompactActivityReceipt } = await import("@/lib/agent/compact-activity-receipt");
+    if (!input.isCurrent()) throw new Error("POD_OWNER_CHANGED");
+    if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(input.conversationId)) throw new Error("BROWSER_ACTIVITY_UNCONFIRMED");
+    const chatHeaders = await oneChatKeyHeaders(input.vaultKey);
+    if (!input.isCurrent()) throw new Error("POD_OWNER_CHANGED");
+    const response = await this.ownerPodRequest("agent-chat/browser-activity", { method: "POST", cache: "no-store",
+      headers: { "Content-Type": "application/json", ...chatHeaders }, body: JSON.stringify({ conversation_id: input.conversationId, task_id: input.taskId }) },
+    false, undefined, input.podId, input.isCurrent);
+    if (!input.isCurrent() || !response.ok) throw new Error("BROWSER_ACTIVITY_UNCONFIRMED");
+    const value = await response.json() as Record<string, unknown>;
+    const receipt = parseCompactActivityReceipt(value.receipt);
+    if (!input.isCurrent() || Object.keys(value).sort().join(",") !== "conversation_id,message_id,receipt" ||
+      value.conversation_id !== input.conversationId || typeof value.message_id !== "string" || !/^[A-Za-z0-9_.:-]{1,200}$/.test(value.message_id) ||
+      !receipt || receipt.task_id !== input.taskId) throw new Error("BROWSER_ACTIVITY_UNCONFIRMED");
+    return { conversationId: input.conversationId, messageId: value.message_id, receipt };
   }
 
   /** Exact app routes only; content never falls back to the shared hub. */

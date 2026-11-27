@@ -3,7 +3,7 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
 from api.routes.one.pod_browser import PrivateBrowserRoute, no_store
@@ -149,20 +149,25 @@ async def selected_information(
         raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"}) from None
 
 
-@router.post("/export/current")
-async def current_credential_export_selection(
-    request: Request, body: BrowserExportSelection, authorization: str | None = Header(None)
+class CredentialSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    owner_id: str = Field(min_length=1, max_length=256)
+    pod_id: str = Field(min_length=1, max_length=256)
+    secret_id: str = Field(pattern=r"^sec_[a-f0-9]{16}$")
+    content_revision: int = Field(ge=1)
+    manifest_revision: int = Field(ge=1)
+
+
+@router.post("/credential-source")
+async def credential_source_current(
+    request: Request, body: CredentialSourceRequest, authorization: str | None = Header(None)
 ):
-    """Advance only a credential's existing, live grant revision cursor.
+    """Metadata-only source fence; never reads a secret or creates a grant."""
+    from api.routes.one.pod_owner_feed import _resolve_owner
+    from db.connection import get_pool
+    from hushh_mcp.consent.paid_admission import verify_source_revisions
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
-    The ordinary export admission below rechecks signer, owner, current key,
-    exact grant/scope, ciphertext envelope and current PKM source revisions.
-    No new scope, grant, credential record or expiry is created here.
-    """
-    from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope
-    from hushh_mcp.services.consent_db import ConsentDBService
-
-    # Authenticate before any lookup, including malformed/non-credential scopes.
     principal = await verify_pod_request(request, authorization, owner_bound=True)
     if (
         principal is None
@@ -171,37 +176,27 @@ async def current_credential_export_selection(
         or principal.hushh_id != body.pod_id
     ):
         raise HTTPException(401, detail={"code": "BROWSER_POD_IDENTITY_REQUIRED"})
-    if (
-        body.field.domain != "credentials"
-        or not is_owner_item_grant_scope(body.field.scope)
-        or not body.field.grant_ref
-    ):
-        raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"})
     try:
-        from api.routes.one.pod_owner_feed import _resolve_owner
-        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-
-        original = await _resolve_owner(principal, PersonalAgentRegistryRepo())
-        if original[0] != body.owner_id or original[2] != body.pod_key_id:
-            raise ValueError("current_export_refused")
-        row = await ConsentDBService().get_consent_export_by_grant(
-            body.field.grant_ref, app_id="agent_one"
-        )
-        if not row or row.get("scope") != body.field.scope or row.get("user_id") != body.owner_id:
-            raise ValueError("current_export_refused")
-        updates = {
-            "export_revision": row["export_revision"],
-            "source_content_revision": row["source_content_revision"],
-            "source_manifest_revision": row["source_manifest_revision"],
-        }
-        current_field = type(body.field).model_validate({**body.field.model_dump(), **updates})
-        current = body.model_copy(update={"field": current_field})
-        await selected_information(request, current, authorization)
-        return current.model_dump(mode="json")
-    except HTTPException:
-        raise
+        registry = PersonalAgentRegistryRepo()
+        owner = await _resolve_owner(principal, registry)
+        if owner[0] != body.owner_id:
+            raise ValueError()
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            await verify_source_revisions(
+                conn,
+                body.owner_id,
+                f"attr.secrets.items.{body.secret_id}",
+                {
+                    "contentRevision": body.content_revision,
+                    "manifestRevision": body.manifest_revision,
+                },
+            )
+        if await _resolve_owner(principal, registry) != owner:
+            raise ValueError()
+        return {"current": True}
     except Exception:
-        raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"}) from None
+        raise HTTPException(409, detail={"code": "BROWSER_CREDENTIAL_SOURCE_CHANGED"}) from None
 
 
 class OwnerConfirmation(BrowserHubMutation):

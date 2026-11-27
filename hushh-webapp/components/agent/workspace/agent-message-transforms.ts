@@ -1,3 +1,4 @@
+import { compactActivityReceipts, type CompactActivityReceipt } from "@/lib/agent/compact-activity-receipt";
 import { legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import type { MeetingSelection } from "@/lib/services/calendar-insights-service";
 import type { AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
@@ -65,6 +66,7 @@ import type { MainLocationProposal } from "@/lib/agent/main-chat-location-contra
 import type { LocationConversationScope } from "@/lib/agent/main-chat-location-conversation";
 
 export type AgentMessage = {
+  compactActivityReceipts?: CompactActivityReceipt[];
   locationChatProposal?: MainLocationProposal;
   locationChatText?: string;
   locationTextScope?: LocationConversationScope;
@@ -1517,6 +1519,7 @@ export function storedMessageToAgentMessage(
       : undefined;
   return {
     id: message.id,
+    ...(compactActivityReceipts(message.metadata?.compactActivityReceipts).length ? { compactActivityReceipts: compactActivityReceipts(message.metadata?.compactActivityReceipts) } : {}),
     serverMessageId: message.role === "assistant" ? message.id : undefined,
     role: message.role,
     text: displayText,
@@ -1599,7 +1602,9 @@ export function agentMessagesToStoredMessages(
   const result: StoredAgentChatMessage[] = [];
   for (const message of messages) {
     if (message.id === "agent-greeting") continue;
+    const receipts = compactActivityReceipts(message.compactActivityReceipts);
     const hasMetadata =
+      receipts.length > 0 ||
       Boolean(message.locationChatProposal) ||
       Boolean(message.locationChatText || message.locationReplyFor) ||
       Boolean(message.attachments?.length) ||
@@ -1610,6 +1615,7 @@ export function agentMessagesToStoredMessages(
       message.queuedPlacement === "joined";
     const metadata: StoredAgentChatMessage["metadata"] = hasMetadata
       ? {
+          ...(receipts.length ? { compactActivityReceipts: receipts } : {}),
           ...(message.locationChatProposal ? { locationChatProposal: message.locationChatProposal } : {}),
           ...(message.locationChatText ? { locationConversationText: true } : {}),
           ...(message.locationReplyFor ? { locationReplyFor: message.locationReplyFor } : {}),

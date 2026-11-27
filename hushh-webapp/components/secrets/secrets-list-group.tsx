@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SECRET_OFFER_ROUTES } from "@/lib/pkm/secret-offer-handoff";
+import { WebsiteLoginsWorkspace } from "./website-logins-workspace";
 
 /** The Profile owner retains one feature model above renderer admission. */
 export function SecretsListGroup({ onUnlock, model }: { onUnlock: () => void; model?: SecretsListModel }) {
@@ -20,12 +21,14 @@ function OwnedSecretsList({ onUnlock }: { onUnlock: () => void }) {
 function SecretsListBody({ onUnlock, model }: { onUnlock: () => void; model: SecretsListModel }) {
   const router = useRouter();
   if (model.locked) return null;
-  if (!model.items.length) return model.failed ? <Button variant="ghost" onClick={() => void model.refresh()}>Reload Secrets</Button> : null;
-  return <>
+  return <section className="space-y-4" aria-label="Secrets vault">
+    <h2 className="font-semibold">Secrets</h2>
+    <WebsiteLoginsWorkspace />
+    {model.failed ? <Button variant="ghost" onClick={() => void model.refresh()}>Reload Secrets</Button> : null}
     <IdentityDocumentsFilingCard model={model} />
-    <SecretItemsPanel testId="profile-secrets-list" title="Secrets"
+    <SecretItemsPanel testId="profile-secrets-list" title="Keys and other secrets"
       description="Keys, passwords and ID numbers you sent One. One knows them only by name; values open only here."
-      items={model.panelItems} revealed={model.revealed} locked={model.locked} busyId={model.busyId}
+      items={model.panelItems.filter(item => !model.items.some(secret => secret.id === item.id && secret.websiteLogin))} revealed={model.revealed} locked={model.locked} busyId={model.busyId}
       onReveal={id => void model.reveal(id)} onHide={model.hide} onUnlock={onUnlock}
       onOffer={item => { const target = model.offer(item.id); if (target && target !== "kyc_identity_documents") router.push(SECRET_OFFER_ROUTES[target]); }}
       onRemove={item => model.askRemove(item.id)} />
@@ -40,5 +43,5 @@ function SecretsListBody({ onUnlock, model }: { onUnlock: () => void; model: Sec
         {model.uncertain ? <Button variant="ghost" onClick={() => void model.refresh()}>Refresh</Button> : null}
       </AlertDialogContent>
     </AlertDialog>
-  </>;
+  </section>;
 }

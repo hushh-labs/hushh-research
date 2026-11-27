@@ -425,7 +425,7 @@ async def test_connection_receipt_rejects_wrong_owner_and_receipt_without_consum
     assert db.state == "consumed"
 
 
-@pytest.mark.parametrize("purpose", ["disclose", "model_process"])
+@pytest.mark.parametrize("purpose", ["disclose", "model_process", "credential_fill"])
 async def test_browser_reviews_use_existing_ledger_exact_terms_and_cannot_impersonate_mcp(purpose):
     from hushh_mcp.services.pod_browser.consent import BrowserApprovalReceipt, LedgerBrowserConsent
     from hushh_mcp.services.pod_browser.contracts import BrowserRefused
@@ -461,9 +461,20 @@ async def test_browser_reviews_use_existing_ledger_exact_terms_and_cannot_impers
     )
     with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
         await consent.require(binding(), purpose, {**private, "selected": "changed"})
-    await consent.require(binding(), purpose, private)
+    recheck = await consent.require(binding(), purpose, private)
     assert db.state == "consumed"
-    if purpose == "disclose":
+    if purpose == "credential_fill":
+        assert callable(recheck)
+        await recheck()
+        with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+            await consent.require(binding(), purpose, private)
+        db.state = "cancelled"
+        with pytest.raises(ActionDirectiveAuthorityError, match="revoked"):
+            await recheck()
+        consent.invalidate()
+        with pytest.raises(BrowserRefused, match="APPROVAL_ALREADY_USED"):
+            await recheck()
+    elif purpose == "disclose":
         with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
             await consent.require(binding(), purpose, private)
     else:

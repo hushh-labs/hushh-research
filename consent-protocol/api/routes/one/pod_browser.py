@@ -13,7 +13,6 @@ from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused, StrictContract
 from hushh_mcp.services.pod_browser.delivery import BrowserDelivery
 from hushh_mcp.services.pod_browser.information import InformationField
-from hushh_mcp.services.pod_browser.information_export import BrowserExportSelection
 from hushh_mcp.services.pod_browser.task_contracts import (
     BrowserCapability,
     BrowserOwnerAccess,
@@ -203,13 +202,19 @@ class SessionRequest(StrictContract):
 
 class CredentialUseRequest(StrictContract):
     operation_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
-    handle: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
+    handle: str = Field(pattern=r"^sec_[a-f0-9]{16}$")
     control_epoch: int = Field(ge=1)
+
+
+class CredentialPrepareRequest(CredentialUseRequest):
+    record_revision: int = Field(ge=1)
+    source_content_revision: int = Field(ge=1)
+    source_manifest_revision: int = Field(ge=1)
+    remember_session: bool = False
 
 
 class TransientCredentialUseRequest(CredentialUseRequest):
     envelope: dict = Field(repr=False)
-    selection: BrowserExportSelection = Field(repr=False)
 
 
 class SaveDownload(StrictContract):
@@ -362,10 +367,10 @@ async def task_credentials(request: Request, task_id: str, origin: str, owner: C
     "/tasks/{task_id}/credentials/use", response_model=BrowserTaskSnapshot, status_code=202
 )
 async def use_credential(
-    request: Request, task_id: str, body: CredentialUseRequest, owner: ControlOwner
+    request: Request, task_id: str, body: CredentialPrepareRequest, owner: ControlOwner
 ):
     try:
-        return await runtime(request).use_credential(owner, task_id, **body.model_dump())
+        return await runtime(request).prepare_credential(owner, task_id, **body.model_dump())
     except BrowserRefused as exc:
         raise refusal(exc) from None
 
@@ -385,7 +390,7 @@ async def use_transient_credential(
             handle=body.handle,
             operation_id=body.operation_id,
             control_epoch=body.control_epoch,
-            transient=(body.envelope, body.selection.model_dump(mode="json")),
+            transient=(body.envelope, {}),
         )
     except BrowserRefused as exc:
         raise refusal(exc) from None

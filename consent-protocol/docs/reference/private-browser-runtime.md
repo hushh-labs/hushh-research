@@ -869,13 +869,17 @@ One's manifest instructs the specialist to select the task's non-secret fields.
 grant owner: exact owner/task/incarnation, recipient, scope, export revision,
 source content/manifest revisions, expiry and revocation. The pilot accepts
 bounded scalar projections only; general Secrets, runtime credentials, wallet and
-identity domains are refused. The separate saved-login hand accepts only the
-owner-started exact `credentials.secrets.<credential_id>` custody grant. It never
-passes that record through the model projection reader. Neither a replica nor conversational memory authorizes reads.
-The production loader must perform these checks against its authoritative sources.
+identity domains are refused. Saved logins use the canonical encrypted
+`secrets.items` store and require an explicit human **Allow** from the unlocked
+device. The private Browser worker alone owns the ephemeral decryption key for
+one short-lived, exact-origin/task/control-epoch-bound lease. No standing pod
+password key, persistent password projection or automatic unreviewed submission
+is authorized. The Hub sees only opaque item/source metadata, not the lease
+plaintext. Neither a replica nor conversational memory authorizes secret reads.
 
-The saved-login source candidate, encryption, owner controls, per-record policy
-and qualification limits are described in the [Browser module](../../../docs/architecture/modules/browser.md#saved-website-logins).
+The source candidate, canonical schema, owner controls, encrypted static receipts,
+legacy import and installed qualification limits are described in the
+[Browser module](../../../docs/architecture/modules/browser.md#saved-website-logins).
 
 Model processing and website disclosure are independent exact reviews. Private
 values stay in pod/browser memory; the action ledger stores keyed commitments.

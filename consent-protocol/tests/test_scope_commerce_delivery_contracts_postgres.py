@@ -45,32 +45,31 @@ async def test_owner_started_credential_grant_uses_existing_ledger_and_exact_sou
 
     ctx = paid_contract
     async with ctx.pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO pkm_manifests VALUES('owner','credentials',1,'[]','[]','{}')"
-        )
-        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','credentials',1,1)")
+        await conn.execute("INSERT INTO pkm_manifests VALUES('owner','secrets',1,'[]','[]','{}')")
+        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','secrets',1,1)")
 
-    async def recipient(owner, pod, key):
-        if (owner, pod, key) != ("owner", "owner-pod", "key"):
-            raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
-        return PUBLIC_KEY
+    async def recipient(app_id, expected_key_id=None, *, scope=None):
+        return {
+            "app_id": "app",
+            "agent_id": "developer:app",
+            "key_id": "key",
+            "public_key": PUBLIC_KEY,
+            "fingerprint": items.connector_key_fingerprint(PUBLIC_KEY),
+            "label": "Synthetic app",
+        }
 
-    monkeypatch.setattr(items, "owner_recipient", recipient)
+    monkeypatch.setattr(items, "registered_recipient", recipient)
     body = items.OwnerItemRequest(
         operation_id="1" * 32,
-        credential_id="cred_" + "2" * 32,
-        pod_id="owner-pod",
-        pod_key_id="key",
+        secret_id="sec_" + "2" * 16,
+        recipient_app_id="app",
         source_content_revision=1,
         source_manifest_revision=1,
     )
     prepared = await items.create_owner_item_request("owner", body)
     assert await items.create_owner_item_request("owner", body) == prepared
-    selection = prepared["selection"]
-    assert (
-        selection["owner_id"] == "owner"
-        and selection["field"]["path"] == "secrets." + body.credential_id
-    )
+    assert prepared["selection"] is None
+    assert prepared["scope"] == "attr.secrets.items." + body.secret_id
     async with ctx.pool.acquire() as conn:
         pending = await conn.fetchrow(
             "SELECT * FROM consent_audit WHERE request_id=$1", prepared["request_id"]
@@ -80,11 +79,11 @@ async def test_owner_started_credential_grant_uses_existing_ledger_and_exact_sou
         if isinstance(pending["metadata"], str)
         else dict(pending["metadata"])
     )
-    token = issue_token("owner", "agent_one", prepared["scope"])
+    token = issue_token("owner", "developer:app", prepared["scope"])
     service = ConsentDBService()
     await service.insert_event(
         user_id="owner",
-        agent_id="agent_one",
+        agent_id="developer:app",
         scope=prepared["scope"],
         action="CONSENT_GRANTED",
         token_id=token.token,
@@ -100,13 +99,18 @@ async def test_owner_started_credential_grant_uses_existing_ledger_and_exact_sou
             == 2
         )
         assert await conn.fetchval("SELECT count(*) FROM scope_commerce_purchases") == 0
-        await conn.execute("UPDATE pkm_blobs SET content_revision=2 WHERE domain='credentials'")
+        await conn.execute("UPDATE pkm_blobs SET content_revision=2 WHERE domain='secrets'")
     with pytest.raises(items.OwnerItemGrantRefused, match="SOURCE_CHANGED"):
         await items.create_owner_item_request(
             "owner", body.model_copy(update={"operation_id": "3" * 32})
         )
-    with pytest.raises(items.OwnerItemGrantRefused, match="RECIPIENT_REFUSED"):
+    with pytest.raises(items.OwnerItemGrantRefused, match="SOURCE_CHANGED"):
         await items.create_owner_item_request("foreign-owner", body)
+    async with ctx.pool.acquire() as conn:
+        assert (
+            await conn.fetchval("SELECT count(*) FROM consent_audit WHERE user_id='foreign-owner'")
+            == 0
+        )
     forged = dict(metadata)
     forged["owner_item_grant"] = {**metadata["owner_item_grant"], "owner_id": "foreign-owner"}
     with pytest.raises(items.OwnerItemGrantRefused):
@@ -121,7 +125,7 @@ async def test_owner_started_credential_grant_uses_existing_ledger_and_exact_sou
     cancelled_metadata = json.loads(pending["metadata"])
     await service.insert_event(
         user_id="owner",
-        agent_id="agent_one",
+        agent_id="developer:app",
         scope=cancelled["scope"],
         action="CANCELLED",
         request_id=cancelled["request_id"],
@@ -129,7 +133,7 @@ async def test_owner_started_credential_grant_uses_existing_ledger_and_exact_sou
     with pytest.raises(items.OwnerItemGrantRefused, match="REQUEST_CHANGED"):
         await service.insert_event(
             user_id="owner",
-            agent_id="agent_one",
+            agent_id="developer:app",
             scope=cancelled["scope"],
             action="CONSENT_GRANTED",
             token_id=token.token,
@@ -151,22 +155,26 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
     ctx.client._transport.app.include_router(consent.router)
     recipient_current = True
 
-    async def recipient(owner, pod, key):
+    async def recipient(app_id, expected_key_id=None, *, scope=None):
         if not recipient_current:
             raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
-        return PUBLIC_KEY
+        return {
+            "app_id": "app",
+            "agent_id": "developer:app",
+            "key_id": "key",
+            "public_key": PUBLIC_KEY,
+            "fingerprint": items.connector_key_fingerprint(PUBLIC_KEY),
+            "label": "Synthetic app",
+        }
 
-    monkeypatch.setattr(items, "owner_recipient", recipient)
+    monkeypatch.setattr(items, "registered_recipient", recipient)
     async with ctx.pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO pkm_manifests VALUES('owner','credentials',1,'[]','[]','{}')"
-        )
-        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','credentials',1,1)")
+        await conn.execute("INSERT INTO pkm_manifests VALUES('owner','secrets',1,'[]','[]','{}')")
+        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','secrets',1,1)")
     body = items.OwnerItemRequest(
         operation_id="7" * 32,
-        credential_id="cred_" + "8" * 32,
-        pod_id="owner-pod",
-        pod_key_id="key",
+        secret_id="sec_" + "8" * 16,
+        recipient_app_id="app",
         source_content_revision=1,
         source_manifest_revision=1,
     )
@@ -177,11 +185,18 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
                 "SELECT metadata FROM consent_audit WHERE request_id=$1", prepared["request_id"]
             )
         )
-    token = issue_token("owner", "agent_one", prepared["scope"])
+    metadata["refresh_policy"] = "continuous_until_expiry"
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE consent_audit SET metadata=$1::jsonb WHERE request_id=$2",
+            json.dumps(metadata),
+            prepared["request_id"],
+        )
+    token = issue_token("owner", "developer:app", prepared["scope"])
     service = ConsentDBService()
     await service.insert_event(
         user_id="owner",
-        agent_id="agent_one",
+        agent_id="developer:app",
         scope=prepared["scope"],
         action="CONSENT_GRANTED",
         token_id=token.token,
@@ -198,7 +213,7 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
     )
     envelope = package["exportEnvelope"]
     envelope["aad"].update(
-        app_id="agent_one", machine_scope=prepared["scope"], scope_handle=prepared["scope_handle"]
+        app_id="app", machine_scope=prepared["scope"], scope_handle=prepared["scope_handle"]
     )
     envelope["aad_sha256"] = digest_bytes(canonical_aad_bytes(envelope["aad"]))
     assert await service.store_consent_export(
@@ -217,7 +232,7 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
         export_id=envelope["export_id"],
         envelope_version=2,
         grant_id=prepared["request_id"],
-        app_id="agent_one",
+        app_id="app",
         scope_handle=prepared["scope_handle"],
         recipient_key_fingerprint=prepared["recipient_key_fingerprint"],
         envelope_aad=envelope["aad"],
@@ -226,9 +241,24 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
         ciphertext_bytes=envelope["ciphertext_bytes"],
     )
     assert await service.get_consent_export(token.token) is not None
+    if change == "none":
+        # A registered application's identity is distinct from its agent id.
+        # The export reader must refuse a mismatched audience without weakening
+        # the recipient binding while retargeting Secrets item scopes.
+        async with ctx.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE consent_exports SET app_id='developer:app' WHERE consent_token=$1",
+                token.token,
+            )
+        assert await service.get_consent_export(token.token) is None
+        async with ctx.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE consent_exports SET app_id='app' WHERE consent_token=$1", token.token
+            )
+        assert await service.get_consent_export(token.token) is not None
     claim = uuid4()
     async with ctx.pool.acquire() as conn:
-        await conn.execute("UPDATE pkm_blobs SET content_revision=2 WHERE domain='credentials'")
+        await conn.execute("UPDATE pkm_blobs SET content_revision=2 WHERE domain='secrets'")
         await conn.execute(
             "UPDATE consent_exports SET refresh_status='refresh_pending' WHERE consent_token=$1",
             token.token,
@@ -265,13 +295,13 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
     )
     if change == "source":
         async with ctx.pool.acquire() as conn:
-            await conn.execute("UPDATE pkm_blobs SET content_revision=3 WHERE domain='credentials'")
+            await conn.execute("UPDATE pkm_blobs SET content_revision=3 WHERE domain='secrets'")
     elif change == "recipient":
         recipient_current = False
     elif change == "revoke":
         await service.insert_event(
             user_id="owner",
-            agent_id="agent_one",
+            agent_id="developer:app",
             scope=prepared["scope"],
             action="REVOKED",
             request_id=prepared["request_id"],
@@ -287,10 +317,10 @@ async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authori
                     "SELECT metadata FROM consent_audit WHERE request_id=$1", newer["request_id"]
                 )
             )
-        newer_token = issue_token("owner", "agent_one", newer["scope"])
+        newer_token = issue_token("owner", "developer:app", newer["scope"])
         await service.insert_event(
             user_id="owner",
-            agent_id="agent_one",
+            agent_id="developer:app",
             scope=newer["scope"],
             action="CONSENT_GRANTED",
             token_id=newer_token.token,
@@ -350,7 +380,7 @@ async def test_owner_item_request_api_keeps_auth_and_secret_errors_out_of_respon
     calls = []
 
     async def create(owner, body):
-        calls.append((owner, body.credential_id))
+        calls.append((owner, body.secret_id))
         if owner != "owner":
             raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
         return {"request_id": "owner-request"}
@@ -358,16 +388,15 @@ async def test_owner_item_request_api_keeps_auth_and_secret_errors_out_of_respon
     monkeypatch.setattr(items, "create_owner_item_request", create)
     body = {
         "operation_id": "1" * 32,
-        "credential_id": "cred_" + "2" * 32,
-        "pod_id": "owner-pod",
-        "pod_key_id": "key",
+        "secret_id": "sec_" + "2" * 16,
+        "recipient_app_id": "app",
         "source_content_revision": 1,
         "source_manifest_revision": 1,
     }
     response = await ctx.client.post(
         "/api/consent/owner-items/requests", json=body, headers={"X-Contract-Identity": "owner"}
     )
-    assert response.status_code == 200 and calls == [("owner", body["credential_id"])]
+    assert response.status_code == 200 and calls == [("owner", body["secret_id"])]
     foreign = await ctx.client.post(
         "/api/consent/owner-items/requests", json=body, headers={"X-Contract-Identity": "foreign"}
     )
@@ -390,10 +419,8 @@ async def test_owner_item_sharing_freezes_registered_recipient_and_does_not_expa
 
     ctx = paid_contract
     async with ctx.pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO pkm_manifests VALUES('owner','credentials',1,'[]','[]','{}')"
-        )
-        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','credentials',1,1)")
+        await conn.execute("INSERT INTO pkm_manifests VALUES('owner','secrets',1,'[]','[]','{}')")
+        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','secrets',1,1)")
     active = "key"
 
     async def recipient(app_id, expected_key_id=None, *, scope=None):
@@ -411,17 +438,15 @@ async def test_owner_item_sharing_freezes_registered_recipient_and_does_not_expa
     monkeypatch.setattr(items, "registered_recipient", recipient)
     body = items.OwnerItemRequest(
         operation_id="4" * 32,
-        credential_id="cred_" + "5" * 32,
-        branch="summary",
+        secret_id="sec_" + "5" * 16,
+        branch="items",
         recipient_kind="registered_app",
         recipient_app_id="app",
         source_content_revision=1,
         source_manifest_revision=1,
     )
     prepared = await items.create_owner_item_request("owner", body)
-    assert prepared["selection"] is None and prepared["scope"].startswith(
-        "attr.credentials.summary."
-    )
+    assert prepared["selection"] is None and prepared["scope"].startswith("attr.secrets.items.")
     async with ctx.pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM consent_audit WHERE request_id=$1", prepared["request_id"]

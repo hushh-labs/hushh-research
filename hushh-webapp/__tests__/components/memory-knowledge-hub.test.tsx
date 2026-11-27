@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryKnowledgeHub } from "@/components/profile/memory-knowledge-hub";
 
+vi.mock("@/components/secrets/secrets-list-group", () => ({ SecretsListGroup: () => <div>Secrets</div> }));
+
 const wikiOverviewMock = vi.fn();
 const replaceMarkdownMock = vi.fn();
 

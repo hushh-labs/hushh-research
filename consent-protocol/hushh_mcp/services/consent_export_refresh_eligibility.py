@@ -58,8 +58,8 @@ async def continuous_refresh_tokens_for_domain_write(
         # discovery. Their existing grant can still refresh its same item until
         # the original expiry; upload/read admission rechecks the owner lineage.
         if (
-            domain == "credentials"
-            and granted_scope.startswith("attr.credentials.")
+            domain == "secrets"
+            and granted_scope.startswith("attr.secrets.items.")
             and is_owner_item_grant_scope(granted_scope)
         ):
             candidate_scopes.add(granted_scope)

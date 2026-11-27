@@ -605,3 +605,32 @@ describe("a turn whose stream was lost", () => {
     unmount();
   });
 });
+
+
+describe("static Browser activity in encrypted chat history", () => {
+  it("round-trips bounded host receipts without restoring an interactive Browser surface", async () => {
+    const { parseCompactActivityReceipt, applyCompactActivityReceipt } = await import("@/lib/agent/compact-activity-receipt");
+    const { agentMessagesToStoredMessages } = await import("@/components/agent/workspace/agent-message-transforms");
+    const receipt = { v: 1 as const, kind: "browser_sign_in" as const, state: "completed" as const,
+      task_id: "browser_" + "a".repeat(32), operation_id: "operation_123" };
+    expect(new TextEncoder().encode(JSON.stringify(receipt)).length).toBeLessThanOrEqual(256);
+    const original = [{ id: "local-answer", serverMessageId: "answer-event", role: "assistant" as const, text: "", status: "done" as const, timestamp: "10:00" }];
+    expect(applyCompactActivityReceipt(original, "foreign-answer", receipt)).toBe(original);
+    const rows = applyCompactActivityReceipt(original, "answer-event", receipt);
+    expect(applyCompactActivityReceipt(rows, "answer-event", { ...receipt, state: "allowed" })).toBe(rows);
+    expect(isEmptySettledAssistantMessage(rows[0]!)).toBe(false);
+    const restored = storedMessagesToAgentMessages(agentMessagesToStoredMessages(rows, "thread"));
+    expect(restored[0]?.compactActivityReceipts).toEqual([receipt]);
+    const view = render(<AgentBubble message={restored[0]!} conversationId="thread" />);
+    expect(screen.getByTestId("browser-static-activity-receipt").textContent).toBe("Private sign-in submitted.");
+    expect(screen.queryByText(/signed in/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Take control|Resume agent|Use saved login/ })).toBeNull();
+    expect(screen.queryByText(receipt.task_id)).toBeNull();
+    expect(parseCompactActivityReceipt({ ...receipt, password: "synthetic-private-value" })).toBeNull();
+    expect(parseCompactActivityReceipt({ ...receipt, operation_id: "review:operation.id-1" })).not.toBeNull();
+    expect(parseCompactActivityReceipt({ ...receipt, operation_id: "x".repeat(65) })).toBeNull();
+    const malformed = storedMessagesToAgentMessages([{ ...agentMessagesToStoredMessages(rows, "thread")[0]!, metadata: { compactActivityReceipts: [{ ...receipt, state: "unexpected" } as never] } }]);
+    expect(malformed[0]?.compactActivityReceipts).toBeUndefined(); view.unmount();
+  });
+});

@@ -19,6 +19,7 @@ import type { NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy"
 import { snapshotValidatedAuthSessionOwner, publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { areScheduledTasksAvailable, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerCredentialSealContext: vi.fn(), ownerPodRequest: vi.fn(), apiFetch: vi.fn(), owner: "owner" }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: api }));
@@ -29,9 +30,11 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: { promise: (promise: Promise<unknown>) => promise, error: vi.fn(), info: vi.fn() },
 }));
 
-const credentials = vi.hoisted(() => ({ list: vi.fn(), seal: vi.fn(), recipient: vi.fn() }));
-vi.mock("@/lib/pkm/credentials-vault-service", () => ({ CredentialsVaultService: { list: credentials.list }, sealTransientCredentialUse: credentials.seal }));
-vi.mock("@/lib/one/ai-selection-recipient", () => ({ agentRecipientFromBinding: credentials.recipient }));
+const credentials = vi.hoisted(() => ({ list: vi.fn(), snapshot: vi.fn(), seal: vi.fn() }));
+vi.mock("@/lib/pkm/secrets-vault-service", () => ({ SecretsVaultService: { listWebsiteLogins: credentials.list, websiteLoginSnapshot: credentials.snapshot } }));
+vi.mock("@/lib/pkm/website-credential-lease", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/pkm/website-credential-lease")>(), sealTransientCredentialUse: credentials.seal,
+}));
 const credentialSession = vi.hoisted(() => ({ key: "synthetic-key" as string | null, token: "synthetic-vault-owner" as string | null,
   privacy: undefined as NativeSessionPrivacyState | undefined, listeners: new Set<() => void>() }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: credentialSession.key, vaultOwnerToken: credentialSession.token,
@@ -155,7 +158,8 @@ beforeEach(() => {
   api.apiFetch.mockReset();
   api.ownerCredentialSealContext.mockReset().mockResolvedValue({});
   credentials.list.mockReset(); credentials.seal.mockReset();
-  credentials.recipient.mockReset().mockResolvedValue({ hushhId: "pod", podKeyId: "key", publicKey: "synthetic-public-key" });
+  credentials.snapshot.mockReset();
+  vi.mocked(morphyToast.error).mockClear();
   credentialSession.key = "synthetic-key"; credentialSession.token = "synthetic-vault-owner"; credentialSession.privacy = undefined;
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -683,6 +687,10 @@ describe("private browser control", () => {
     expect(() => parseComputerUseSnapshot({ ...wire, binding: { ...wire.binding, pod_id: "other" } }, binding)).toThrow();
     expect(parseComputerUseSnapshot({ ...wire, capability: { available: true, public_research_only: true } }, binding).publicResearchOnly).toBe(true);
     expect(() => parseComputerUseSnapshot({ ...wire, capability: { available: true, public_research_only: "true" } }, binding)).toThrow();
+    const request = { operation_id: "operation_123", handle: "owner_selection", origin: "https://example.com",
+      lease_key: { id: "lease_" + "a".repeat(32), public_key: "A".repeat(43), expires_at: 2_000_000_000 } };
+    expect(parseComputerUseSnapshot({ ...wire, credential_request: request }, binding).credentialRequest?.leaseKey).toEqual({ id: request.lease_key.id, publicKey: request.lease_key.public_key, expiresAt: request.lease_key.expires_at });
+    expect(() => parseComputerUseSnapshot({ ...wire, credential_request: { ...request, lease_key: { ...request.lease_key, id: "standing_pod_key" } } }, binding)).toThrow();
   });
 
   it("renders only exact selected scalar details and never exposes stored sign-in values", () => {
@@ -909,35 +917,6 @@ it("accepts matching uat admission while refusing production and cross-environme
 });
 
 
-it.each(["owner", "selection"])("fences a saved-login choice when its %s changes", async (fault) => {
-  const wire = transport();
-  const selection = { operationId: "credential_operation", handle: "owner_selection", origin: "https://example.com" };
-  const pending = snapshot({ phase: "needs_owner", savedLoginsAvailable: true, credentialRequest: selection });
-  vi.mocked(wire.read).mockResolvedValue(pending);
-  wire.credentials = vi.fn().mockResolvedValue([{ handle: "cred_" + "a".repeat(32), origin: selection.origin }]);
-  wire.useCredential = vi.fn().mockResolvedValue(snapshot());
-  credentials.list.mockResolvedValue([{ id: "cred_" + "a".repeat(32), label: "Synthetic account", usernameHint: "s…", boundOrigins: [selection.origin], autonomyPolicy: "autonomous" }]);
-  const controller = new ComputerUseTaskController(binding, wire);
-  await controller.refresh();
-  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Use saved login" }));
-  const choose = await screen.findByRole("button", { name: "Synthetic account · s…" });
-  if (fault === "owner") {
-    act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); });
-  } else {
-    const replacement = { ...pending, revision: 2, controlEpoch: 2,
-      credentialRequest: { ...selection, operationId: "credential_replacement" } };
-    vi.mocked(wire.read).mockResolvedValue(replacement);
-    await act(() => controller.refresh());
-    view.rerender(<ComputerUseCredentials controller={controller} snapshot={replacement} route="/one" pending={false} />);
-  }
-  fireEvent.click(choose);
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(wire.useCredential).not.toHaveBeenCalled();
-  expect(credentials.seal).not.toHaveBeenCalled();
-  controller.dispose();
-});
-
 it("keeps protected-entry status live while stopping all preview frames", async () => {
   const wire = transport();
   vi.mocked(wire.read).mockResolvedValue(snapshot({ credentialEntryActive: true, inputPending: true }));
@@ -952,56 +931,108 @@ it("keeps protected-entry status live while stopping all preview frames", async 
 });
 
 
-it.each(["lock", "epoch", "privacy"])("retires delayed saved-login reads and sealing on same-owner %s", async (retirement) => {
-  const identity = snapshotValidatedAuthSessionOwner();
+const loginSelection = { operationId: "credential_operation", handle: "owner_selection" as const, origin: "https://example.com",
+  leaseKey: { id: "lease_" + "a".repeat(32), publicKey: "A".repeat(43), expiresAt: 2_000_000_000 } };
+const loginSummary = { id: "sec_" + "a".repeat(16), label: "Private account", boundOrigins: [loginSelection.origin],
+  revision: 1, updatedAt: "2026-11-26", staySignedInEnabled: false };
+function loginWire() {
   const wire = transport();
-  const selection = { operationId: "credential_operation", handle: "owner_selection", origin: "https://example.com" };
-  const pending = snapshot({ phase: "needs_owner", savedLoginsAvailable: true, credentialRequest: selection,
-    authorizationExpiresAt: Math.floor(Date.now() / 1000) + 600 });
-  const summaries = [{ id: "cred_" + "a".repeat(32), label: "Private account", usernameHint: "private hint",
-    boundOrigins: [selection.origin], autonomyPolicy: "vault_only" as const }];
-  wire.credentials = vi.fn().mockResolvedValue([]);
-  wire.useTransientCredential = vi.fn().mockResolvedValue(snapshot({ credentialEntryActive: true }));
-  const controller = new ComputerUseTaskController(binding, wire);
+  const pending = snapshot({ phase: "needs_owner", savedLoginsAvailable: true, credentialRequest: loginSelection,
+    authorizationExpiresAt: 2_000_000_000 });
   vi.mocked(wire.read).mockResolvedValue(pending);
-  await controller.refresh();
+  wire.prepareCredential = vi.fn().mockResolvedValue({ ...pending, revision: 2,
+    review: { id: "fill_review", purpose: "credential_fill", origins: [loginSelection.origin], details: [] } });
+  vi.mocked(wire.review).mockResolvedValue({ ...pending, revision: 3 });
+  wire.useTransientCredential = vi.fn().mockResolvedValue(snapshot({ credentialEntryActive: true, revision: 4 }));
+  credentials.list.mockResolvedValue([loginSummary]);
+  credentials.snapshot.mockResolvedValue({ item: { revision: 1, updated_at: loginSummary.updatedAt,
+    credential: { username: "synthetic-owner" }, value: "synthetic-password" }, contentRevision: 2, manifestRevision: 3 });
+  credentials.seal.mockResolvedValue({ envelope: { aad: { operationId: loginSelection.operationId, controlEpoch: 1 } } });
+  return { wire, pending };
+}
+it("requires the fixed host Allow after metadata-only account selection and keeps Type myself available", async () => {
+  const { wire, pending } = loginWire();
+  const controller = new ComputerUseTaskController(binding, wire); await controller.refresh();
+  const manual = vi.fn();
+  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} onTypeMyself={manual} />);
+  expect(screen.getByText("Sign in to https://example.com?")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Choose saved login" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Private account" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled());
+  expect(wire.prepareCredential).toHaveBeenCalledWith(binding, loginSummary.id, loginSelection.operationId, 1,
+    { recordRevision: 1, sourceContentRevision: 2, sourceManifestRevision: 3, rememberSession: false }, expect.any(AbortSignal));
+  expect(credentials.seal).not.toHaveBeenCalled(); expect(wire.review).not.toHaveBeenCalled(); expect(wire.useTransientCredential).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+  await waitFor(() => expect(wire.useTransientCredential).toHaveBeenCalledOnce());
+  expect(wire.review).toHaveBeenCalledWith(binding, "fill_review", expect.any(AbortSignal));
+  expect(credentials.seal.mock.invocationCallOrder[0]).toBeGreaterThan(vi.mocked(wire.review).mock.invocationCallOrder[0]!);
+  expect(credentials.seal.mock.calls[0]![2]).toMatchObject({ leaseKey: loginSelection.leaseKey, podId: binding.podId });
+  expect(api.ownerCredentialSealContext).not.toHaveBeenCalled();
+  view.unmount(); controller.dispose();
+  const next = loginWire(); const nextController = new ComputerUseTaskController(binding, next.wire); await nextController.refresh();
+  render(<ComputerUseCredentials controller={nextController} snapshot={next.pending} route="/one" pending={false} onTypeMyself={manual} />);
+  fireEvent.click(screen.getByRole("button", { name: "Type myself" })); expect(manual).toHaveBeenCalledOnce();
+  expect(next.wire.useTransientCredential).not.toHaveBeenCalled(); nextController.dispose();
+});
+it.each([
+  ["empty username", "", "synthetic-password"],
+  ["oversized password", "synthetic-owner", "p".repeat(5000)],
+  ["UTF-8 byte overflow", "synthetic-owner", "😀".repeat(1025)],
+  ["encoded payload overflow", "synthetic-owner", "\u0001".repeat(3000)],
+])("keeps a saved login available for manual entry without preparing or approving %s", async (_reason, username, password) => {
+  const { wire, pending } = loginWire();
+  credentials.snapshot.mockResolvedValue({ item: { revision: 1, updated_at: loginSummary.updatedAt,
+    credential: { username }, value: password }, contentRevision: 2, manifestRevision: 3 });
+  const controller = new ComputerUseTaskController(binding, wire); await controller.refresh();
+  const manual = vi.fn();
+  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} onTypeMyself={manual} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose saved login" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Private account" }));
+  await waitFor(() => expect(morphyToast.error).toHaveBeenCalledWith("Use Type myself for this saved login."));
+  expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
+  expect(wire.prepareCredential).not.toHaveBeenCalled(); expect(wire.review).not.toHaveBeenCalled();
+  expect(credentials.seal).not.toHaveBeenCalled(); expect(wire.useTransientCredential).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Choose saved login" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Private account" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(wire.prepareCredential).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Type myself" })); expect(manual).toHaveBeenCalledOnce();
+  view.unmount(); controller.dispose();
+});
+it.each(["owner", "selection"])("fences a selected account before prepare when its %s changes", async fault => {
+  const { wire, pending } = loginWire(); const controller = new ComputerUseTaskController(binding, wire); await controller.refresh();
+  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} onTypeMyself={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose saved login" }));
+  const choose = await screen.findByRole("button", { name: "Private account" });
+  if (fault === "owner") act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); });
+  else { vi.mocked(wire.read).mockResolvedValue({ ...pending, revision: 2, credentialRequest: { ...loginSelection, operationId: "replacement_operation" } }); await act(() => controller.refresh()); }
+  fireEvent.click(choose); await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(wire.prepareCredential).not.toHaveBeenCalled(); expect(credentials.seal).not.toHaveBeenCalled(); controller.dispose(); view.unmount();
+});
+it.each(["lock", "epoch", "privacy"])("retires delayed account reads and post-Allow sealing on same-owner %s", async retirement => {
+  const identity = snapshotValidatedAuthSessionOwner(); const { wire, pending } = loginWire();
+  const controller = new ComputerUseTaskController(binding, wire); await controller.refresh();
   const retire = () => {
     if (retirement === "lock") { credentialSession.key = null; credentialSession.token = null; advanceVaultSessionEpoch(); }
     else if (retirement === "epoch") advanceVaultSessionEpoch();
-    else { credentialSession.privacy = { shielded: true, generation: 1, appIsActive: false, cause: "inactive" };
-      credentialSession.listeners.forEach(listener => listener()); }
+    else { credentialSession.privacy = { shielded: true, generation: 1, appIsActive: false, cause: "inactive" }; credentialSession.listeners.forEach(listener => listener()); }
   };
-  const restore = () => {
-    credentialSession.key = "synthetic-key"; credentialSession.token = "synthetic-vault-owner";
-    credentialSession.privacy = undefined; credentialSession.listeners.forEach(listener => listener());
-    advanceVaultSessionEpoch();
-  };
-  // A list response born before retirement cannot repopulate its private labels.
-  let finishRead!: (value: typeof summaries) => void;
+  let finishRead!: (value: unknown) => void;
   credentials.list.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
-  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} />);
-  fireEvent.click(screen.getByRole("button", { name: "Use saved login" }));
-  await waitFor(() => expect(credentials.list).toHaveBeenCalledOnce());
-  act(retire);
-  await act(async () => finishRead(summaries));
-  expect(screen.queryByText("Private account · private hint")).toBeNull();
-  expect(screen.queryByRole("dialog")).toBeNull();
+  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} onTypeMyself={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose saved login" })); await waitFor(() => expect(credentials.list).toHaveBeenCalledOnce());
+  act(retire); await act(async () => finishRead([loginSummary]));
+  expect(screen.queryByRole("button", { name: "Private account" })).toBeNull(); expect(screen.queryByRole("dialog")).toBeNull();
   expect(snapshotValidatedAuthSessionOwner()).toEqual(identity);
-  // Restore the same owner's new vault presentation, then retire an in-flight
-  // vault-only seal. Both its inner beforeEffect and final dispatch stay fenced.
-  act(restore);
-  credentials.list.mockResolvedValue(summaries);
-  let finishSeal!: (value: unknown) => void;
-  let beforeEffect!: () => Promise<void>;
-  credentials.seal.mockImplementationOnce(context => { beforeEffect = context.beforeEffect;
-    return new Promise(resolve => { finishSeal = resolve; }); });
-  fireEvent.click(screen.getByRole("button", { name: "Use saved login" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Private account · private hint" }));
-  await waitFor(() => expect(credentials.seal).toHaveBeenCalledOnce());
-  act(retire);
-  await act(async () => finishSeal({ envelope: { aad: { operationId: selection.operationId, controlEpoch: 1 } }, selection: {} }));
-  expect(wire.useTransientCredential).not.toHaveBeenCalled();
-  await expect(beforeEffect()).rejects.toThrow();
-  expect(snapshotValidatedAuthSessionOwner()).toEqual(identity);
-  view.unmount(); controller.dispose();
+  act(() => { credentialSession.key = "synthetic-key"; credentialSession.token = "synthetic-vault-owner"; credentialSession.privacy = undefined;
+    credentialSession.listeners.forEach(listener => listener()); advanceVaultSessionEpoch(); });
+  credentials.list.mockResolvedValue([loginSummary]); let finishSeal!: (value: unknown) => void; let beforeEffect!: () => Promise<void>;
+  credentials.seal.mockImplementationOnce(context => { beforeEffect = context.beforeEffect; return new Promise(resolve => { finishSeal = resolve; }); });
+  fireEvent.click(screen.getByRole("button", { name: "Choose saved login" })); fireEvent.click(await screen.findByRole("button", { name: "Private account" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled()); fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+  await waitFor(() => expect(credentials.seal).toHaveBeenCalledOnce()); act(retire);
+  await act(async () => finishSeal({ envelope: { aad: { operationId: loginSelection.operationId, controlEpoch: 1 } } }));
+  expect(wire.useTransientCredential).not.toHaveBeenCalled(); await expect(beforeEffect()).rejects.toThrow();
+  expect(snapshotValidatedAuthSessionOwner()).toEqual(identity); view.unmount(); controller.dispose();
 });

@@ -5,12 +5,17 @@ import { SecretItemsPanel, type SecretPanelItem } from "@/components/secrets/sec
 import { useSecretReveal } from "@/components/secrets/use-secret-reveal";
 import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
 import { useWebsiteLogins } from "@/components/secrets/use-website-logins";
+import { WebsiteLoginsWorkspace } from "@/components/secrets/website-logins-workspace";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { WebsiteLoginEditor } from "@/components/secrets/website-login-editor";
-import { CredentialError } from "@/lib/pkm/credentials-contracts";
 import { stageSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
+
+const paneFixture = vi.hoisted(() => ({ open: false }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one", useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/lib/navigation/use-profile-pane-presentation", () => ({ useProfilePanePresentation: () => paneFixture.open ? { open: true } : null }));
 
 const revealFixture = vi.hoisted(() => ({ uid: "fixture-a", key: "fixture-key-a", authorized: true,
   reveal: vi.fn(), list: vi.fn(), remove: vi.fn(), mark: vi.fn(), file: vi.fn(),
@@ -20,16 +25,16 @@ function fixtureToken() { return revealFixture.authorized ? "fixture-owner" : nu
 function fixtureKey() { return revealFixture.key; }
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: revealFixture.uid }, userId: revealFixture.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: revealFixture.key, getVaultKey: fixtureKey, getVaultOwnerToken: fixtureToken }) }));
-vi.mock("@/lib/pkm/credentials-vault-service", () => ({ CredentialsVaultService: credentialFixture, createOwnerCredentialCustodyPort: credentialFixture.custody }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({
   nativePrivacyObservation: () => ({ state: revealFixture.privacy }),
   subscribeNativePrivacyObservation: (listener: () => void) => { revealFixture.listeners.add(listener); return () => revealFixture.listeners.delete(listener); },
 }));
 vi.mock("@/lib/pkm/secrets-vault-service", () => ({ SecretsVaultService: {
+  listWebsiteLogins: credentialFixture.list, saveWebsiteLogin: credentialFixture.save, removeWebsiteLogin: credentialFixture.remove, readWebsiteLogin: credentialFixture.reveal, importLegacyWebsiteLogins: vi.fn(),
   revealSecret: revealFixture.reveal, listSecrets: revealFixture.list, removeSecret: revealFixture.remove, markFiled: revealFixture.mark,
 } }));
 vi.mock("@/lib/services/kyc-identity-documents-service", () => ({ identityDocumentTypeFor: () => "passport", KycIdentityDocumentsService: { fileDocument: revealFixture.file } }));
-afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); vi.clearAllMocks(); });
+afterEach(() => { paneFixture.open = false; cleanup(); publishValidatedAuthSessionOwner(null); vi.clearAllMocks(); });
 
 /**
  * The secure Secrets card shows a value only for an unlocked vault, and puts it
@@ -65,18 +70,17 @@ function panel(overrides: Partial<Parameters<typeof SecretItemsPanel>[0]> = {}) 
 describe("SecretItemsPanel", () => {
   it("preserves existing credential fields when editing only the private notes", async () => {
     const initial = { label: "Synthetic account", boundOrigins: ["https://example.com"], username: "synthetic-owner",
-      usernameHint: "work account", password: "SYNTHETIC_PASSWORD", totpSecret: "JBSWY3DPEHPK3PXP", notes: "before", autonomyPolicy: "vault_only" as const };
+      password: "SYNTHETIC_PASSWORD", totpSecret: "JBSWY3DPEHPK3PXP", notes: "before", staySignedInEnabled: false };
     const save = vi.fn(async () => {});
     render(<WebsiteLoginEditor initial={initial} busy={false} disabled={false} onSave={save} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Private notes (optional)"), { target: { value: "after" } });
     fireEvent.submit(screen.getByRole("form", { name: "Edit website login" }));
-    await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ ...initial, notes: "after" }, 24));
+    await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ ...initial, notes: "after" }));
   });
   it("retires website login reads and secret edits with their exact owner presentation", async () => {
     revealFixture.uid = "fixture-a"; revealFixture.key = "fixture-key-a"; revealFixture.authorized = true; revealFixture.privacy = undefined;
     publishValidatedAuthSessionOwner(revealFixture.uid);
-    const item = { id: "cred_" + "a".repeat(32), label: "Synthetic portal", boundOrigins: ["https://portal.example.com"], usernameHint: "",
-      autonomyPolicy: "vault_only" as const, revision: 1, generation: 1, policyGeneration: 1, custodyGeneration: 1 };
+    const item = { id: "sec_" + "a".repeat(16), label: "Synthetic portal", boundOrigins: ["https://portal.example.com"], staySignedInEnabled: false, revision: 1, updatedAt: "2026-11-26" };
     credentialFixture.list.mockResolvedValue([item]);
     let finish!: (value: unknown) => void;
     credentialFixture.reveal.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
@@ -93,22 +97,42 @@ describe("SecretItemsPanel", () => {
     await act(async () => { hook.rerender(); });
     expect(hook.result.current.locked).toBe(true);
     await act(async () => { expect(await hook.result.current.save({ label: "Synthetic portal", boundOrigins: item.boundOrigins,
-      username: "synthetic-user", password: "synthetic-password", autonomyPolicy: "vault_only" })).toBe(false); });
+      username: "synthetic-user", password: "synthetic-password", staySignedInEnabled: false })).toBe(false); });
     expect(credentialFixture.save).toHaveBeenCalledTimes(before);
   });
 
-  it("preserves a committed website login when custody admission is pending instead of inviting a duplicate save", async () => {
+  it("keeps an uncertain save blocked until a successful authoritative refresh", async () => {
     revealFixture.uid = "fixture-a"; revealFixture.key = "fixture-key-a"; revealFixture.authorized = true; revealFixture.privacy = undefined;
     publishValidatedAuthSessionOwner(revealFixture.uid);
     credentialFixture.list.mockResolvedValue([]);
-    credentialFixture.save.mockRejectedValueOnce(new CredentialError("CREDENTIAL_SAVED_CUSTODY_PENDING"));
+    credentialFixture.save.mockResolvedValueOnce(false);
     const hook = renderHook(() => useWebsiteLogins());
     await act(async () => {});
     await act(async () => { expect(await hook.result.current.save({ label: "Synthetic portal", boundOrigins: ["https://portal.example.com"],
-      username: "synthetic-user", password: "synthetic-password", autonomyPolicy: "vault_only" })).toBe(true); });
-    expect(hook.result.current.message).toContain("login is saved");
+      username: "synthetic-user", password: "synthetic-password", staySignedInEnabled: false })).toBe(false); });
+    expect(hook.result.current.uncertain).toBe(true);
+    credentialFixture.list.mockRejectedValueOnce(new Error("authority_unavailable"));
+    await act(async () => { await hook.result.current.refresh(); });
+    expect(hook.result.current.uncertain).toBe(true);
+    await act(async () => { await hook.result.current.refresh(); });
     expect(hook.result.current.uncertain).toBe(false);
-    expect(credentialFixture.custody).not.toHaveBeenCalled();
+  });
+  it("unwinds the canonical Secrets editor and sharing inside the current Profile pane", async () => {
+    revealFixture.uid = "fixture-a"; revealFixture.key = "fixture-key-a"; revealFixture.authorized = true; revealFixture.privacy = undefined;
+    publishValidatedAuthSessionOwner(revealFixture.uid); paneFixture.open = true;
+    credentialFixture.list.mockResolvedValue([{ id: "sec_" + "a".repeat(16), label: "Synthetic portal", boundOrigins: ["https://example.com"],
+      revision: 1, updatedAt: "2026-11-26", staySignedInEnabled: false }]);
+    render(<WebsiteLoginsWorkspace />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Add website login" }));
+    expect(screen.getByRole("form", { name: "Add website login" })).toBeTruthy();
+    act(() => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1"), { profile_pane: "1" })).toBe(true); });
+    expect(screen.queryByRole("form", { name: "Add website login" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    expect(screen.getByRole("region", { name: "Share saved website login" })).toBeTruthy();
+    await act(async () => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1"), { profile_pane: "1" })).toBe(true); });
+    expect(screen.queryByRole("region", { name: "Share saved website login" })).toBeNull();
+    expect(credentialFixture.save).not.toHaveBeenCalled();
   });
   it("fences shared list/reveal/filing work across owner retirement and preserves committed removal", async () => {
     revealFixture.uid = "fixture-a"; revealFixture.key = "fixture-key-a"; revealFixture.authorized = true; revealFixture.privacy = undefined;

@@ -132,7 +132,7 @@ inventory until it passes every admission rule above.
 
 | Story | Information | Decision | Reason |
 | --- | --- | --- | --- |
-| Browser saved logins (#9511) | Reserved `credentials` summaries, secret records, custody grants and sign-in values | Excluded | The owner manages encrypted records in Website logins. Generic PKM context, domain-summary tools, pod grounding, Live Mirror and Wiki do not receive these records. Only the private Browser hand receives origin-bound opaque handles; explicit recipient sharing uses the existing exact owner-item Consent Protocol. Removal fences future use; remembered Browser sessions are separately removed with Forget. |
+| Browser saved logins (#9511) | Canonical encrypted `secrets.items` website logins and human-approved transient leases | Values excluded | Existing Secrets label-only policy remains; passwords and verification-code seeds never enter generic PKM context, pod grounding, Live Mirror or Wiki. The unlocked device releases a single-use lease only after human Allow. Exact owner-item sharing uses the existing Consent Protocol. Legacy candidate ciphertext remains owner-readable for explicit import; remembered sessions are separately removed with Forget. |
 | E03 | Saved onboarding and communication preferences | Later | Shown in Profile from the encrypted identity domain, but there is no change hint and it overlaps the per-turn style channel. |
 | E07 | Mail and receipts | Excluded | Continuous mail capture first needs an owner decision on consent, retention and sharing. |
 | E08 | Document handoffs | Later | No owner-scoped handoff snapshot or journal trigger exists. |

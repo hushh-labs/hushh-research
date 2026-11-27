@@ -212,7 +212,7 @@ class ConsentScope(str, Enum):
         # The ordinary private-path guard below must not retire these records.
         from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope
 
-        if scope.startswith("attr.credentials.") and is_owner_item_grant_scope(scope):
+        if scope.startswith("attr.secrets.items.") and is_owner_item_grant_scope(scope):
             return True
 
         # Check static scopes first

@@ -119,6 +119,23 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## GCP notification account-ID admission
 
+### Browser credential-fill authority candidate
+
+Canonical465 appends only `browser.credential_fill` to the existing private
+action ledger's closed allowlist. It requires the exact validated predecessor
+constraints and records qualified lineage on all three related checks, so a
+missing individual check cannot be silently recreated by historical replay.
+The checksum-pinned212/231/248, parked945/966/971 and immutable420 adapters
+preserve only that exact successor; unrelated canonical DDL still executes.
+No accepted SQL body, checksum or Dev manifest entry is rewritten.
+
+The schema stores no password or verification-code seed. Human confirmation,
+owner/session identity, trusted activation and keyed resource binding remain
+required. Application rollback retains the compatible schema and review history;
+the paired SQL rollback refuses while any credential-fill receipt remains.
+This is a source candidate, not a live database migration receipt. It remains
+subject to protected migration review and the owner acceptance hold on #9511.
+
 Canonical 449 and parked 976 correct the notification checkpoint validator's
 service-account local-part boundary to six through thirty characters, with a
 letter first and an alphanumeric character last. The previous expression refused

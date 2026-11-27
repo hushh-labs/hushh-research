@@ -12,13 +12,15 @@ import argparse
 import asyncio
 import base64
 import json
+import secrets
 import tempfile
 import time
-from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs
+from uuid import uuid4
 
+from hushh_mcp.services import pod_sealed_envelope as sealed
 from hushh_mcp.services.pod_browser.contracts import (
     BrowserAction,
     BrowserBinding,
@@ -28,8 +30,13 @@ from hushh_mcp.services.pod_browser.contracts import (
 from hushh_mcp.services.pod_browser.control import BrowserControl
 from hushh_mcp.services.pod_browser.credential_contracts import (
     CredentialDescriptor,
-    CredentialLease,
     CredentialUseRequest,
+)
+from hushh_mcp.services.pod_browser.credential_transient import (
+    PURPOSE,
+    CredentialLeaseKeys,
+    HumanCredentialSource,
+    open_worker_lease,
 )
 from hushh_mcp.services.pod_browser.credential_use import BrowserCredentialUse
 from hushh_mcp.services.pod_browser.dispatch_journal import BrowserDispatchJournal
@@ -138,7 +145,15 @@ async def probe(
         credential_cleanup_verified=True,
         credential_isolation_verified=True,
     )
-    state = {"posts": 0, "opens": 0, "echo": False, "receipts": [], "reviews": [], "redirects": 0}
+    state = {
+        "posts": 0,
+        "opens": 0,
+        "echo": False,
+        "receipts": [],
+        "reviews": [],
+        "redirects": 0,
+        "allowed": False,
+    }
     leases = []
 
     class Authority:
@@ -159,6 +174,14 @@ async def probe(
             state["receipts"].append("uncertain" if uncertain else "settled")
 
         async def require(self, bound, purpose, terms):
+            if purpose == "credential_fill" and state["allowed"]:
+
+                async def recheck():
+                    await self.check_binding(bound)
+                    if not state["allowed"]:
+                        raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+                return recheck
             state["reviews"].append(purpose)
             raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
 
@@ -217,52 +240,55 @@ async def probe(
     await broker._pool.aclose()
     broker._pool = Pool()
 
-    descriptor = CredentialDescriptor(
-        handle="cred_" + "a" * 32,
-        origin=ORIGIN,
-        record_revision=1,
-        autonomy_policy="autonomous",
-        policy_generation=1,
-        custody_generation=1,
-    )
+    descriptor = CredentialDescriptor(handle="sec_" + "a" * 16, origin=ORIGIN, record_revision=1)
 
-    class Source:
-        async def catalog(self, candidate, origin):
-            await authority.check_binding(candidate)
-            return (descriptor,)
+    class ProbeExecutor(PlaywrightExecutor):
+        # Same production worker opener, in-process for this local diagnostic.
+        # This never claims an installed UID/transport or image qualification.
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.keys = CredentialLeaseKeys(binding)
 
-        @asynccontextmanager
-        async def open(self, candidate, selected):
-            state["opens"] += 1
-            lease = CredentialLease(
-                bytearray(b"synthetic-user"),
-                bytearray(b"synthetic-private-password"),
-                lambda: authority.check_binding(candidate),
-                bytearray(b"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"),
-            )
-            leases.append(lease)
-            try:
+        async def prepare_credential_lease(self, request, *, binding=None):
+            await self.verify_credential_targets(request)
+            return self.keys.prepare(request)
+
+        async def fill_credentials(self, request, lease, *, scope, check):
+            async with open_worker_lease(
+                self.keys, binding, request, lease.envelope, check=check
+            ) as opened:
+                state["opens"] += 1
+                leases.append(opened)
+                opened.submission, opened.expected_target = lease.submission, lease.expected_target
                 if control.latest_frame is not None:
                     raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
-                with_paused = False
                 try:
                     await control.require_model_observation()
                 except BrowserRefused as exc:
-                    with_paused = exc.code == "BROWSER_MODEL_OBSERVATION_PAUSED"
-                if not (with_paused):
+                    if exc.code != "BROWSER_MODEL_OBSERVATION_PAUSED":
+                        raise
+                else:
                     raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
-                yield lease
-            finally:
-                lease.clear()
+                return await super().fill_credentials(request, opened, scope=scope, check=check)
 
-    driver = PlaywrightExecutor(network=broker, chromium_sandbox=True)
+        async def close(self):
+            self.keys.clear()
+            await super().close()
+
+    driver = ProbeExecutor(network=broker, chromium_sandbox=True)
     control = BrowserControl(
         binding=binding,
         readiness=ready,
         executor=driver,
         authority=BrowserExecutionAuthority(binding, authority, journal, policy),
     )
-    port = BrowserCredentialUse(control, Source(), authority, allowed_origins=[ORIGIN])
+
+    async def current_source(bound, aad):
+        await authority.check_binding(bound)
+
+    port = BrowserCredentialUse(
+        control, HumanCredentialSource(current_source), authority, allowed_origins=[ORIGIN]
+    )
     control.credentials = port
     request = CredentialUseRequest(
         operation_id="credential_probe_first",
@@ -276,6 +302,65 @@ async def probe(
             "submit": {"x": 40, "y": 175},
         },
     )
+
+    async def submit_with_allow(selected, *, prove_no_allow=False):
+        state["allowed"] = False
+        try:
+            await port.use(selected)
+        except BrowserRefused as exc:
+            if exc.code != "BROWSER_CREDENTIAL_OWNER_REQUIRED":
+                raise
+        else:
+            raise AssertionError("BROWSER_PROBE_HUMAN_ALLOW_REQUIRED")
+        await port.prepare_owner(
+            handle=selected.handle,
+            operation_id=selected.operation_id,
+            control_epoch=selected.control_epoch,
+            record_revision=1,
+            source_content_revision=1,
+            source_manifest_revision=1,
+        )
+        aad = {
+            "purpose": PURPOSE.name,
+            "ownerId": binding.owner_id,
+            "credentialId": selected.handle,
+            "recordRevision": 1,
+            "sourceContentRevision": 1,
+            "sourceManifestRevision": 1,
+            "podId": binding.pod_id,
+            "leaseKeyId": port.lease_key["id"],
+            "taskId": binding.task_id,
+            "incarnation": binding.incarnation,
+            "controlEpoch": selected.control_epoch,
+            "origin": selected.origin,
+            "operationId": selected.operation_id,
+            "expiresAt": min(int(time.time()) + 60, port.lease_key["expires_at"]),
+            "nonce": str(uuid4()),
+        }
+        envelope = sealed.seal(
+            {
+                "username": "synthetic-user",
+                "password": "synthetic-private-password",
+                "totpSecret": base64.b32encode(secrets.token_bytes(20)).decode("ascii"),
+            },
+            purpose=PURPOSE,
+            pod_public_key_raw=sealed.b64url_decode(port.lease_key["public_key"], length=32),
+            aad=aad,
+        )
+        if prove_no_allow:
+            try:
+                await port.use(selected, transient=(envelope, {}))
+            except BrowserRefused as exc:
+                if exc.code != "BROWSER_OWNER_APPROVAL_REQUIRED":
+                    raise
+            else:
+                raise AssertionError("BROWSER_PROBE_HUMAN_ALLOW_REQUIRED")
+            if state["opens"] or state["posts"]:
+                raise AssertionError("BROWSER_PROBE_HUMAN_ALLOW_REQUIRED")
+            state["reviews"].clear()
+        state["allowed"] = True  # synthetic exact owner receipt, never production authority
+        return await port.use(selected, transient=(envelope, {}))
+
     try:
         with patch.object(BrowserType, "launch", installed):
             await control.initialize()
@@ -312,7 +397,7 @@ async def probe(
             await driver._page.evaluate(restoration)
         if not (state["opens"] == 0):
             raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
-        result = await port.use(request)
+        result = await submit_with_allow(request, prove_no_allow=True)
         if not (result == {"state": "submitted", "origin": ORIGIN}):
             raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
         if not (
@@ -407,7 +492,7 @@ async def probe(
         )
         state["echo"] = True
         try:
-            await port.use(
+            await submit_with_allow(
                 request.model_copy(
                     update={
                         "operation_id": "credential_probe_echo",
@@ -437,7 +522,7 @@ async def probe(
             "explicit_manual_handback": "passed" if manual_control else "not_run",
             "mutable_buffers_scrubbed": "passed",
             "direct_totp_entry": "passed",
-            "autonomous_without_owner_review": "passed",
+            "human_allow_required_before_worker_unwrap": "passed",
             "host_observed_auth_redirects": state["redirects"],
             "unrelated_write_still_requires_owner": "passed",
             "untrusted_dom_override_refused": "passed",

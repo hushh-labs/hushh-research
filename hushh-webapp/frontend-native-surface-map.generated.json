@@ -5538,42 +5538,34 @@
       "page_file": "app/one/pkm/logins/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.one.pkm.logins",
-          "purpose": "Help the owner open secure website login controls. Passwords and verification secrets stay outside chat and model processing.",
-          "screen": "pkm_logins",
+          "playbook_id": "route.one.pkm.logins.compatibility",
+          "purpose": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+          "screen": "pkm",
           "entry_cue": "",
           "proactivity": "ambient",
-          "primary_action_id": "route.one_pkm_logins",
-          "happy_path_action_ids": [
-            "route.one_pkm_logins"
-          ],
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
+            "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
             "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
+            "failed": "Acknowledge the redirect failure without claiming completion.",
             "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "callback_error": "Return to the verified root Chat route without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Navigation is complete after the secure website login page opens. Credential edits require the owner to use its private controls.",
-          "next_route": "/one/pkm/logins",
+          "completion_boundary": "The redirect completes after Memory opens; secret use still requires the unlocked owner and explicit Allow.",
+          "next_route": "/one/pkm",
           "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+          "out_of_scope_behavior": "Use the canonical Memory Secrets controls."
         }
       },
       "native": {
@@ -5597,20 +5589,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/pkm/logins/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "credentials.add",
-        "credentials.cancel",
-        "credentials.edit",
-        "credentials.refresh",
-        "credentials.remove",
-        "credentials.renew",
-        "credentials.save",
-        "credentials.share",
-        "credentials.share_cancel",
-        "credentials.share_confirm",
-        "route.one_pkm_logins"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -11552,5 +11532,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b55475f190da498a7b9b8c56a19b67b7e2f37eddd2d8d0874caf76e452ed238e"
+  "content_sha256": "2c3e2b69781e9260b7a6903c38b39ad561ca935a214e156a7e06bab174fd7ad3"
 }

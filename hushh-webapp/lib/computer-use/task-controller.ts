@@ -112,15 +112,14 @@ export class ComputerUseTaskController {
       selection.operationId, snapshot.controlEpoch, payload, signal), true);
   };
 
-  useCredential = (handle: string): Promise<void> => {
+  prepareCredential = (handle: string, selection: import("./contracts").BrowserLoginSelection): Promise<void> => {
     const { snapshot, verified } = this.state;
-    if (!verified || !snapshot?.credentialRequest || !snapshot.savedLoginsAvailable
-      || snapshot.credentialEntryActive || snapshot.review || snapshot.inputPending || !this.transport.useCredential) {
+    if (!verified || !snapshot?.credentialRequest || !snapshot.savedLoginsAvailable || snapshot.controlOwner === "owner"
+      || snapshot.credentialEntryActive || (snapshot.review && snapshot.review.purpose !== "credential_fill") || snapshot.inputPending || !this.transport.prepareCredential) {
       return Promise.reject(new Error("BROWSER_CREDENTIAL_USE_REFUSED"));
     }
-    const selection = snapshot.credentialRequest;
-    return this.perform(signal => this.transport.useCredential!(this.binding, handle,
-      selection.operationId, snapshot.controlEpoch, signal), true);
+    return this.perform(signal => this.transport.prepareCredential!(this.binding, handle,
+      snapshot.credentialRequest!.operationId, snapshot.controlEpoch, selection, signal), true);
   };
 
   saveDownload = async (

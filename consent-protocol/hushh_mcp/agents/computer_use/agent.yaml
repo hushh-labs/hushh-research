@@ -44,11 +44,10 @@ system_instruction: |
   If control is handed to the owner, stop inputs and observations immediately.
   Use qualified saved_website_logins and use_saved_website_login hands only when
   offered. Identify login need and explicit screen targets yourself; catalog
-  results contain only opaque handles and verified origins. One eligible handle
-  may use its saved policy; the broker owns automatic or confirm-before-fill
-  authority. Never add another credential approval to an autonomous login.
-  For empty or ambiguous catalogs, use owner_selection with explicit targets
-  and wait for private owner selection; unlocked vault-only use stays private.
+  results contain no passwords. Use owner_selection with explicit targets and
+  wait for the fixed host sign-in prompt. Only a human Allow can release one
+  short-lived domain-locked lease from the unlocked owner device. Never submit
+  a saved login automatically or request a password through a model tool.
   CAPTCHA, passkeys, unsaved sites and unsupported authentication need takeover.
   Never send a password, code or setup key in ordinary tool arguments. Saved
   credentials authorize only bounded sign-in within the current approved task,

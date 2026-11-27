@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Protocol
 
 from pydantic import Field, model_validator
 
@@ -14,12 +14,9 @@ from .origin import public_origin
 
 
 class CredentialDescriptor(StrictContract):
-    handle: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
+    handle: str = Field(pattern=r"^(?:sec_[a-f0-9]{16}|owner_selection)$")
     origin: str = Field(min_length=1, max_length=4096)
     record_revision: int = Field(ge=1)
-    autonomy_policy: Literal["autonomous", "confirm_before_fill", "vault_only"]
-    policy_generation: int = Field(ge=1)
-    custody_generation: int = Field(ge=1)
 
     @model_validator(mode="after")
     def exact_origin(self):
@@ -36,6 +33,7 @@ class CredentialLease:
     totp_secret: bytearray | None = field(default=None, repr=False)
     submission: object | None = field(default=None, repr=False)
     expected_target: dict | None = field(default=None, repr=False)
+    envelope: dict | None = field(default=None, repr=False)
 
     def clear(self) -> None:
         # This erases owned mutable broker buffers, not Python/driver/Chromium
@@ -43,7 +41,7 @@ class CredentialLease:
         for value in (self.username, self.password, self.totp_secret):
             if isinstance(value, bytearray):
                 value[:] = b"\0" * len(value)
-        self.submission = self.expected_target = None
+        self.submission = self.expected_target = self.envelope = None
 
 
 class BrowserCredentialSource(Protocol):
@@ -84,7 +82,7 @@ class CredentialTargets(StrictContract):
 
 class CredentialUseRequest(StrictContract):
     operation_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
-    handle: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
+    handle: str = Field(pattern=r"^(?:sec_[a-f0-9]{16}|owner_selection)$")
     origin: str = Field(min_length=1, max_length=4096)
     control_epoch: int = Field(ge=1)
     targets: CredentialTargets

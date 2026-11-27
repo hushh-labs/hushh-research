@@ -221,6 +221,43 @@ def _owner():
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 
+def test_browser_activity_door_requires_owner_observation_and_accepts_ids_only(monkeypatch):
+    from api.routes.one import pod_browser
+    from hushh_mcp.one_adk import browser_activity_history
+
+    client = _client()
+    owner = SimpleNamespace(owner="owner-a", hushh_id="hushh-a", require_access=AsyncMock())
+    client.app.dependency_overrides[pod_agent_chat.context] = lambda: owner
+    record = AsyncMock()
+    monkeypatch.setattr(browser_activity_history, "record_browser_activity", record)
+    body = {"conversation_id": "conv-1", "task_id": "browser_" + "a" * 32}
+    # Chat authentication alone does not replace the separate Browser scope.
+    denied = client.post("/api/one/pod/agent-chat/browser-activity", json=body)
+    assert denied.status_code in {401, 403, 404}  # The unprovisioned pod wall is deliberately 404.
+    record.assert_not_awaited()
+    client.app.dependency_overrides[pod_browser.observing] = lambda: SimpleNamespace(
+        owner_id="foreign",
+        pod_id="hushh-a",
+    )
+    denied = client.post("/api/one/pod/agent-chat/browser-activity", json=body)
+    assert denied.status_code == 403
+    record.assert_not_awaited()
+    client.app.dependency_overrides[pod_browser.observing] = lambda: SimpleNamespace(
+        owner_id="owner-a",
+        pod_id="hushh-a",
+    )
+    forged = client.post(
+        "/api/one/pod/agent-chat/browser-activity",
+        json={
+            **body,
+            "receipt": {"state": "completed", "password": "synthetic-private-payload"},
+        },
+    )
+    assert forged.status_code == 422
+    assert "synthetic-private-payload" not in forged.text
+    record.assert_not_awaited()
+
+
 def _action_tool(action_id: str):
     from ag_ui.core import Tool
 

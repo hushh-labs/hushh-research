@@ -7,6 +7,53 @@ import pytest
 from tests.helpers.pod_browser import task_runtime_fixture
 
 
+async def test_owner_snapshot_preserves_v1_picker_wire_after_internal_account_selection(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_browser.credential_contracts import CredentialUseRequest
+    from tests.helpers.pod_browser import approved_task
+
+    fixture = task_runtime_fixture(monkeypatch)
+    snapshot = await approved_task(fixture)
+    task = fixture.runtime._tasks[snapshot.binding.task_id]
+    selected = CredentialUseRequest.model_validate(
+        {
+            "operation_id": "credential_operation_1",
+            "handle": "sec_" + "a" * 16,
+            "origin": "https://example.com",
+            "control_epoch": task.control.control_epoch,
+            "targets": {
+                "username": {"x": 1, "y": 1},
+                "password": {"x": 2, "y": 2},
+                "submit": {"x": 3, "y": 3},
+            },
+        }
+    )
+    lease_public_metadata = {
+        "id": "lease_" + "a" * 32,
+        "public_key": "A" * 43,
+        "expires_at": 1900,
+    }
+    task.control.credentials = SimpleNamespace(
+        selection=selected, lease_key=lease_public_metadata, owner_pending=True
+    )
+    try:
+        wire = fixture.runtime._owner_snapshot(task).model_dump(mode="json")
+        assert wire["credential_request"] == {
+            "operation_id": selected.operation_id,
+            "handle": "owner_selection",
+            "origin": selected.origin,
+            "lease_key": lease_public_metadata,
+        }
+        assert task.control.credentials.selection.handle == "sec_" + "a" * 16
+    finally:
+        task.control.credentials = None
+        fixture.model.release.set()
+        await fixture.runtime.drain()
+
+
 @pytest.mark.parametrize("purpose", ["model_process", "credential_fill"])
 async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(
     monkeypatch, purpose

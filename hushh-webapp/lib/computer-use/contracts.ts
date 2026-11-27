@@ -1,4 +1,5 @@
-export type TransientCredentialUse = Awaited<ReturnType<typeof import("@/lib/pkm/credentials-vault-service").sealTransientCredentialUse>>;
+export type TransientCredentialUse = import("@/lib/pkm/website-credential-lease").WebsiteCredentialLease;
+export type BrowserLoginSelection = import("@/lib/pkm/website-credential-lease").BrowserLoginSelection;
 export type ComputerUseEnvironment = "development" | "uat";
 
 /** Private, in-memory view of an admitted browser task. No hub transcript payloads. */
@@ -27,8 +28,9 @@ export type ComputerUseSnapshot = Readonly<{
   goalCompleted?: boolean;
   savedLoginsAvailable?: boolean;
   credentialEntryActive?: boolean;
+  activityReceipt?: import("@/lib/agent/compact-activity-receipt").CompactActivityReceipt;
   authorizationExpiresAt?: number;
-  credentialRequest?: Readonly<{ operationId: string; handle: string; origin: string }>;
+  credentialRequest?: Readonly<{ operationId: string; handle: "owner_selection"; origin: string; leaseKey: import("@/lib/pkm/website-credential-lease").BrowserLoginLeaseKey }>;
   /** Owner-only task result; never insert into One's transcript or telemetry. */
   summary?: string;
   review?: ComputerUseReview;
@@ -74,9 +76,8 @@ export type ComputerUseSessionReceipt =
 
 /** The adapter uses existing signed direct admission. This port never chooses an endpoint. */
 export interface ComputerUseTransport {
-  credentials?(binding: ComputerUseBinding, origin: string, signal: AbortSignal): Promise<readonly { handle: string; origin: string }[]>;
   useTransientCredential?(binding: ComputerUseBinding, handle: string, operationId: string, epoch: number, payload: TransientCredentialUse, signal: AbortSignal): Promise<ComputerUseSnapshot>;
-  useCredential?(binding: ComputerUseBinding, handle: string, operationId: string, epoch: number, signal: AbortSignal): Promise<ComputerUseSnapshot>;
+  prepareCredential?(binding: ComputerUseBinding, handle: string, operationId: string, epoch: number, selection: BrowserLoginSelection, signal: AbortSignal): Promise<ComputerUseSnapshot>;
   saveDownload?(binding: ComputerUseBinding, id: string, name: string, parent: string,
     signal: AbortSignal): Promise<{ fileId: string; bytes: number; sha256: string }>;
   read(binding: ComputerUseBinding, signal: AbortSignal): Promise<ComputerUseSnapshot>;

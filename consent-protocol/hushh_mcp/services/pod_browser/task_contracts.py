@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .consent import BrowserConsentPort, Purpose
 from .contracts import (
@@ -82,8 +82,18 @@ class BrowserTaskSnapshot(StrictContract):
     input_pending: bool = False
     downloads: tuple[BrowserDownloadOffer, ...] = Field(default=(), max_length=1, repr=False)
     goal_completed: bool = False
+    activity_receipt: dict | None = None
     credential_entry_active: bool = False
     credential_request: dict | None = Field(default=None, repr=False)
+
+    @field_validator("activity_receipt")
+    @classmethod
+    def closed_activity_receipt(cls, value):
+        from .activity_receipt import parse_activity_receipt
+
+        if value is not None and parse_activity_receipt(value) is None:
+            raise ValueError("Invalid Browser activity receipt")
+        return value
 
 
 class BrowserTaskReceipt(StrictContract):

@@ -236,7 +236,7 @@ POST /api/one/pod/browser-approval/issue
 POST /api/one/pod/browser-approval/consume
 POST /api/one/pod/browser-approval/validate
 POST /api/one/pod/browser-approval/confirm
-POST /api/one/pod/browser-approval/export/current
+POST /api/one/pod/browser-approval/credential-source
 GET,PUT /api/one/models/private-text-approval
 GET,PUT /api/one/world-model/preferences
 POST /api/one/world-model/invitations/reject

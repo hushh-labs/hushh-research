@@ -801,6 +801,7 @@ export function buildPkmSectionPreviewPresentation(params: {
   topLevelScopePath: string;
   value: Record<string, unknown> | null;
 }): PkmSectionPreviewPresentation {
+  if (params.domain.trim().toLowerCase() === "credentials") return { title: "Private information", description: "Open Secrets to import earlier saved logins.", stats: [], groups: [] };
   const title = params.permissionLabel.trim() || humanizeKey(params.topLevelScopePath);
   const description =
     params.permissionDescription?.trim() ||

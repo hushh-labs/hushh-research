@@ -63,6 +63,13 @@ async def review_provider_action(
 def gemini_before_tool(control: BrowserControl, processing: BrowserModelProcessing):
     async def before_tool(tool, args, tool_context):
         await control.require_model_observation()
+        if tool.name == "use_saved_website_login" and tool_context.tool_confirmation is not None:
+            # SDK resumption acknowledges this exact settled private operation.
+            # Keep the ordinary call-ID replay gate for every executable hand.
+            await processing.require()
+            if control.credentials is None:
+                raise BrowserRefused("BROWSER_CREDENTIAL_CONFIRMATION_REFUSED")
+            return await control.credentials.finish_confirmation(tool_context)
         decision = args.get("safety_decision")
         if decision is None:
             control.admit_native_call(tool_context.function_call_id)

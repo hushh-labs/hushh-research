@@ -343,6 +343,28 @@ No silent success is emitted on terminal failures.
 
 ---
 
+## Browser saved-login and history boundaries
+
+Website logins use the existing owner-encrypted `secrets.items` format;
+`attr.secrets.items.<sec_id>` grants are exact owner-started item shares, never a
+wildcard Secrets read or model-processing grant. New `credentials` domain writes
+and old standing password-custody paths are refused. Existing encrypted legacy
+snapshots remain owner-readable for explicit unlocked-device import.
+
+| Door | Authority and payload |
+| --- | --- |
+| `POST /api/one/pod/browser-approval/credential-source` | Signed, current owner-pod metadata check of exact `sec_` item source revisions. No password, seed or login lease passes through the Hub. |
+| `POST /api/one/pod/browser/tasks/{task_id}/credentials/use` | Owner control prepares the exact human review; it does not fill or submit. |
+| `POST /api/one/pod/browser/tasks/{task_id}/credentials/transient` | Explicit human Allow, current review and task/control-epoch/origin-bound one-use lease. Its ephemeral recipient key belongs to the active Browser worker. |
+| `POST /api/one/pod/agent-chat/browser-activity` | Owner app, `pkm.read`, `browser.observe` and current chat key. Body contains only `conversation_id` and `task_id`. The server reads the actual task outcome and verifies its accepted creation in that conversation before persisting a content-free receipt to the existing encrypted ADK journal. |
+
+`compactActivityReceipts` contains at most eight closed, enum/opaque-ID records,
+each at most 256 UTF-8 bytes. History may recover a missed terminal prompt receipt
+from the existing encrypted task checkpoint. This is one metadata read during
+history restoration, with no Browser launch, live historical controller, idle
+polling, model call or GET-triggered write. Receipt metadata grants no execution
+or information authority.
+
 ## Private-agent scheduled tasks
 
 `POST /api/one/pod/tasks` accepts `once`, `daily`, `weekly`, and `monthly` in

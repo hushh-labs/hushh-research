@@ -4190,6 +4190,11 @@ class PersonalKnowledgeModelService:
             "updated_at": None,
             "code": None,
         }
+        if domain == "credentials":
+            # Historical ciphertext remains owner-readable for explicit client
+            # migration. No writer may revive the retired parallel domain.
+            result["code"] = "LEGACY_CREDENTIALS_READ_ONLY"
+            return result if return_result else False
         try:
             domain = validate_dynamic_top_level_domain(domain, allow_internal=True)
         except ValueError as exc:

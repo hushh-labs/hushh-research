@@ -52,6 +52,7 @@ class BrowserTaskState:
     revision: int = 1
     code: str | None = None
     summary: str | None = field(default=None, repr=False)
+    activity_receipt: dict | None = None
     review: BrowserReviewOffer | None = field(default=None, repr=False)
     closed: bool = False
     processing_approved: bool = False

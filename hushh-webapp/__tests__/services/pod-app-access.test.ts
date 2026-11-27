@@ -400,22 +400,24 @@ it("admits status, config, and circle-rules routes only with app role and exact 
 });
 
 
-it("keeps exact credential catalog and use routes behind browser.control", async () => {
+it("keeps only exact credential prepare/lease routes behind browser.control", async () => {
   const fetch = vi.fn(async () => Response.json({ accepted: true }));
   const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
   const root = `browser/tasks/browser_${"a".repeat(32)}/credentials`;
   const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
     session: { session: "synthetic-session", role: "app", scopes: ["browser.observe"] } };
   pod.currentPodConnection.mockResolvedValue(connection);
-  for (const [route, method] of [[root, "GET"], [root + "/use", "POST"], [root + "/transient", "POST"]]) {
+  for (const [route, method] of [[root + "/use", "POST"], [root + "/transient", "POST"]]) {
     await expect(ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
   }
   expect(fetch).not.toHaveBeenCalled();
   connection.session.scopes = ["browser.control"];
-  for (const [route, method] of [[root + "?origin=https%3A%2F%2Fexample.com", "GET"], [root + "/use", "POST"], [root + "/transient", "POST"]]) {
+  for (const [route, method] of [[root + "/use", "POST"], [root + "/transient", "POST"]]) {
     expect((await ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).ok).toBe(true);
   }
-  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await expect(ownerPodRequest(root, { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  await expect(ownerPodRequest("credentials/cred_" + "a".repeat(32), { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
   await expect(ownerPodRequest(root + "/unreviewed", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
 });
 
@@ -500,8 +502,8 @@ it("admits sovereign pod plaid vault routes only for app POST requests with pkm.
 });
 
 
-const credentialRetryRoute = `browser/tasks/browser_${"a".repeat(32)}/credentials/use`;
-function credentialRetryConnection(role = "app", scopes = ["browser.control", "pod.config"], hushhId = "ha1_owner") {
+const credentialRetryRoute = `browser/tasks/browser_${"a".repeat(32)}/credentials/transient`;
+function credentialRetryConnection(role = "app", scopes = ["browser.control", "pod.status", "pkm.read", "browser.observe"], hushhId = "ha1_owner") {
   return { endpoint: { hushhId, url: `https://${hushhId}.a.run.app`, endpointVersion: 1 },
     session: { session: "synthetic-renewed-session", role, scopes } };
 }
@@ -522,7 +524,7 @@ it("retries an admitted credential write once with its original sealed body", as
 it.each([
   { label: "Browser scope", route: credentialRetryRoute, next: credentialRetryConnection("app", ["browser.observe"]), error: "POD_BROWSER_REQUEST_REFUSED" },
   { label: "Browser role", route: credentialRetryRoute, next: credentialRetryConnection("device"), error: "POD_BROWSER_REQUEST_REFUSED" },
-  { label: "custody config scope", route: "credentials", next: credentialRetryConnection("app", ["pod.status"]), error: "POD_CREDENTIAL_REQUEST_REFUSED" },
+  { label: "activity app scope", route: "agent-chat/browser-activity", next: credentialRetryConnection("app", ["browser.control"]), error: "POD_CHAT_REQUEST_INVALID" },
   { label: "pod identity", route: credentialRetryRoute, next: credentialRetryConnection("app", ["browser.control"], "ha1_other"), error: "POD_DIRECT_OWNER_MISMATCH" },
 ])("refuses renewed $label before retransmitting a credential write", async ({ route, next, error }) => {
   pod.currentPodConnection.mockReset().mockResolvedValueOnce(credentialRetryConnection()).mockResolvedValue(next);

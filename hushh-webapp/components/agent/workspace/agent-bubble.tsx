@@ -1,5 +1,7 @@
 "use client";
 
+import { compactActivityReceipts, compactActivityLabel } from "@/lib/agent/compact-activity-receipt";
+
 import { memo, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   Check,
@@ -573,6 +575,8 @@ export const AgentBubble = memo(function AgentBubble({
               "rounded-2xl border border-destructive/20 bg-destructive/[0.06] px-4 py-2.5 text-foreground",
           )}
         >
+          {!isUser ? compactActivityReceipts(message.compactActivityReceipts).map(receipt =>
+            <p key={JSON.stringify([receipt.kind, receipt.task_id, receipt.operation_id])} className="text-xs text-muted-foreground" data-testid="browser-static-activity-receipt">{compactActivityLabel(receipt)}</p>) : null}
           {isUser ? (
             <>
               {message.text ? (

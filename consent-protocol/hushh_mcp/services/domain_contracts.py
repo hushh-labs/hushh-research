@@ -58,14 +58,6 @@ class DomainSharingPolicy:
 
 CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
     DomainContractEntry(
-        domain_key="credentials",
-        display_name="Website logins",
-        icon_name="key-round",
-        color_hex="#475569",
-        description="Owner-encrypted website logins",
-        status="active_core",
-    ),
-    DomainContractEntry(
         domain_key="identity",
         display_name="Identity",
         icon_name="user-round",
@@ -460,20 +452,9 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 # These domains are protocol-reserved and writable only through first-party
 # owner-authorized PKM paths.  They must never be invented or repurposed by the
 # semantic structure agent as arbitrary user domains.
-OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset(
-    {"one_wiki", "secrets", "source_library", "wallet", "credentials"}
-)
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"one_wiki", "secrets", "source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
-    "credentials": DomainSharingPolicy(
-        domain_key="credentials",
-        allow_domain_wildcard=False,
-        allowed_manifest_path_prefixes=("summary", "secrets"),
-        requestable_scopes=frozenset(),
-        allow_public_projection=False,
-        per_item_grant_branches=("summary", "secrets"),
-        per_item_id_pattern=r"^cred_[a-f0-9]{32}$",
-    ),
     "one_memory": DomainSharingPolicy(
         domain_key="one_memory",
         allow_domain_wildcard=False,

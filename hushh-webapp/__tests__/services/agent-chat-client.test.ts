@@ -1281,15 +1281,20 @@ describe("AG-UI Agent One client", () => {
     expect(onSpecialistDirective).not.toHaveBeenCalled();
   });
 
-  it("keeps the turn Activity descriptor on assistant history only", async () => {
+  it("keeps bounded static Browser receipts and turn Activity on assistant history only", async () => {
     const turnActivity = { activityType: "one.turn_activity.v1",
       content: { steps: [{ id: "call-1", tool: "discover_workspace_tools", status: "done", provider: "calendar" }] } };
+    const receipt = { v: 1, kind: "browser_sign_in", state: "completed", task_id: "browser_" + "a".repeat(32), operation_id: "operation_123" };
     vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
-      messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer", metadata: { turnActivity } })),
+      messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer", metadata: { turnActivity,
+        compactActivityReceipts: [receipt, { ...receipt, password: "PRIVATE" }] } })),
     })));
     const messages = await getAgentChatHistory({ vaultKey: TEST_VAULT_KEY, conversationId: "c1", vaultOwnerToken: "fixture" });
     expect(messages[0].metadata?.turnActivity).toEqual(turnActivity);
     expect(messages[1].metadata?.turnActivity).toBeUndefined();
+    expect(messages[0].metadata?.compactActivityReceipts).toEqual([receipt]);
+    expect(messages[1].metadata?.compactActivityReceipts).toBeUndefined();
+    expect(JSON.stringify(messages)).not.toContain("PRIVATE");
   });
   beforeEach(() => {
     publishValidatedAuthSessionOwner("user-1");

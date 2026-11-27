@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from google.adk.tools import FunctionTool
+from google.adk.tools.tool_context import ToolContext
 
 from .contracts import BrowserRefused
 from .credential_contracts import CredentialTarget, CredentialTargets, CredentialUseRequest
@@ -47,6 +48,7 @@ def credential_tools(control, processing) -> list:
         password_y: int,
         submit_x: int,
         submit_y: int,
+        tool_context: ToolContext,
         otp_x: int | None = None,
         otp_y: int | None = None,
     ) -> dict:
@@ -63,6 +65,11 @@ def credential_tools(control, processing) -> list:
         """
         await control.require_model_observation()
         await processing.require()
+        if tool_context.tool_confirmation is not None:
+            # The SDK resolves the real original call from its own session.
+            # Confirmation acknowledges an already settled private lease; it
+            # cannot authorize another fill or another call's replay.
+            return await port.finish_confirmation(tool_context)
         try:
             request = CredentialUseRequest(
                 operation_id="credential_" + uuid4().hex,
@@ -91,6 +98,7 @@ def credential_tools(control, processing) -> list:
                 }
                 or port.owner_pending
             ):
+                port.request_confirmation(tool_context)
                 return {"state": "needs_owner", "origin": origin}
             if exc.code.startswith("BROWSER_CREDENTIAL_") and not control.outcome_uncertain:
                 return {"state": "refused", "code": exc.code, "origin": origin}

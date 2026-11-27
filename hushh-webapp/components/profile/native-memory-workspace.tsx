@@ -9,6 +9,7 @@ import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspac
 import type { NativeWorkspaceChoice, NativeWorkspaceMemoryDraft } from "@/lib/capacitor/native-workspace";
 import { nativePrivacyCanInteract, nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES, normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { useProfilePanePresentation } from "@/lib/navigation/use-profile-pane-presentation";
@@ -22,7 +23,7 @@ export type NativeMemoryRetainedOwners = {
   commerce: MemoryCommerceSummaryModel;
   sharing: PkmSharingExpansion;
 };
-type WebChild = "soul-editor" | "sharing" | "detail" | "payments" | "navigation";
+type WebChild = "soul-editor" | "sharing" | "detail" | "payments" | "navigation" | "secrets";
 
 /** Memory keeps one model and one workspace lease. Explicit
  * rich child actions retire native before the complete authored web child is
@@ -35,6 +36,7 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
   const profilePane = useProfilePanePresentation();
   const presentation = useNativeWorkspacePresentation();
   const contentFrame = useRef<HTMLElement | null>(null);
+  const [secretsOpen, setSecretsOpen] = useState(false);
   const [child, setChild] = useState<{ kind: WebChild; seen: boolean } | null>(null);
   const { handoff: retireForChild, activationRevision, intent } = useNativeWorkspaceHandoff(presentation.retireForWeb, model.presentationIdentity);
   const latest = useRef({ model, pathname });
@@ -42,7 +44,7 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
   useLayoutEffect(() => {
     // A child belongs to one unlocked presentation. A lock or owner change
     // must not leave an unobserved handoff suppressing the next session.
-    setChild(null);
+    setChild(null); setSecretsOpen(false);
   }, [model.presentationIdentity]);
   const commerce = useMemoryCommerceSummary(model.canOpen);
   const sharing = usePkmSharingExpansion(model.ownerId, model.canOpen, model.presentationIdentity);
@@ -60,7 +62,8 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
     }, () => { setChild({ kind, seen: false }); action(); });
   });
   const profileOpen = profilePane?.open === true;
-  const childOpen = child?.kind === "soul-editor" ? model.soul.editing : child?.kind === "sharing" ? sharing.section !== "" :
+  useBackLayer(ROUTES.PKM, secretsOpen ? 2 : 0, () => { setSecretsOpen(false); return true; });
+  const childOpen = child?.kind === "secrets" ? secretsOpen : child?.kind === "soul-editor" ? model.soul.editing : child?.kind === "sharing" ? sharing.section !== "" :
     child?.kind === "detail" ? !!model.selectedCard || !!model.selectedMetadataDomain : child?.kind === "payments" ? profileOpen : false;
   useLayoutEffect(() => {
     if (!child) return;
@@ -77,7 +80,8 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
       const requested = intent.current;
       requestAnimationFrame(() => {
         if (requested !== intent.current || !routeCurrent()) return;
-        if (child.kind === "sharing") document.querySelector<HTMLElement>('[data-pkm-memory-sharing="true"]')?.scrollIntoView?.({ block: "start" });
+        if (child.kind === "secrets") document.querySelector<HTMLElement>('[data-memory-secrets="true"]')?.scrollIntoView?.({ block: "start" });
+        else if (child.kind === "sharing") document.querySelector<HTMLElement>('[data-pkm-memory-sharing="true"]')?.scrollIntoView?.({ block: "start" });
         else document.querySelector<HTMLElement>('[data-app-scroll-root="true"]')?.scrollTo?.({ top: 0, behavior: "instant" });
       });
     }
@@ -87,6 +91,7 @@ export function NativeMemoryWorkspace({ model, renderFallback }: {
   const nativePrivateReady = nativeRequested && model.canOpen && nativePrivacyCanInteract(nativePrivacyObservation().state);
   const saved = nativePrivateReady ? nativeMemorySaved({ model, commerce, handle: handles, handoff,
     openSharing: () => sharing.setSection("sharing"),
+    openSecrets: () => setSecretsOpen(true),
     openPayments: () => openProfilePane(window.location.pathname, window.location.search, { panel: "payouts", detail: null }, { returnsToOrigin: true }) }) : null;
   const active = nativeRequested && pathname === ROUTES.PKM && model.canOpen && model.captureSessionCurrent() &&
     !!saved && !child;

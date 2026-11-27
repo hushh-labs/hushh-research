@@ -491,7 +491,7 @@ async def test_interactive_request_review_keeps_exact_scope_outside_http_deadlin
         await asyncio.gather(work, return_exceptions=True)
 
 
-def _credential_fixture(policy="autonomous"):
+def _credential_fixture():
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
@@ -506,18 +506,18 @@ def _credential_fixture(policy="autonomous"):
     auth = Authority()
     entered, release = asyncio.Event(), asyncio.Event()
     descriptor = CredentialDescriptor(
-        handle="cred_" + "a" * 32,
+        handle="sec_" + "a" * 16,
         origin="https://example.com",
         record_revision=1,
-        policy_generation=1,
-        custody_generation=1,
-        autonomy_policy=policy,
     )
     leases, approvals = [], []
 
     class Driver(Executor):
         fills = 0
         clean = True
+
+        async def prepare_credential_lease(self, request, *, binding=None):
+            return {"id": "lease_" + "a" * 32, "public_key": "synthetic-only", "expires_at": 1050}
 
         async def verify_credential_targets(self, request):
             assert request.origin == "https://example.com"
@@ -565,8 +565,12 @@ def _credential_fixture(policy="autonomous"):
             await auth.check_binding(bound)
             return self.rows
 
+        async def validate_transient(self, bound, aad, selected=None):
+            await auth.check_binding(bound)
+
         @asynccontextmanager
-        async def open(self, bound, selected):
+        async def open_transient(self, bound, request, envelope, selected=None, *, claim):
+            await claim()
             lease = CredentialLease(
                 bytearray(b"synthetic-user"),
                 bytearray(b"synthetic-private-password"),
@@ -584,6 +588,7 @@ def _credential_fixture(policy="autonomous"):
     async def require(bound, purpose, terms):
         approvals.append((purpose, terms))
         await auth.check_binding(bound)
+        return lambda: auth.check_binding(bound)
 
     driver, source = Driver(), Source()
     state = control(
@@ -613,7 +618,62 @@ def _credential_fixture(policy="autonomous"):
             "submit": {"x": 10, "y": 70},
         },
     )
+
+    def prepare_for(port, request, bound):
+        from uuid import uuid4
+
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+        from hushh_mcp.services import pod_sealed_envelope as sealed
+        from hushh_mcp.services.pod_browser.credential_transient import PURPOSE
+
+        aad = {
+            "purpose": PURPOSE.name,
+            "ownerId": bound.owner_id,
+            "credentialId": request.handle,
+            "recordRevision": 1,
+            "sourceContentRevision": 1,
+            "sourceManifestRevision": 1,
+            "podId": bound.pod_id,
+            "leaseKeyId": "lease_" + "a" * 32,
+            "taskId": bound.task_id,
+            "incarnation": bound.incarnation,
+            "controlEpoch": request.control_epoch,
+            "origin": request.origin,
+            "operationId": request.operation_id,
+            "expiresAt": 1050,
+            "nonce": str(uuid4()),
+        }
+        envelope = sealed.seal(
+            {"username": "synthetic-user", "password": "synthetic-private-password"},
+            purpose=PURPOSE,
+            pod_public_key_raw=sealed.raw_public(X25519PrivateKey.generate().public_key()),
+            aad=aad,
+        )
+        port.selection = request
+        port.lease_key = {
+            "id": aad["leaseKeyId"],
+            "public_key": "synthetic-only",
+            "expires_at": 1050,
+        }
+        port.prepared = {
+            "aad": {
+                k: aad[k]
+                for k in (
+                    "credentialId",
+                    "recordRevision",
+                    "sourceContentRevision",
+                    "sourceManifestRevision",
+                )
+            },
+            "terms": {"synthetic": True, "remember_session": False},
+        }
+        return envelope, {}
+
+    transient = prepare_for(port, request, state.binding)
     return SimpleNamespace(
+        transient=transient,
+        prepare_for=prepare_for,
         auth=auth,
         control=state,
         port=port,
@@ -625,6 +685,46 @@ def _credential_fixture(policy="autonomous"):
         leases=leases,
         approvals=approvals,
     )
+
+
+@pytest.mark.parametrize("missing_proof", [None, True])
+async def test_credential_authority_cannot_replace_exact_receipt_recheck_with_a_boolean(
+    missing_proof,
+):
+    fixture = _credential_fixture()
+    await fixture.control.initialize()
+    fixture.release.set()
+
+    async def no_recheck(*_args):
+        return missing_proof
+
+    fixture.port.consent.require = no_recheck
+    try:
+        with pytest.raises(BrowserRefused, match="APPROVAL_UNAVAILABLE"):
+            await fixture.port.use(fixture.request, transient=fixture.transient)
+        assert fixture.control.control_epoch == fixture.request.control_epoch
+        assert not fixture.leases and fixture.driver.fills == 0 and not fixture.auth.journal
+    finally:
+        await fixture.control.stop()
+
+
+async def test_saved_secret_never_unwraps_or_submits_without_human_allow():
+    fixture = _credential_fixture()
+    await fixture.control.initialize()
+    fixture.release.set()
+
+    async def refuse(bound, purpose, terms):
+        assert purpose == "credential_fill"
+        raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+    fixture.port.consent.require = refuse
+    try:
+        with pytest.raises(BrowserRefused, match="OWNER_APPROVAL_REQUIRED"):
+            await fixture.port.use(fixture.request, transient=fixture.transient)
+        assert not fixture.leases and fixture.driver.fills == 0
+        assert not fixture.auth.journal
+    finally:
+        await fixture.control.stop()
 
 
 @pytest.mark.parametrize(
@@ -672,6 +772,14 @@ async def test_credential_cancellation_joins_teardown_and_releases_admission(
     control.credentials.selection = sensitive.request.model_copy(
         update={"control_epoch": control.control_epoch}
     )
+    transient = sensitive.prepare_for(
+        control.credentials, control.credentials.selection, task.binding
+    )
+    fixture.reviews.grants.add(
+        fixture.reviews.identity(
+            task.binding, "credential_fill", control.credentials.prepared["terms"]
+        )
+    )
     closing_entered, release_close = asyncio.Event(), asyncio.Event()
     original_close = fixture.driver.close
     worker = shutdown = None
@@ -688,6 +796,7 @@ async def test_credential_cancellation_joins_teardown_and_releases_admission(
             handle=sensitive.request.handle,
             operation_id=sensitive.request.operation_id,
             control_epoch=control.control_epoch,
+            transient=transient,
         )
         worker = task.credential_worker
         entered = sensitive.entered if pending_stage == "lease" else fixture.driver.entered
@@ -741,21 +850,13 @@ async def test_credential_cancellation_joins_teardown_and_releases_admission(
 
 
 @pytest.mark.parametrize(
-    "policy,fault",
-    [
-        ("autonomous", None),
-        ("confirm_before_fill", None),
-        ("autonomous", "revoke"),
-        ("autonomous", "stop"),
-        ("autonomous", "cleanup"),
-    ],
+    "fault",
+    [None, "revoke", "stop", "cleanup"],
 )
-async def test_private_credential_transaction_fences_observation_rechecks_and_never_replays(
-    policy, fault
-):
-    fixture = _credential_fixture(policy)
+async def test_private_credential_transaction_fences_observation_rechecks_and_never_replays(fault):
+    fixture = _credential_fixture()
     await fixture.control.initialize()
-    work = asyncio.create_task(fixture.port.use(fixture.request))
+    work = asyncio.create_task(fixture.port.use(fixture.request, transient=fixture.transient))
     try:
         await asyncio.wait_for(fixture.entered.wait(), 1)
         assert fixture.control.latest_frame is None and fixture.control.control_owner == "agent"
@@ -763,9 +864,7 @@ async def test_private_credential_transaction_fences_observation_rechecks_and_ne
             await fixture.control.require_model_observation()
         with pytest.raises(BrowserRefused, match="CREDENTIAL_ENTRY_ACTIVE"):
             await fixture.control.take_control()
-        assert [item[0] for item in fixture.approvals] == (
-            ["credential_fill"] if policy == "confirm_before_fill" else []
-        )
+        assert [item[0] for item in fixture.approvals] == ["credential_fill"]
         if fault == "revoke":
             fixture.auth.revoked = True
         elif fault == "stop":
@@ -787,8 +886,11 @@ async def test_private_credential_transaction_fences_observation_rechecks_and_ne
             assert await fixture.control.require_model_observation() == 2
             assert fixture.control.latest_frame is not None
             assert [state for _, state in fixture.auth.journal] == ["dispatch", "settled"]
-            with pytest.raises(BrowserRefused, match="ACTION_REPLAY"):
-                await fixture.port.use(fixture.request.model_copy(update={"control_epoch": 2}))
+            with pytest.raises(BrowserRefused):
+                await fixture.port.use(
+                    fixture.request.model_copy(update={"control_epoch": 2}),
+                    transient=fixture.transient,
+                )
         assert all(not any(lease.password) and not any(lease.username) for lease in fixture.leases)
     finally:
         fixture.release.set()
@@ -821,189 +923,6 @@ async def test_credential_owner_selection_is_a_completed_call_barrier_and_unqual
     await fixture.control.take_control()
     await fixture.control.resume_agent()
     assert fixture.port.selection is None and await fixture.control.require_model_observation() == 3
-
-
-@pytest.mark.parametrize("fault", [None, "replay", "expired", "epoch", "revision", "recipient"])
-async def test_vault_only_seal_is_task_bound_current_and_one_use_before_unwrap(fault):
-    import time
-    from uuid import uuid4
-
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-
-    from hushh_mcp.services import pod_sealed_envelope as sealed
-    from hushh_mcp.services.pod_browser.credential_transient import PURPOSE, open_transient
-    from hushh_mcp.services.website_credentials import CredentialRefused
-
-    fixture = _credential_fixture()
-    bound = binding(expires_at=int(time.time()) + 600)
-    key = X25519PrivateKey.generate()
-    aad = dict(
-        purpose=PURPOSE.name,
-        ownerId=bound.owner_id,
-        credentialId=fixture.request.handle,
-        recordRevision=1,
-        policyGeneration=1,
-        custodyGeneration=1,
-        hushhId=bound.pod_id,
-        podKeyId="key",
-        taskId=bound.task_id,
-        incarnation=bound.incarnation,
-        controlEpoch=1,
-        origin=fixture.request.origin,
-        operationId=fixture.request.operation_id,
-        expiresAt=int(time.time()) + 50,
-        nonce=str(uuid4()),
-    )
-    selection = {"synthetic": "exact-authoritative-selection"}
-    if fault == "expired":
-        aad["expiresAt"] = int(time.time()) - 1
-    if fault == "epoch":
-        aad["controlEpoch"] = 2
-    envelope = sealed.seal(
-        {"username": "synthetic-user", "password": "synthetic-password", "selection": selection},
-        purpose=PURPOSE,
-        pod_public_key_raw=sealed.raw_public(key.public_key()),
-        aad=aad,
-    )
-    claims = []
-
-    class Source:
-        async def validate_transient(self, value, candidate, selected):
-            assert value == bound and selected == selection
-            if fault == "revision":
-                raise CredentialRefused("CREDENTIAL_REVISION_STALE")
-
-    async def claim():
-        if claims:
-            raise BrowserRefused("BROWSER_ACTION_REPLAY")
-        claims.append(aad["nonce"])
-
-    async def use():
-        async with open_transient(
-            Source(),
-            bound,
-            fixture.request,
-            envelope,
-            selection,
-            private_key=X25519PrivateKey.generate() if fault == "recipient" else key,
-            claim=claim,
-        ) as lease:
-            assert lease.password == bytearray(b"synthetic-password")
-            await lease.recheck()
-            return lease
-
-    if fault not in (None, "replay"):
-        with pytest.raises((BrowserRefused, CredentialRefused)):
-            await use()
-        assert len(claims) == (1 if fault == "recipient" else 0)
-    else:
-        lease = await use()
-        assert not any(lease.password) and not any(lease.username)
-        with pytest.raises(BrowserRefused, match="ACTION_REPLAY"):
-            await use()
-        assert len(claims) == 1
-
-
-async def test_vault_only_full_transaction_uses_existing_task_authority_and_durable_nonce_journal(
-    tmp_path,
-):
-    import time
-    from contextlib import asynccontextmanager
-    from uuid import uuid4
-
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-
-    from hushh_mcp.services import pod_sealed_envelope as sealed
-    from hushh_mcp.services.pod_browser.credential_transient import PURPOSE, open_transient
-    from hushh_mcp.services.pod_browser.dispatch_journal import BrowserDispatchJournal
-    from hushh_mcp.services.pod_browser.execution_authority import (
-        BrowserExecutionAuthority,
-        PublicResearchPolicy,
-    )
-    from hushh_mcp.services.pod_browser.task_authority import TaskAuthority
-    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
-
-    fixture = _credential_fixture()
-    now = time.time()
-    fixture.control.binding = bound = binding(expires_at=int(now) + 600)
-    fixture.control._wall_clock = lambda: time.time()
-    key = X25519PrivateKey.generate()
-    aad = {
-        "purpose": PURPOSE.name,
-        "ownerId": "owner",
-        "credentialId": fixture.request.handle,
-        "recordRevision": 1,
-        "policyGeneration": 1,
-        "custodyGeneration": 1,
-        "hushhId": "pod",
-        "podKeyId": "key",
-        "taskId": "task",
-        "incarnation": "epoch",
-        "controlEpoch": 1,
-        "origin": fixture.request.origin,
-        "operationId": fixture.request.operation_id,
-        "expiresAt": int(now) + 50,
-        "nonce": str(uuid4()),
-    }
-    selection = {"synthetic": "current-exact-export"}
-    envelope = sealed.seal(
-        {
-            "username": "synthetic-user",
-            "password": "synthetic-private-password",
-            "selection": selection,
-        },
-        purpose=PURPOSE,
-        pod_public_key_raw=sealed.raw_public(key.public_key()),
-        aad=aad,
-    )
-    leases = []
-
-    class Source:
-        async def validate_transient(self, value, candidate, selected):
-            assert value == bound and selected == selection and candidate == aad
-            await fixture.auth.check_binding(value)
-
-        @asynccontextmanager
-        async def open_transient(self, value, request, envelope, selected, *, claim):
-            assert fixture.control.latest_frame is None
-            with pytest.raises(BrowserRefused, match="MODEL_OBSERVATION_PAUSED"):
-                await fixture.control.require_model_observation()
-            async with open_transient(
-                self, value, request, envelope, selected, private_key=key, claim=claim
-            ) as lease:
-                leases.append(lease)
-                yield lease
-
-    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner")
-    policy = PublicResearchPolicy(
-        page_urls=(fixture.request.origin + "/login",),
-        interactive_origins=(fixture.request.origin,),
-    )
-
-    def authority():
-        journal = BrowserDispatchJournal(log, key=b"J" * 32, owner_id="owner", pod_id="pod")
-        return TaskAuthority(
-            bound, fixture.auth, BrowserExecutionAuthority(bound, fixture.auth, journal, policy)
-        )
-
-    fixture.control._authority = authority()
-    fixture.port.source = Source()
-    await fixture.control.initialize()
-    try:
-        assert await fixture.port.use(
-            fixture.request, owner_selected=True, transient=(envelope, selection)
-        ) == {"state": "submitted", "origin": fixture.request.origin}
-        assert fixture.driver.fills == 1 and all(not any(lease.password) for lease in leases)
-        assert await fixture.control.require_model_observation() == 2
-        # Reconstructed production adapters must refuse the same opaque nonce;
-        # process-local operation sets are not the recovery replay boundary.
-        with pytest.raises(BrowserRefused, match="ACTION_REPLAY"):
-            await authority().consume_credential_nonce(bound, aad["nonce"])
-        records = await log.replay()
-        assert len(records) == 4 and "synthetic-private-password" not in str(records)
-        assert "type" not in fixture.driver.calls
-    finally:
-        await fixture.control.stop()
 
 
 @pytest.mark.parametrize("fault", [None, "body", "destination", "epoch", "revoke"])
@@ -1066,9 +985,6 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
         handle=fixture.request.handle,
         origin=fixture.request.origin,
         record_revision=1,
-        autonomy_policy="autonomous",
-        policy_generation=1,
-        custody_generation=1,
     )
     credential = CredentialSubmission(
         bound,

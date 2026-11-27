@@ -68,8 +68,9 @@ export function ComputerUseTaskCard({
   const lastOpenSignalRef = useRef(openReviewSignal);
   const openedTaskRef = useRef<string | null>(null);
   const taskIdentity = JSON.stringify([ownerId, podId, incarnation, taskId, environment]);
-  useBackLayer(route, reviewId ? 4 : open ? 3 : 0, () => {
-    if (reviewId) setReviewId(null);
+  const genericReviewOpen = Boolean(reviewId && state.snapshot?.review?.id === reviewId && state.snapshot.review.purpose !== "credential_fill");
+  useBackLayer(route, genericReviewOpen ? 4 : open ? 3 : 0, () => {
+    if (genericReviewOpen) setReviewId(null);
     else if (open) setOpen(false);
     else return false;
     return true;
@@ -123,6 +124,7 @@ export function ComputerUseTaskCard({
     if (openReviewSignal === lastOpenSignalRef.current) return;
     lastOpenSignalRef.current = openReviewSignal;
     if (openReviewSignal <= 0) return;
+    if (snapshot?.credentialRequest) return; // The composer already reveals the fixed host sign-in card.
     if (snapshot?.review) setReviewId(snapshot.review.id);
     else setOpen(true);
   }, [openReviewSignal, snapshot]);
@@ -202,7 +204,7 @@ export function ComputerUseTaskCard({
         statusMessage={message}
         controls={controls}
         onClose={() => setOpen(false)}
-        onOpenReview={snapshot?.review ? () => setReviewId(snapshot.review?.id ?? null) : undefined}
+        onOpenReview={snapshot?.review && snapshot.review.purpose !== "credential_fill" ? () => setReviewId(snapshot.review?.id ?? null) : undefined}
         onSaveDownload={saveDownloadById}
         downloadPending={state.pending}
         showMobileHeaderClose={showMobileHeaderClose}
@@ -268,7 +270,7 @@ export function ComputerUseTaskCard({
               </p>
             </div>
           </div>
-          {canPreview ? (
+          {canPreview && !snapshot.credentialRequest ? (
             <ShellActionSurface
               variant="pill"
               className="min-h-10"
@@ -282,7 +284,7 @@ export function ComputerUseTaskCard({
             </ShellActionSurface>
           ) : null}
           {snapshot.savedLoginsAvailable && snapshot.credentialRequest ? (
-            <ComputerUseCredentials controller={controller} snapshot={snapshot} route={route} pending={state.pending} />
+            <ComputerUseCredentials controller={controller} snapshot={snapshot} route={route} pending={state.pending} onTypeMyself={() => { setOpen(true); control("takeover"); }} />
           ) : null}
         </div>
       ) : null}
@@ -296,7 +298,7 @@ export function ComputerUseTaskCard({
             onClick={() => saveDownloadById(download.id)}>Save to Files</ShellActionSurface>
         </div>
       ))}
-      {usable && snapshot?.review ? (
+      {usable && snapshot?.review && snapshot.review.purpose !== "credential_fill" ? (
         <div className="flex flex-wrap items-center gap-2">
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
             onClick={() => setReviewId(snapshot.review?.id ?? null)}>Review request</ShellActionSurface>

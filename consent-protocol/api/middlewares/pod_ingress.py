@@ -103,7 +103,6 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/files/workspaces/forget",
         "/api/one/pod/status",
         "/api/one/pod/config",
-        "/api/one/pod/credentials",
         "/api/one/pod/turn",
         "/api/one/pod/turn/stream",
         "/api/one/pod/turn/cancel",
@@ -114,6 +113,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/plaid/vault/remove",
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/browser-activity",
         "/api/one/pod/agent-chat/migration/import",
         # The owner's ratings, and voice command proposals validated and
         # checkpointed in the agent (pod_command_proposals.py). Same owner app
@@ -209,7 +209,6 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
         rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/(?:settle|dispatch))?",
         r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
-        r"/api/one/pod/credentials/cred_[a-f0-9]{32}",
         r"/api/one/pod/connectors/gmail/accounts(?:/[a-f0-9]{32})?",
         r"/api/one/pod/circle-rules/rule_[a-z0-9][a-z0-9_-]{7,63}(?:/toggle)?",
         r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",

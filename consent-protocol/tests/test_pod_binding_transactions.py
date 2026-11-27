@@ -1379,6 +1379,83 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(
     asyncio.run(
         _composed_browser_owner_journey(db, monkeypatch, tmp_path, post, fail_before_consume)
     )
+    from sqlalchemy.exc import DBAPIError
+
+    from db.migration_authority import _replay_sql, build_manifest_entries
+
+    base = Path(__file__).resolve().parents[1] / "db/migrations"
+    forward = base / "465_browser_credential_fill_authority.sql"
+    rollback = base / "rollback/465_browser_credential_fill_authority.rollback.sql"
+    pg.apply_file(forward)
+    try:
+        for fault in (
+            None,
+            "terms",
+            "before_unwrap",
+            "before_network",
+            "lease_expired_before_network",
+        ):
+            asyncio.run(_single_use_credential_owner_journey(db, post, fault))
+        with db.engine.connect() as conn:
+            before = conn.execute(
+                text("SELECT * FROM one_action_directive_ledger ORDER BY directive_id")
+            ).all()
+        entries = build_manifest_entries(
+            base,
+            (
+                "212_location_command_runtime.sql",
+                "231_document_review_authority.sql",
+                "248_adk_chat_action_authority.sql",
+            ),
+        ) + build_manifest_entries(
+            base / "parked",
+            (
+                "945_pod_mcp_action_authority.sql",
+                "966_pod_browser_action_authority.sql",
+                "971_private_action_channel_continuity.sql",
+            ),
+        )
+        for _ in range(2):
+            for entry in entries:
+                pg.execute(_replay_sql(entry))
+            pg.apply_file(forward)
+        with db.engine.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT * FROM one_action_directive_ledger ORDER BY directive_id")
+                ).all()
+                == before
+            )
+            conn.rollback()
+            for drift in (
+                "COMMENT ON CONSTRAINT pod_chat_action_identity ON one_action_directive_ledger IS NULL",
+                "ALTER TABLE one_action_directive_ledger DROP CONSTRAINT pod_chat_action_identity",
+            ):
+                transaction = conn.begin()
+                try:
+                    conn.execute(text(drift))
+                    for sql in (forward.read_text(), *(_replay_sql(entry) for entry in entries)):
+                        savepoint = conn.begin_nested()
+                        try:
+                            with pytest.raises(DBAPIError):
+                                conn.execute(text(sql))
+                        finally:
+                            savepoint.rollback()
+                finally:
+                    transaction.rollback()
+            transaction = conn.begin()
+            try:
+                with pytest.raises(DBAPIError, match="history prevents schema rollback"):
+                    conn.execute(text(rollback.read_text()))
+            finally:
+                transaction.rollback()
+    finally:
+        # Disposable fixture cleanup only. Production rollback retains history
+        # and refuses the schema down-migration while these receipts exist.
+        pg.execute(
+            "DELETE FROM one_action_directive_ledger WHERE channel='pod_chat' AND action_id='browser.credential_fill'"
+        )
+        pg.apply_file(rollback)
     assert "private synthetic" not in json.dumps(calls)
     with db.engine.begin() as conn:
         rows = conn.execute(text("SELECT * FROM one_action_directive_ledger")).mappings().all()
@@ -1573,3 +1650,272 @@ async def _composed_browser_owner_journey(db, monkeypatch, tmp_path, post, fail_
     finally:
         await fixture.composed.close()
     fixture.launcher.close.assert_awaited_once()
+
+
+async def _single_use_credential_owner_journey(db, post, fault):
+    """Real PostgreSQL review authority, TaskConsent and ciphertext-only socket bridge."""
+    import hashlib
+    import socket
+    import time
+    from tempfile import TemporaryDirectory
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    import httpcore
+
+    from hushh_mcp.services import pod_sealed_envelope as sealed
+    from hushh_mcp.services.pod_browser.connected_executor import (
+        ConnectedBrowserExecutor,
+        ConnectedBrowserWorker,
+    )
+    from hushh_mcp.services.pod_browser.contracts import (
+        BrowserBinding,
+        BrowserRefused,
+        BrowserRequest,
+    )
+    from hushh_mcp.services.pod_browser.control import BrowserControl
+    from hushh_mcp.services.pod_browser.credential_contracts import CredentialUseRequest
+    from hushh_mcp.services.pod_browser.credential_transient import PURPOSE, HumanCredentialSource
+    from hushh_mcp.services.pod_browser.credential_use import BrowserCredentialUse
+    from hushh_mcp.services.pod_browser.dispatch_journal import BrowserDispatchJournal
+    from hushh_mcp.services.pod_browser.execution_authority import (
+        BrowserExecutionAuthority,
+        PublicResearchNetworkAuthority,
+        PublicResearchPolicy,
+    )
+    from hushh_mcp.services.pod_browser.network import BrowserNetworkBroker
+    from hushh_mcp.services.pod_browser.review_client import PodBrowserReviews
+    from hushh_mcp.services.pod_browser.review_contracts import BrowserHubMutation
+    from hushh_mcp.services.pod_browser.review_ledger import mutate_browser_review
+    from hushh_mcp.services.pod_browser.task_authority import TaskAuthority, TaskConsent
+    from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+    from tests.helpers.pod_browser import Executor, shared_readiness
+
+    bound = BrowserBinding(
+        owner_id="u",
+        pod_id="ha1_test",
+        incarnation="revision-a",
+        task_id="browser_" + uuid4().hex,
+        environment="development",
+        expires_at=int(time.time()) + 600,
+    )
+
+    async def held(binding=None):
+        if binding is not None and binding != bound:
+            raise BrowserRefused("BROWSER_BINDING_REFUSED")
+
+    reviews = PodBrowserReviews(
+        key=b"r" * 32,
+        pod_key_id="podk_test",
+        environment="dev",
+        epoch=1,
+        check_binding=held,
+        client=SimpleNamespace(post=post),
+    )
+    pending = []
+    consent = TaskConsent(
+        bound,
+        BrowserOwnerAccess("u", "ha1_test", "revision-a", bound.expires_at, held),
+        reviews,
+        pending.append,
+    )
+
+    directory = TemporaryDirectory(prefix="browser-receipt-integration-")
+    log = PodCommitLog(LocalObjectStore(directory.name), b"j" * 32, owner_id=bound.owner_id)
+    journal = BrowserDispatchJournal(
+        log, key=b"j" * 32, owner_id=bound.owner_id, pod_id=bound.pod_id
+    )
+    policy = PublicResearchPolicy(
+        page_urls=("https://example.com/login",), interactive_origins=("https://example.com",)
+    )
+    execution = BrowserExecutionAuthority(bound, consent, journal, policy)
+    broker = BrowserNetworkBroker(
+        binding=bound,
+        allowed_origins=frozenset({"https://example.com"}),
+        authority=PublicResearchNetworkAuthority(bound, consent, journal, policy),
+    )
+
+    class Pool:
+        calls = 0
+
+        async def handle_async_request(self, request):
+            self.calls += 1
+            return httpcore.Response(200, content=b"ok")
+
+        async def aclose(self):
+            pass
+
+    await broker._pool.aclose()
+    pool = broker._pool = Pool()
+    worker = ConnectedBrowserWorker(bound)
+    opened = []
+    directive = [None]
+    revoke_on_verify = [False]
+
+    def revoke_receipt():
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_action_directive_ledger SET state='cancelled' WHERE directive_id=:id"
+                ),
+                {"id": directive[0]},
+            )
+
+    class Driver(Executor):
+        async def verify_credential_targets(self, request):
+            if revoke_on_verify[0]:
+                revoke_on_verify[0] = False
+                revoke_receipt()
+            return {
+                "action_url": "https://example.com/session",
+                "encoding": "application/x-www-form-urlencoded",
+            }
+
+        async def require_clear_secret_inputs(self):
+            pass
+
+        async def fill_credentials(self, request, lease, *, scope, check):
+            opened.append(lease)
+            assert lease.password == b"synthetic-private-password"
+            await check()
+            if fault == "before_network":
+                revoke_receipt()
+            if fault == "lease_expired_before_network":
+                control._wall_clock = lambda: time.time() + 120
+            body = b"synthetic-form"
+            await worker.fetch(
+                BrowserRequest(
+                    url="https://example.com/session",
+                    method="POST",
+                    body=body,
+                    headers=(("Content-Type", "application/x-www-form-urlencoded"),),
+                    scope=scope,
+                ),
+                credential_proof={
+                    "kind": "submit",
+                    "operation_id": request.operation_id,
+                    "request_id": "auth-root",
+                    "action_url": "https://example.com/session",
+                    "body_sha256": hashlib.sha256(body).hexdigest(),
+                },
+            )
+            return {"submitted": True, "cleared": True}
+
+    driver = Driver()
+    left, right = socket.socketpair()
+    serving = asyncio.create_task(worker.serve(right, driver))
+    host = await ConnectedBrowserExecutor.connect(
+        left, binding=bound, broker=broker, terminate=held
+    )
+    control = BrowserControl(
+        binding=bound,
+        readiness=shared_readiness(
+            credential_entry_verified=True,
+            credential_cleanup_verified=True,
+            credential_isolation_verified=True,
+        ),
+        executor=host,
+        authority=TaskAuthority(bound, consent, execution),
+    )
+
+    async def current_source(binding, aad):
+        await held(binding)
+        assert aad["sourceContentRevision"] == aad["sourceManifestRevision"] == 1
+
+    source = HumanCredentialSource(current_source)
+    port = BrowserCredentialUse(control, source, consent, allowed_origins=["https://example.com"])
+    control.credentials = port
+    request = CredentialUseRequest(
+        operation_id="credential_" + uuid4().hex,
+        handle="sec_" + "a" * 16,
+        origin="https://example.com",
+        control_epoch=1,
+        targets={
+            "username": {"x": 10, "y": 10},
+            "password": {"x": 10, "y": 40},
+            "submit": {"x": 10, "y": 70},
+        },
+    )
+    try:
+        await control.initialize()
+        with pytest.raises(BrowserRefused, match="OWNER_REQUIRED"):
+            await port.use(request)
+        terms = await port.prepare_owner(
+            handle=request.handle,
+            operation_id=request.operation_id,
+            control_epoch=1,
+            record_revision=1,
+            source_content_revision=1,
+            source_manifest_revision=1,
+        )
+        offered = await reviews.offer_review(bound, "credential_fill", terms)
+        directive[0] = offered.review_id
+        confirmed = await mutate_browser_review(
+            "confirm",
+            BrowserHubMutation(review=offered.coordination, directive_id=offered.review_id),
+            db=db,
+        )
+        await reviews.confirm_review(bound, offered.review_id, confirmed["receipt"])
+        public = port.lease_key
+        envelope = sealed.seal(
+            {"username": "synthetic-user", "password": "synthetic-private-password"},
+            purpose=PURPOSE,
+            pod_public_key_raw=sealed.b64url_decode(public["public_key"], length=32),
+            aad={
+                "purpose": PURPOSE.name,
+                "ownerId": bound.owner_id,
+                "credentialId": request.handle,
+                "recordRevision": 1,
+                "sourceContentRevision": 1,
+                "sourceManifestRevision": 1,
+                "podId": bound.pod_id,
+                "leaseKeyId": public["id"],
+                "taskId": bound.task_id,
+                "incarnation": bound.incarnation,
+                "controlEpoch": 1,
+                "origin": request.origin,
+                "operationId": request.operation_id,
+                "expiresAt": int(time.time()) + 45,
+                "nonce": str(uuid4()),
+            },
+        )
+        if fault == "terms":
+            port.prepared["terms"] = {**terms, "remember_session": True}
+        revoke_on_verify[0] = fault == "before_unwrap"
+        if fault is None:
+            assert await port.use(request, transient=(envelope, {})) == {
+                "state": "submitted",
+                "origin": request.origin,
+            }
+            assert pool.calls == len(opened) == 1 and not pending
+            # The same exact operation/envelope cannot execute twice.
+            with pytest.raises(BrowserRefused):
+                await port.use(request, transient=(envelope, {}))
+            assert pool.calls == len(opened) == 1
+            with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+                await consent.require(bound, "credential_fill", terms)
+        else:
+            with pytest.raises(BrowserRefused):
+                await port.use(request, transient=(envelope, {}))
+            assert pool.calls == 0
+            assert len(opened) == (
+                1 if fault in {"before_network", "lease_expired_before_network"} else 0
+            )
+        assert all(not any(lease.password) and not any(lease.username) for lease in opened)
+        with db.engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT state,consumed_at FROM one_action_directive_ledger WHERE directive_id=:id"
+                ),
+                {"id": directive[0]},
+            ).one()
+            assert row.consumed_at is not None
+            assert row.state == (
+                "cancelled" if fault in {"before_unwrap", "before_network"} else "consumed"
+            )
+    finally:
+        await control.stop()
+        await asyncio.wait_for(serving, 2)
+        await reviews.release(bound)
+        directory.cleanup()

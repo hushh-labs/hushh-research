@@ -6,14 +6,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { useOwnerPresentationState } from "@/hooks/use-owner-presentation-state";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
-import { CredentialsVaultService, createOwnerCredentialCustodyPort } from "@/lib/pkm/credentials-vault-service";
-import { CredentialError, credentialInput } from "@/lib/pkm/credentials-contracts";
-import type { CredentialInput, CredentialSummary } from "@/lib/pkm/credentials-contracts";
+import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
+import { WebsiteCredentialError, websiteLoginInput, type WebsiteLoginInput, type WebsiteLoginSummary } from "@/lib/pkm/website-credential";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
 type View = {
-  items: CredentialSummary[];
+  items: WebsiteLoginSummary[];
   loading: boolean;
   failed: boolean;
   busy: boolean;
@@ -30,8 +29,8 @@ export function useWebsiteLogins() {
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const [visibility, setVisibility] = useState(0);
-  const allowed = !!userId && !!vaultKey && !!getVaultOwnerToken() && !privacy?.shielded && privacy?.appIsActive !== false &&
-    (!Capacitor.isNativePlatform() || !!privacy) && (typeof document === "undefined" || document.visibilityState !== "hidden");
+  const allowed = !!userId && !!vaultKey && !!getVaultOwnerToken() && !privacy?.shielded && privacy?.appIsActive !== false && !privacy?.presentationsRetiring &&
+    (!Capacitor.isNativePlatform() || !!privacy) && (typeof document !== "undefined" && document.visibilityState !== "hidden");
   const owner = useMemo(() => ({ live: false, pending: false, reads: 0, userId, vaultKey, epoch, allowed, visibility, generation: privacy?.generation,
     auth: snapshotValidatedAuthSessionOwner() }), [userId, vaultKey, epoch, privacy?.generation, visibility, allowed]);
   const latest = useRef(owner);
@@ -55,7 +54,7 @@ export function useWebsiteLogins() {
     return owner.live && latest.current === owner && !!userId && owner.auth?.userId === userId &&
       isValidatedAuthSessionOwnerCurrent(owner.auth) && getVaultKey() === owner.vaultKey && snapshotVaultSessionEpoch() === epoch &&
       !!getVaultOwnerToken() && document.visibilityState !== "hidden" && observation?.generation === owner.generation &&
-      !observation?.shielded && observation?.appIsActive !== false && (!Capacitor.isNativePlatform() || !!observation);
+      !observation?.shielded && observation?.appIsActive !== false && !observation?.presentationsRetiring && (!Capacitor.isNativePlatform() || !!observation);
   }, [owner, userId, epoch, getVaultKey, getVaultOwnerToken]);
   const [view, setView] = useOwnerPresentationState(owner, EMPTY);
   const beforeEffect = useCallback(async () => { if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED"); }, [current]);
@@ -64,19 +63,12 @@ export function useWebsiteLogins() {
     if (!current() || !userId || !vaultKey || !vaultOwnerToken) throw new Error("CREDENTIAL_OWNER_RETIRED");
     return { userId, vaultKey, vaultOwnerToken, beforeEffect };
   }, [current, userId, vaultKey, getVaultOwnerToken, beforeEffect]);
-  const writeContext = async (needsCustody: boolean, custodyGrantDurationHours = 24) => {
-    const value = { ...context(), custodyGrantDurationHours };
-    if (!needsCustody) return value;
-    const custody = await createOwnerCredentialCustodyPort(value);
-    await beforeEffect();
-    return { ...value, custody };
-  };
   const refresh = useCallback(async () => {
     if (!current() || owner.pending) return;
     const read = ++owner.reads;
     setView(previous => ({ ...previous, loading: true, failed: false }));
     try {
-      const items = await CredentialsVaultService.list(context());
+      const items = await SecretsVaultService.listWebsiteLogins(context());
       if (current() && owner.reads === read) setView(previous => ({ ...previous, items, loading: false, failed: false, uncertain: false }));
     } catch {
       if (current() && owner.reads === read) setView(previous => ({ ...previous, loading: false, failed: true }));
@@ -96,20 +88,14 @@ export function useWebsiteLogins() {
       committed = true;
       if (current()) setView(previous => ({ ...previous, message: success }));
     } catch (error) {
-      const code = error instanceof CredentialError ? error.code : "";
-      if (code === "CREDENTIAL_SAVED_CUSTODY_PENDING") committed = true;
+      const code = error instanceof WebsiteCredentialError ? error.code : "";
       const preflight: Record<string, string> = {
-        CREDENTIAL_CUSTODY_UNAVAILABLE: "Connect your private agent before enabling automatic sign-in, or choose unlocked-vault-only access.",
-        CREDENTIAL_SESSION_ONLY: "Session-only lockdown is on. Change that setting before enabling agent custody, or choose unlocked-vault-only access.",
-        CREDENTIAL_ORIGIN_INVALID: "Enter exact public HTTPS origins, without paths, ports or wildcard domains.",
-        CREDENTIAL_INVALID: "Check the login fields and authenticator setup key, then try again.",
-        CREDENTIAL_LABEL_INVALID: "Keep passwords and verification secrets out of the login name.",
-        CREDENTIAL_HINT_INVALID: "The username hint must not contain the username or password.",
+        WEBSITE_ORIGIN_INVALID: "Enter exact HTTPS website origins without paths or wildcard domains.",
+        WEBSITE_LOGIN_INVALID: "Check the login fields and authenticator setup key, then try again.",
+        WEBSITE_LABEL_INVALID: "Keep passwords and verification secrets out of the login name.",
       };
-      if (current()) setView(previous => ({ ...previous, uncertain: !committed && !preflight[code],
-        message: preflight[code] ?? (code === "CREDENTIAL_SAVED_CUSTODY_PENDING"
-          ? "The login is saved, but private-agent access was not confirmed. Refresh, then renew its access."
-          : "The change was not confirmed. Refresh before trying again.") }));
+      if (current()) setView(previous => ({ ...previous, uncertain: !preflight[code],
+        message: preflight[code] ?? "The change was not confirmed. Refresh before trying again." }));
     } finally {
       owner.pending = false;
       if (current()) setView(previous => ({ ...previous, busy: false }));
@@ -119,22 +105,17 @@ export function useWebsiteLogins() {
   };
   return {
     ...view, locked: !allowed, owner, current, refresh, shareContext: context,
-    save: (input: CredentialInput, existing?: CredentialSummary, durationHours = 24) => mutate(
-      async () => {
-        const checked = credentialInput(input);
-        return CredentialsVaultService.save(await writeContext(checked.autonomyPolicy !== "vault_only" || !!existing && existing.autonomyPolicy !== "vault_only", durationHours),
-          checked, existing ? { id: existing.id, expectedRevision: existing.revision } : {});
-      },
+    importLegacy: () => mutate(() => SecretsVaultService.importLegacyWebsiteLogins(context()), "Earlier logins were verified in Secrets. The old encrypted records were preserved."),
+    save: (input: WebsiteLoginInput, existing?: WebsiteLoginSummary) => mutate(
+      () => SecretsVaultService.saveWebsiteLogin(context(), websiteLoginInput(input), existing),
       existing ? "Website login updated." : "Website login saved."),
-    remove: (item: CredentialSummary) => mutate(
-      async () => CredentialsVaultService.remove(await writeContext(item.autonomyPolicy !== "vault_only"), item.id, item.revision), "Saved login removed. Remembered browser sessions are managed separately with Forget."),
-    renew: (item: CredentialSummary, durationHours = 24) => mutate(
-      async () => CredentialsVaultService.rotate(await writeContext(true, durationHours), item.id, item.revision), "Private-agent access renewed."),
-    reveal: async (item: CredentialSummary) => {
+    remove: (item: WebsiteLoginSummary) => mutate(
+      () => SecretsVaultService.removeWebsiteLogin(context(), item), "Login removed from Secrets. Use Forget to remove a remembered browser session."),
+    reveal: async (item: WebsiteLoginSummary) => {
       if (!current() || owner.pending) return null;
       const read = ++owner.reads;
       try {
-        const result = await CredentialsVaultService.reveal(context(), item.id);
+        const result = await SecretsVaultService.readWebsiteLogin(context(), item.id);
         return current() && owner.reads === read ? result : null;
       } catch {
         if (current()) setView(previous => ({ ...previous, message: "This login could not be opened. Refresh and try again." }));

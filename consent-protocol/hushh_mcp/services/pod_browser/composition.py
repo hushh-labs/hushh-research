@@ -147,24 +147,24 @@ class PodBrowserComposition:
             await access.check()
             await selected.require_current()
             store = resolve_pod_object_store()
-            from hushh_mcp.services.pod_self_registration import pod_keypair
-            from hushh_mcp.services.website_credentials import (
-                browser_credential_source,
-                production_credential_store,
+            from .credential_transient import production_credential_source
+
+            credential_source = production_credential_source(
+                log=self._log,
+                owner_id=owner_id,
+                pod_id=access.pod_id,
+                incarnation=access.incarnation,
+                check=self._held,
             )
 
-            credential_source = browser_credential_source(
-                store=production_credential_store(
-                    log=self._log,
-                    owner_id=owner_id,
-                    pod_id=access.pod_id,
-                    pod_key_id=self._authority.pod_key_id,
-                    environment=access.environment,
-                    incarnation=access.incarnation,
-                    check=self._held,
-                ),
-                private_key=pod_keypair().private_key,
-            )
+            async def session_allowed():
+                from hushh_mcp.services.pod_config import resolve_pod_config
+
+                await self._held()
+                if (
+                    await resolve_pod_config(self._log, hushh_id=access.pod_id)
+                ).session_only_lockdown:
+                    raise BrowserRefused("BROWSER_SESSION_ONLY")
 
             def sessions(consent):
                 return BrowserSessions(
@@ -175,6 +175,7 @@ class PodBrowserComposition:
                     consent=consent,
                     readiness=ready,
                     fence_live_contexts=runtime.fence_live_contexts,
+                    check_session_allowed=session_allowed,
                 )
 
             runtime = BrowserTaskRuntime(

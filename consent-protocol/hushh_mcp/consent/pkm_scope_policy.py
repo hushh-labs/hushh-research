@@ -93,7 +93,7 @@ def is_externalizable_pkm_manifest_path(*, domain: str | None, path: str | None)
 
     normalized_domain = str(domain or "").strip().lower()
     normalized_path = str(path or "").strip().lower().strip(".")
-    if not normalized_domain or not normalized_path:
+    if not normalized_domain or not normalized_path or normalized_domain == "credentials":
         return False
 
     policy = get_domain_sharing_policy(normalized_domain)
@@ -120,6 +120,8 @@ def is_external_requestable_pkm_scope(scope: str | None) -> bool:
     if len(raw_parts) < 2 or raw_parts[0] != "attr":
         return False
     domain, path = normalize_pkm_scope(scope)
+    if domain == "credentials":
+        return False
     policy = get_domain_sharing_policy(domain)
 
     if policy.requestable_scopes is not None:
@@ -132,7 +134,10 @@ def is_external_requestable_pkm_scope(scope: str | None) -> bool:
 def is_public_pkm_projection_allowed(domain: str | None) -> bool:
     """Whether a domain may publish a separate owner-approved public projection."""
 
-    return get_domain_sharing_policy(str(domain or "")).allow_public_projection
+    return (
+        str(domain or "").strip().lower() != "credentials"
+        and get_domain_sharing_policy(str(domain or "")).allow_public_projection
+    )
 
 
 def is_private_pkm_export_scope(scope: str | None) -> bool:
@@ -143,9 +148,11 @@ def is_private_pkm_export_scope(scope: str | None) -> bool:
     manifest has since been corrected.  Narrow financial branches remain
     requestable when materialized and consented.
     """
-    if str(scope or "").startswith("attr.credentials.") and is_owner_item_grant_scope(scope):
+    if str(scope or "").startswith("attr.secrets.items.") and is_owner_item_grant_scope(scope):
         return False
     domain, _path = normalize_pkm_scope(scope)
+    if domain == "credentials":
+        return True  # Retired ciphertext remains owner-readable, never exportable.
     if domain in INTERNAL_ONLY_DOMAIN_SLUGS:
         return True
     if domain not in DOMAIN_SHARING_POLICY_REGISTRY:
@@ -157,6 +164,8 @@ def is_private_pkm_manifest_path(*, domain: str | None, path: str | None) -> boo
     """Path form of :func:`is_private_pkm_export_scope` for manifest walkers."""
     normalized_domain = str(domain or "").strip().lower()
     normalized_path = str(path or "").strip().lower().strip(".")
+    if normalized_domain == "credentials":
+        return True
     if normalized_domain not in DOMAIN_SHARING_POLICY_REGISTRY:
         return False
     if not normalized_path:

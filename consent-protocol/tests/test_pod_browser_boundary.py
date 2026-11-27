@@ -1185,3 +1185,32 @@ async def test_reconstructed_broker_refuses_ledger_pending_effect_before_a_new_s
         assert pool.calls == 1  # negative control: the pool is reachable after clearance
     finally:
         await broker.close()
+
+
+async def test_activity_receipts_hydrate_content_free_metadata_without_launch_or_review(
+    monkeypatch,
+):
+    from hushh_mcp.services.pod_browser.activity_receipt import activity_receipt
+
+    fixture = task_runtime_fixture(monkeypatch)
+    snapshot = await fixture.runtime.start(fixture.owner, fixture.request)
+    task = fixture.runtime._tasks[snapshot.binding.task_id]
+    task.activity_receipt = activity_receipt(
+        kind="browser_sign_in",
+        state="allowed",
+        task_id=task.binding.task_id,
+        operation_id="credential_operation",
+    )
+    await fixture.runtime._checkpoint(task)
+    # A prompt can finish while its Browser task continues or remains paused.
+    snapshots = await fixture.runtime.read_activity_receipts(fixture.owner, [task.binding.task_id])
+    assert snapshots[task.binding.task_id].activity_receipt["state"] == "allowed"
+    assert fixture.launcher.calls == 0
+    rebuilt = task_runtime_fixture(monkeypatch, log=fixture.log)
+    restored = await rebuilt.runtime.read_activity_receipts(rebuilt.owner, [task.binding.task_id])
+    assert restored[task.binding.task_id].activity_receipt == task.activity_receipt
+    assert rebuilt.launcher.calls == 0
+    with pytest.raises(BrowserRefused, match="ACTIVITY_RECEIPTS_REFUSED"):
+        await rebuilt.runtime.read_activity_receipts(rebuilt.owner, [task.binding.task_id] * 21)
+    await fixture.runtime.drain()
+    await rebuilt.runtime.drain()

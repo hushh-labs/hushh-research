@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .task_runtime import BrowserTaskRuntime
     from .task_state import BrowserTaskState
 
-from .consent import BrowserConsentPort, Purpose
+from .consent import ApprovalRecheck, BrowserConsentPort, Purpose
 from .contracts import (
     BrowserAction,
     BrowserAuthorityPort,
@@ -79,10 +79,12 @@ class TaskConsent(BrowserConsentPort):
         if self._check_runtime:
             await self._check_runtime()
 
-    async def require(self, binding: BrowserBinding, purpose: Purpose, private_terms: dict) -> None:
+    async def require(
+        self, binding: BrowserBinding, purpose: Purpose, private_terms: dict
+    ) -> ApprovalRecheck | None:
         await self.check_binding(binding)
         try:
-            await self._reviews.require(binding, purpose, private_terms)
+            approval = await self._reviews.require(binding, purpose, private_terms)
         except BrowserRefused as exc:
             if exc.code != "BROWSER_OWNER_APPROVAL_REQUIRED":
                 raise
@@ -101,8 +103,18 @@ class TaskConsent(BrowserConsentPort):
             # goal. Takeover, stop, expiry and drain cancel the waiting worker.
             await self._wait_for_review(offer)
             await self.check_binding(binding)
-            await self._reviews.require(binding, purpose, private_terms)
+            approval = await self._reviews.require(binding, purpose, private_terms)
         await self.check_binding(binding)
+        if purpose == "credential_fill":
+            if not callable(approval):
+                raise BrowserRefused("BROWSER_CREDENTIAL_APPROVAL_UNAVAILABLE")
+
+            async def recheck():
+                await self.check_binding(binding)
+                await approval()
+                await self.check_binding(binding)
+
+            return recheck
 
 
 class TaskAuthority(BrowserAuthorityPort):

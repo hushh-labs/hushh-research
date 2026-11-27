@@ -52,6 +52,8 @@ import { whileNotAborted } from "@/lib/agent/puppy-abort";
 import { OneModelConnection } from "@/components/agent/one-model-connection";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import { applyCompactActivityReceipt } from "@/lib/agent/compact-activity-receipt";
+import type { ComputerUseSnapshot } from "@/lib/computer-use/contracts";
 import {
   useWorkspaceSplitPaneOpen,
   WorkspaceSplitPaneDock,
@@ -808,7 +810,7 @@ export function isEmptySettledAssistantMessage(
     !(message.streamEvents ?? []).some(event => event.label !== "Memory" && event.label !== "Add to Memory") &&
     !message.sources?.length && !message.structuredExperience && !message.structuredExperiences?.length &&
     !message.specialistDirective && !message.consentAccessEnded && !message.locationChatProposal &&
-    !message.calendarMeeting && !message.memoryCapture &&
+    !message.calendarMeeting && !message.memoryCapture && !message.compactActivityReceipts?.length &&
     !(nativeVisual?.assistantMessageId === message.id && nativeVisual.surfaces.size > 0);
 }
 
@@ -1418,6 +1420,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [browserTasksRefresh, setBrowserTasksRefresh] = useState(0);
   const [browserReviewCount, setBrowserReviewCount] = useState(0);
   const [browserOpenReviewSignal, setBrowserOpenReviewSignal] = useState(0);
+  const browserActivity = useRef<{ identity: string; sent: Set<string>; responses: Awaited<ReturnType<typeof ApiService.syncBrowserActivity>>[] }>({ identity: "", sent: new Set(), responses: [] });
+  const syncBrowserActivity = useCallback((snapshot: ComputerUseSnapshot) => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const conversation = conversationIdRef.current;
+    if (!snapshot.activityReceipt || owner?.userId !== applicationOwnerId || snapshot.binding.ownerId !== applicationOwnerId || !conversation || !isVaultUnlocked || !vaultKey) return;
+    const identity = JSON.stringify([owner.generation, vaultSessionEpoch, conversation]);
+    if (browserActivity.current.identity !== identity) browserActivity.current = { identity, sent: new Set(), responses: [] };
+    const receiptKey = JSON.stringify([snapshot.binding, snapshot.activityReceipt]);
+    if (browserActivity.current.sent.has(receiptKey)) return;
+    browserActivity.current.sent.add(receiptKey);
+    const current = () => isValidatedAuthSessionOwnerCurrent(owner) && snapshotVaultSessionEpoch() === vaultSessionEpoch &&
+      vaultKeyRef.current === vaultKey && !!getVaultOwnerToken() && conversationIdRef.current === conversation && browserActivity.current.identity === identity;
+    void ApiService.syncBrowserActivity({ conversationId: conversation, taskId: snapshot.binding.taskId, podId: snapshot.binding.podId, vaultKey, isCurrent: current }).then(result => {
+      if (!current()) return;
+      browserActivity.current.responses.push(result);
+      setMessages(rows => applyCompactActivityReceipt(rows, result.messageId, result.receipt));
+    }).catch(() => undefined); // No replay of an uncertain effect; authoritative history retains a committed receipt.
+  }, [applicationOwnerId, vaultSessionEpoch, isVaultUnlocked, vaultKey, getVaultOwnerToken]);
+  useEffect(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const identity = JSON.stringify([owner?.generation, vaultSessionEpoch, conversationId]);
+    if (!isVaultUnlocked || !vaultKey || browserActivity.current.identity !== identity) { browserActivity.current = { identity, sent: new Set(), responses: [] }; return; }
+    if (browserActivity.current.responses.length) setMessages(rows => browserActivity.current.responses.reduce((result, value) => applyCompactActivityReceipt(result, value.messageId, value.receipt), rows));
+  }, [messages, conversationId, vaultSessionEpoch, isVaultUnlocked, vaultKey]);
+
   // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
   // view of the review card current.
   const pendingMcpReviewsRef = useRef(pendingMcpReviews);
@@ -11600,6 +11627,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   getVaultOwnerToken={getVaultOwnerToken}
                   openReviewSignal={browserOpenReviewSignal}
                   onReviewCountChange={setBrowserReviewCount}
+                  onActivityReceipt={syncBrowserActivity}
                 />
               ) : null}
 

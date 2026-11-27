@@ -6,7 +6,7 @@ describe("deriveVoiceRouteScreen", () => {
   it.each([
     ["/one/welcome", "one_welcome"],
     ["/one/messages", "one_messages"],
-    ["/one/pkm/logins", "pkm_logins"],
+    ["/one/pkm/logins", "pkm"],
     ["/one/wallet-card", "one_wallet_card"],
     ["/one/connected-systems/customer-crm", "connected_systems"],
     ["/one/email", "email_agent"],

@@ -124,20 +124,27 @@ class PodChatContext:
         self._browser_incarnation = pod_incarnation()
 
     async def _browser_access(self) -> None:
+        from hushh_mcp.services.pod_session_authority import SCOPE_BROWSER_INVOKE
+
+        await self._require_browser_session(SCOPE_BROWSER_INVOKE)
+
+    async def _browser_history_access(self) -> None:
+        from hushh_mcp.services.pod_session_authority import SCOPE_BROWSER_OBSERVE
+
+        await self._require_browser_session(SCOPE_BROWSER_OBSERVE)
+
+    async def _require_browser_session(self, scope: str) -> None:
         from api.routes.one.pod_session import verified_session
         from hushh_mcp.services.pod_browser.contracts import BrowserRefused
         from hushh_mcp.services.pod_session_authority import (
             ROLE_APP,
-            SCOPE_BROWSER_INVOKE,
             PodSessionRefused,
         )
         from hushh_mcp.services.pod_upgrade_admission import pod_incarnation
 
         try:
             await self.require_access()
-            authority, claims = verified_session(
-                self.authorization, role=ROLE_APP, scope=SCOPE_BROWSER_INVOKE
-            )
+            authority, claims = verified_session(self.authorization, role=ROLE_APP, scope=scope)
             if (
                 authority is not self.authority
                 or claims != self.claims

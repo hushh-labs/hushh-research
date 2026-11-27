@@ -43,6 +43,23 @@ and Web/iOS/Android human journeys remain required. Saved website logins remain
 the separate Phase 4 in
 [#9511](https://github.com/hushh-labs/hushh-research/issues/9511).
 
+## Saved-login source alignment (27 November 2026)
+
+The [owner review](https://github.com/hushh-labs/hushh-research/issues/9511#issuecomment-7209970731)
+supersedes the November 24 separate credentials/pod-wrap proposal. PR #10040 is
+held for canonical Secrets, human-key-only single-use Allow, static encrypted
+history receipts and per-item PostgreSQL grant alignment. Earlier source probes
+and application deployment receipts for that superseded candidate do not prove
+this refactor or installed acceptance. Old encrypted records must remain
+recoverable through explicit unlocked-device import; no automatic migration or
+owner-account journey is claimed.
+
+Phase 3 requires actual Confidential Sandbox walkthrough receipts on Dev and UAT
+for Web, iPhone and Android: workspace, private takeover, Resume, Files save and
+zero idle polling. Azure BYOC and Puppy qualification are paused until dedicated
+pod/hardware handoff. Issue #9511 remains open until the owner accepts those
+journeys and the exact saved-login image/host/model qualifications.
+
 ## Dev confidential sandbox cutover baseline (23 November 2026)
 
 Source-implemented on `dev` (pending live `hushh-pda-dev` atomic rollout and background Chrome comeback acceptance):

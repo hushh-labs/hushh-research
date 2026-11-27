@@ -22,7 +22,20 @@ SOURCES = {
         "248",
         "248_adk_chat_action_authority.sql",
     ): "8922c7430b8fc04d4430f6e127d93605f878d402ba67ca751dbb09da41f036a7",
+    (
+        "945",
+        "945_pod_mcp_action_authority.sql",
+    ): "e63d7e91193b0d4767f4ff81c35dc99b2ff93552e93c5252e468bb78d5597817",
+    (
+        "966",
+        "966_pod_browser_action_authority.sql",
+    ): "e04b8367d7d92cf0d0dac4849f045b8f619d1d6cb74af8889e747551c6ab963f",
+    (
+        "971",
+        "971_private_action_channel_continuity.sql",
+    ): "00217ef822cad398aaa83aad49690f636c86934993d658b8e1edd6dac2552a8a",
 }
+
 _CHANNEL = "one_action_directive_ledger_channel_check"
 _CONTEXT = "one_action_directive_ledger_check"
 _EXPECTED = {
@@ -38,12 +51,16 @@ def _literal(value: str) -> str:
 
 
 def _guard(clauses: list[str]) -> str:
+    from db.browser_credential_authority import footprint_sql, require_successor_sql
+
     expected = ",".join(f"({_literal(name)},{_literal(rule)})" for name, rule in _EXPECTED.items())
     markers = "ARRAY[" + ",".join(_literal(value) for value in _MARKERS) + "]"
     return f"""DO $private_channel$
 BEGIN
  LOCK TABLE one_action_directive_ledger IN ACCESS EXCLUSIVE MODE;
- IF EXISTS (SELECT 1 FROM pg_constraint
+ IF {footprint_sql()} THEN
+  {require_successor_sql()}
+ ELSIF EXISTS (SELECT 1 FROM pg_constraint
    WHERE conrelid='one_action_directive_ledger'::regclass
     AND obj_description(oid,'pg_constraint')=ANY({markers})) THEN
   IF (SELECT count(*) FROM pg_constraint c
@@ -73,6 +90,10 @@ def private_action_replay_sql(entry: MigrationManifestEntryV2) -> str:
     checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
     if checksum != pinned or entry.checksum_sha256 != checksum:
         raise ValueError("Private action replay source checksum changed")
+    if entry.migration_id in {"945", "966", "971"}:
+        from db.browser_credential_authority import preserve_parked_successor_sql
+
+        return preserve_parked_successor_sql(entry.sql)
     changed = 0
 
     def replace(match: re.Match[str]) -> str:

@@ -294,7 +294,7 @@ async def append_external_event(service: Any, event: dict, connection: Any = Non
     if (
         event["action"] in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}
         and event.get("request_id")
-        and event["scope"].startswith("attr.credentials.")
+        and event["scope"].startswith("attr.secrets.items.")
         and is_owner_item_grant_scope(event["scope"])
     ):
         from hushh_mcp.services.owner_item_grants import commit_owner_item_terminal
