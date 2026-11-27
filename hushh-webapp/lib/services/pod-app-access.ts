@@ -129,6 +129,10 @@ const OWNER_POD_ROUTES = new Set([
   "gmail/followups/document",
   "todos/suggestions",
   "todos/suggestions/status",
+  "plaid/vault/link-token",
+  "plaid/vault/exchange",
+  "plaid/vault/snapshot",
+  "plaid/vault/remove",
 ]);
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -289,6 +293,15 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
+  if (route.startsWith("plaid/vault/")) {
+    if (
+      method !== "POST" ||
+      session.role !== "app" ||
+      !session.scopes.includes("pkm.read")
+    ) {
+      throw new Error("POD_PLAID_VAULT_REQUEST_REFUSED");
+    }
+  }
   if (route.startsWith("gmail/followups/") || ["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
     const post = route.startsWith("gmail/followups/") || route === "calendar/events" || route === "todos/suggestions";
     if (session.role !== "app" || !session.scopes.includes("pkm.read") ||
@@ -504,29 +517,59 @@ export async function ownerPodRequest(
           throw new Error("POD_OWNER_CHANGED");
       })
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
-  if (!chatTurn && method === "GET" && (response.status === 404 || response.status === 401)) {
-    const refreshed = await untilCancelled(
-      ownerPod.refreshEndpointFromHub(uid, transport),
-      init.signal,
-    ).catch(() => null);
-    if (
+  if (
+    response.status === 401 ||
+    (!chatTurn && method === "GET" && response.status === 404)
+  ) {
+    const refreshed =
+      typeof ownerPod.refreshEndpointFromHub === "function"
+        ? await untilCancelled(
+            ownerPod.refreshEndpointFromHub(uid, transport),
+            init.signal,
+          ).catch(() => null)
+        : null;
+    const versionAdvanced = Boolean(
       refreshed &&
-      refreshed.hushhId === endpoint.hushhId &&
-      refreshed.endpointVersion > endpoint.endpointVersion &&
+        refreshed.hushhId === endpoint.hushhId &&
+        refreshed.endpointVersion > endpoint.endpointVersion,
+    );
+    const sameOrNewerEndpoint =
+      !refreshed ||
+      (refreshed.hushhId === endpoint.hushhId &&
+        refreshed.endpointVersion >= endpoint.endpointVersion);
+    if (
       podOwnerIsCurrent(admittedOwner) &&
-      isVaultSessionEpochCurrent(vaultEpoch)
+      isVaultSessionEpochCurrent(vaultEpoch) &&
+      (versionAdvanced ||
+        (response.status === 401 &&
+          sameOrNewerEndpoint &&
+          typeof ownerPod.openPodSession === "function"))
     ) {
       prewarmedChatGrants = null;
+      if (response.status === 401 && typeof ownerPod.openPodSession === "function") {
+        await untilCancelled(
+          ownerPod.openPodSession(uid, transport, true),
+          init.signal,
+        );
+      }
       const next = await untilCancelled(
         ownerPod.currentPodConnection(uid, transport),
         init.signal,
       );
       ({ endpoint, session, directVerifiedAt } = next);
       headers.set("Authorization", `Bearer ${session.session}`);
-      response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
+      const retryRequest: RequestInit = {
         ...request,
         headers,
-      });
+      };
+      response = chatTurn
+        ? await sendChatTurn(endpoint.url, retryRequest, ports.fetch, directVerifiedAt, session, () => {
+            refuseCancelled();
+            refuseRetiredOwner(ports.isCurrent);
+            if (!podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch))
+              throw new Error("POD_OWNER_CHANGED");
+          })
+        : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, retryRequest);
     }
   }
   if (!isAgentStillWaking(response))

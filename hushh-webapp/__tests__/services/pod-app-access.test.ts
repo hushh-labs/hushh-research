@@ -7,7 +7,12 @@ import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-prepar
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 import { RECEIPT_TOOL_DECLARATIONS } from "@/lib/mail/receipt-analysis";
 
-const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn(), pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" })) }));
+const pod = vi.hoisted(() => ({
+  currentPodConnection: vi.fn(),
+  pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 })),
+  refreshEndpointFromHub: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 })),
+  openPodSession: vi.fn(async () => ({ session: "pst1_reopened", role: "app", scopes: ["files.read", "files.manage", "pkm.read", "pod.status"] })),
+}));
 const memory = vi.hoisted(() => ({ fetch: vi.fn(), shared: vi.fn() }));
 
 const legacyChatCapabilities = {
@@ -94,6 +99,8 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: (
 vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: pod.pin,
   currentPodConnection: pod.currentPodConnection,
+  refreshEndpointFromHub: pod.refreshEndpointFromHub,
+  openPodSession: pod.openPodSession,
 }));
 
 it("requires owner app authority for scheduled work and permits only exact read/control methods", async () => {
@@ -391,7 +398,6 @@ it("admits status, config, and circle-rules routes only with app role and exact 
   expect(fetch).toHaveBeenCalledTimes(7);
 });
 
-
 it("keeps exact credential catalog and use routes behind browser.control", async () => {
   const fetch = vi.fn(async () => Response.json({ accepted: true }));
   const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
@@ -409,4 +415,84 @@ it("keeps exact credential catalog and use routes behind browser.control", async
   }
   expect(fetch).toHaveBeenCalledTimes(3);
   await expect(ownerPodRequest(root + "/unreviewed", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});
+
+it("re-opens pod session transparently on 401 when pooled sandbox recycles without endpointVersion bump", async () => {
+  pod.openPodSession.mockClear();
+  let activeSession = "pst1_expired_after_idle_recycle";
+  pod.currentPodConnection.mockImplementation(async () => ({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 },
+    session: { session: activeSession, role: "app", scopes: ["files.read", "files.manage", "pkm.read", "pod.status"] },
+    directVerifiedAt: Date.now(),
+  }));
+  pod.openPodSession.mockImplementation(async () => {
+    activeSession = "pst1_fresh_sandbox_session";
+    return { session: activeSession, role: "app", scopes: ["files.read", "files.manage", "pkm.read", "pod.status"] };
+  });
+
+  const fetch = vi.fn(async (url: string, init: RequestInit) => {
+    const auth = new Headers(init.headers).get("Authorization");
+    if (auth === "Bearer pst1_expired_after_idle_recycle") {
+      return Response.json({ detail: "session_expired" }, { status: 401 });
+    }
+    if (url.endsWith("/capabilities")) {
+      return Response.json({ ...legacyChatCapabilities, receiptToolVersion: 1 });
+    }
+    return Response.json({ ok: true, sessionUsed: auth });
+  });
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+
+  const filesResp = await ownerPodRequest("files/list", { method: "GET" }, ports);
+  expect(filesResp.ok).toBe(true);
+  expect(await filesResp.json()).toMatchObject({ ok: true, sessionUsed: "Bearer pst1_fresh_sandbox_session" });
+  expect(pod.openPodSession).toHaveBeenCalledTimes(1);
+
+  activeSession = "pst1_expired_after_idle_recycle";
+  const chatResp = await ownerPodRequest(
+    "agent-chat",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        tools: [],
+        messages: [{ id: "m1", role: "user", content: "what about the core files" }],
+        forwardedProps: { timezone: "UTC" },
+      }),
+    },
+    ports,
+  );
+  expect(chatResp.ok).toBe(true);
+  expect(pod.openPodSession).toHaveBeenCalledTimes(2);
+});
+
+it("admits sovereign pod plaid vault routes only for app POST requests with pkm.read", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = {
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 },
+    session: { session: "pst1_valid", role: "device", scopes: ["pkm.read"] },
+  };
+  pod.currentPodConnection.mockResolvedValue(connection);
+
+  await expect(ownerPodRequest("plaid/vault/snapshot", { method: "POST", body: "{}" }, ports)).rejects.toThrow(
+    "POD_PLAID_VAULT_REQUEST_REFUSED",
+  );
+  connection.session.role = "app";
+  connection.session.scopes = ["pod.status"];
+  await expect(ownerPodRequest("plaid/vault/snapshot", { method: "POST", body: "{}" }, ports)).rejects.toThrow(
+    "POD_PLAID_VAULT_REQUEST_REFUSED",
+  );
+  connection.session.scopes = ["pkm.read"];
+  await expect(ownerPodRequest("plaid/vault/snapshot", { method: "GET" }, ports)).rejects.toThrow(
+    "POD_PLAID_VAULT_REQUEST_REFUSED",
+  );
+  for (const route of [
+    "plaid/vault/link-token",
+    "plaid/vault/exchange",
+    "plaid/vault/snapshot",
+    "plaid/vault/remove",
+  ]) {
+    const res = await ownerPodRequest(route, { method: "POST", body: "{}" }, ports);
+    expect(res.ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(4);
 });

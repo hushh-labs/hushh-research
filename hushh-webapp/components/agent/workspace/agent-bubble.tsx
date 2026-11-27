@@ -645,7 +645,13 @@ export const AgentBubble = memo(function AgentBubble({
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
           ) : backgroundOnly || canRenderConsentActions ||
-            canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : hasThinkingSummary ? (
+            canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : !isStreaming ? (
+            hasThinkingSummary ? (
+              <div className="flex items-center justify-end">
+                {renderThoughtButton(false)}
+              </div>
+            ) : null
+          ) : message.ephemeral ? null : hasThinkingSummary ? (
             <div className="flex items-center justify-between gap-2">
               <AgentThinkingDots phase={pendingPhase} label={pendingLabel} />
               {renderThoughtButton(false)}
