@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckIcon, UserCircleIcon, UsersThreeIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleSummary, OneLocationRecipientPage } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
 
-type PrivateMode = "share_live" | "share_pin" | "ask";
+type PrivateMode = "share_live" | "ask";
 export type PrivateLocationSelection = { mode: PrivateMode; targets: MainLocationTarget[] };
 const normalized = (label: string) => label.normalize("NFKC").trim().toLocaleLowerCase();
 
@@ -26,9 +26,8 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
   onContinue: (mode: PrivateMode, targets: MainLocationTarget[]) => void;
   onBack: () => void;
 }) {
-  const [mode, setMode] = useState<PrivateMode>(initialMode);
+  const mode = initialMode;
   const requesting = initialMode === "ask";
-  const modeInputName = useId();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [directory, setDirectory] = useState<OneLocationRecipientPage | null>(null);
@@ -156,15 +155,6 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
       <h3 className="text-base font-semibold">{requesting ? "Ask for location" : checkIn ? "Private check-in" : "Share privately"}</h3>
       <p className="text-sm text-muted-foreground">{requesting ? "Choose people or Circles, then review your request. Each person decides whether to share." : checkIn ? "Choose who gets your check-in." : "Choose people or Circles, then review who can see your location."}</p>
     </div>
-    {!checkIn && !requesting ? <fieldset disabled={busy} className="grid gap-2 sm:grid-cols-2">
-      <legend className="sr-only">Location type</legend>
-      {([["share_live", "Live location"], ["share_pin", "Current pin"]] as const).map(([value, label]) => (
-        <label key={value} className={cn("flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm", mode === value && "border-primary/50 bg-primary/5")}>
-          <input name={modeInputName} type="radio" className="accent-primary" checked={mode === value} onChange={() => setMode(value)} />
-          {label}
-        </label>
-      ))}
-    </fieldset> : null}
     <Input type="search" value={query} aria-label="Search connections and Circles" placeholder="Search connections and Circles"
       onChange={(event) => search(event.target.value)} />
     {unresolvedNames.length ? <div className="flex flex-wrap gap-1.5" aria-label="Names to review">
