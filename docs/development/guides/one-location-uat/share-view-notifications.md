@@ -64,7 +64,12 @@ With a ready device and a test Circle named NM, type “Share my location with N
 and press Send in the foreground chat. Verify that this single command starts
 the one-hour private share with the actual NM recipients and that the receipt
 names the people reached. No second confirmation is needed for this complete
-command. Try an ambiguous name, a changed audience, and an older restored
+command. Repeat on a narrow phone and on desktop. With a larger Circle, check that one
+receipt shows the outcome and duration. Ask for the names to inspect the
+recipients in Chat. Keep the composer visible while reading or paging through
+choices, including when the keyboard opens.
+
+Repeat with an ambiguous name, a changed audience, and an older restored
 message. Verify that clarification or a fresh review is required before a share.
 
 Give the audience up front with “Share my location with Maya and Family.”

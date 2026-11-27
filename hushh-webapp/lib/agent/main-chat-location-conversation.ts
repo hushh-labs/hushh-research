@@ -38,10 +38,13 @@ export function locationReviewDecision(text: string) {
   return null;
 }
 
-export function locationChoiceFromReply(text: string, choices: readonly MainLocationTarget[]) {
+export function locationChoiceFromReply(text: string, choices: readonly MainLocationTarget[], visible?: { start: number; end: number }) {
   const reply = normalize(text);
   const number = /^(?:option )?([1-9]\d*)$/.exec(reply);
-  if (number) return choices[Number(number[1]) - 1];
+  if (number) {
+    const index = Number(number[1]) - 1;
+    return !visible || (index >= visible.start && index < visible.end) ? choices[index] : undefined;
+  }
   const matches = choices.filter(({ label, detail }) => [label, detail && `${label} ${detail}`, detail && `${label}, ${detail}`]
     .some((value) => value && normalize(value) === reply));
   return matches.length === 1 ? matches[0] : undefined;
@@ -132,7 +135,36 @@ const managementVerbs: Partial<Record<MainLocationPlan["action"], readonly [stri
   decline: ["Decline the location request from", "Declined the location request from"],
 };
 
-export function locationPlanSentence(plans: readonly MainLocationPlan[], targets: readonly MainLocationTarget[], completed: boolean) {
+const PAGE_SIZE = 5;
+
+export function locationTextPage<T>(items: readonly T[], page: number, describe: (item: T, index: number) => string) {
+  const start = Math.max(0, Math.min(page, Math.ceil(items.length / PAGE_SIZE) - 1)) * PAGE_SIZE;
+  const end = Math.min(start + PAGE_SIZE, items.length);
+  const lines = items.slice(start, end).map((item, index) => describe(item, start + index));
+  if (items.length > PAGE_SIZE) lines.push([`${start + 1}–${end} of ${items.length}.`,
+    end < items.length ? 'Type “more” for the next page.' : "", start ? 'Type “previous” to go back.' : ""].filter(Boolean).join(" "));
+  return { text: lines.join("\n"), start, end, total: items.length, hasPages: items.length > PAGE_SIZE };
+}
+
+export function nextLocationTextPage(text: string, page: { start: number; end: number; total: number }) {
+  const value = normalize(text);
+  if (["more", "next"].includes(value) && page.end < page.total) return page.start / PAGE_SIZE + 1;
+  if (["previous", "back"].includes(value) && page.start > 0) return page.start / PAGE_SIZE - 1;
+  return null;
+}
+
+export function locationPlanGroups(plans: readonly MainLocationPlan[]) {
+  const groups = new Map<string, MainLocationPlan[]>();
+  for (const plan of plans) {
+    const key = JSON.stringify([plan.action, plan.durationHours, plan.durationMode,
+      managementVerbs[plan.action] ? plan.nextExpiresAt : null]);
+    const group = groups.get(key);
+    if (group) group.push(plan); else groups.set(key, [plan]);
+  }
+  return [...groups.values()];
+}
+
+export function locationPlanSentence(plans: readonly MainLocationPlan[], targets: readonly MainLocationTarget[], completed: boolean, includeDecision = true) {
   const first = plans[0];
   if (!first) return "";
   const names = plans.map(plan => {
@@ -143,7 +175,22 @@ export function locationPlanSentence(plans: readonly MainLocationPlan[], targets
   })
     .filter((label): label is string => Boolean(label));
   if (names.length !== plans.length) return "";
-  const audience = names.join(", ");
+  let audience = names.join(", ");
+  if (plans.length > PAGE_SIZE) {
+    const scopes: string[] = [];
+    const counted = new Set<string>();
+    for (const target of targets) {
+      if (!target.circleId || target.personUserId || counted.has(target.circleId)) continue;
+      const group = plans.filter(plan => plan.circleId === target.circleId);
+      if (!group.length || group.some(plan => !plan.personUserId) || new Set(group.map(plan => plan.personUserId)).size !== group.length) continue;
+      counted.add(target.circleId);
+      const circle = /\bcircle$/i.test(target.label) ? target.label : `the ${target.label} circle`;
+      scopes.push(`${group.length} member${group.length === 1 ? "" : "s"} of ${circle}`);
+    }
+    const others = names.filter((_, i) => !counted.has(plans[i]?.circleId ?? ""));
+    scopes.push(...(completed && others.length > PAGE_SIZE ? [`${others.length} recipients`] : others));
+    audience = new Intl.ListFormat("en").format(scopes);
+  }
   const duration = formatLocationDurationLabel(first.durationHours);
   const term = first.durationMode === "until_stopped" ? " until you stop" : duration ? ` for ${duration}` : "";
   if (first.action === "view") return `${audience} already shares their location with you.`;
@@ -152,11 +199,18 @@ export function locationPlanSentence(plans: readonly MainLocationPlan[], targets
     const end = first.nextExpiresAt ? new Date(first.nextExpiresAt).toLocaleString() : "";
     const terms = first.action === "stop" || first.action === "decline" ? "" :
       first.durationMode === "until_stopped" ? " until you stop" : end ? ` until ${end}` : term;
-    return `${action[completed ? 1 : 0]} ${audience}${terms}${completed ? "." : "? Reply yes to confirm or no to cancel."}`;
+    return `${action[completed ? 1 : 0]} ${audience}${terms}${completed || !includeDecision ? "." : "? Reply yes to confirm or no to cancel."}`;
   }
   if (first.action === "ask") return completed ? `Sent your location request to ${audience}${term}.`
-    : `Ask ${audience} to share their location${term}? Reply yes to send or no to cancel.`;
+    : `Ask ${audience} to share their location${term}${includeDecision ? "? Reply yes to send or no to cancel." : "."}`;
   const pin = first.action === "share_pin";
   return completed ? pin ? `Sent your current location to ${audience}.` : `Shared your live location with ${audience}${term}.`
-    : `Share your ${pin ? "current" : "live"} location with ${audience}${term}? Reply yes to share or no to cancel.`;
+    : `Share your ${pin ? "current" : "live"} location with ${audience}${term}${includeDecision ? "? Reply yes to share or no to cancel." : "."}`;
+}
+
+export function locationReviewText(plans: readonly MainLocationPlan[], targets: readonly MainLocationTarget[]) {
+  const groups = locationPlanGroups(plans);
+  if (groups.length < 2) return locationPlanSentence(plans, targets, false);
+  const terms = groups.map(group => locationPlanSentence(group, targets, false, false));
+  return terms.every(Boolean) ? [...terms, "Reply yes to confirm or no to cancel."].join("\n") : "";
 }

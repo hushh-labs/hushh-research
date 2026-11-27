@@ -17,10 +17,12 @@ import { readOneLocationControlState, updateOneLocationControlState } from "@/li
 import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { OneLocationService } from "@/lib/one-location/service";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
+import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
+import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import type { OneLocationCircleSummary, OneLocationRecipient } from "@/lib/one-location/types";
 import { LocationChatActionCard } from "./location-chat-action-card";
 import { captureChatLocation, chatLocationPermissionIssue, enableChatDeviceLocation, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "./location-chat-permission";
-import { locationReviewDecision } from "@/lib/agent/main-chat-location-conversation";
+import { locationReviewDecision, locationTextPage, nextLocationTextPage } from "@/lib/agent/main-chat-location-conversation";
 import { useLocationConversationTurn, type LocationConversationProps } from "./use-location-conversation-turn";
 
 function personName(person: OneLocationRecipient) {
@@ -65,6 +67,8 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
   const [status, setStatus] = useState<string>();
   const [contactEdit, setContactEdit] = useState<{ id: string; name: string; remove: boolean; members?: string[] }>();
   const [contactPrompt, setContactPrompt] = useState<string>();
+  const [rosterPage, setRosterPage] = useState<number | null>(null);
+  const [alertNote, setAlertNote] = useState("");
   const [permissionIssue, setPermissionIssue] = useState<ChatLocationPermissionIssue>(null);
   const [deviceReady, setDeviceReady] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -111,7 +115,7 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
     if (!editing || !allowReview || closed || directory) return;
     let current = true;
     void Promise.all([OneLocationService.listRecipients(token), OneLocationService.listCircles(token)]).then(([recipients, circles]) => {
-      if (current && isCurrent()) setDirectory({ recipients: recipients.filter((person) => person.userId !== ownerId), circles });
+      if (current && isCurrent()) setDirectory({ recipients: recipients.filter((person) => person.userId !== ownerId), circles: circles.filter(circle => !isForeignSmsSystemCircle(circle)) });
     }).catch((caught) => { if (current && isCurrent()) setError(message(caught)); });
     return () => { current = false; };
   }, [allowReview, closed, directory, editing, isCurrent, ownerId, refreshKey, token]);
@@ -163,7 +167,7 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
 
   const loadMembers = useCallback(async (circleId: string) => {
     const circle = await OneLocationService.getCircle({ vaultOwnerToken: token, circleId });
-    if (!isCurrent() || circle.systemKind === "trusted") throw new Error("This Circle is unavailable.");
+    if (!isCurrent() || circle.systemKind === "trusted" || isForeignSmsSystemCircle(circle)) throw new Error("This Circle is unavailable.");
     return resolveCircleRecipientSelection({ circle, currentUserId: ownerId });
   }, [isCurrent, ownerId, token]);
 
@@ -265,14 +269,18 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
   const active = Boolean(review?.activeGrants.length || review?.incident?.grantIds.length);
   const paused = readOneLocationControlState(ownerId).paused;
   const ready = review?.recipients.filter(isSosShareReadyRecipient) ?? [];
-  const recipients = ready.map(personName).join(", ");
+  const recipients = ready.length > 5 ? `${ready.length} emergency contacts` : ready.map(personName).join(", ");
   const skipped = review ? review.contactUserIds.length - ready.length : 0;
   const contacts = [...new Map([...(directory?.recipients ?? []), ...(review?.recipients ?? [])]
     .map((person) => [person.userId, person])).values()];
   const rosterNames = contacts.filter(person => review?.contactUserIds.includes(person.userId)).map(personName);
+  const visibleRoster = action === "sms_contacts" ? rosterNames : ready.map(personName);
+  const rosterDetails = locationTextPage(visibleRoster, rosterPage ?? 0, name => name);
+  const rosterSummary = rosterNames.length > 5 ? `You have ${rosterNames.length} emergency contacts.`
+    : rosterNames.length ? `Your emergency contacts are ${rosterNames.join(", ")}.` : "You have no named emergency contacts.";
   const contactText = !directory || !review ? "Checking your emergency contacts…" : contactEdit
     ? `${contactEdit.remove ? "Remove" : "Add"} ${contactEdit.name} ${contactEdit.remove ? "from" : "to"} your emergency contacts? Reply yes to confirm or no to cancel.`
-    : contactPrompt || `${rosterNames.length ? `Your emergency contacts are ${rosterNames.join(", ")}.` : "You have no named emergency contacts."} Reply “add” or “remove” followed by a name.`;
+    : contactPrompt || `${rosterSummary} Reply “add” or “remove” followed by a name.`;
   function reviewContactReply(reply: string): boolean {
     if (!directory || !review) return false;
     const decision = locationReviewDecision(reply);
@@ -328,13 +336,27 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
         : active ? "Your Save My Soul alert is already active."
           : !ready.length ? "You have no emergency contacts ready to receive a Save My Soul alert."
             : paused ? "Location updates are paused. Resume them on this device? Your existing shares can start updating again. Reply yes to resume."
-              : `Send a Save My Soul alert and share your live location with ${recipients}?${skipped ? ` ${skipped} emergency contact(s) can’t receive this alert.` : ""} Reply yes to send.`);
-  useLocationConversationTurn({ onConversationReply, onConversationText }, allowReview ? text : null, (reply) => {
+              : alertNote.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ? `Your note is too long. Reply “note” with up to ${ONE_LOCATION_SHARE_NOTE_MAX_LENGTH} characters, or type “remove note”.`
+              : `Send a Save My Soul alert and share your live location with ${recipients}?${skipped ? ` ${skipped} emergency contact(s) can’t receive this alert.` : ""}${alertNote ? ` Your note is “${alertNote}”.` : ""} Reply yes to send, or type “note” followed by a message.`);
+  const showRoster = visibleRoster.length > 5 && !status && !error && !closed && !busyKey && !delivery && !contactEdit && (action === "sms_contacts" || (action === "sos_review" && !active && !paused));
+  const displayedText = showRoster ? `${text}\n${rosterPage === null ? "Type “names” to see the contacts." : rosterDetails.text}` : text;
+  useLocationConversationTurn({ onConversationReply, onConversationText }, allowReview ? displayedText : null, (reply) => {
     if (!isCurrent() || !review || busy.current || closed || status || delivery || error) return false;
+    if (showRoster) {
+      if (reply.trim().toLowerCase() === "names") { setRosterPage(0); return true; }
+      const next = rosterPage === null ? null : nextLocationTextPage(reply, rosterDetails);
+      if (next !== null) { setRosterPage(next); return true; }
+    }
     if (action === "sms_contacts") return reviewContactReply(reply);
     if (action === "sos_stop" ? !active : active || !ready.length) return false;
     const decision = locationReviewDecision(reply);
     if (decision === "cancel") { close(); return true; }
+    if (action === "sos_review" && !paused) {
+      if (reply.trim().toLowerCase() === "remove note") { setAlertNote(""); return true; }
+      const note = /^note(?:\s*:\s*|\s+)([\s\S]+)$/i.exec(reply.trim());
+      if (note) { setAlertNote(note[1]!.trim()); return true; }
+      if (alertNote.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) return false;
+    }
     if (decision !== "confirm") return false;
     if (action === "sos_stop") void stop();
     else if (paused) {
@@ -345,7 +367,7 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
         setDeviceReady(true);
       });
     } else {
-      void send(null, true);
+      void send(alertNote || null, true);
     }
     return true;
   });

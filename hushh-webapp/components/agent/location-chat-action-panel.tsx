@@ -34,7 +34,7 @@ import {
 } from "@/lib/agent/main-chat-location";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { settleMainLocationBatch } from "@/lib/agent/main-chat-location-batch";
-import { exactDirectSharePlans, exactDirectShareTargets, literalShareProposal, locationChoiceFromReply, locationDurationReply, locationPlanSentence, locationReviewDecision, sameDirectShareRecipients, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
+import { exactDirectSharePlans, exactDirectShareTargets, literalShareProposal, locationChoiceFromReply, locationDurationReply, locationPlanGroups, locationPlanSentence, locationReviewDecision, locationReviewText, locationTextPage, nextLocationTextPage, sameDirectShareRecipients, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -187,6 +187,8 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   const [state, setState] = useState<OneLocationState | null>(null);
   const [choices, setChoices] = useState<MainLocationChoice[] | null>(null);
   const [selected, setSelected] = useState<MainLocationTarget[]>([]);
+  const [listPage, setListPage] = useState(0);
+  const [membersPage, setMembersPage] = useState<number | null>(null);
   const [pickerDraft, setPickerDraft] = useState<PrivateLocationSelection | null>(null);
   const [plans, setPlans] = useState<MainLocationPlan[] | null>(null);
   const [settled, setSettled] = useState<MainLocationPlan[]>([]);
@@ -285,6 +287,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     setStage("loading");
     setSettled([]);
     setPlans(null);
+    setListPage(0); setMembersPage(null);
     setState(null);
     setError(undefined);
     setStandaloneStatus(undefined);
@@ -646,6 +649,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
 
   function selectChoice(target: MainLocationTarget) {
     if (!choices) return;
+    setListPage(0);
     const next = [...selected, target];
     if (next.length < choices.length) setSelected(next);
     else void withPending((version) => start(intent, next, version));
@@ -806,17 +810,28 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   }
 
   const inRecovery = ["device-permission", "setup-offer", "sharing-off", "device-paused"].includes(stage);
-  const reviewedText = plans?.length ? locationPlanSentence(plans, selected, false) : "";
-  const choiceText = currentChoice?.targets.map((item, index) =>
-    `${index + 1}. ${item.label}${item.detail ? ` (${item.detail})` : ""}`).join("\n");
+  const reviewedText = plans?.length ? locationReviewText(plans, selected) : "";
+  const choicePage = locationTextPage(currentChoice?.targets ?? [], listPage, (item, index) =>
+    `${index + 1}. ${item.label}${item.detail ? ` (${item.detail})` : ""}`);
+  const activityPage = locationTextPage(isReadList(intent.action) ? choices?.[0]?.targets ?? [] : [], listPage,
+    item => `${item.label}${item.detail ? ` · ${item.detail}` : ""}`);
   const subject = selected.map(target => target.label).join(", ");
-  const receiptText = settled.map(plan => locationPlanSentence([plan], selected, true)).filter(Boolean).join(" ");
+  const delivered = settled.filter(plan => plan.status === "executed");
+  const receiptText = locationPlanGroups(delivered).map(group => locationPlanSentence(group, selected, true)).filter(Boolean).join(" ");
+  const unconfirmed = error && delivered.length && stage === "review" ? plans ?? [] : [];
+  const roster = unconfirmed.length ? [...delivered, ...unconfirmed] : stage === "settled" ? delivered : stage === "review" ? plans ?? [] : [];
+  const memberLabel = (plan: MainLocationPlan) => plan.personDisplayLabel || selected.find(target => target.personUserId === plan.personUserId)?.label || "";
+  const memberNames = roster.map(memberLabel);
+  const memberPage = locationTextPage(memberNames, membersPage ?? 0, (name, index) => unconfirmed.length
+    ? `${name} · ${roster[index]?.status === "executed" ? "confirmed" : "unconfirmed"}` : name);
+  const showMemberDetails = allowReview && memberPage.hasPages && memberNames.every(Boolean) &&
+    (stage === "settled" || unconfirmed.length > 0 || (!error && !staleReview && !failedLabels.length));
   let question = "";
   if (conversational) {
     if (stage === "private-picker" || stage === "share-menu") question = intent.action === "ask"
       ? "Whose location would you like to request?" : "Which person or circle would you like to share your location with?";
-    if (stage === "choose" && !chosenOrSingle && currentChoice) question = choiceText
-      ? `Which ${currentChoice.label} did you mean? Reply with the number.\n${choiceText}`
+    if (stage === "choose" && !chosenOrSingle && currentChoice) question = choicePage.text
+      ? `Which ${currentChoice.label} did you mean? Reply with the number.\n${choicePage.text}`
       : currentChoice.unavailableReason ?? `I couldn’t find an eligible match for ${currentChoice.label}. What name should I look for?`;
     if (stage === "terms") question = intent.action === "ask" ? `How long would you like ${subject} to share their location?`
       : intent.action === "extend" || intent.action === "ask_extension" ? `How much extra time would you like for the location share with ${subject}?`
@@ -826,8 +841,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       : reviewedText || "I couldn’t verify the recipients. Please send the request again.";
     if (stage === "settled") question = standaloneStatus || receiptText;
     if (stage === "settled" && isReadList(intent.action)) {
-      const listed = choices?.[0]?.targets ?? [];
-      question = listed.length ? [titles[intent.action], ...listed.map(item => `${item.label}${item.detail ? ` · ${item.detail}` : ""}`)].join("\n")
+      question = activityPage.total ? `${titles[intent.action]}\n${activityPage.text}`
         : intent.action === "list_shares" ? "There are no active location shares." : "There are no location requests.";
     }
     if (stage === "cancelled" && allowReview) question = "Cancelled.";
@@ -835,7 +849,14 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     if (stage === "device-paused") question = "Location updates are paused. Resuming can restart active shares on this device. Reply yes to resume.";
     if (stage === "setup-offer") question = "Location needs your sharing consent first. Reply yes to open setup.";
     if (stage === "sharing-off") question = "Location sharing is off in your account. Reply yes to turn it on.";
-    if (error) question = `${receiptText ? `${receiptText} ` : ""}${error}${allowReview && (inRecovery || stage === "review" && !staleReview) ? " Reply yes to try again." : ""}`;
+    if (error) {
+      const remaining = unconfirmed.map(memberLabel);
+      const remainingLabel = remaining.length > 5 || remaining.some(name => !name) ? `${remaining.length} recipients` : remaining.join(", ");
+      question = [receiptText, remaining.length ? `I couldn’t confirm the action for ${remainingLabel}.` : "", error,
+        allowReview && (inRecovery || stage === "review" && !staleReview) ? "Reply yes to try again." : ""].filter(Boolean).join(" ");
+    }
+    if (showMemberDetails && question) question = membersPage === null ? `${question} Type “names” for the recipients.`
+      : stage === "settled" ? `Recipients\n${memberPage.text}` : `${question}\n${memberPage.text}`;
   }
   useEffect(() => {
     if (question && !busy && ownerId && token) onConversationText?.(proposal.id, question);
@@ -848,9 +869,21 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       if (!alive.current || busyRef.current) return false;
       if (displayedQuestion !== undefined && displayedQuestion !== question) return false;
       const decision = locationReviewDecision(text);
+      const page = stage === "choose" ? choicePage : stage === "settled" && isReadList(intent.action) ? activityPage : null;
+      if (page?.hasPages) {
+        const next = nextLocationTextPage(text, page);
+        if (next !== null) { setListPage(next); return true; }
+      }
+      if (showMemberDetails) {
+        if (membersPage === null && ["names", "members", "recipients"].includes(text.trim().toLowerCase())) { setMembersPage(0); return true; }
+        if (membersPage !== null) {
+          const next = nextLocationTextPage(text, memberPage);
+          if (next !== null) { setMembersPage(next); return true; }
+        }
+      }
       if (decision === "cancel" && stage !== "settled" && stage !== "cancelled" && stage !== "loading") { dismiss(); return true; }
       if (stage === "choose" && currentChoice && !chosenOrSingle) {
-        const target = locationChoiceFromReply(text, currentChoice.targets);
+        const target = locationChoiceFromReply(text, currentChoice.targets, choicePage);
         if (target) { selectChoice(target); return true; }
       }
       if (stage === "terms" && selected.length) {
@@ -860,6 +893,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       if (decision !== "confirm") return false;
       if (inRecovery) { void withPending(recoverConversation); return true; }
       if (stage !== "review" || !reviewedText || !plans?.length || staleReview || failedLabels.length) return false;
+      setMembersPage(null);
       void withPending(version => commit(version));
       return true;
     };

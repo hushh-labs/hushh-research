@@ -4,7 +4,7 @@ import { expect, test, vi } from "vitest";
 import { executeMainLocationPlan, expandMainLocationTarget, prepareMainLocationPlan, resolveMainLocationChoices, restoreMainLocationPlans } from "@/lib/agent/main-chat-location";
 import { getLocationAccountSettings, updateLocationAccountSettings } from "@/lib/location/account-settings";
 import { parseMainLocationProposal } from "@/lib/agent/main-chat-location-contract";
-import { directLocationShareTerms, typedLocationEnableAuthority, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
+import { directLocationShareTerms, locationPlanGroups, locationPlanSentence, locationReviewText, typedLocationEnableAuthority, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
 import { loadChatSosReview, sendChatSos } from "@/lib/one-location/chat-sos";
 import { OneLocationService } from "@/lib/one-location/service";
 import { forgetOneLocationControlPreference, readOneLocationControlState, updateOneLocationControlState } from "@/lib/one-location/location-control-state";
@@ -299,9 +299,13 @@ test("a typed SOS confirmation uses the reviewed roster and reports the actual d
   expect(screen.queryByRole("button", { name: "Send reviewed SOS" })).toBeNull();
   expect(router.reply?.("yes", "Resume location updates?")).toBe(false);
   expect(router.reply?.("yes, but don't send an alert", transcript.mock.lastCall?.[1])).toBe(false);
+  const withoutNote = transcript.mock.lastCall?.[1];
+  await act(async () => { router.reply?.("note Meet at the entrance", withoutNote); });
+  expect(transcript.mock.lastCall?.[1]).toContain("Meet at the entrance");
+  expect(router.reply?.("yes", withoutNote)).toBe(false);
   expect(sendChatSos).not.toHaveBeenCalled();
   await act(async () => { router.reply?.("yes", transcript.mock.lastCall?.[1]); });
-  expect(sendChatSos).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ownerId: "owner", review }));
+  expect(sendChatSos).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ownerId: "owner", review, note: "Meet at the entrance" }));
   expect(transcript).toHaveBeenLastCalledWith("review", expect.stringContaining("delivery unknown: Priya"));
 });
 
@@ -363,7 +367,8 @@ test("a typed choice and duration bind an encrypted share to the reviewed recipi
   const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
   const publicKeyJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const targets = [{ label: "Maya", detail: "Connection, 1234", personUserId: "first" },
-    { label: "Maya", detail: "Connection, 5678", personUserId: "second" }];
+    { label: "Maya", detail: "Connection, 5678", personUserId: "second" },
+    ...Array.from({ length: 5 }, (_, i) => ({ label: "Maya", detail: `Connection, 900${i}`, personUserId: `other-${i}` }))];
   const plan = { planId: "exact-share", action: "share_live" as const, status: "pending" as const,
     personDisplayLabel: "Maya", personUserId: "second", durationHours: 0.5,
     recipientKey: { keyId: "second-key", publicKeyJwk } };
@@ -382,6 +387,14 @@ test("a typed choice and duration bind an encrypted share to the reviewed recipi
   expect(screen.queryByTestId("location-card")).toBeNull();
   expect(reply!("Maya")).toBe(false);
   expect(reply!("yes")).toBe(false);
+  expect(text.mock.lastCall![1]).not.toContain("6. Maya");
+  expect(reply!("6")).toBe(false);
+  act(() => { expect(reply!("more")).toBe(true); });
+  await waitFor(() => expect(text).toHaveBeenLastCalledWith("proposal", expect.stringContaining("7. Maya")));
+  expect(text.mock.lastCall![1]).not.toContain("2. Maya");
+  expect(reply!("2")).toBe(false);
+  act(() => { expect(reply!("previous")).toBe(true); });
+  await waitFor(() => expect(text).toHaveBeenLastCalledWith("proposal", expect.stringContaining("2. Maya")));
   act(() => { expect(reply!("2")).toBe(true); });
   await waitFor(() => expect(text).toHaveBeenLastCalledWith("proposal", expect.stringContaining("How long")));
   act(() => { expect(reply!("30 minutes")).toBe(true); });
@@ -516,4 +529,52 @@ test.each(["on", "off"] as const)("resuming paused updates needs a fresh scoped 
     expect(updateLocationAccountSettings).not.toHaveBeenCalled();
     expect(OneLocationService.requestLocationPermission).not.toHaveBeenCalled();
   } finally { forgetOneLocationControlPreference(ownerId); }
+});
+
+test("a large reviewed Circle exposes its names in pages and reports only confirmed recipients after a partial send", async () => {
+  vi.clearAllMocks();
+  location.receivedGrants = [];
+  const circle = { circleId: "nm", label: "NM" };
+  const members = Array.from({ length: 8 }, (_, index) => ({
+    circleId: circle.circleId, personUserId: `member-${index}`, label: `Member ${index + 1}`,
+  }));
+  const plans = members.map((member, index) => ({
+    planId: String(index), action: "ask" as const, status: "pending" as const, circleId: circle.circleId,
+    personDisplayLabel: member.label, personUserId: member.personUserId, durationHours: 1, durationMode: "timed" as const,
+  }));
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "NM", targets: [circle] }]);
+  vi.mocked(expandMainLocationTarget).mockResolvedValueOnce(members);
+  vi.mocked(prepareMainLocationPlan).mockImplementation(async (_token, _proposal, target) => plans.find(plan => plan.personUserId === target.personUserId)!);
+  vi.mocked(executeMainLocationPlan).mockImplementation(async (_token, id) => {
+    if (id === "7") throw new Error("Request to Member 8 failed.");
+    return { ...plans[Number(id)]!, status: "executed" };
+  });
+  const text = vi.fn();
+  let reply: LocationConversationReply | null = null;
+  render(<LocationChatActionPanel proposal={{ id: "large", action: "ask", circles: ["NM"], durationHours: 1 }}
+    ownerId="owner" token="token" allowReview onUnlock={() => {}} onConversationText={text}
+    onConversationReply={(_id, handle) => { reply = handle; }} />);
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Ask 8 members of the NM circle to share their location for 1 hour?"));
+  expect(text.mock.lastCall![1]).not.toContain("Member 1");
+  act(() => { expect(reply!("names")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 5"));
+  expect(text.mock.lastCall![1]).not.toContain("Member 8");
+  act(() => { expect(reply!("more")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 8"));
+  expect(executeMainLocationPlan).not.toHaveBeenCalled();
+  act(() => { expect(reply!("yes")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Sent your location request to 7 members of the NM circle for 1 hour."));
+  expect(text.mock.lastCall![1]).toContain("Request to Member 8 failed.");
+  expect(text.mock.lastCall![1].match(/Sent your location request/g)).toHaveLength(1);
+  act(() => { expect(reply!("names")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 1 · confirmed"));
+  act(() => { expect(reply!("more")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 8 · unconfirmed"));
+  expect(executeMainLocationPlan).toHaveBeenCalledTimes(8);
+  const differentTerms = [plans[0]!, { ...plans[1]!, durationHours: 2 }];
+  expect(locationPlanGroups(differentTerms).map(group => locationPlanSentence(group, [circle], true))).toEqual([
+    "Sent your location request to Member 1 for 1 hour.", "Sent your location request to Member 2 for 2 hours.",
+  ]);
+  expect(locationReviewText(differentTerms, [circle])).toContain("Member 2 to share their location for 2 hours");
 });
