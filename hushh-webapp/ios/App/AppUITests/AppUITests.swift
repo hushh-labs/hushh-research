@@ -1847,12 +1847,19 @@ final class AppUITests: XCTestCase {
             XCTFail("PRODUCT_HISTORY_REQUIRES_RUNNING_APP"); return
         }
         app.activate()
+        perfTapNav(app, label: "Chat")
+        dismissRehearsalChatKeyboard(app)
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
-        let open = app.buttons["Open chat history"].firstMatch
+        let open = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ AND label BEGINSWITH %@", "chat-history-toggle", "Open chat history"
+        )).firstMatch
         let close = app.buttons["Close chat history"].firstMatch
-        let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
-        guard waitForAdmittedControl(open), waitForAdmittedControl(composer), !web.buttons["Unlock"].exists else {
-            XCTFail("PRODUCT_HISTORY_REQUIRES_UNLOCKED_CHAT"); return
+        let composer = rehearsalChatComposer(app)
+        guard !web.buttons["Unlock"].exists, waitForAdmittedControl(composer) else {
+            return XCTFail("The unlocked Chat composer must be ready before opening History")
+        }
+        guard waitForAdmittedControl(open) else {
+            return XCTFail("History opener exists=\(open.exists) enabled=\(open.exists && open.isEnabled) hittable=\(open.exists && open.isHittable)")
         }
         let initialFrame = web.frame
         let initialDraft = composer.value as? String
@@ -1867,7 +1874,7 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(app.buttons["native-history-row-one-stream"].exists, "History includes the pinned main chat on Dev")
             XCTAssertFalse(app.buttons["native-history-row-todos"].exists, "Tasks lives in One Profile")
             XCTAssertFalse(web.buttons["Search chats"].firstMatch.isHittable)
-            XCTAssertFalse(composer.isHittable, "The covered React editor must be isolated")
+            XCTAssertFalse(composer.isHittable, "The covered Chat composer must be isolated")
             let frame = native.frame
             XCTAssertEqual(frame.minY, app.frame.minY, accuracy: 1)
             XCTAssertEqual(frame.maxY, app.frame.maxY, accuracy: 1, "History must remain full-height")
@@ -3713,6 +3720,28 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
             XCTAssertEqual(strips.count, 1)
         }
+    }
+
+    func testLocalSessionLocationScopeCancelReturnsToSettings() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires an unlocked local session on Location Settings.")
+        }
+        let app = XCUIApplication()
+        app.activate()
+        func row(_ label: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label == %@", "native-workspace-row-", label
+            )).firstMatch
+        }
+        let choose = row("Choose approval scope")
+        guard waitForAdmittedControl(choose) else { return XCTFail("Location Settings did not present the scope row") }
+        choose.tap()
+        let cancel = row("Cancel")
+        guard waitForAdmittedControl(cancel) else { return XCTFail("The scope editor did not present Cancel") }
+        XCTAssertTrue(row("All contacts").exists)
+        cancel.tap()
+        XCTAssertTrue(waitForAdmittedControl(choose))
+        XCTAssertFalse(cancel.exists)
     }
 
     func testLocalSessionMailPagerAndSoftwareKeyboardKeepTheSession() throws {
