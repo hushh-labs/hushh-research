@@ -31,6 +31,8 @@ REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _ISSUERS = frozenset({"https://accounts.google.com", "accounts.google.com"})
 _TIMEOUT_S = 15.0
 
+#: What the Sentinel gate answers when it holds no Google web client (see sentinel_proxy_server).
+GOOGLE_OAUTH_GATE_UNCONFIGURED = "oauth_gate_unconfigured"
 INVALID_GRANT = "INVALID_GRANT"
 PROVIDER_UNREACHABLE = "PROVIDER_UNREACHABLE"
 PROVIDER_REFUSED = "PROVIDER_REFUSED"
@@ -256,7 +258,17 @@ async def hosted_web_oauth_exchange(
             body = response.json()
         except ValueError:
             body = None
-        return response.status_code, body if isinstance(body, dict) else None
+        gate_body = body if isinstance(body, dict) else None
+        # Readiness already falls back to the UAT sidecar when the gate holds no client;
+        # the exchange follows the same rule. Any other answer, including a real refusal
+        # from Google, is final and is never retried through the sidecar.
+        unconfigured = (
+            response.status_code == 503
+            and gate_body is not None
+            and gate_body.get("error") == GOOGLE_OAUTH_GATE_UNCONFIGURED
+        )
+        if not unconfigured or os.getenv("HUSHH_DEPLOY_ENV") != "uat":
+            return response.status_code, gate_body
 
     if os.getenv("HUSHH_DEPLOY_ENV") != "uat":
         raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)

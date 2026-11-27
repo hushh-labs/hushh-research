@@ -24,9 +24,9 @@ it("warms from unlock outside Mail, restores the last slot, and hides late or re
   const boxes = ["A","B","C"].map(accountId => ({accountId, credentialId: "grant-"+accountId, email: accountId+"@example.test", status: "connected", capabilities: {read: true}}));
   mocks.list.mockResolvedValue(boxes);
   mocks.tasks.mockResolvedValue({tasks: []});
-  let finish!: (value: {account: string}) => void;
+  let finish!: (value: {account: string; attention: unknown[]}) => void;
   mocks.brief.mockImplementation(async (box: {account: string}) => box.account === "B"
-    ? new Promise(resolve => { finish = resolve; }) : {account: "summary-"+box.account});
+    ? new Promise(resolve => { finish = resolve; }) : {account: "summary-"+box.account, attention: []});
   const tree = <PrivateMailSessionProvider><Probe /></PrivateMailSessionProvider>;
   const first = render(tree);
   await screen.findByText("summary-A");
@@ -35,7 +35,7 @@ it("warms from unlock outside Mail, restores the last slot, and hides late or re
   expect(screen.queryByText("summary-A")).toBeNull();
   fireEvent.click(screen.getByRole("button", {name:"C"}));
   await screen.findByText("summary-C");
-  await act(async () => finish({account:"summary-B"}));
+  await act(async () => finish({account:"summary-B", attention: []}));
   expect(screen.queryByText("summary-B")).toBeNull();
   first.unmount();
   const restarted = render(tree);
@@ -61,7 +61,7 @@ it("lists a mailbox whose permission lapsed as expired and never selects it", as
     {accountId: "B", credentialId: "grant-B", email: "B@example.test", status: "connected", capabilities: {read: true}},
   ]);
   mocks.tasks.mockResolvedValue({tasks: []});
-  mocks.brief.mockResolvedValue({account: "summary"});
+  mocks.brief.mockResolvedValue({account: "summary", attention: []});
   function Expired() {
     const session = usePrivateMailSession()!;
     return <><p>{"selected:" + (session.selected?.accountId ?? "none")}</p><p>{"expired:" + session.expired.map(row => row.email).join(",")}</p></>;
@@ -70,5 +70,42 @@ it("lists a mailbox whose permission lapsed as expired and never selects it", as
   render(<PrivateMailSessionProvider><Expired /></PrivateMailSessionProvider>);
   await screen.findByText("expired:lapsed@example.test");
   expect(screen.getByText("selected:B")).toBeDefined();
+});
+
+it("reads what needs the owner in each mailbox as it is opened, and never invents a count for one not yet read", async () => {
+  mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey: "fixture", vaultOwnerToken: "fixture"});
+  mocks.list.mockResolvedValue(["A", "B"].map(accountId => ({accountId, credentialId: "grant-"+accountId, email: accountId+"@example.test", status: "connected", capabilities: {read: true}})));
+  mocks.tasks.mockResolvedValue({tasks: []});
+  mocks.brief.mockImplementation(async (box: {account: string}) => ({account: box.account, attention: box.account === "A" ? [1, 2, 3] : [1]}));
+  localStorage.clear();
+  function Counts() {
+    const session = usePrivateMailSession()!;
+    return <><p>{"counts:" + JSON.stringify(session.attentionCounts)}</p>{session.accounts.map(box => <button key={box.accountId} onClick={() => session.choose(box.accountId)}>{"open " + box.accountId}</button>)}</>;
+  }
+  render(<PrivateMailSessionProvider><Counts /></PrivateMailSessionProvider>);
+  await screen.findByText('counts:{"A":3}');
+  fireEvent.click(screen.getByRole("button", {name: "open B"}));
+  await screen.findByText('counts:{"A":3,"B":1}');
+});
+
+it("tries a failed mailbox check again by itself, with growing pauses, and stops after three", async () => {
+  vi.useFakeTimers();
+  try {
+    mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey: "fixture", vaultOwnerToken: "fixture"});
+    mocks.list.mockRejectedValue(new Error("the private agent is waking"));
+    function Failed() { return <p>{"failed:" + String(usePrivateMailSession()!.inventoryFailed)}</p>; }
+    render(<PrivateMailSessionProvider><Failed /></PrivateMailSessionProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    for (const [pause, calls] of [[2_000, 2], [6_000, 3], [15_000, 4]] as const) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(pause); });
+      expect(mocks.list).toHaveBeenCalledTimes(calls);
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(mocks.list).toHaveBeenCalledTimes(4);
+    expect(screen.getByText("failed:true")).toBeDefined();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 

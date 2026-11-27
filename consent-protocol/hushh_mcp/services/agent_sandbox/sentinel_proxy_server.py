@@ -56,6 +56,8 @@ MODEL_GATEWAY_PATH_FORBIDDEN = "MODEL_GATEWAY_PATH_FORBIDDEN"
 MODEL_GATEWAY_AUTH_REQUIRED = "MODEL_GATEWAY_AUTH_REQUIRED"
 MODEL_SURROGATE_IP_MISMATCH = "MODEL_SURROGATE_IP_MISMATCH"
 MODEL_GATEWAY_UNAVAILABLE = "MODEL_GATEWAY_UNAVAILABLE"
+#: The gate holds no Google web client. Callers may fall back to their own exchange.
+GOOGLE_OAUTH_GATE_UNCONFIGURED = "oauth_gate_unconfigured"
 HOSTED_WEB_OAUTH_ORIGINS: frozenset[str] = frozenset(
     {
         "https://one.hussh.si",
@@ -691,7 +693,11 @@ class SentinelProxyRuntime:
         ):
             return refused
         client_id, secret = self._resolve_web_oauth_credentials()
-        if not client_id or not secret or form.get("client_id") != client_id:
+        if not client_id or not secret:
+            # A gate with no web client is an operator state, not a bad request. Saying so
+            # lets the pod use its own exchange instead of reading this as a refused grant.
+            return 503, {"error": GOOGLE_OAUTH_GATE_UNCONFIGURED}
+        if form.get("client_id") != client_id:
             return refused
         allowed_web_scopes = self._allowed_hosted_web_scopes()
         grant_type = form.get("grant_type")

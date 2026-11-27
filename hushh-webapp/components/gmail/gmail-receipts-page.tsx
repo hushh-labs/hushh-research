@@ -1,6 +1,6 @@
 "use client";
 
-import { usePrivateMailSession } from "@/lib/mail/private-mail-session";
+import { MAX_MAIL_ACCOUNTS, usePrivateMailSession } from "@/lib/mail/private-mail-session";
 import { MailFollowupsScreen, type MailDraftRequest } from "./mail-followups-screen";
 import { PrivateMailState } from "./private-mail-state";
 import type { MailAccountIntent } from "@/lib/one/connector-credential-seal";
@@ -386,6 +386,9 @@ function MailPageContent({
   });
   const receiptsWorkspaceActive =
     journeyVariant === "onboarding" || workspace === "receipts";
+  // Opening Mail with the vault unlocked brings every tab up to date in the background, whichever
+  // tab is showing: the saved receipts appear at once and One reads new mail behind them.
+  const mailSyncActive = receiptsWorkspaceActive || (journeyVariant === "workspace" && !standaloneKyc);
 
   useEffect(() => {
     receiptsRef.current = receipts;
@@ -700,7 +703,7 @@ function MailPageContent({
   );
 
   useEffect(() => {
-    if (loading || !userId || !vaultKey || !vaultOwnerToken || !hasSealedReceiptAccess || !receiptsWorkspaceActive) return;
+    if (loading || !userId || !vaultKey || !vaultOwnerToken || !hasSealedReceiptAccess || !mailSyncActive) return;
     const owner = userId;
     let active = true;
     const restore = async () => {
@@ -730,7 +733,7 @@ function MailPageContent({
     const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(wake);
     window.addEventListener("online", wake); document.addEventListener("visibilitychange", wake);
     return () => { active = false; unsubscribeLifecycle(); window.removeEventListener("online", wake); document.removeEventListener("visibilitychange", wake); };
-  }, [loading, userId, vaultKey, vaultOwnerToken, hasSealedReceiptAccess, receiptsWorkspaceActive,
+  }, [loading, userId, vaultKey, vaultOwnerToken, hasSealedReceiptAccess, mailSyncActive,
     receiptAccountKey, receiptDisplayScope, privateMail, mailSession?.resolving, gmail.loadingStatus, gmail.presentation.isConnected, gmail.status?.receipt_sync_available, journeyVariant, loadReceipts]);
 
   const retryReceiptRestore = useCallback(async () => {
@@ -1975,7 +1978,7 @@ function MailPageContent({
       getIdToken={user?.getIdToken ? idTokenProvider : null}
       rows={receiptRowsForRecurring}
       locators={noticeLocators}
-      enabled={Boolean(isConnected && hasSealedReceiptAccess && receiptsWorkspaceActive && !loadingReceipts && !receiptResource.refreshing && !receiptRestorePending)}
+      enabled={Boolean(isConnected && hasSealedReceiptAccess && mailSyncActive && !loadingReceipts && !receiptResource.refreshing && !receiptRestorePending)}
     >
     <div className="space-y-4">
       <div hidden={nativeHistory} className="space-y-4">
@@ -2369,13 +2372,14 @@ function MailPageContent({
               email={privateMailbox?.email ?? null}
               attentionCount={mailSession.brief?.attention.length ?? 0}
               busy={gmailActionBusy !== null}
-              accounts={[...mailSession.accounts.filter(row => row.capabilities.read).map(row => ({ id: row.accountId, email: row.email || "Connected mailbox" })),
-                ...mailSession.expired.map(row => ({ id: row.accountId, email: row.email || "Connected mailbox", needsReconnect: true }))]}
+              // Every mailbox counts toward the cap, readable or not; one that cannot be read is offered for reconnect.
+              accounts={mailSession.accounts.map(row => ({ id: row.accountId, email: row.email || "Connected mailbox", needsReconnect: !row.capabilities.read }))}
               selectedId={privateMailbox?.accountId ?? null}
               onChoose={mailSession.choose}
               onAddAccount={addPrivateMailbox}
-              onReconnect={() => reconnectPrivateMailbox(privateMailbox ?? mailSession.expired[0])}
-              onDisconnect={() => setShowDisconnectConfirm(true)}
+              onReconnectAccount={(id) => reconnectPrivateMailbox(mailSession.accounts.find(row => row.accountId === id))}
+              maxAccounts={MAX_MAIL_ACCOUNTS}
+              counts={mailSession.attentionCounts}
             />
           ) : null}
           {journeyVariant === "workspace" && !standaloneKyc && !privateMail && isConnected ? (

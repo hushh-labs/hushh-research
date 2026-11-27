@@ -79,6 +79,15 @@ afterEach(async () => {
   configure({ asyncUtilTimeout: 1000 });
 });
 
+describe("syncing when Mail opens", () => {
+  it("reads new mail in the background even when the Receipts tab is never opened", async () => {
+    fixture.scan.mockResolvedValue(response([receipt]));
+    render(<GmailReceiptsPage initialWorkspace="overview" forceWorkspace="overview" />);
+    await waitFor(() => expect(fixture.scan).toHaveBeenCalled());
+    expect(screen.queryByRole("tab", { name: "All receipts" })).toBeNull();
+  }, 30000);
+});
+
 describe("manual saved receipt restore activity", () => {
   const unavailable = () => new DurableResourceError("storage_unavailable", "version", "Synthetic local storage failure");
 

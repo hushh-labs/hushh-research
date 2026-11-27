@@ -12,6 +12,11 @@ import { PRIVATE_MAIL_GRANTS_CHANGED, privateMailAccounts, type PrivateMailAccou
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
+/** How many mailboxes one owner may connect. The add action disappears at this many. */
+export const MAX_MAIL_ACCOUNTS = 3;
+/** A failed mailbox check tries again by itself, then leaves the next try to the owner. */
+const INVENTORY_RETRY_MS = [2_000, 6_000, 15_000] as const;
+
 type Inventory = { scope: string; mode: "private" | "shared"; accounts: PrivateMailAccount[]; failed?: boolean };
 type Session = {
   inventoryFailed: boolean; resolving: boolean; private: boolean; accounts: PrivateMailAccount[]; selected: PrivateMailAccount | null;
@@ -19,6 +24,8 @@ type Session = {
   expired: PrivateMailAccount[];
   savedTasks?: Promise<TodoListState>;
   brief?: MailBrief; briefUpdating: boolean; briefError: boolean; retryBrief: () => void;
+  /** What needs the owner in each mailbox One has read this session, by mailbox. A mailbox not yet read has no entry. */
+  attentionCounts: Readonly<Record<string, number>>;
   choose: (slot: string) => void; refresh: () => void;
 };
 const Context = createContext<Session | null>(null);
@@ -39,6 +46,9 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   const [choice, setChoice] = useState<{ scope: string; slot: string }>();
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
+  const failures = useRef(0);
+  // The owner's own retry starts the automatic ones over.
+  const retryNow = useCallback(() => { failures.current = 0; setRevision(value => value + 1); }, []);
   useEffect(() => {
     if (!owner) return;
     const wake = () => { if (document.visibilityState === "visible") refresh(); };
@@ -73,6 +83,15 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   }, [scope, owner, epoch, revision]);
 
   const current = inventory?.scope === scope ? inventory : null;
+  // A failed check (a private agent still waking, a dropped connection) is retried with a growing pause.
+  useEffect(() => {
+    if (!current?.failed) { failures.current = 0; return; }
+    const delay = INVENTORY_RETRY_MS[failures.current];
+    if (delay === undefined) return;
+    failures.current += 1;
+    const timer = window.setTimeout(refresh, delay);
+    return () => window.clearTimeout(timer);
+  }, [current, refresh]);
   const accounts = current?.accounts ?? [];
   const slot = choice?.scope === scope ? choice.slot : owner ? lastSlot(owner) : null;
   const available = accounts.filter(row => row.status === "connected" && row.capabilities.read);
@@ -103,6 +122,7 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     });
   }, [owner, account, connection, vaultKey, vaultOwnerToken, briefScope]);
   const [briefRevision, setBriefRevision] = useState(0);
+  const [counted, setCounted] = useState<{ scope: string; counts: Record<string, number> }>();
   const [summary, setSummary] = useState<{scope: string; brief?: MailBrief; updating: boolean; error: boolean}>();
   useEffect(() => {
     if (!account || !connection || !address) { setSummary(undefined); return; }
@@ -110,10 +130,15 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     const current = () => !abort.signal.aborted && snapshotVaultSessionEpoch() === epoch;
     setSummary(old => ({scope: briefScope, brief: old?.scope === briefScope ? old.brief : undefined, updating: true, error: false}));
     void MailFollowupsService.brief({account, connection, address}, abort.signal)
-      .then(brief => { if (current()) setSummary({scope: briefScope, brief, updating: false, error: false}); })
+      .then(brief => {
+        if (!current()) return;
+        setSummary({scope: briefScope, brief, updating: false, error: false});
+        setCounted(old => ({ scope, counts: { ...(old?.scope === scope ? old.counts : {}), [account]: brief.attention.length } }));
+      })
       .catch(() => { if (current()) setSummary(old => ({scope: briefScope, brief: old?.scope === briefScope ? old.brief : undefined, updating: false, error: true})); });
     return () => abort.abort();
-  }, [account, address, connection, briefScope, briefRevision, epoch]);
+  }, [account, address, connection, briefScope, briefRevision, epoch, scope]);
   const visible = summary?.scope === briefScope ? summary : undefined;
-  return <Context.Provider value={{ inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief, briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh: retryNow,
+    attentionCounts: counted?.scope === scope ? counted.counts : {}, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief, briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
 }
