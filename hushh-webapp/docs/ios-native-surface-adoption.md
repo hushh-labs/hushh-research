@@ -1,5 +1,22 @@
 # iOS Native Surface Adoption
 
+## Whole-app acceptance
+
+Start at the shell and follow every reachable iPhone route, including its nested screens, controls, failure states and authored returns. Reconcile the route inventory with the surface map and live navigation on Dev and UAT. Keep a route open when its mapping, visual behavior or test fixture is missing. Review Standard and Native on iPhone 17 Pro and iPhone Duo. The product scope, Apple app study, route groups, evidence criteria and Duo storefront handoff are in [#10149 Convert and verify the entire Hussh One iPhone app](https://github.com/hushh-labs/hushh-research/issues/10149).
+
+## November 27 UAT review
+
+| Journey | iPhone 17 Pro, iOS 26.5, UAT Debug 2.0.0 (186) |
+| --- | --- |
+| Profile and Appearance | A duplicate Notifications section ID previously rejected the entire native page. A single tap now opens Appearance. Switching Native to Standard and back retains the same WebView document, unlocked vault and Appearance panel. Back returns to Profile and Close returns to Chat. Standalone Preferences also keeps its route in both directions. Standard labels are visible at 320, 393 and 1440 px in light and dark WebKit. |
+| Bottom navigation | The packaged iPhone uses static route prefetch. A repeated active privacy acknowledgement preserves an approved first tap. Two circuits of One, Connect, Feed and Chat reached each destination on its first tap and restored Chat after History dismissal. Feed retained its authored rich timeline. |
+| Changed screens | Career opened its upload chooser and Cancel restored the native screen. Consent reached four panes. Connect handled Circles, reselection and return to Connections. Mail kept a keyboard draft across shell tabs. Location's map waited for its native view and returned through Back. KYC exposed its service error; Website Logins opened and dismissed its editor. |
+| Evidence limits | The initial cold sweep visited 121 entries. An OS location prompt covered 79 captures. Warm observations supplement that sweep. The populated Advisor dossier lacks a fixture. Onboarding-only states, physical Release timing and app-wide freeze freedom have separate evidence requirements. |
+
+The tested UAT base was `57b737a345`, including the Circle chat polling fix. The 1,926 installed web assets matched the staged bundle (SHA-256 prefix `e27e06d16b95`). On the final simulator run, eight native selections reached their WebKit route markers in 52 to 98 ms from the bridge event. Calendar showed loading in 46 ms and data in 1.66 s. Tasks showed loading in 55 ms and data in 1.36 s. No WebKit frame gap reached 250 ms during those eleven sampled actions. An earlier instrumented tab run had one 254 ms frame gap.
+
+React keeps authorization, draft state and service effects mounted. Only presentation consumers respond to an acknowledged host mode change. The device preference defaults to Standard; appearance switching introduces no storage for vault material. Installed asset digests, individual boundaries and timing samples are in the ignored local closeout receipt.
+
 ## Shared Dev on iPhone, November 26
 
 iPhone 17 Pro Max on iOS 26.5, shared Dev Debug 1.4.1 (69). After Dev merged its new Chat Location actions at `533ac08bf8`, the installed executable `c0af9036f2d4` and all 1,914 public assets matched the combined build. The earlier Tasks, attachment and frame recordings used Dev `3db0eab658`. Both builds used Dev's registered Firebase client and backend. Appearance remains opt-in.
@@ -114,7 +131,7 @@ The signed-in check covered Advisor Clients, Wallet, Memory, Consent, Connect, C
 
 **Remaining owner queue:** Finance roots and News are qualified above; retain the dated-history fixture limit and explicit rich child handoffs. The directly addressable Market `preview=analysis|connect` queries contain canned charts/chat and an in-memory sample directory, with no authored live Finance entry found. Preserve their complete React prototypes outside live-service parity; real stock analysis and `/one/kai/import` remain distinct. Continue verified Advisor, setup/public/auth and remaining nested fixtures. Current `/ria/clients` runtime reaches the authenticated **Complete Advisor onboarding** compatibility state; the settled Clients gate is now mapped separately from the roster. A verified advisor with settled dossier is required. Profile/onboarding routes with automatic scanning or writes were not entered. Existing private workspace admission requires validated authentication; anonymous presentation is a real capability gap. Files has its own conditional iPhone handoff result above. Native encrypted transfer and live direct-pod access remain open.
 
-**Appearance apply behavior:** the device setting remains process-latched. Both presentations distinguish active versus requested rendering and offer **Keep current interface**. Native request-Off → pending state → Undo → On and return to the unlocked route passed. A normal WebView reload cannot apply the current frozen host/bootstrap and would lose the in-memory vault. Restart-free apply remains a shared transition gap: retain the existing WebView/document/VaultProvider, retire old presentations, acknowledge the new admission and invalidate capabilities. No key persistence/transfer or pretend restart action was added.
+**Appearance compatibility.** Older iPhone wrappers read the choice on process launch. Their pending indicator and **Keep current interface** action preserve the current session. The November 27 checkpoint records the live-switch behavior on the newer wrapper.
 
 **Location boundary corrections:** native Map controls now share the existing closed ID vocabulary; suspended dock hosts stop painting on immersive screens. Dock admission remeasures its current seat after asynchronous admission, preventing stale pre-admission coordinates from overlapping bottom tabs. The focused regression fails on old code; all 20 asynchronous-dock checks, typecheck and native static parity passed. Runtime captures confirm Map return and reselection on the exact current artifact. Earlier seat-observer-only correction did not resolve the overlap and remains recorded as a failed candidate. Nearby Check-In uses its actual map sheet, not the private-share fallback; the missing location reading and disabled submission are recorded as a fixture limit.
 
