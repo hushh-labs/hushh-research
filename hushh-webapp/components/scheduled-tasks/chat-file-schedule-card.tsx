@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,10 +17,13 @@ type Folder = Pick<FileEntry, "id" | "name">;
 type ReviewEntry = Pick<FileEntry, "id" | "name" | "kind" | "revision">;
 
 /** Select exact owner library metadata and keep it in this review, outside the transcript. */
-export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
+export function ChatFileScheduleCard({ proposal, credentials, onDismiss, onSettled, onEditorOpenChange, hidden }: {
   proposal: FileScheduleProposal;
   credentials: FilesCredentials;
   onDismiss: () => void;
+  onSettled?: () => void;
+  onEditorOpenChange?: (open: boolean) => void;
+  hidden?: boolean;
 }) {
   const client = useMemo(() => new PodScheduledTasksClient(credentials.userId), [credentials.userId]);
   const [choosing, setChoosing] = useState(false);
@@ -31,6 +34,11 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
   const [result, setResult] = useState<ScheduledTask | null>(null);
   const [error, setError] = useState("");
   const parent = folderPath.at(-1)?.id ?? "root";
+  const editorOpen = choosing || selection !== null;
+  useLayoutEffect(() => {
+    onEditorOpenChange?.(editorOpen);
+    return () => onEditorOpenChange?.(false);
+  }, [editorOpen, onEditorOpenChange]);
 
   useEffect(() => {
     if (!choosing) return;
@@ -91,6 +99,7 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
   };
 
   return (
+    <div hidden={hidden && !result}>
     <SurfaceCard className="my-3 space-y-3 p-4" aria-label="File organization proposal">
       <h3 className="font-medium">{result?.state === "completed" ? "File run completed" :
         result?.state === "running" ? "File run in progress" : result ? "File organization scheduled" : "Organize a file later"}</h3>
@@ -135,7 +144,11 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
       </Dialog>
       {selection ? <ScheduleFileDialog file={selection} route={ROUTES.HOME} open
         initialTime={localScheduleInput(proposal.runAt)} reviewedClient={client} beforeConfirm={verifySelection}
-        onOpenChange={open => { if (!open) setSelection(null); }} onScheduled={setResult} /> : null}
+        onOpenChange={open => { if (!open) setSelection(null); }} onScheduled={task => {
+          setResult(task);
+          onSettled?.();
+        }} /> : null}
     </SurfaceCard>
+    </div>
   );
 }

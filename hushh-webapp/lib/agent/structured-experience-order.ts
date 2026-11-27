@@ -1,5 +1,23 @@
 import type { AgentStructuredExperience } from "./agui-structured-experiences";
 
+type StructuredExperienceItem = { id: string; experience: AgentStructuredExperience };
+
+export function chatStructuredExperienceItems(message: {
+  structuredExperiences?: StructuredExperienceItem[];
+  structuredExperience?: AgentStructuredExperience | null;
+}): StructuredExperienceItem[] {
+  if (message.structuredExperiences?.length) return message.structuredExperiences;
+  return message.structuredExperience
+    ? [{ id: "legacy-structured-experience", experience: message.structuredExperience }]
+    : [];
+}
+
+export function latestMailQuickActionId(items: readonly StructuredExperienceItem[]): string | undefined {
+  return items.findLast(({ experience }) =>
+    experience.type === "one.connector_read.v1" && experience.connector === "mail" &&
+    experience.status === "ok" && Boolean(experience.liveSources?.length))?.id;
+}
+
 /**
  * One secure card per person in a turn. One may both list and show what a
  * person shared; the reader sees that person's card once, where it last

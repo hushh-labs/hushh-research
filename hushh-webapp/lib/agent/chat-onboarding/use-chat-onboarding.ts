@@ -19,7 +19,7 @@ import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import {
-  activeChipTurnId,
+  activeControlTurnId,
   isAwaitingTypedName,
   reduceChatOnboarding,
   type ChatOnboardingEvent,
@@ -195,14 +195,15 @@ export type ChatOnboardingController = {
   resolved: boolean;
   /** Onboarding turns to render (empty when there is nothing to show). */
   turns: readonly ChatOnboardingTurn[];
-  /** The one assistant turn whose chips are live, if any. */
-  activeChipTurnId: string | null;
+  /** The one assistant turn whose controls are live, if any. */
+  activeControlTurnId: string | null;
+  isActiveTurn: (turn: ChatOnboardingTurn) => boolean;
   shownTurns: ReadonlyMap<string, string>;
   shownTurnTimes: ReadonlyMap<string, number>;
   markShown: (turnId: string, timeLabel: string, shownAtMs?: number) => void;
   /** True while a save to memory is in flight: chips are inert. */
   busy: boolean;
-  onChip: (chipId: ChatOnboardingChipId) => void;
+  onChip: (turn: ChatOnboardingTurn, chipId: ChatOnboardingChipId) => void;
   /**
    * Compatibility entrypoint: text is always assessed by One, never classified here.
    */
@@ -337,11 +338,18 @@ export function useChatOnboarding(input: {
     }
   }, [hasTurns, session.homeConversationId, input.conversationId]);
 
+  const isActiveTurn = useCallback((turn: ChatOnboardingTurn) => {
+    const current = useChatOnboardingSession.getState();
+    return Boolean(latest.current.isVaultUnlocked && current.userId === latest.current.userId &&
+      (!current.homeConversationId || current.homeConversationId === latest.current.conversationId) &&
+      current.machine?.turns.at(-1) === turn && activeControlTurnId(current.machine) === turn.id);
+  }, []);
   const onChip = useCallback(
-    (chipId: ChatOnboardingChipId) => {
+    (turn: ChatOnboardingTurn, chipId: ChatOnboardingChipId) => {
+      if (!isActiveTurn(turn) || !turn.chips?.some(chip => chip.id === chipId)) return;
       dispatch({ type: "chip", chipId, anchor: anchor(), today: localCalendarDate(), firstName });
     },
-    [anchor, dispatch, firstName],
+    [anchor, dispatch, firstName, isActiveTurn],
   );
 
   const captureComposerText = useCallback(() => false, []);
@@ -366,17 +374,16 @@ export function useChatOnboarding(input: {
     persistDurable({ ...current, tipDismissedOn: localCalendarDate() });
   }, []);
 
-  const finishedElsewhere =
-    session.machine?.step === "done" &&
-    session.homeConversationId !== null &&
+  const otherConversation = session.homeConversationId !== null &&
     input.conversationId !== session.homeConversationId;
-  const visible = ready && !finishedElsewhere ? session.machine : null;
+  const visible = ready && !otherConversation ? session.machine : null;
   return {
     resolved: ready && session.durable !== undefined && (session.machine
       ? session.machine.step === "done"
       : session.durable?.status === "completed" || (session.durable === null && !input.startSignal)),
     turns: visible?.turns ?? [],
-    activeChipTurnId: activeChipTurnId(visible),
+    activeControlTurnId: activeControlTurnId(visible),
+    isActiveTurn,
     shownTurns: session.shownTurns,
     shownTurnTimes: session.shownTurnTimes,
     markShown: session.markShown,

@@ -176,6 +176,7 @@ describe("answers are saved only on confirmation", () => {
     let state = start().state;
     state = chip(state, "name_signin").state;
     state = chip(state, "focus_email").state;
+    state = chip(state, "continue_after_focus").state;
     return chip(state, "tone_casual");
   }
 
@@ -216,7 +217,7 @@ describe("answers are saved only on confirmation", () => {
     const named = chip(start().state, "name_signin").state;
     expect(pickedPreferredName(start().state)).toBeNull();
     expect(pickedPreferredName(named)).toBe("Kushal");
-    const toned = chip(named, "focus_email").state;
+    const toned = chip(chip(named, "focus_email").state, "continue_after_focus").state;
     expect(pickedPreferredName(toned)).toBe("Kushal");
     const confirm = chip(toned, "tone_casual").state;
     expect(pickedPreferredName(confirm)).toBe("Kushal");
@@ -265,14 +266,20 @@ describe("what to help with first", () => {
     expect(workspace).not.toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
   });
 
-  it("shows the explanation with its single action, then asks the tone", () => {
+  it.each(CHAT_ONBOARDING_FOCUS)("waits for a continuation before asking the tone after %s", (focus) => {
     const named = chip(start().state, "name_signin").state;
-    const focused = chip(named, "focus_money").state;
-    const [user, explanation, tone] = focused.turns.slice(-3);
-    expect(user).toMatchObject({ role: "user", text: "Finance" });
-    expect(explanation?.action).toMatchObject({ kind: "route", href: ROUTES.KAI_PORTFOLIO_SOURCES });
-    expect(explanation?.chips).toBeUndefined();
-    expect(tone?.text).toBe("How should I talk with you?");
+    const focused = chip(named, `focus_${focus}`).state;
+    expect(focused.step).toBe("focus_action");
+    expect(focused.progress.questions.focus).toBe("pending");
+    expect(lastAssistant(focused)).toMatchObject({
+      action: CHAT_ONBOARDING_FOCUS_PLAN[focus].action,
+      chips: [{ id: "continue_after_focus", label: "Continue in chat" }],
+    });
+    expect(chip(focused, "tone_short_direct").state).toBe(focused);
+    const continued = chip(focused, "continue_after_focus").state;
+    expect(continued.progress.questions.focus).toBe("answered");
+    expect(lastAssistant(continued).text).toBe("How should I talk with you?");
+    expect(chip(continued, "continue_after_focus").state).toBe(continued);
   });
 });
 

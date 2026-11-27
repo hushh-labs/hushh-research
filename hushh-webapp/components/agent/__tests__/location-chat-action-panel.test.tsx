@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { MouseEvent, ReactNode } from "react";
 import { expect, test, vi } from "vitest";
 import { executeMainLocationPlan, expandMainLocationTarget, inspectMainLocationPlan, prepareMainLocationPlan, resolveMainLocationChoices, restoreMainLocationPlans } from "@/lib/agent/main-chat-location";
@@ -717,9 +717,16 @@ test("a large reviewed Circle exposes its names in pages and reports only confir
   });
   const text = vi.fn();
   let reply: LocationConversationReply | null = null;
-  render(<LocationChatActionPanel proposal={{ id: "large", action: "ask", circles: ["NM"], durationHours: 1 }}
-    ownerId="owner" token="token" allowReview onUnlock={() => {}} onConversationText={text}
-    onConversationReply={(_id, handle) => { reply = handle; }} />);
+  const proposal: Parameters<typeof LocationChatActionPanel>[0]["proposal"] = {
+    id: "large", action: "ask", circles: ["NM"], durationHours: 1,
+  };
+  const sendHost = render(<div />).container.firstElementChild as HTMLDivElement;
+  const panel = (paused = false) => (
+    <LocationChatActionPanel proposal={proposal} ownerId="owner" token="token" allowReview
+      paused={paused} sendHost={sendHost} onUnlock={() => {}} onConversationText={text}
+      onConversationReply={(_id, handle) => { reply = handle; }} />
+  );
+  const { rerender } = render(panel());
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Ask 8 members of the NM circle to share their location for 1 hour?"));
   expect(text.mock.lastCall![1]).not.toContain("Member 1");
   act(() => { expect(reply!("names")).toBe(true); });
@@ -727,8 +734,16 @@ test("a large reviewed Circle exposes its names in pages and reports only confir
   expect(text.mock.lastCall![1]).not.toContain("Member 8");
   act(() => { expect(reply!("more")).toBe(true); });
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 8"));
+  const send = () => within(sendHost).queryByRole("button", { name: "Send location request" });
+  expect(send()).toBeEnabled();
+  rerender(panel(true));
+  expect(send()).not.toBeInTheDocument();
+  expect(reply).toBeNull();
   expect(executeMainLocationPlan).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Send location request" }));
+
+  rerender(panel());
+  const resumedSend = within(sendHost).getByRole("button", { name: "Send location request" });
+  fireEvent.click(resumedSend);
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Sent your location request to 7 members of the NM circle for 1 hour."));
   expect(text.mock.lastCall![1]).toContain("Request to Member 8 failed.");
   expect(text.mock.lastCall![1].match(/Sent your location request/g)).toHaveLength(1);

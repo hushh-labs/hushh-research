@@ -52,12 +52,14 @@ function deliveryFacts(result: ChatSosDelivery) {
   ];
 }
 
-export function LocationChatSafety({ sendHost, action, ownerId, token, allowReview, onConversationReply, onConversationText }: {
+export function LocationChatSafety({ sendHost, action, ownerId, token, allowReview, hidden, onFinished, onConversationReply, onConversationText }: {
   sendHost?: HTMLElement | null;
   action: LocationSafetyAction;
   ownerId: string;
   token: string;
   allowReview: boolean;
+  hidden?: boolean;
+  onFinished?: (finished: boolean) => void;
 } & LocationConversationProps) {
   const [editing, setEditing] = useState(action === "sms_contacts");
   const [closed, setClosed] = useState(false);
@@ -132,7 +134,7 @@ export function LocationChatSafety({ sendHost, action, ownerId, token, allowRevi
       setClosed(true);
     }
   }
-  useBackLayer(ROUTES.HOME, allowReview && !closed ? 1 : 0, () => { close(); return true; });
+  useBackLayer(ROUTES.HOME, allowReview && !closed && !hidden ? 1 : 0, () => { close(); return true; });
 
   function retry() {
     setError(undefined);
@@ -269,6 +271,11 @@ export function LocationChatSafety({ sendHost, action, ownerId, token, allowRevi
   }
 
   const active = Boolean(review?.activeGrants.length || review?.incident?.grantIds.length);
+  const finished = closed || (action === "sos_review" && Boolean(delivery)) ||
+    (action === "sos_stop" && Boolean(review) && !active);
+  useEffect(() => {
+    if (allowReview) onFinished?.(finished);
+  }, [allowReview, finished, onFinished]);
   const paused = readOneLocationControlState(ownerId).paused;
   const ready = review?.recipients.filter(isSosShareReadyRecipient) ?? [];
   const recipients = ready.length > 5 ? `${ready.length} emergency contacts` : ready.map(personName).join(", ");
@@ -375,7 +382,7 @@ export function LocationChatSafety({ sendHost, action, ownerId, token, allowRevi
   });
   if (onConversationText) return <>
     <LocationChatPermissionRecovery issue={permissionIssue} />
-    {allowReview && action === "sos_review" && review && !editing && !closed && !active && !paused && ready.length > 0 &&
+    {!hidden && allowReview && action === "sos_review" && review && !editing && !closed && !active && !paused && ready.length > 0 &&
       !delivery && !status && !error && alertNote.length <= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH
       ? <LocationChatSend host={sendHost} label="Send Save My Soul alert" busy={Boolean(busyKey)}
           onSend={() => { void send(alertNote || null, true); }} /> : null}
