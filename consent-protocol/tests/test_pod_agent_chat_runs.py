@@ -145,8 +145,12 @@ def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
         STATE_LOCATION_CHAT_REVIEW,
     )
 
-    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
-    regular_chat = {"screenContext": {"route": {"pathname": "/"}}, "locationChatReview": True}
+    # Owner image upgrades retain the pre-Location container environment.
+    monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
+    regular_chat = {
+        "screenContext": {"route": {"pathname": "/?locationSetupReturn=example"}},
+        "locationChatReview": True,
+    }
     location = {**body, "message": "Request Kushal's location", "forwardedProps": regular_chat}
     assert client.post(path, json=location).status_code == 200
     assert turns[-1][1].state[STATE_LOCATION_CHAT_REVIEW] is True
@@ -217,7 +221,7 @@ def _turn(**forwarded):
 
 
 def _owner():
-    authority = SimpleNamespace(local_token=lambda claims: "local-token")
+    authority = SimpleNamespace(environment="uat", local_token=lambda claims: "local-token")
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 

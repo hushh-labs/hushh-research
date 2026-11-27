@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { LocationChatSend } from "./location-chat-send";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { SosPanel, type SosDispatchStatus } from "@/components/one-location/redesign/sos-panel";
 import { Button } from "@/components/ui/button";
@@ -51,7 +52,8 @@ function deliveryFacts(result: ChatSosDelivery) {
   ];
 }
 
-export function LocationChatSafety({ action, ownerId, token, allowReview, onConversationReply, onConversationText }: {
+export function LocationChatSafety({ sendHost, action, ownerId, token, allowReview, onConversationReply, onConversationText }: {
+  sendHost?: HTMLElement | null;
   action: LocationSafetyAction;
   ownerId: string;
   token: string;
@@ -371,7 +373,13 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
     }
     return true;
   });
-  if (onConversationText) return <LocationChatPermissionRecovery issue={permissionIssue} />;
+  if (onConversationText) return <>
+    <LocationChatPermissionRecovery issue={permissionIssue} />
+    {allowReview && action === "sos_review" && review && !editing && !closed && !active && !paused && ready.length > 0 &&
+      !delivery && !status && !error && alertNote.length <= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH
+      ? <LocationChatSend host={sendHost} label="Send Save My Soul alert" busy={Boolean(busyKey)}
+          onSend={() => { void send(alertNote || null, true); }} /> : null}
+  </>;
   if (!allowReview || closed) return status || delivery ? <LocationChatActionCard model={{
     phase: "result", title: "Save My Soul", status, facts: delivery ? deliveryFacts(delivery) : undefined,
   }} /> : null;

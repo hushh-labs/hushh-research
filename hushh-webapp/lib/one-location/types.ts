@@ -12,6 +12,7 @@ export type OneLocationAutoApprovePreference = {
   enabled: boolean;
   scope: AutoApproveScope | null;
   enabledAt: string | null;
+  expiresAt?: string | null;
   ruleVersion: number;
   updatedAt?: string | null;
 };

@@ -177,7 +177,7 @@ export function locationPlanSentence(plans: readonly MainLocationPlan[], targets
   if (names.length !== plans.length) return "";
   const formatAudience = new Intl.ListFormat("en");
   let audience = formatAudience.format(names);
-  if (plans.length > PAGE_SIZE) {
+  if (targets.some(target => target.circleId && !target.personUserId) || plans.length > PAGE_SIZE) {
     const scopes: string[] = [];
     const counted = new Set<string>();
     for (const target of targets) {
@@ -186,7 +186,12 @@ export function locationPlanSentence(plans: readonly MainLocationPlan[], targets
       if (!group.length || group.some(plan => !plan.personUserId) || new Set(group.map(plan => plan.personUserId)).size !== group.length) continue;
       counted.add(target.circleId);
       const circle = /\bcircle$/i.test(target.label) ? target.label : `the ${target.label} circle`;
-      scopes.push(`${group.length} member${group.length === 1 ? "" : "s"} of ${circle}`);
+      if (plans.length > PAGE_SIZE) {
+        scopes.push(`${group.length} member${group.length === 1 ? "" : "s"} of ${circle}`);
+      } else {
+        const memberNames = names.filter((_, index) => plans[index]?.circleId === target.circleId);
+        scopes.push(`${formatAudience.format(memberNames)} (${circle})`);
+      }
     }
     const others = names.filter((_, i) => !counted.has(plans[i]?.circleId ?? ""));
     scopes.push(...(completed && others.length > PAGE_SIZE ? [`${others.length} recipients`] : others));
