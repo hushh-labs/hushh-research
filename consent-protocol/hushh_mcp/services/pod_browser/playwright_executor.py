@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ class PlaywrightExecutor:
         self._redirects = BrowserRedirects()
         self._credential_targets = None
         self._credential_operation = None
+        self._credential_requests: set[str] = set()
 
     def _request_paused(self, event: dict) -> None:
         # Capture synchronously at delivery. Never consult a later input's
@@ -103,17 +105,29 @@ class PlaywrightExecutor:
                 self._credential_targets.original_cleared = True
             captured = request_from_event(event, scope)
             proof = None
-            if self._credential_targets is not None and self._credential_targets.submitting:
-                if event.get("redirectedRequestId"):
+            if (
+                self._credential_targets is not None
+                and self._credential_targets.submitting
+                and event.get("resourceType") == "Document"
+                and event.get("frameId") == self._main_frame_id
+            ):
+                parent = event.get("redirectedRequestId")
+                if parent in self._credential_requests:
                     proof = {
                         "kind": "redirect",
                         "operation_id": self._credential_operation,
                         "request_id": request_id,
-                        "parent_request_id": event["redirectedRequestId"],
+                        "parent_request_id": parent,
                     }
-                elif event.get("resourceType") == "Document":
+                elif not parent:
                     fingerprint = self._credential_targets.navigation_cleanup.authentication
-                    if fingerprint is not None:
+                    if (
+                        fingerprint is not None
+                        and captured.method == "POST"
+                        and captured.url == fingerprint.get("action_url")
+                        and hashlib.sha256(captured.body).hexdigest()
+                        == fingerprint.get("body_sha256")
+                    ):
                         proof = {
                             "kind": "submit",
                             "operation_id": self._credential_operation,
@@ -125,6 +139,9 @@ class PlaywrightExecutor:
                 if proof is not None
                 else await self._network.fetch(captured)
             )
+            if proof is not None:
+                # Framing hint only: the broker remains the credential authority.
+                self._credential_requests.add(request_id)
             # Validate original headers, then preserve the multimap in CDP.
             if (
                 response.download_id is not None
@@ -307,6 +324,7 @@ class PlaywrightExecutor:
 
     async def close(self) -> None:
         self._closed = True
+        self._credential_requests.clear()
         pending = tuple(task for task in self._requests if task is not asyncio.current_task())
         for task in pending:
             task.cancel()
@@ -358,6 +376,7 @@ class PlaywrightExecutor:
         if binder is not None:
             binder(lease.submission)
         self._credential_operation = request.operation_id
+        self._credential_requests.clear()
         self._credential_targets = targets
         self._scope = scope
         try:
@@ -386,6 +405,7 @@ class PlaywrightExecutor:
             finally:
                 self._credential_targets = None
                 self._credential_operation = None
+                self._credential_requests.clear()
                 if binder is not None:
                     binder(None)
                 self._scope = None

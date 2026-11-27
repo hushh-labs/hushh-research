@@ -1013,6 +1013,7 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
     import hashlib
     import time
     from types import SimpleNamespace
+    from unittest.mock import AsyncMock
 
     import httpcore
 
@@ -1024,14 +1025,17 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
         PublicResearchNetworkAuthority,
         PublicResearchPolicy,
     )
+    from hushh_mcp.services.pod_browser.playwright_executor import PlaywrightExecutor
     from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
 
     fixture = _credential_fixture()
     bound = binding(expires_at=int(time.time()) + 600)
     reviews = []
+    review_terms = []
 
     async def review(value, purpose, terms):
         reviews.append(purpose)
+        review_terms.append(terms)
         raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
 
     consent = SimpleNamespace(check_binding=fixture.auth.check_binding, require=review)
@@ -1046,7 +1050,9 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
         consent,
         journal,
         PublicResearchPolicy(
-            page_urls=("https://example.com/login",), interactive_origins=("https://example.com",)
+            page_urls=("https://example.com/login",),
+            static_prefixes=("https://example.com/assets/",),
+            interactive_origins=("https://example.com",),
         ),
     )
     broker = BrowserNetworkBroker(
@@ -1082,6 +1088,14 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
 
         async def handle_async_request(self, request):
             self.calls += 1
+            if request.url.target.endswith(b"/start.js"):
+                return httpcore.Response(
+                    303, headers=[(b"location", b"/assets/final.js")], content=b""
+                )
+            if request.url.target.endswith(b"/start.css"):
+                return httpcore.Response(
+                    303, headers=[(b"location", b"/assets/final.css")], content=b""
+                )
             return (
                 httpcore.Response(303, headers=[(b"location", b"/account")], content=b"")
                 if self.calls == 1
@@ -1117,13 +1131,49 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
         )
     elif fault == "revoke":
         fixture.auth.revoked = True
+    driver = None
     try:
         if fault:
             with pytest.raises(BrowserRefused):
                 await broker.fetch(request, credential_proof=proof)
             assert pool.calls == 0 and not reviews
         else:
-            assert (await broker.fetch(request, credential_proof=proof)).status == 303
+            driver = PlaywrightExecutor(network=broker, chromium_sandbox=True)
+            driver._main_frame_id = "main"
+            driver._credential_operation = fixture.request.operation_id
+            driver._credential_targets = SimpleNamespace(
+                submitting=True,
+                navigation_cleanup=SimpleNamespace(
+                    require_receipt=AsyncMock(),
+                    authentication={"action_url": request.url, "body_sha256": proof["body_sha256"]},
+                ),
+                original_cleared=False,
+            )
+            delivered = []
+
+            async def send(method, params):
+                delivered.append((method, params))
+
+            driver._cdp = SimpleNamespace(send=send)
+
+            async def intercepted(identifier, value, kind="Document", parent=None, frame="main"):
+                raw = {"url": value.url, "method": value.method, "headers": dict(value.headers)}
+                if value.body:
+                    raw.update(hasPostData=True, postData=value.body.decode())
+                await driver._paused_request(
+                    {
+                        "requestId": identifier,
+                        "request": raw,
+                        "resourceType": kind,
+                        "frameId": frame,
+                        **({"redirectedRequestId": parent} if parent else {}),
+                    },
+                    scope=value.scope,
+                )
+                return delivered[-1]
+
+            method, response = await intercepted("native-1", request)
+            assert method == "Fetch.fulfillRequest" and response["responseCode"] == 303
             assert not credential.completed
             redirected = BrowserRequest(
                 url="https://example.com/account", method="GET", scope=scope
@@ -1139,24 +1189,49 @@ async def test_authentication_policy_permits_only_exact_native_post_and_linked_r
                     },
                 )
 
-            assert (
-                await broker.fetch(
-                    redirected,
-                    credential_proof={
-                        "kind": "redirect",
-                        "operation_id": fixture.request.operation_id,
-                        "request_id": "native-2",
-                        "parent_request_id": "native-1",
-                    },
-                )
-            ).status == 200
+            method, response = await intercepted("native-2", redirected, parent="native-1")
+            assert method == "Fetch.fulfillRequest" and response["responseCode"] == 200
             assert credential.completed and pool.calls == 2 and not reviews
+            for kind, extension in (("Script", "js"), ("Stylesheet", "css")):
+                original = redirected.model_copy(
+                    update={"url": f"https://example.com/assets/start.{extension}"}
+                )
+                final = redirected.model_copy(
+                    update={"url": f"https://example.com/assets/final.{extension}"}
+                )
+                assert (await intercepted(f"{kind}-1", original, kind))[0] == "Fetch.fulfillRequest"
+                assert (await intercepted(f"{kind}-2", final, kind, parent=f"{kind}-1"))[
+                    0
+                ] == "Fetch.fulfillRequest"
+            ordinary_document = redirected.model_copy(
+                update={"url": "https://example.com/assets/ordinary"}
+            )
+            assert (await intercepted("ordinary-document", ordinary_document, parent="Script-1"))[
+                0
+            ] == "Fetch.fulfillRequest"
+            assert (
+                await intercepted(
+                    "foreign-frame", ordinary_document, parent="native-1", frame="child"
+                )
+            )[0] == "Fetch.fulfillRequest"
+            assert credential.completed and pool.calls == 8 and not reviews
             with pytest.raises(BrowserRefused, match="ACTION_REPLAY"):
                 await broker.fetch(request, credential_proof=proof)
-            with pytest.raises(BrowserRefused, match="OWNER_APPROVAL_REQUIRED"):
-                await broker.fetch(
-                    request.model_copy(update={"url": "https://example.com/payment"})
-                )
-            assert reviews == ["disclose"] and pool.calls == 2
+            for identifier, value in (
+                (
+                    "unrelated-write",
+                    request.model_copy(update={"url": "https://example.com/payment"}),
+                ),
+                (
+                    "same-url-mismatch",
+                    request.model_copy(update={"body": b"mismatched-native-form"}),
+                ),
+            ):
+                assert (await intercepted(identifier, value))[0] == "Fetch.failRequest"
+            assert reviews == ["disclose", "disclose"] and pool.calls == 8
+            assert "exact-native-form" not in str(review_terms)
+            assert "mismatched-native-form" not in str(review_terms)
     finally:
+        if driver is not None:
+            await driver.close()
         await broker.close()

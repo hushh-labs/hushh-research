@@ -59,11 +59,13 @@ function domain(value: unknown): CredentialsDomain {
 async function load(context: CredentialsVaultContext): Promise<CredentialsDomain> {
   unlocked(context);
   await context.beforeEffect?.();
-  const data = await PersonalKnowledgeModelService.loadDomainData({
-    userId: context.userId, domain: CREDENTIALS_DOMAIN, vaultKey: context.vaultKey, vaultOwnerToken: context.vaultOwnerToken
+  // Refresh/reconciliation and reveal must observe edits or deletion on another
+  // device, rather than treating the encrypted presentation cache as authority.
+  const loaded = await PersonalKnowledgeModelService.loadDomainSnapshot({
+    userId: context.userId, domain: CREDENTIALS_DOMAIN, vaultKey: context.vaultKey, vaultOwnerToken: context.vaultOwnerToken, force: true
   });
   await context.beforeEffect?.();
-  return domain(data);
+  return domain(loaded.data);
 }
 function aadFor(userId: string, summary: CredentialSummary): CredentialAad {
   return {

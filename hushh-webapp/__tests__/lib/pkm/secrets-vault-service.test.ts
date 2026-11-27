@@ -4,15 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { decryptCredentialRecord } from "@/lib/pkm/credential-crypto";
 
-const { saveMergedDomain, loadDomainData } = vi.hoisted(() => ({
+const { saveMergedDomain, loadDomainData, loadDomainSnapshot } = vi.hoisted(() => ({
   saveMergedDomain: vi.fn(),
   loadDomainData: vi.fn(),
+  loadDomainSnapshot: vi.fn(),
 }));
 
 vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({ConsentExportRefreshOrchestrator:{ensureRunning:vi.fn(async()=>{})}}));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: { saveMergedDomain } }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
-  PersonalKnowledgeModelService: { loadDomainData },
+  PersonalKnowledgeModelService: { loadDomainData, loadDomainSnapshot },
 }));
 
 import { planSecretCaptures } from "@/lib/pkm/secret-span-guard";
@@ -50,6 +51,10 @@ beforeEach(() => {
   });
   loadDomainData.mockReset().mockImplementation(async () =>
     stored ? JSON.parse(await decryptData(stored, VAULT_KEY)) : null);
+  loadDomainSnapshot.mockReset().mockImplementation(async () => ({
+    snapshot: stored ? { contentRevision: sent.length, manifestRevision: sent.length } : null,
+    data: stored ? JSON.parse(await decryptData(stored, VAULT_KEY)) : null,
+  }));
 });
 
 describe("SecretsVaultService", () => {
@@ -125,6 +130,29 @@ describe("Website credentials in the existing encrypted PKM writer", () => {
     const raw = new Uint8Array(await crypto.subtle.exportKey("raw",pair.publicKey));
     return {recipient:{hushhId:"pod",podKeyId:"key",publicKey:Buffer.from(raw).toString("base64")},recheck:vi.fn(async()=>{}),generationFloor:vi.fn(async()=>0),fence:vi.fn(async()=>{}),publish:vi.fn(async()=>{})};
   }
+  it("refreshes and reveals authoritative cross-device edits and deletion despite a warm stale cache", async () => {
+    const first = await CredentialsVaultService.save(CONTEXT, { ...input, autonomyPolicy: "vault_only" });
+    const stale = JSON.parse(await decryptData(stored!, VAULT_KEY));
+    loadDomainData.mockResolvedValue(stale);
+    loadDomainSnapshot.mockImplementation(async ({ force }) => ({
+      snapshot: { contentRevision: force ? sent.length : 1, manifestRevision: force ? sent.length : 1 },
+      data: force ? JSON.parse(await decryptData(stored!, VAULT_KEY)) : stale,
+    }));
+    // A second device commits through the encrypted writer without invalidating
+    // this device's still-warm domain cache.
+    const changed = await CredentialsVaultService.save(CONTEXT,
+      { ...input, label: "Updated on another device", password: "SYNTHETIC_CHANGED_PASSWORD_456", autonomyPolicy: "vault_only" },
+      { id: first.id, expectedRevision: first.revision });
+    await expect(CredentialsVaultService.list(CONTEXT)).resolves.toMatchObject([
+      { id: first.id, label: "Updated on another device", revision: changed.revision },
+    ]);
+    await expect(CredentialsVaultService.reveal(CONTEXT, first.id)).resolves.toMatchObject({ password: "SYNTHETIC_CHANGED_PASSWORD_456" });
+    loadDomainSnapshot.mockRejectedValueOnce(new Error("authority_read_unavailable"));
+    await expect(CredentialsVaultService.list(CONTEXT)).rejects.toThrow("authority_read_unavailable");
+    await CredentialsVaultService.remove(CONTEXT, first.id, changed.revision);
+    await expect(CredentialsVaultService.list(CONTEXT)).resolves.toEqual([]);
+    await expect(CredentialsVaultService.reveal(CONTEXT, first.id)).rejects.toMatchObject({ code: "CREDENTIAL_UNAVAILABLE" });
+  });
   it("bounds a transient use to its task expiry and refuses expired work before reading secrets", async () => {
     const nowMs = 1_800_000_000_000;
     const now = nowMs / 1000;
