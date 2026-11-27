@@ -595,24 +595,24 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           }
         />
         {writeReady && agentLoadError ? (
-          <HelperText as="p" role="status">
+          <HelperText as="p" role="alert">
             Some agent tasks couldn’t refresh. Your other items are still here.
           </HelperText>
         ) : null}
         {writeReady && itemsLoadError ? (
-          <div className="flex items-center gap-2" role="status">
+          <div className="flex items-center gap-2" role="alert">
             <HelperText as="p">Your saved items couldn’t load.</HelperText>
             <Button variant="none" effect="fade" size="compact" onClick={() => void loadItems()}>Retry</Button>
           </div>
         ) : null}
         {writeReady && calendarReadError ? (
-          <div className="flex items-center gap-2" role="status">
+          <div className="flex items-center gap-2" role="alert">
             <HelperText as="p">Some Calendar tasks couldn’t load.</HelperText>
             <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
           </div>
         ) : null}
         {writeReady && (emailReadError || (liveTasks.sourceError && !agentLoadError && !calendarReadError)) ? (
-          <div className="flex items-center gap-2" role="status">
+          <div className="flex items-center gap-2" role="alert">
             <HelperText as="p">{emailReadError ? "Email tasks couldn’t load." : "Some tasks couldn’t load."}</HelperText>
             <Button variant="none" effect="fade" size="compact" onClick={() => { void liveTasks.refreshSources(); }}>Retry</Button>
           </div>
