@@ -455,10 +455,13 @@ describe("TodoListPage row actions", () => {
     mocks.events = [];
     mocks.feedLoading = true;
     render(<TodoListPage />);
-    await waitFor(() => expect(mocks.workspace?.content.sections.flatMap(section => section.rows).some(row => row.label === "Loading your list…")).toBe(true));
+    await waitFor(() => {
+      const rows = mocks.workspace?.content.sections.flatMap(section => section.rows) ?? [];
+      expect(rows.some(row => row.label === "Loading your list…")).toBe(true);
+      expect(rows.find(row => row.label === "Add item")?.enabled).toBe(true);
+    });
     const state = mocks.workspace!;
     const add = state.content.sections.flatMap(section => section.rows).find(row => row.label === "Add item")!;
-    expect(add.enabled).toBe(true);
     await act(async () => { await state.actions.get(add.id)!({} as never); });
     expect(mocks.workspace!.editor).toBeDefined();
   });

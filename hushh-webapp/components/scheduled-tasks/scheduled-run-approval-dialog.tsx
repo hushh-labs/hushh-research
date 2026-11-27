@@ -63,6 +63,7 @@ export function ScheduledRunApprovalDialog({ task, client, vaultOwnerToken, onEx
     try {
       const approval = await ExternalConnectorService.confirmMcpCall({
         vaultOwnerToken,
+        scheduled: true,
         conversationId: review.preview.podReview.conversationId,
         reference: review.preview,
         signal: active.signal,
