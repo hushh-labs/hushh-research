@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import date
 from typing import Any
 
 
@@ -204,6 +206,80 @@ def _retained_document_delivery(
     return {enabled_key: enabled, **values}
 
 
+def _retained_feature_observation_binding(
+    existing: dict[str, Any], *, project: str, environment: str
+) -> dict[str, Any]:
+    """Keep only the explicitly approved aggregate binding for this exact lane."""
+    production_key = "one_metrics_feature_observations_binding_json"
+    uat_key = "one_metrics_uat_feature_observations_binding_json"
+    present = {key for key in (production_key, uat_key) if key in existing}
+    if not present:
+        return {}
+    key = uat_key if environment == "uat" else production_key
+    expected = {"production": "hushh-pda", "uat": "hushh-pda-uat"}.get(environment)
+    if (
+        expected is None
+        or project != expected
+        or existing.get("environment") != environment
+        or existing.get("google_cloud_project") != project
+        or present != {key}
+    ):
+        raise ValueError(
+            "Feature observation binding belongs to a different environment"
+        )
+    try:
+        row = existing[key]
+        if isinstance(row, str):
+            if len(row) > 4000:
+                raise ValueError
+            row = json.loads(row)
+        fields = {
+            "approved",
+            "reportKind",
+            "definitionVersion",
+            "sourceGeneration",
+            "scopeDigest",
+            "populationPolicyRevision",
+            "reconciliationDigest",
+            "coverageFrom",
+        }
+        if environment == "uat":
+            fields |= {"databaseName", "databaseUser"}
+        if (
+            not isinstance(row, dict)
+            or set(row) != fields
+            or row["approved"] is not True
+            or row["reportKind"] != "feature_observations"
+            or row["definitionVersion"] != "1"
+            or len(json.dumps(row)) > 4000
+        ):
+            raise ValueError
+        for field in (
+            "sourceGeneration",
+            "scopeDigest",
+            "populationPolicyRevision",
+            "reconciliationDigest",
+        ):
+            if not isinstance(row[field], str) or not re.fullmatch(
+                r"[a-f0-9]{64}", row[field]
+            ):
+                raise ValueError
+        if date.fromisoformat(row["coverageFrom"]).isoformat() != row["coverageFrom"]:
+            raise ValueError
+        if environment == "uat" and (
+            not isinstance(row["databaseName"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_]{1,63}", row["databaseName"])
+            or not isinstance(row["databaseUser"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", row["databaseUser"])
+        ):
+            raise ValueError
+        return {key: dict(row)}
+    except (ValueError, TypeError, KeyError):
+        raise ValueError(
+            "Feature observation binding must have its exact approved shape"
+        ) from None
+
+
 def retained_settings(
     existing: dict[str, Any], *, project: str, environment: str
 ) -> dict[str, Any]:
@@ -213,7 +289,8 @@ def retained_settings(
         **_retained_dev_inference_bridge(
             existing, project=project, environment=environment
         ),
-        **_retained_document_delivery(
+        **_retained_document_delivery(existing, project=project, environment=environment),
+        **_retained_feature_observation_binding(
             existing, project=project, environment=environment
         ),
     }

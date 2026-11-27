@@ -16,6 +16,34 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it.each(["success", "error", "expected_error"])("carries only explicit %s with wire support", async result => {
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST"
+      ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012", resultVersion: 1 })));
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body).result).toBe(result);
+    expect(JSON.stringify(posts())).not.toContain("owner-a");
+  });
+
+  it.each([undefined, null, "PRIVATE_RESULT", { secret: "PRIVATE_RESULT" }])("leaves nonliteral results unknown: %j", async result => {
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST"
+      ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012", resultVersion: 1 })));
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_RESULT");
+  });
+
+  it("omits explicit result for an older strict server", async () => {
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
+  });
+
+
   it.each([
     ["gmail_connect_started", "full", "started"],
     ["gmail_connect_result", "complete", "returned"],
@@ -254,20 +282,26 @@ describe("private product observation lifecycle", () => {
     const gate = new Promise<void>((resolve) => { release = resolve; });
     mocks.fetch.mockImplementation(async (_url, options) => {
       if (options.method === "POST") await gate;
-      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "original-epoch" }));
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "original-epoch", resultVersion: 1 }));
     });
     const values = Array.from({ length: 6 }, () => ({ status: "succeeded" }));
     const operations = values.map((value) => f.observeDispatch("calendar.event.create", Promise.resolve(value)));
     expect(await Promise.all(operations)).toEqual(values);
     await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    f.observeProductEvent("one_memory_action", "detail_edited", "error");
     release();
-    await vi.waitFor(() => expect(posts()).toHaveLength(12));
+    await vi.waitFor(() => expect(posts()).toHaveLength(13));
     const bodies = posts().map((call) => JSON.parse(call[1].body));
-    expect(new Set(bodies.map((body) => body.operationId)).size).toBe(6);
-    for (const id of new Set(bodies.map((body) => body.operationId))) {
-      expect(bodies.filter((body) => body.operationId === id).map((body) => body.phase)).toEqual(["started", "returned"]);
+    const dispatches = bodies.filter((body) => body.actionId === "calendar.event.create");
+    expect(new Set(dispatches.map((body) => body.operationId)).size).toBe(6);
+    for (const id of new Set(dispatches.map((body) => body.operationId))) {
+      expect(dispatches.filter((body) => body.operationId === id).map((body) => body.phase)).toEqual(["started", "returned"]);
     }
     expect(bodies.every((body) => body.generation === "original-epoch")).toBe(true);
+    expect(dispatches.every((body) => !("result" in body))).toBe(true);
+    expect(bodies.filter((body) => body.actionId === "observation:one_memory_action:detail_edited")).toEqual([
+      expect.objectContaining({ phase: "failed", result: "error", generation: "original-epoch" }),
+    ]);
   });
   it.each(["switch", "reset"])("discards queued reports after owner %s", async (change) => {
     const f = await fixture();

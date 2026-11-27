@@ -254,6 +254,28 @@ reset; `retry_bucket` counts failed reads in a row before this one and is
 was refused at one of its declared bounds, not that it could not be reached. On web this is an operational event and spends
 gtag's budget only above the product reserve (see Web GA4 event budget).
 
+## Career and document request operation observations
+
+These prospective emitters use the existing consent-aware transport and the
+validated owner generation plus vault epoch. Their payload is only the closed
+`action` and `result` enums; the private projection retains the event and action
+as a finite identifier. A missing or changed owner/session emits nothing, and
+each operation emits at most one terminal observation. Opening a screen or
+cancelling a draft emits none. GA4 feature-alias registration is a separate
+transport capability and must be verified on the actual serving source.
+
+| Event | Actions | Existing emitters | Source proof |
+| --- | --- | --- | --- |
+| `one_career_action` | `resume_parse`, `resume_save`, `application_send` | Career page handlers; save uses the returned commitment, application uses the existing `applyWithSavedResume` response | `career-operation-observation.test.tsx`, `one-owner-operation.test.ts`, governed transport tests |
+| `one_document_request_action` | `question_send`, `file_request_send`, `review_request` | unlocked request button, shared file-request hook and requester review panel | document request button/requester tests, `one-owner-operation.test.ts`, governed transport tests |
+
+Results describe the corresponding frontend operation observation, not proof
+that a remote object cannot exist after a timeout. A request is not file
+delivery, a review request is not completed review, and an application response
+stays successful when its separate receipt save fails. No resume, role, file,
+question, owner/recipient/request identifier, payment value or provider error
+text is sent. Historical activity is not reconstructed by these emitters.
+
 ## Declared but Not Currently Emitted
 
 These events are declared in the schema, but there is no current live emitter in the web app codebase.
@@ -264,3 +286,23 @@ These events are declared in the schema, but there is no current live emitter in
 | `mcp_ria_read_tool_called` | declared only | add emitter or remove from contract. This is a server-side MCP concern; the web client cannot emit it, and no emitter exists in `consent-protocol` either. |
 
 Do not build dashboard assumptions on declared-only events.
+
+## Calendar booking operation observation
+
+`one_calendar_action:booking_create` observes the existing Calendar booking
+dialog. A reviewed meeting is not a created event: only a provider response with
+`action=create` and a nonempty string event ID emits `success`. Board conflict
+and expired review, or the five declared account/selection/permission prewrite
+reason codes, emit `expected_error`; definite review-stage failure emits
+`error`. After execution starts, other timeout, malformed or mismatched results remain
+unconfirmed and emit no false failure/success. Cancelled or review-only flows
+emit none.
+
+The observer retains its validated owner generation, vault epoch and live
+mount/account/token context from review through confirmation, and settles at
+most once. Only the route, closed action and result leave the observer; no event
+ID, title, attendee, time, contact, content or provider diagnostic is forwarded.
+The canonical private projection preserves the booking subaction. Its generic
+blocked phase requires the reviewed private-bridge mapping; derived GA4 aliases
+require the independently reviewed feature-alias helper. These are prospective
+observations, not historical reconstruction or runtime publication proof.

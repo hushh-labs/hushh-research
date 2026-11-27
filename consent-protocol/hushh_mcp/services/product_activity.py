@@ -116,7 +116,14 @@ def admission(user_id: str) -> dict | None:
 
 
 def observe(
-    user_id: str, generation: str, action_id: str, phase: str, source: str, operation_id: str
+    user_id: str,
+    generation: str,
+    action_id: str,
+    phase: str,
+    source: str,
+    operation_id: str,
+    *,
+    event_result: str | None = None,
 ) -> bool:
     if not enabled_for(user_id):
         return False
@@ -126,7 +133,15 @@ def observe(
 
     descriptor = action_descriptor(action_id)
     if (
-        not descriptor
+        (
+            event_result is not None
+            and (
+                event_result not in {"success", "error", "expected_error"}
+                or source != "client_reported"
+                or not action_id.startswith("observation:")
+            )
+        )
+        or not descriptor
         or descriptor["proof"] != source
         or phase not in PHASES
         or source not in {"client_reported", "execution_observed"}
@@ -159,16 +174,39 @@ def observe(
         conn.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:uid,365))"), {"uid": user_id}
         )
-        result = conn.execute(
-            text("""INSERT INTO one_product_activity_observations
+        # The expansion is optional: old schemas and rolled-back columns keep
+        # accepting observations as unknown. Use the same table lock as INSERT
+        # before checking capability, so a concurrent rollback cannot race it.
+        insert_sql = """INSERT INTO one_product_activity_observations
           (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at)
           SELECT :event,:uid,CAST(:generation AS UUID),:agent,:action,:catalog,:source,:phase,:operation,:at,:at + INTERVAL '7 days'
           FROM one_product_activity_epochs epoch
           WHERE epoch.user_id=:uid AND epoch.generation=CAST(:generation AS UUID)
             AND (SELECT COUNT(*) FROM one_product_activity_observations
               WHERE user_id=:uid AND observed_at>=:day_start) < :cap
-          ON CONFLICT(event_id) DO NOTHING RETURNING event_id"""),
+          ON CONFLICT(event_id) DO NOTHING RETURNING event_id"""
+        if event_result is not None:
+            conn.execute(text("LOCK TABLE one_product_activity_observations IN ROW EXCLUSIVE MODE"))
+            supports_result = conn.execute(
+                text("""SELECT EXISTS (
+              SELECT 1 FROM pg_attribute
+              WHERE attrelid='public.one_product_activity_observations'::regclass
+                AND attname='event_result' AND atttypid='text'::regtype
+                AND NOT attisdropped)""")
+            ).scalar()
+            if supports_result:
+                insert_sql = """INSERT INTO one_product_activity_observations
+          (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at,event_result)
+          SELECT :event,:uid,CAST(:generation AS UUID),:agent,:action,:catalog,:source,:phase,:operation,:at,:at + INTERVAL '7 days',:event_result
+          FROM one_product_activity_epochs epoch
+          WHERE epoch.user_id=:uid AND epoch.generation=CAST(:generation AS UUID)
+            AND (SELECT COUNT(*) FROM one_product_activity_observations
+              WHERE user_id=:uid AND observed_at>=:day_start) < :cap
+          ON CONFLICT(event_id) DO NOTHING RETURNING event_id"""
+        result = conn.execute(
+            text(insert_sql),
             {
+                "event_result": event_result,
                 "event": event_id,
                 "operation": operation_key,
                 "uid": user_id,

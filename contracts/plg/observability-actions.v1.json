@@ -52,10 +52,20 @@
       "chat_opened",
       "booking_create"
     ],
+    "one_career_action": [
+      "resume_parse",
+      "resume_save",
+      "application_send"
+    ],
     "one_crm_action": [
       "record_created",
       "record_updated",
       "record_deleted"
+    ],
+    "one_document_request_action": [
+      "question_send",
+      "file_request_send",
+      "review_request"
     ],
     "one_kyc_action": [
       "redraft_completed",
@@ -123,6 +133,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "e7aae9c92cb7648485e78ac3870ef5ac2e871894a2a748471a54f9f1c4229dc5",
+  "sourceDigest": "7b2243e77282e7d7518352a70883a655de6dd8bd1005bfcac343f5996db5e61f",
   "version": 1
 }
