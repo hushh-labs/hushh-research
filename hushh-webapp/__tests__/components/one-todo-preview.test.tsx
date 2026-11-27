@@ -182,7 +182,7 @@ describe("One profile To-do live-source parity", () => {
     mocks.calendarError = "Unavailable";
     mocks.load.mockResolvedValue({ tasks: [buildTodo({ title: "Existing saved task" })] });
     const view = render(<OneTodoPreview {...props()} />);
-    expect(await screen.findByText("Some tasks could not refresh.")).toBeVisible();
+    expect(await screen.findByText("Some connected sources could not refresh. Saved tasks are still available.")).toBeVisible();
     expect(await screen.findByText("Existing saved task")).toBeVisible();
     expect(screen.queryByText("All clear.")).not.toBeInTheDocument();
     mocks.calendarError = null;
@@ -199,7 +199,7 @@ describe("One profile To-do live-source parity", () => {
   it("does not report All clear when a live source failed and saved tasks are empty", async () => {
     mocks.calendarError = "Unavailable";
     render(<OneTodoPreview {...props()} />);
-    expect(await screen.findByText("Some tasks could not refresh.")).toBeVisible();
+    expect(await screen.findByText("Some connected sources could not refresh. Saved tasks are still available.")).toBeVisible();
     expect(screen.queryByText("All clear.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
   });
@@ -208,13 +208,13 @@ describe("One profile To-do live-source parity", () => {
     mocks.load.mockResolvedValue({ tasks: [], selectedCapabilities: [capability] });
     mocks.reads = [{ coverage: { capability, count: 0, status: "unavailable" }, evidence: [] }];
     const view = render(<OneTodoPreview {...props()} />);
-    expect(await screen.findByText("Some tasks could not refresh.")).toBeVisible();
+    expect(await screen.findByText("Some connected sources could not refresh. Saved tasks are still available.")).toBeVisible();
     expect(screen.queryByText("All clear.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     mocks.reads = [{ coverage: { capability, count: 0, status: "ready" }, evidence: [] }];
     view.rerender(<OneTodoPreview {...props()} />);
     expect(await screen.findByText("All clear.")).toBeVisible();
-    expect(screen.queryByText("Some tasks could not refresh.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Some connected sources could not refresh. Saved tasks are still available.")).not.toBeInTheDocument();
   });
 
   it("shows saved items while Calendar is still loading", async () => {

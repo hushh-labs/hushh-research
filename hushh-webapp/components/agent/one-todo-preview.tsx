@@ -195,8 +195,8 @@ export function OneTodoPreview({
       {mutationError ? <p role="alert" className={styles.notice}>Couldn’t save. Try again.</p> : null}
 
       {ready && (error || sourceError) ? (
-        <div className={styles.notice} role="status">
-          <p>{error ? "Your saved tasks could not refresh." : "Some tasks could not refresh."}</p>
+        <div className={styles.notice} role="alert">
+          <p>{error ? "Your saved tasks could not refresh." : "Some connected sources could not refresh. Saved tasks are still available."}</p>
           <button type="button" onClick={retry} disabled={loading || Boolean(savingTaskId)}>Try again</button>
         </div>
       ) : null}
