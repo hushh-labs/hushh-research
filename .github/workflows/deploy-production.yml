@@ -500,13 +500,13 @@ jobs:
           # is older than this workflow's production voice enablement.
           cp deploy/backend.cloudbuild.yaml \
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
-          for recipe in frontend-image.cloudbuild.yaml frontend.cloudbuild.yaml; do
+          for recipe in frontend-image.cloudbuild.yaml frontend.cloudbuild.yaml pod-image.cloudbuild.yaml; do
             cp "deploy/$recipe" "${RUNNER_TEMP}/release-tools/$recipe"
           done
           # The current YAML invokes extracted helpers even for an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
           for tool in backend-deploy.sh backend-phone-rollback.sh backend-app-surface-settings.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-search-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
-            verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py; do
+            verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py reconcile-sandbox-cluster.sh reconcile-uat-sandbox-edge.sh; do
             cp "scripts/deploy/${tool}" "${RUNNER_TEMP}/release-tools/backend-deploy/${tool}"
           done
           mkdir -p "${RUNNER_TEMP}/release-tools/phone" "${RUNNER_TEMP}/release-tools/sso"
@@ -599,6 +599,8 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
             deploy/backend.cloudbuild.yaml
+          cp "${RUNNER_TEMP}/release-tools/pod-image.cloudbuild.yaml" \
+            deploy/pod-image.cloudbuild.yaml
           mkdir -p deploy/phone deploy/sso
           cp "${RUNNER_TEMP}/release-tools/phone/"*.py deploy/phone/
           cp "${RUNNER_TEMP}/release-tools/sso/"* deploy/sso/
@@ -1910,6 +1912,19 @@ jobs:
             python3 scripts/ops/reconcile_oauth_and_mail_posture.py \
               --verify-deploy --project "${{ env.GCP_PROJECT_ID }}" --environment production
           fi
+
+      - name: Build and reconcile Production Confidential Sandbox cluster and Edge Gateway
+        id: reconcile-prod-sandbox-cluster
+        if: steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))
+        shell: bash
+        run: |
+          set -euo pipefail
+          pod_tag="prod-${{ github.event.inputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gcloud builds submit \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/pod-image.cloudbuild.yaml \
+            "--substitutions=_DEPLOY_ENV=production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_IMAGE_TAG=${pod_tag},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+          HUSSH_EXPECTED_POD_TAG="${pod_tag}" bash scripts/deploy/reconcile-sandbox-cluster.sh
 
       - name: Deploy backend using Cloud Build
         id: deploy-backend

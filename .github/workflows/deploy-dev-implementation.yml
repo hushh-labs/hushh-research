@@ -242,6 +242,7 @@ jobs:
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/"
           done
           cp scripts/deploy/verify-managed-vertex-runtime.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/deploy/reconcile-sandbox-cluster.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
@@ -261,6 +262,7 @@ jobs:
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
           done
           cp "${RUNNER_TEMP}/release-tools/verify-managed-vertex-runtime.sh" scripts/deploy/
+          cp "${RUNNER_TEMP}/release-tools/reconcile-sandbox-cluster.sh" scripts/deploy/
           mkdir -p deploy/account-deletion
           cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
           cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
@@ -981,6 +983,16 @@ jobs:
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+
+      - name: Reconcile Dev Confidential Sandbox cluster and Edge Gateway
+        id: reconcile-dev-sandbox-cluster
+        if: steps.scope.outputs.deploy_backend == 'true' && (env.DEV_TARGET == 'shared-dev' || env.DEV_TARGET == '')
+        shell: bash
+        env:
+          HUSSH_EXPECTED_POD_TAG: dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          bash scripts/deploy/reconcile-sandbox-cluster.sh
 
       - name: Capture managed provider readiness receipt
         if: always() && steps.deploy-backend.outputs.qualification_mode == 'core'

@@ -108,6 +108,18 @@ def _parse_cors_allowed_origins() -> list[str]:
     if frontend_url and frontend_url not in origins:
         origins.append(frontend_url)
 
+    if _is_production() and any(
+        prod_origin in origins
+        for prod_origin in (
+            "https://one.hussh.si",
+            "https://one.hussh.ai",
+            "https://one.hushh.ai",
+        )
+    ):
+        for stage_origin in ("https://stage.one.hussh.si", "https://stage.one.hussh.ai"):
+            if stage_origin not in origins:
+                origins.append(stage_origin)
+
     if not _is_production():
         for dev_origin in (
             "http://localhost:3000",

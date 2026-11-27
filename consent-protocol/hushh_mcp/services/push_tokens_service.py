@@ -193,6 +193,18 @@ class PushTokensService:
                             ),
                             {"device": device_id, "token": token},
                         )
+                        retained_device_owner = conn.execute(
+                            text(
+                                "SELECT 1 FROM user_push_installations WHERE device_id=CAST(:device AS uuid) AND user_id<>:user LIMIT 1"
+                            ),
+                            {"device": device_id, "user": user_id},
+                        ).scalar()
+                        if retained_device_owner:
+                            import uuid
+
+                            device_id = str(uuid.uuid4())
+                            preview_key_id = None
+                            preview_public_key = None
                     else:
                         # Older clients cannot retain a former account's preview.
                         conn.execute(

@@ -9,15 +9,25 @@ import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AUTH_SESSION_NOTICE_QUERY_PARAM,
   loginRouteWithoutAuthSessionNotice,
   readAuthSessionLandingNotice,
 } from "@/lib/auth/session-invalidation";
 
+function useSafeAuth() {
+  try {
+    return useAuth();
+  } catch {
+    return null;
+  }
+}
+
 function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const auth = useSafeAuth();
   const [freshSelected, setFreshSelected] = useState(false);
   const [deletionNotice] = useState(() => {
     const notice = readAuthSessionLandingNotice(searchParams);
@@ -27,7 +37,8 @@ function LoginContent() {
       ? notice
       : null;
   });
-  const canChooseFresh = deletionNotice?.code === "account_deleted_cloud_pending" && !freshSelected;
+  const showDeletionNotice = Boolean(deletionNotice && !auth?.user && !auth?.accountRegistration);
+  const canChooseFresh = showDeletionNotice && deletionNotice?.code === "account_deleted_cloud_pending" && !freshSelected;
   useLocalOnboardingActionHandler("auth.deletion_start_fresh", async () => {
     if (!canChooseFresh) return { status: "blocked", summary: "Fresh sign-in is not on this screen." };
     setFreshSelected(true);
@@ -85,7 +96,7 @@ function LoginContent() {
 
   return (
     <>
-      {deletionNotice && (
+      {showDeletionNotice && deletionNotice && (
         <div
           role="status"
           className="mx-4 mt-5 max-w-[28rem] rounded-[var(--app-radius-md)] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] px-4 py-3 text-center type-footnote text-[color:var(--app-label)] sm:mx-auto"
