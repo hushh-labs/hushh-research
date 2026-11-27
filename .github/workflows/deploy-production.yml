@@ -2639,7 +2639,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+          if [ "${TRAFFIC_POSTURE:-live}" = "stage_dark" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
               gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
                 --project="${{ env.GCP_PROJECT_ID }}" \
@@ -2737,7 +2737,7 @@ jobs:
           # 200<->503) can never reach a stable streak, so this fails and the
           # rollback step below reverts traffic to the predeploy revision.
           target_backend_url="${{ steps.backend-url.outputs.url }}"
-          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+          if [ "${TRAFFIC_POSTURE:-live}" = "stage_dark" ]; then
             target_backend_url="https://stage.api.hussh.ai"
           fi
           bash scripts/ci/cloudrun-http-health.sh \
@@ -2751,7 +2751,7 @@ jobs:
         run: |
           set -euo pipefail
           target_frontend_url="${{ steps.frontend-url.outputs.url }}"
-          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+          if [ "${TRAFFIC_POSTURE:-live}" = "stage_dark" ]; then
             target_frontend_url="https://stage.one.hussh.ai"
           fi
           bash scripts/ci/cloudrun-http-health.sh \
@@ -2773,7 +2773,7 @@ jobs:
           # skew and must roll the selected release back instead of stranding users
           # behind the fail-closed reconnect screen.
           target_session_origin="${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
-          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+          if [ "${TRAFFIC_POSTURE:-live}" = "stage_dark" ]; then
             target_session_origin="https://stage.api.hussh.ai"
           fi
           bash scripts/ci/cloudrun-http-health.sh \
@@ -2862,7 +2862,7 @@ jobs:
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$CONNECTED_SYSTEMS_OUTCOME" != "success" ]; then
             connected_systems_failed=true
           fi
-          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
+          if [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
              && [ "$CONNECTED_SYSTEMS_OUTCOME" = "success" ] && [ "$PROMOTE_OUTCOME" = "success" ]; then
             if { [ "$DRIVE_ENABLED" = "true" ] || [ "$DOCUMENT_DELIVERY_CONFIGURED" = "true" ]; } && [ "$DRIVE_WORKER_OUTCOME" != "success" ]; then
               drive_worker_failed=true
@@ -2885,18 +2885,18 @@ jobs:
               frontend_failure=true
             fi
           fi
-          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
-             && [ "$BACKEND_PROVENANCE_OUTCOME" != "success" ]; then
+          if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+             && [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "$BACKEND_PROVENANCE_OUTCOME" != "success" ]; then
             backend_provenance_failed=true
             backend_failure=true
           fi
-          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
-             && [ "$FRONTEND_PROVENANCE_OUTCOME" != "success" ]; then
+          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+             && [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "$FRONTEND_PROVENANCE_OUTCOME" != "success" ]; then
             frontend_provenance_failed=true
             frontend_failure=true
           fi
-          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
-             && [ "$PASSKEY_ASSOCIATIONS_OUTCOME" != "success" ]; then
+          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+             && [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "$PASSKEY_ASSOCIATIONS_OUTCOME" != "success" ]; then
             passkey_associations_failed=true
             frontend_failure=true
           fi
@@ -3172,21 +3172,21 @@ jobs:
           STATUS="blocked"
           if [ "${{ steps.classify.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
-            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+            if [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && [ "${{ steps.final-state.outputs.backend_serving }}" != "${{ steps.candidate-state.outputs.backend_revision }}" ]; then
               STATUS="blocked"
             fi
-            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+            if [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
                && [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ steps.candidate-state.outputs.frontend_revision }}" ]; then
               STATUS="blocked"
             fi
             # A backend release is healthy only once tombstone-aware deletion is
             # activated; until then the fence keeps account deletion fail-closed.
-            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+            if [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && [ "${{ steps.activate-account-deletion.outcome }}" != "success" ]; then
               STATUS="blocked"
             fi
-            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$STATUS" = healthy ] && [ "${{ steps.scope.outputs.deploy_backend }}" = true ]; then
+            if [ "${TRAFFIC_POSTURE:-live}" != "stage_dark" ] && [ "$STATUS" = healthy ] && [ "${{ steps.scope.outputs.deploy_backend }}" = true ]; then
               if [ "${{ steps.activate-account-deletion.outputs.activated }}" = true ]; then
                 :
               elif [ "${{ steps.activate-account-deletion.outputs.pending }}" = true ]; then
@@ -3526,7 +3526,7 @@ jobs:
           SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
-          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+          if [ "${TRAFFIC_POSTURE:-live}" = "stage_dark" ]; then
             if [ "${{ steps.promote-traffic.outcome }}" != "success" ]; then
               echo "Zero-traffic dark staging deploy did not pass stage tag promotion and health verification." >&2
               exit 1
