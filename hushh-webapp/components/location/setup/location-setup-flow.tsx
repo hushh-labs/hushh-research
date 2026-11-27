@@ -20,7 +20,7 @@
  * crumb.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { KeyRound } from "@/components/icons";
 
@@ -62,14 +62,17 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
-import { ConsentStep } from "./steps/consent-step";
+import { ConsentStep, LOCATION_SHARING_CONSENT_TERMS } from "./steps/consent-step";
+import { locationReviewDecision } from "@/lib/agent/main-chat-location-conversation";
+import { useLocationConversationTurn, type LocationConversationProps } from "@/components/agent/location-chat-action/use-location-conversation-turn";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { DoneStep } from "./steps/done-step";
 import { IntroStep } from "./steps/intro-step";
 import { OsPermissionStep } from "./steps/os-permission-step";
 import { PeopleStep, type SetupPerson } from "./steps/people-step";
 import { PrecisionStep } from "./steps/precision-step";
 
-export type LocationSetupFlowProps = {
+export type LocationSetupFlowProps = LocationConversationProps & {
   mode: "setup";
   onSetupReadinessChange?: (ready: boolean) => void;
   onSetupComplete?: () => void | Promise<void>;
@@ -223,6 +226,8 @@ export function LocationSetupFlow({
   onSetupReadinessChange,
   onSetupComplete,
   onSetupSkip,
+  onConversationText,
+  onConversationReply,
 }: LocationSetupFlowProps) {
   const { userId } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
@@ -242,6 +247,12 @@ export function LocationSetupFlow({
   const [precisionDraft, setPrecisionDraft] =
     useState<LocationPrecision | null>(null);
   const keyAttemptRef = useRef(0);
+  const lifetime = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    return () => { controller.abort(); };
+  }, [uid, vaultOwnerToken]);
 
   // The screen follows the server. `people` is shown once, between the key
   // step and done, and never persists.
@@ -422,10 +433,10 @@ export function LocationSetupFlow({
     "precise";
 
   const handlePrecisionContinue = useCallback(
-    () =>
+    (chosenPrecision: LocationPrecision = precisionValue) =>
       run(
         () =>
-          advance({ action: "set_precision", precision: precisionValue }).then(
+          advance({ action: "set_precision", precision: chosenPrecision }).then(
             () => {
               void settings.refresh();
             },
@@ -522,6 +533,54 @@ export function LocationSetupFlow({
   );
 
   const loading = status === "idle" || (status === "loading" && !progress);
+  const terms = view === "intro" || view === "consent";
+  const recovery = !loading && view === "os_permission" && (observedDenial || permission.os === "restricted");
+  const loadError = status === "error" && !progress;
+  const question = loading ? "Checking your Location setup…" : loadError ? "I couldn’t load your Location setup. Type “retry” to try again."
+    : terms ? [`Before I turn on Location, here are the sharing terms (${LOCATION_SHARING_CONSENT_VERSION}).`,
+      ...LOCATION_SHARING_CONSENT_TERMS.map(({ body }) => body), "Do you accept these terms? Reply yes or no."].join("\n\n")
+      : view === "os_permission" ? recovery
+        ? [guide.title, ...guide.steps, "When you’re ready, type “retry”."].join(" ")
+        : permission.os === "granted" ? "Your device already allows Location. Continue with this permission?"
+          : "May ONE ask this device for location permission? Reply yes, then answer the device prompt."
+        : view === "precision" ? "Should I share your precise location or an approximate area of about a kilometre? Type “precise” or “approximate”."
+          : view === "recipient_key" ? "Securing location sharing on this device…"
+            : progress?.completed ? "Location setup is complete. Continue with your request?" : "Your device is ready. Turn on Location sharing? Reply yes to finish.";
+  const issue = keyError || error;
+  useLocationConversationTurn({ onConversationText, onConversationReply }, issue ? `${issue} Type “retry” to try again.` : question, (reply) => {
+    if (busy || loading || !uid || !vaultOwnerToken) return false;
+    const answer = reply.trim().toLowerCase().replace(/[.!]+$/, "");
+    const decision = locationReviewDecision(reply);
+    if (decision === "cancel" && onSetupSkip) { void handleSkip(); return true; }
+    if ((loadError || issue) && answer === "retry") {
+      if (view === "recipient_key" && !loadError) registerKey();
+      else { setError(null); void refresh(); }
+      return true;
+    }
+    if (loadError || issue) return false;
+    if (terms && ["yes", "yes please", "accept", "i accept"].includes(answer)) {
+      const epoch = snapshotVaultSessionEpoch();
+      const signal = lifetime.current?.signal;
+      void run(async () => {
+        if (view === "intro") await advance({ action: "start" });
+        if (!signal || signal.aborted || !isVaultSessionEpochCurrent(epoch)) return;
+        await advance({ action: "accept_consent", consentVersion: LOCATION_SHARING_CONSENT_VERSION });
+      }, "Could not record your consent.");
+      return true;
+    }
+    if (view === "os_permission" && consentAccepted && (decision === "confirm" || answer === "retry")) {
+      if (permission.os === "granted") void handleOsContinue();
+      else void handleRequestOsPermission();
+      return true;
+    }
+    if (view === "precision" && (answer === "precise" || answer === "approximate")) {
+      void handlePrecisionContinue(answer);
+      return true;
+    }
+    if ((view === "people" || view === "done") && decision === "confirm") { void handleFinish(); return true; }
+    return false;
+  });
+  if (onConversationText) return null;
 
   return (
     <section
@@ -594,7 +653,7 @@ export function LocationSetupFlow({
                 busy={busy}
                 value={precisionValue}
                 onChange={setPrecisionDraft}
-                onContinue={handlePrecisionContinue}
+                onContinue={() => { void handlePrecisionContinue(); }}
               />
             ) : view === "recipient_key" ? (
               <RecipientKeyStep

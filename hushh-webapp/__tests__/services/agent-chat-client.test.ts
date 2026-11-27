@@ -1168,7 +1168,7 @@ describe("AG-UI Agent One client", () => {
       vaultOwnerToken: "owner-token", screenContext: { route: { pathname: "/" } } };
     const context = { step: "duration" as const, action: "share_live" as const, people: ["Kushal"], circles: [] };
     const proposal = { type: "location.chat_action", status: "proposal_ready",
-      id: "00000000-0000-4000-8000-000000000001", action: "share_live", people: ["Kushal"], durationHours: 1 };
+      id: "00000000-0000-4000-8000-000000000001", action: "share_live", people: ["Kushal"], durationHours: 1, conversation: true };
     const stream = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""),
       { headers: { "content-type": "text/event-stream" } });
     const start = { type: "RUN_STARTED", threadId: input.conversationId, runId: "test-run" };
@@ -1186,16 +1186,18 @@ describe("AG-UI Agent One client", () => {
     mockTransport.nativeMode = true;
     try {
       await streamAgentChat({ ...input, message: "Share my location with Kushal", locationChatReview: true, handlers });
-      await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatContinuation: context, handlers });
-      await streamAgentChat({ ...input, message: "hello", locationChatReview: false, locationChatContinuation: context, handlers });
+      await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatConversation: true, locationChatContinuation: context, handlers });
+      await streamAgentChat({ ...input, message: "hello", locationChatReview: false, locationChatConversation: true, locationChatContinuation: context, handlers });
       const [initial, continued, disabled] = mockTransport.runAgent.mock.calls.map(([run]) => run.forwardedProps);
       expect(initial).toMatchObject({ locationChatReview: true });
+      expect(initial).not.toHaveProperty("locationChatConversation");
       expect(initial).not.toHaveProperty("mainChat");
-      expect(continued).toMatchObject({ locationChatReview: true, locationChatContinuation: context });
+      expect(continued).toMatchObject({ locationChatReview: true, locationChatConversation: true, locationChatContinuation: context });
       expect(continued).not.toHaveProperty("mainChat");
       expect(disabled).not.toHaveProperty("locationChatReview");
+      expect(disabled).not.toHaveProperty("locationChatConversation");
       expect(disabled).not.toHaveProperty("locationChatContinuation");
-      expect(handlers.onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ action: "share_live", people: ["Kushal"], durationHours: 1 }));
+      expect(handlers.onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ action: "share_live", people: ["Kushal"], durationHours: 1, conversation: true }));
       expect(JSON.stringify([handlers.onToolResult.mock.calls, handlers.onToolWaiting.mock.calls])).not.toContain("Kushal");
     } finally { mockTransport.nativeMode = false; }
   });

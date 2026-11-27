@@ -44,24 +44,42 @@ Use signed-in test accounts with vault access and registered Location recipient
 keys. Use a named Circle with at least two participants.
 
 Test both the pinned One conversation and an ordinary new or reopened chat.
-Say “Share my location to Kushal,” then “1 hour.” Verify the inline review
-shows Kushal and one hour. Ask for Kushal’s location with device permission
-turned off. Verify the request opens in Chat without asking for the sender’s GPS.
+Use a client advertising `locationChatConversation` for the typed exchanges
+below. On a previous client advertising only `locationChatReview`, verify that
+the established card confirmation still works.
+Type “Turn on my location.” Verify that Chat reports the account or device
+action actually needed and that enabling Location creates no recipient grant.
+Ask how to enable phone location permission and verify that the reply gives
+instructions without opening permission settings.
 
-Start by typing “Share my location” in the main Chat. Verify that it offers
-private sharing and a temporary public link. In private sharing, search and
-select both a connection and a Circle. Check the audience on the review card.
-Then choose a public link, preview the position, and confirm. Open the link as
-a visitor, and verify that stopping it from Chat or Location ends access.
+Type “Share my location.” Chat asks who should receive it. Reply with the name
+of a connected test account, then answer the duration question with “1 hour.”
+Check the recipient and duration in the final question. Verify that the
+recipient has no access yet. Type “yes,” check the receipt, then open the
+share as the recipient. Repeat using just the name of the test Circle.
+Check its actual recipients before confirming. Repeat with “no” and verify
+that no one receives access. Complete these exchanges with the chat composer.
 
-Repeat from typed Chat using “Private with Maya and Family” followed by “Make
-it 30 minutes.” Check that the review carries the chosen audience forward and
-that a typed yes leaves confirmation on the card. Try an ambiguous contact
-name and resolve it from the picker. Check that Location support requests and
-Circle membership questions still use their existing read tools, and that a
-subsequent Mail or Calendar request resumes its own flow. Explicit navigation
-requests may open Location; sharing and requesting must keep the Chat route
-and conversation mounted.
+With a ready device and a test Circle named NM, type “Share my location with NM circle for 1 hour”
+and press Send in the foreground chat. Verify that this single command starts
+the one-hour private share with the actual NM recipients and that the receipt
+names the people reached. No second confirmation is needed for this complete
+command. Try an ambiguous name, a changed audience, and an older restored
+message. Verify that clarification or a fresh review is required before a share.
+
+Give the audience up front with “Share my location with Maya and Family.”
+Change the duration to 30 minutes before confirming. Verify that the final
+question retains both audiences and names the new duration. Try an ambiguous
+contact name, answer the clarification, and verify the selected identity.
+Request a public link explicitly, verify the terms, confirm it, and open it
+as a visitor. Stop the link and verify that access ends. Ask for Kushal’s
+location with device permission off and verify that Chat does not request
+the sender’s GPS.
+
+Ask about Circle membership, then ask a Mail or Calendar question during an
+unfinished share. Verify that each request uses its own tools and that an
+unrelated “yes” cannot approve the earlier proposal. Explicit navigation
+requests may open Location. Sharing and requesting keep the conversation open.
 
 Repeat share and request through an existing private agent that returns the
 registered Location navigation or recipient-selection action. The same inline
@@ -86,15 +104,16 @@ between review and send and require a fresh review. Check per-contact delivery,
 partial failure, email fallback failure and Stop while email fallback is still
 pending. A stopped alert must not resume ordinary sharing that was already off.
 
-1. In ONE’s main Chat, type a request to share your current location with a
-   named person. Confirm the recipient, preview the point, and tap to send.
-   The same pin appears under Location → Sent pins and under the recipient’s
-   Shared with me. Move the publishing device and verify the original point
-   stays fixed. Verify that the pin becomes unavailable at its one-hour expiry
-   or immediately after a connected stop. The view must offer no duration edit.
+1. In ONE’s main Chat, ask “Send a one-time pin of my current location to Riley.”
+   Verify that One explains it offers live sharing and asks whether you want a
+   timed live share instead. The original message must create no proposal,
+   grant, or envelope. Ask “Where am I?” and verify the personal device preview
+   shares nothing. Reopen a historical pin receipt and verify that replaying it
+   creates no new grant or envelope.
 2. Use typed Chat and One Live to propose a timed live share to one person and
-   to the named Circle. Verify the reviewed audience and expiry before tapping
-   Start. On an eligible recipient’s device, open the share and verify that a
+   to the named Circle. Verify the audience and expiry before confirming through
+   the typed conversation or One Live review. On an eligible recipient’s device,
+   open the share and verify that a
    new published point reaches it. Check that a non-member and an ineligible
    member cannot read the Location data. Rotate a recipient key or change Circle
    membership between review and confirmation and verify the affected share asks

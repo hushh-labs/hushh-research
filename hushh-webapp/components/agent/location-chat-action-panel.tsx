@@ -2,12 +2,12 @@
 
 import { Capacitor } from "@capacitor/core";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LocationChatActionCard, type LocationChatActionModel } from "@/components/agent/location-chat-action/location-chat-action-card";
 import { LocationChatSharePicker, type PrivateLocationSelection } from "@/components/agent/location-chat-action/location-chat-share-picker";
 import { LocationChatPublicShare } from "@/components/agent/location-chat-action/location-chat-public-share";
 import { LocationChatPublicLinks } from "@/components/agent/location-chat-action/location-chat-public-links";
-import { captureChatLocation, chatLocationPermissionIssue, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "@/components/agent/location-chat-action/location-chat-permission";
+import { captureChatLocation, chatLocationPermissionIssue, enableChatDeviceLocation, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "@/components/agent/location-chat-action/location-chat-permission";
 import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
 import { Button } from "@/components/ui/button";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
@@ -18,6 +18,8 @@ import { coarsenPoint } from "@/lib/location/coarsen";
 import { getLocationAccountSettings, LocationAccountSettingsResource, updateLocationAccountSettings } from "@/lib/location/account-settings";
 import { decryptLocationEnvelope, encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import { liveFreshness } from "@/lib/one-location/freshness";
+import { isFixedLocationGrant } from "@/lib/one-location/notifications";
+import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { readOneLocationControlState, updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
@@ -32,6 +34,7 @@ import {
 } from "@/lib/agent/main-chat-location";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { settleMainLocationBatch } from "@/lib/agent/main-chat-location-batch";
+import { exactDirectSharePlans, exactDirectShareTargets, literalShareProposal, locationChoiceFromReply, locationDurationReply, locationPlanSentence, locationReviewDecision, sameDirectShareRecipients, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -51,7 +54,7 @@ const LocationChatCheckIn = dynamic(() => import("@/components/agent/location-ch
 
 const titles: Record<MainLocationAction, string> = {
   share_options: "Share your location", share_private: "Share privately", share_public: "Public location link",
-  share_live: "Share live location", share_pin: "Send current location", ask: "Ask for location",
+  share_live: "Share live location", share_pin: "Location sharing", ask: "Ask for location",
   view: "View location", list_shares: "Location shares", list_requests: "Location requests",
   stop: "Stop sharing", set_duration: "Change end time", extend: "Add time",
   ask_extension: "Request extra time", approve: "Approve request", decline: "Decline request",
@@ -130,9 +133,17 @@ type PanelProps = {
   onUnlock: () => void;
   allowReview: boolean;
   onContinuationChange?: (proposalId: string, context: MainLocationContinuation | null) => void;
+  claimEnable?: (proposalId: string) => boolean;
+  claimDirectShare?: (proposal: MainLocationProposal) => DirectLocationShare | null;
+  onConversationReply?: (proposalId: string, handler: LocationConversationReply | null) => void;
+  onConversationText?: (proposalId: string, text: string) => void;
 };
 
 export function LocationChatActionPanel(props: PanelProps) {
+  const { onConversationText, onConversationReply, proposal } = props;
+  const publish = useCallback((text: string) => onConversationText?.(proposal.id, text), [onConversationText, proposal.id]);
+  const register = useCallback((handler: LocationConversationReply | null) => onConversationReply?.(proposal.id, handler), [onConversationReply, proposal.id]);
+  const childConversation = onConversationText && props.allowReview ? { onConversationText: publish, onConversationReply: register } : {};
   const node = useRef<HTMLDivElement>(null);
   const [activated, setActivated] = useState(props.allowReview);
   const [nearViewport, setNearViewport] = useState(props.allowReview);
@@ -152,9 +163,9 @@ export function LocationChatActionPanel(props: PanelProps) {
   const safety = action === "sos_review" || action === "sos_stop" || action === "sms_contacts";
   return <div ref={node}>{activated ? safety
     ? props.ownerId && props.token
-      ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} />
+      ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} {...childConversation} />
       : props.allowReview ? <UnlockLocationCard onUnlock={props.onUnlock} /> : null
-    : <LocationChatActionContent {...props} nearViewport={nearViewport} /> : null}</div>;
+    : <LocationChatActionContent {...props} nearViewport={nearViewport} childConversation={childConversation} /> : null}</div>;
 }
 
 function UnlockLocationCard({ onUnlock }: { onUnlock: () => void }) {
@@ -165,7 +176,11 @@ function UnlockLocationCard({ onUnlock }: { onUnlock: () => void }) {
   }} onRecover={onUnlock} />;
 }
 
-function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnlock, allowReview, onContinuationChange, nearViewport }: PanelProps & { nearViewport: boolean }) {
+function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnlock, allowReview, onContinuationChange, claimEnable, claimDirectShare, onConversationReply, onConversationText, nearViewport, childConversation }: PanelProps & {
+  nearViewport: boolean;
+  childConversation: { onConversationText?: (text: string) => void; onConversationReply?: (handle: LocationConversationReply | null) => void };
+}) {
+  const conversational = Boolean(onConversationText);
   const now = useCoarseClock(15_000);
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
   const [intent, setIntent] = useState(proposal);
@@ -294,12 +309,19 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
             proposal.action === "enable_device_location" || proposal.action === "resume_updates") {
           if (!allowReview) { setStage("cancelled"); return; }
           if (proposal.action === "setup_location") { setStage("setup-offer"); return; }
+          if (proposal.action === "resume_updates" && conversational) { await reviewResumeState(version); return; }
+          if (proposal.action === "enable_device_location" && conversational) {
+            setStage("device-permission");
+            return;
+          }
           const settings = await getLocationAccountSettings(token);
           if (!alive.current || version !== revision.current) return;
           if (proposal.action === "enable_device_location" && settings.sharing_consent_accepted_at) {
             setStage("device-permission");
           } else if (settings.sharing_state !== "on") {
             setStage(settings.sharing_state === "off" ? "sharing-off" : "setup-offer");
+          } else if (conversational && proposal.action === "enable_location") {
+            setStage("device-permission");
           } else if (readOneLocationControlState(ownerId).paused) {
             setStage("device-paused");
           } else {
@@ -311,7 +333,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
         const previous = await restoreMainLocationPlans(token, proposal.id);
         if (!alive.current || version !== revision.current) return;
         const completed = previous.filter((plan) => plan.status === "executed");
-        const pending = allowReview ? previous.filter((plan) => plan.status === "pending" &&
+        const pending = allowReview ? previous.filter((plan) => plan.action !== "share_pin" && plan.status === "pending" &&
           (!plan.expiresAt || Date.parse(plan.expiresAt) > Date.now())) : [];
         const next = pending[0];
         if (next) {
@@ -335,17 +357,34 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
           return;
         }
         if (!allowReview) { setStage("cancelled"); return; }
-        if (proposal.action === "share_options") { setStage("share-menu"); return; }
+        if (proposal.action === "share_pin") {
+          setStandaloneStatus("Location sharing is live. To start a live share, tell me who to share with and for how long.");
+          setStage("settled");
+          return;
+        }
+        if (proposal.action === "share_options" && !conversational) { setStage("share-menu"); return; }
         if (proposal.action === "share_public") { setStage("public-share"); return; }
-        if (proposal.action === "share_private" || ((isPublish(proposal.action) || proposal.action === "ask") && !proposal.people?.length && !proposal.circles?.length)) {
+        if ((proposal.action === "share_private" && !conversational) ||
+            ((proposal.action === "share_options" || proposal.action === "share_private" || isPublish(proposal.action) || proposal.action === "ask") && !proposal.people?.length && !proposal.circles?.length)) {
           setStage("private-picker");
           return;
         }
-        const available = await resolveMainLocationChoices({ token, ownerId, proposal, loadState });
+        const draft = conversational && (proposal.action === "share_private" || proposal.action === "share_options")
+          ? { ...proposal, action: "share_live" as const } : proposal;
+        const direct = !previous.length && conversational && draft.action === "share_live" && claimDirectShare?.(proposal);
+        const available = await resolveMainLocationChoices({ token, ownerId, proposal: direct ? literalShareProposal(draft, direct) : draft, loadState });
         if (!alive.current || version !== revision.current) return;
         setChoices(available);
         setSelected([]);
-        setIntent(proposal);
+        setIntent(draft);
+        if (direct && direct.current()) {
+          const exact = exactDirectShareTargets(direct, available);
+          if (exact) {
+            setSelected(exact);
+            await withPending(requestVersion => prepare(draft, exact, requestVersion, false, direct));
+            return;
+          }
+        }
         setStage(isReadList(proposal.action) ? "settled" : "choose");
         if (isReadList(proposal.action)) refresh();
       } catch (caught) {
@@ -356,7 +395,9 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     })();
     return () => { revision.current += 1; };
   // refresh only restates canonical records; allowReview is checked when a fresh card opens.
-  }, [allowReview, loadState, ownerId, proposal, refresh, retryRevision, token]);
+  // Preparation consumes only a fresh, single-use composer authorization.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowReview, claimDirectShare, conversational, loadState, ownerId, proposal, refresh, retryRevision, token]);
 
   async function withPending(run: (version: number) => Promise<void>) {
     if (busyRef.current || !token || !ownerId) return;
@@ -394,6 +435,8 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
         return;
       case "enable_location":
       case "resume_updates":
+        if (intent.action === "resume_updates" && conversational) { await reviewResumeState(version); return; }
+        if (intent.action === "enable_location" && conversational) { await finishDeviceEnable(version); return; }
         if (readOneLocationControlState(ownerId).paused) { setStage("device-paused"); return; }
         setStandaloneStatus(intent.action === "resume_updates" ? "Location updates are resumed." : "Location sharing is on.");
         setStage("settled");
@@ -409,8 +452,65 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     }
   }
 
-  async function prepare(next: MainLocationProposal, targets: MainLocationTarget[], version: number, setupReady = false) {
+  async function finishDeviceEnable(version: number) {
+    if (!ownerId || !stillCurrent(version)) return;
+    await enableChatDeviceLocation(() => stillCurrent(version));
+    if (!stillCurrent(version)) return;
+    if (intent.action === "resume_updates") { await reviewResumeState(version, true); return; }
+    if (intent.action === "enable_location" && readOneLocationControlState(ownerId).paused) {
+      setStage("device-paused");
+      return;
+    }
+    setStandaloneStatus(intent.action === "enable_location" ? "Location is on for this device and your account." : "Device location permission is on.");
+    setStage("settled");
+  }
+
+  async function reviewResumeState(version: number, deviceGranted = false) {
+    if (!ownerId || !token || !stillCurrent(version)) return;
+    const [settings, permission] = await Promise.all([
+      getLocationAccountSettings(token), deviceGranted ? null : OneLocationService.getPermissionState().catch(() => null),
+    ]);
+    if (!stillCurrent(version)) return;
+    if (settings.sharing_state !== "on") { setStage(settings.sharing_state === "off" ? "sharing-off" : "setup-offer"); return; }
+    if (readOneLocationControlState(ownerId).paused) { setStage("device-paused"); return; }
+    if (!deviceGranted && (permission?.state !== "granted" || locationBlockReason(permission))) { setStage("device-permission"); return; }
+    setStandaloneStatus("Location updates are on for this device.");
+    setStage("settled");
+  }
+
+  async function recoverConversation(version: number) {
+    if (!ownerId || !token) return;
+    if (stage === "device-permission") { await finishDeviceEnable(version); return; }
+    if (stage === "setup-offer") { setStage("setup"); return; }
+    if (stage === "device-paused") {
+      await enableChatDeviceLocation(() => stillCurrent(version));
+      if (!stillCurrent(version)) return;
+      const settings = await getLocationAccountSettings(token);
+      if (!stillCurrent(version)) return;
+      if (settings.sharing_state !== "on") { setStage(settings.sharing_state === "off" ? "sharing-off" : "setup-offer"); return; }
+      updateOneLocationControlState(ownerId, current => ({ ...current, paused: false }));
+      if (intent.action === "resume_updates") { await reviewResumeState(version, true); return; }
+      if (intent.action === "enable_location") {
+        setStandaloneStatus("Location is on for this device and your account."); setStage("settled"); return;
+      }
+    } else {
+      try {
+        const outcome = await updateLocationAccountSettings(token, { sharingState: "on" });
+        if (!stillCurrent(version)) return;
+        LocationAccountSettingsResource.write(ownerId, outcome.settings);
+        if (outcome.settings.sharing_state !== "on") throw new Error("Location sharing is still off.");
+      } catch (caught) {
+        if (!stillCurrent(version)) return;
+        if (apiErrorCode(caught) !== "LOCATION_SHARING_CONSENT_REQUIRED") throw caught;
+        setStage("setup"); return;
+      }
+    }
+    await continueAfterRecovery(version);
+  }
+
+  async function prepare(next: MainLocationProposal, targets: MainLocationTarget[], version: number, setupReady = false, direct?: DirectLocationShare) {
     if (!token || !ownerId) return;
+    if (next.action === "share_pin") throw new Error("Location sharing is live. Ask to start a live share.");
     const startsSharing = isPublish(next.action) || next.action === "share_public" || (next.action === "approve" &&
       targets.some((item) => !item.request?.isExtension && !item.request?.extendsGrantId));
     if (startsSharing && !setupReady) {
@@ -427,7 +527,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       setStage("public-share");
       return;
     }
-    if (startsSharing && next.action !== "share_pin" && readOneLocationControlState(ownerId).paused) {
+    if (startsSharing && readOneLocationControlState(ownerId).paused) {
       setIntent(next);
       setSelected(targets);
       setStage("device-paused");
@@ -449,10 +549,10 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       const snapshot = await loadState();
       if (!stillCurrent(version)) return;
       const incoming = distinct.flatMap((target) => snapshot.receivedGrants.flatMap((grant) =>
-        grant.ownerUserId === target.personUserId && grant.status === "active" &&
+        grant.ownerUserId === target.personUserId && grant.status === "active" && !isFixedLocationGrant(grant) &&
         (!grant.expiresAt || Date.parse(grant.expiresAt) > Date.now())
           ? [{ ...target, grantId: grant.id, grant,
-            detail: grant.shareKind === "pin" ? "Current location pin" : grant.expiresAt
+            detail: grant.expiresAt
               ? `Live until ${new Date(grant.expiresAt).toLocaleString()}` : "Live until stopped" }]
           : []));
       const existing = new Set(incoming.map((target) => target.personUserId));
@@ -523,6 +623,9 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     setStaleReview(false);
     setPreview(null);
     setStage("review");
+    if (direct?.current() && exactDirectSharePlans(direct, expanded, prepared) && prepared.length === outcomes.length) {
+      await commit(version, prepared, { share: direct, targets, expanded });
+    }
   }
 
   async function start(next: MainLocationProposal, targets: MainLocationTarget[], version: number) {
@@ -541,6 +644,13 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   const chosenOrSingle = currentChoice?.targets.length === 1 && !currentChoice.requiresSelection
       ? currentChoice.targets[0] : null;
 
+  function selectChoice(target: MainLocationTarget) {
+    if (!choices) return;
+    const next = [...selected, target];
+    if (next.length < choices.length) setSelected(next);
+    else void withPending((version) => start(intent, next, version));
+  }
+
   useEffect(() => {
     if (!allowReview || stage !== "choose" || !chosenOrSingle || !choices?.length) return;
     const next = [...selected, chosenOrSingle];
@@ -550,22 +660,27 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, chosenOrSingle, choices, chooseIndex, allowReview]);
 
-  async function commit(version: number) {
-    if (!plans || !token || !ownerId) return;
-    const pending = plans.filter((plan) => plan.status === "pending");
+  async function commit(version: number, reviewed = plans, direct?: {
+    share: DirectLocationShare; targets: MainLocationTarget[]; expanded: MainLocationTarget[];
+  }) {
+    if (!reviewed || !token || !ownerId) return;
+    const current = () => stillCurrent(version) && (!direct || direct.share.current());
+    const pending = reviewed.filter((plan) => plan.status === "pending");
     if (!pending.length) { setStage("settled"); return; }
+    if (pending.some(plan => plan.action === "share_pin")) throw new Error("Location sharing is live. Ask to start a live share.");
+    if (!current()) return;
+    const envelopesByPlan = direct ? new Map<string, OneLocationEncryptedEnvelope>() : encryptedAttempts.current;
     let point = preview;
-    if (pending.some((plan) => isPublish(plan.action) && !encryptedAttempts.current.has(plan.planId))) {
+    if (pending.some((plan) => isPublish(plan.action) && !envelopesByPlan.has(plan.planId))) {
       if (!point) point = await capturePoint(token);
-      if (Date.now() - Date.parse(point.capturedAt) > 55_000) {
+      if (!Number.isFinite(Date.parse(point.capturedAt)) || Math.abs(Date.now() - Date.parse(point.capturedAt)) > 55_000) {
         setPreview(null);
         throw new Error("The position changed or became stale. Capture a fresh preview before trying again.");
       }
     }
-    if (!stillCurrent(version)) return;
-    const results = await settleMainLocationBatch(pending, async (plan) => {
-      if (!stillCurrent(version)) throw new Error("The chat changed before this action could be sent.");
-      let envelope = encryptedAttempts.current.get(plan.planId);
+    if (!current()) return;
+    async function envelopeFor(plan: MainLocationPlan) {
+      let envelope = envelopesByPlan.get(plan.planId);
       if (!envelope && isPublish(plan.action)) {
         if (!point || !plan.recipientKey) throw new Error("The recipient’s secure location key is unavailable.");
         const precision = point.precision ?? "precise";
@@ -573,10 +688,43 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
           point, recipientKeyId: plan.recipientKey.keyId, recipientPublicKeyJwk: plan.recipientKey.publicKeyJwk,
         });
         envelope = { ...encrypted, metadata: { precision }, publicationContext: "foreground_map_visible" };
-        encryptedAttempts.current.set(plan.planId, envelope);
+        envelopesByPlan.set(plan.planId, envelope);
       }
-      if (!stillCurrent(version)) throw new Error("The chat changed before this action could be sent.");
-      return executeMainLocationPlan(token, plan.planId, envelope);
+      return envelope;
+    }
+    if (direct) {
+      // Prepare all encryption locally before the first grant can be created.
+      const envelopes = await settleMainLocationBatch(pending, envelopeFor);
+      const failure = envelopes.find(result => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+      if (!current()) return;
+      const [latestDirectory, membership, settings] = await Promise.all([
+        resolveMainLocationChoices({ token, ownerId, loadState, proposal: literalShareProposal(proposal, direct.share) }),
+        settleMainLocationBatch(direct.targets, target => expandMainLocationTarget(token, ownerId, target)),
+        getLocationAccountSettings(token),
+      ]);
+      const fresh = membership.flatMap(result => result.status === "fulfilled" ? result.value : []);
+      if (!current()) return;
+      const latestTargets = exactDirectShareTargets(direct.share, latestDirectory);
+      if (settings.sharing_state !== "on" || readOneLocationControlState(ownerId).paused ||
+          !point || settings.precision === "approximate" && point.precision !== "approximate" ||
+          Math.abs(Date.now() - Date.parse(point.capturedAt)) > 55_000 ||
+          !latestTargets || !sameDirectShareRecipients(direct.targets, latestTargets) ||
+          membership.some(result => result.status === "rejected") || !sameDirectShareRecipients(direct.expanded, fresh) ||
+          !exactDirectSharePlans(direct.share, fresh, pending)) {
+        setStaleReview(true);
+        setError("The audience or sharing terms changed. Please send the request again for a fresh review.");
+        return;
+      }
+    }
+    const results = await settleMainLocationBatch(pending, async (plan) => {
+      if (!current()) throw new Error("The chat changed before this action could be sent.");
+      const envelope = await envelopeFor(plan);
+      if (!current()) throw new Error("The chat changed before this action could be sent.");
+      if (direct && envelope) encryptedAttempts.current.set(plan.planId, envelope);
+      const outcome = await executeMainLocationPlan(token, plan.planId, envelope);
+      if (outcome.status !== "executed" || outcome.planId !== plan.planId) throw new Error("The Location action has no confirmed receipt yet.");
+      return outcome;
     });
     const delivered = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     if (delivered.length) announce();
@@ -592,7 +740,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     }
   }
 
-  const viewIds = settled.filter((plan) => plan.action === "view").flatMap((plan) => {
+  const viewIds = settled.filter((plan) => plan.action === "view" && (!conversational || allowReview)).flatMap((plan) => {
     const { grant, id } = snapshotFor(state, plan);
     return id && (!grant || (grant.status === "active" && (!grant.expiresAt || Date.parse(grant.expiresAt) > now))) ? [id] : [];
   }).join(",");
@@ -635,7 +783,9 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
             : stage === "settled" && settled.length ? "receipt" : null;
     if (!step) return;
     const usePicker = stage === "private-picker";
-    const action = usePicker ? pickerDraft?.mode ?? "share_private" : stage === "public-share" ? "share_public" : intent.action;
+    const action = usePicker ? pickerDraft?.mode ?? (conversational
+      ? (intent.action === "ask" ? "ask" : "share_live") : "share_private")
+      : stage === "public-share" ? "share_public" : intent.action;
     const audience = usePicker ? pickerDraft?.targets ?? [] : selected;
     const people = audience.filter((target) => target.personUserId).map((target) => target.label);
     const circles = audience.filter((target) => target.circleId && !target.personUserId).map((target) => target.label);
@@ -645,16 +795,96 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       people: (people.length ? people : intent.people ?? (step === "receipt" && lastPerson ? [lastPerson] : [])).slice(0, 20),
       circles: (circles.length ? circles : intent.circles ?? []).slice(0, 5),
       durationHours: action === "share_pin" ? undefined : intent.durationHours,
+      ...(action === "share_live" || action === "set_duration" ? { durationMode: intent.durationMode } : {}),
     });
     return () => onContinuationChange(proposal.id, null);
-  }, [allowReview, intent, onContinuationChange, ownerId, pickerDraft, proposal.id, selected, settled, stage, token]);
+  }, [allowReview, conversational, intent, onContinuationChange, ownerId, pickerDraft, proposal.id, selected, settled, stage, token]);
 
   function follow(action: MainLocationAction, target: MainLocationTarget) {
     const next = { id: proposal.id, attemptId: crypto.randomUUID(), action };
     void withPending((version) => start(next, [target], version));
   }
 
+  const inRecovery = ["device-permission", "setup-offer", "sharing-off", "device-paused"].includes(stage);
+  const reviewedText = plans?.length ? locationPlanSentence(plans, selected, false) : "";
+  const choiceText = currentChoice?.targets.map((item, index) =>
+    `${index + 1}. ${item.label}${item.detail ? ` (${item.detail})` : ""}`).join("\n");
+  const subject = selected.map(target => target.label).join(", ");
+  const receiptText = settled.map(plan => locationPlanSentence([plan], selected, true)).filter(Boolean).join(" ");
+  let question = "";
+  if (conversational) {
+    if (stage === "private-picker" || stage === "share-menu") question = intent.action === "ask"
+      ? "Whose location would you like to request?" : "Which person or circle would you like to share your location with?";
+    if (stage === "choose" && !chosenOrSingle && currentChoice) question = choiceText
+      ? `Which ${currentChoice.label} did you mean? Reply with the number.\n${choiceText}`
+      : currentChoice.unavailableReason ?? `I couldn’t find an eligible match for ${currentChoice.label}. What name should I look for?`;
+    if (stage === "terms") question = intent.action === "ask" ? `How long would you like ${subject} to share their location?`
+      : intent.action === "extend" || intent.action === "ask_extension" ? `How much extra time would you like for the location share with ${subject}?`
+      : `How long would you like to share your location with ${subject}?`;
+    if (stage === "review") question = failedLabels.length ? `I couldn’t prepare ${failedLabels.join(", ")}. Please send the intended audience again.`
+      : staleReview ? "The Location details changed. Please send the request again for a fresh review."
+      : reviewedText || "I couldn’t verify the recipients. Please send the request again.";
+    if (stage === "settled") question = standaloneStatus || receiptText;
+    if (stage === "settled" && isReadList(intent.action)) {
+      const listed = choices?.[0]?.targets ?? [];
+      question = listed.length ? [titles[intent.action], ...listed.map(item => `${item.label}${item.detail ? ` · ${item.detail}` : ""}`)].join("\n")
+        : intent.action === "list_shares" ? "There are no active location shares." : "There are no location requests.";
+    }
+    if (stage === "cancelled" && allowReview) question = "Cancelled.";
+    if (stage === "device-permission") question = "Allow this device to use Location? Reply yes to check its permission.";
+    if (stage === "device-paused") question = "Location updates are paused. Resuming can restart active shares on this device. Reply yes to resume.";
+    if (stage === "setup-offer") question = "Location needs your sharing consent first. Reply yes to open setup.";
+    if (stage === "sharing-off") question = "Location sharing is off in your account. Reply yes to turn it on.";
+    if (error) question = `${receiptText ? `${receiptText} ` : ""}${error}${allowReview && (inRecovery || stage === "review" && !staleReview) ? " Reply yes to try again." : ""}`;
+  }
+  useEffect(() => {
+    if (question && !busy && ownerId && token) onConversationText?.(proposal.id, question);
+  }, [busy, onConversationText, ownerId, proposal.id, question, token]);
+
+  useLayoutEffect(() => {
+    if (!conversational || stage === "setup" || stage === "workspace" || stage === "links" || stage === "public-share" ||
+        !allowReview || !ownerId || !token || !onConversationReply) return;
+    const handle: LocationConversationReply = (text, displayedQuestion) => {
+      if (!alive.current || busyRef.current) return false;
+      if (displayedQuestion !== undefined && displayedQuestion !== question) return false;
+      const decision = locationReviewDecision(text);
+      if (decision === "cancel" && stage !== "settled" && stage !== "cancelled" && stage !== "loading") { dismiss(); return true; }
+      if (stage === "choose" && currentChoice && !chosenOrSingle) {
+        const target = locationChoiceFromReply(text, currentChoice.targets);
+        if (target) { selectChoice(target); return true; }
+      }
+      if (stage === "terms" && selected.length) {
+        const hours = locationDurationReply(text);
+        if (hours) { void withPending(version => prepare({ ...intent, durationHours: hours, durationMode: "timed" }, selected, version)); return true; }
+      }
+      if (decision !== "confirm") return false;
+      if (inRecovery) { void withPending(recoverConversation); return true; }
+      if (stage !== "review" || !reviewedText || !plans?.length || staleReview || failedLabels.length) return false;
+      void withPending(version => commit(version));
+      return true;
+    };
+    onConversationReply(proposal.id, handle);
+    return () => onConversationReply(proposal.id, null);
+  });
+
+  useEffect(() => {
+    if (!conversational || !allowReview || !ownerId || !token || !inRecovery || stage === "device-paused" ||
+        (proposal.action !== "enable_location" && proposal.action !== "enable_device_location")) return;
+    if (claimEnable?.(proposal.id)) void withPending(recoverConversation);
+    // The live composer grants one attempt. Re-mounting or refreshing cannot mint another.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowReview, claimEnable, conversational, inRecovery, ownerId, proposal.action, proposal.id, stage, token]);
+
   if (!ownerId || !token) return allowReview ? <UnlockLocationCard onUnlock={onUnlock} /> : null;
+  if (conversational && stage !== "setup" && stage !== "workspace" && stage !== "links" && stage !== "public-share") return <>
+    <LocationChatPermissionRecovery issue={permissionIssue} />
+    {allowReview && settled.filter(plan => plan.action === "view").map(plan => {
+      const { id } = snapshotFor(state, plan);
+      const point = id && points[id];
+      return point ? <InlineLocationMap key={plan.planId} point={point} token={token} ownerId={ownerId}
+        label={plan.personDisplayLabel || "Shared location"} /> : null;
+    })}
+  </>;
   if (!allowReview && stage === "cancelled" && !settled.length) return null;
   if (stage === "loading") return <LocationChatActionCard model={{ phase: "result", title: titles[intent.action], status: "Getting Location details…" }} busy />;
   if (stage === "error") return <LocationChatActionCard model={{
@@ -662,6 +892,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     actions: [{ id: "retry", label: "Try again", variant: "primary" }],
   }} onRecover={() => setRetryRevision((value) => value + 1)} />;
   if (stage === "workspace" && allowReview) return vaultKey ? <LocationChatWorkspace
+    {...childConversation}
     mode={proposal.action === "manage_circles" ? "circles" : proposal.action === "manage_places" ? "saved_places"
       : proposal.action === "manage_ratings" ? "ratings" : proposal.action === "manage_contacts" ? "contacts" : "settings"}
     ownerId={ownerId} token={token} vaultKey={vaultKey} onBack={dismiss} onChanged={announce}
@@ -669,7 +900,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     suggestedAutoApprovalCircles={proposal.action === "enable_auto_approve" ? proposal.circles : undefined}
     suggestedCircleName={proposal.circles?.[0]} suggestedPersonName={proposal.people?.[0]} /> :
     <UnlockLocationCard onUnlock={onUnlock} />;
-  if (stage === "links" && allowReview) return <LocationChatPublicLinks
+  if (stage === "links" && allowReview) return <LocationChatPublicLinks {...childConversation}
     ownerId={ownerId} token={token} loadState={loadState} onChanged={announce} onBack={dismiss}
     onCreate={() => { setIntent({ ...proposal, action: "share_public" }); setStage("public-share"); }} />;
   if (stage === "check-in" && allowReview) return <LocationChatCheckIn
@@ -761,14 +992,13 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   if (stage === "private-picker") return <LocationChatSharePicker token={token} ownerId={ownerId} busy={busy} error={error}
     suggestedPeople={proposal.people} suggestedCircles={proposal.circles}
     onSelectionChange={setPickerDraft}
-    initialMode={proposal.action === "ask" ? "ask" : proposal.action === "share_pin" ? "share_pin" : "share_live"} onBack={backToSharing}
+    initialMode={proposal.action === "ask" ? "ask" : "share_live"} onBack={backToSharing}
     onContinue={(action, targets) => {
       void withPending((version) => start({
         ...proposal, action, people: undefined, circles: undefined,
-        ...(action === "share_pin" ? { durationHours: undefined, durationMode: undefined } : {}),
       }, targets, version));
     }} />;
-  if (stage === "public-share") return <LocationChatPublicShare token={token} ownerId={ownerId} initialHours={publicDraftHours ?? proposal.durationHours}
+  if (stage === "public-share") return <LocationChatPublicShare {...childConversation} token={token} ownerId={ownerId} initialHours={publicDraftHours ?? proposal.durationHours}
     onDurationChange={(minutes) => setPublicDraftHours(minutes / 60)}
     loadState={loadState} capture={async () => {
       const settings = await getLocationAccountSettings(token);
@@ -781,10 +1011,10 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     renderPoint={(point) => <InlineLocationMap point={point} ownerId={ownerId} token={token} label="You" />} />;
   if (stage === "setup") {
     const setupVersion = revision.current;
-    return <>{results}<LocationSetupFlow mode="setup" onSetupSkip={dismiss}
+    return <>{results}<LocationSetupFlow {...childConversation} mode="setup" onSetupSkip={dismiss}
       onSetupComplete={() => stillCurrent(setupVersion) ? withPending(continueAfterRecovery) : undefined} />
       {error ? <p role="alert" className="text-sm text-muted-foreground">{error}</p> : null}
-      <Button type="button" variant="outline" disabled={busy} onClick={dismiss}>Close setup</Button>
+      {!childConversation.onConversationText && <Button type="button" variant="outline" disabled={busy} onClick={dismiss}>Close setup</Button>}
     </>;
   }
   if (stage === "setup-offer" || stage === "sharing-off" || stage === "device-paused" || stage === "device-permission") return <>{results}<LocationChatActionCard model={{
@@ -857,7 +1087,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       {results}
       <LocationChatActionCard key={`pick-${chooseIndex}`} model={{
         phase: items.length ? "review" : "recovery", title: titles[intent.action],
-        description: items.length ? undefined : `No eligible match for ${group.label}. Try a name as it appears in your connections.`,
+        description: items.length ? undefined : group.unavailableReason ?? `No eligible match for ${group.label}. Try a name as it appears in your connections.`,
         ...(items.length ? { confirmLabel: "Continue", choiceLabel: group.label, choices: items.map((item, index) => ({
           id: String(index), label: item.label, detail: item.detail,
         })) } : {}),
@@ -865,9 +1095,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       } as LocationChatActionModel} busy={busy} onDismiss={dismiss} onConfirm={({ choiceId }) => {
         const target = items[Number(choiceId)];
         if (!target) return;
-        const next = [...selected, target];
-        if (next.length < choices.length) setSelected(next);
-        else void withPending((version) => start(intent, next, version));
+        selectChoice(target);
       }} />
     </>;
   }
@@ -889,7 +1117,6 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   const first = plans?.[0];
   if (stage === "review" && plans && first) {
     const label = selected.map((item) => item.label).join(", ") || first.personDisplayLabel || "Location";
-    const previewRequired = intent.action === "share_pin" && !preview && !encryptedAttempts.current.has(first.planId);
     const end = plans.length === 1 ? first.nextExpiresAt ?? undefined : undefined;
     const oldEnd = plans.length === 1 ? first.currentExpiresAt : null;
     const facts = [
@@ -904,11 +1131,11 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       {results}
       <LocationChatActionCard key={first.planId} model={{
         phase: "review", title: titles[intent.action], subject: { label }, facts, endAt: end, currentEndAt: oldEnd || undefined,
-        mode: intent.action === "share_pin" ? "current" : intent.action === "share_live" ? "live" : undefined,
+        mode: intent.action === "share_live" ? "live" : undefined,
         description: error ?? (intent.action === "share_live"
           ? Capacitor.isNativePlatform() ? "Background updates depend on this device’s Location permissions." : "Keep this page visible to publish live updates."
           : intent.action === "ask_extension" ? "The current end time stays in effect while approval is pending." : undefined),
-        confirmLabel: staleReview ? "Review again" : previewRequired ? "Preview current location" : titles[intent.action],
+        confirmLabel: staleReview ? "Review again" : titles[intent.action],
         confirmTone: intent.action === "stop" || intent.action === "decline" ? "destructive" : "default",
         error: !online && intent.action !== "stop" ? "You’re offline." : undefined,
       }} busy={busy} onDismiss={dismiss} onConfirm={(_, event) => {
@@ -931,14 +1158,9 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
             })), version);
             return;
           }
-          if (previewRequired) {
-            const point = await capturePoint(token);
-            if (stillCurrent(version)) setPreview(point);
-            return;
-          }
           await commit(version);
         });
-      }} map={preview ? <InlineLocationMap point={preview} ownerId={ownerId} token={token} label="You" /> : undefined} />
+      }} />
       <LocationChatPermissionRecovery issue={permissionIssue} />
     </>;
   }

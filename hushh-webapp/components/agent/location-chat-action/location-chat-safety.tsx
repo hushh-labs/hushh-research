@@ -19,7 +19,9 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
 import type { OneLocationCircleSummary, OneLocationRecipient } from "@/lib/one-location/types";
 import { LocationChatActionCard } from "./location-chat-action-card";
-import { captureChatLocation, chatLocationPermissionIssue, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "./location-chat-permission";
+import { captureChatLocation, chatLocationPermissionIssue, enableChatDeviceLocation, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "./location-chat-permission";
+import { locationReviewDecision } from "@/lib/agent/main-chat-location-conversation";
+import { useLocationConversationTurn, type LocationConversationProps } from "./use-location-conversation-turn";
 
 function personName(person: OneLocationRecipient) {
   return person.displayName.trim() || "Emergency contact";
@@ -47,12 +49,12 @@ function deliveryFacts(result: ChatSosDelivery) {
   ];
 }
 
-export function LocationChatSafety({ action, ownerId, token, allowReview }: {
+export function LocationChatSafety({ action, ownerId, token, allowReview, onConversationReply, onConversationText }: {
   action: LocationSafetyAction;
   ownerId: string;
   token: string;
   allowReview: boolean;
-}) {
+} & LocationConversationProps) {
   const [editing, setEditing] = useState(action === "sms_contacts");
   const [closed, setClosed] = useState(false);
   const [review, setReview] = useState<ChatSosReview | null>(null);
@@ -61,6 +63,8 @@ export function LocationChatSafety({ action, ownerId, token, allowReview }: {
   const [checkingEmail, setCheckingEmail] = useState(false);
   const [error, setError] = useState<string>();
   const [status, setStatus] = useState<string>();
+  const [contactEdit, setContactEdit] = useState<{ id: string; name: string; remove: boolean; members?: string[] }>();
+  const [contactPrompt, setContactPrompt] = useState<string>();
   const [permissionIssue, setPermissionIssue] = useState<ChatLocationPermissionIssue>(null);
   const [deviceReady, setDeviceReady] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -184,10 +188,17 @@ export function LocationChatSafety({ action, ownerId, token, allowReview }: {
     }) ?? false;
   }
 
-  async function addCircleMembers(circleId: string, userIds: string[]) {
+  async function addCircleMembers(circleId: string, userIds: string[], requireSameMembers = false) {
     await run(`sms-circle:${circleId}`, async () => {
       const selection = await loadMembers(circleId);
       if (!isCurrent()) return;
+      if (requireSameMembers) {
+        const currentIds = selection.ready.filter(({ recipient }) => !review?.contactUserIds.includes(recipient.userId))
+          .map(({ recipient }) => recipient.userId);
+        if (currentIds.length !== userIds.length || currentIds.some(id => !userIds.includes(id))) {
+          throw new Error("The Circle membership changed. Ask again to review the current members.");
+        }
+      }
       const targets = selection.ready.filter(({ recipient }) => userIds.includes(recipient.userId) &&
         !review?.contactUserIds.includes(recipient.userId));
       const results = await Promise.allSettled(targets.map(({ recipient }) => OneLocationService.addSmsContact({
@@ -204,8 +215,8 @@ export function LocationChatSafety({ action, ownerId, token, allowReview }: {
     });
   }
 
-  async function send(note?: string | null) {
-    if (!review || editing || busy.current || !deviceReady || readOneLocationControlState(ownerId).paused) return;
+  async function send(note?: string | null, fromConversation = false) {
+    if (!review || editing || busy.current || !(deviceReady || fromConversation) || readOneLocationControlState(ownerId).paused) return;
     const revision = ++sendRevision.current;
     const current = () => isCurrent() && revision === sendRevision.current;
     const result = await run("send", (release) => sendChatSos({ ownerId, token, review, note, isCurrent: current,
@@ -251,14 +262,97 @@ export function LocationChatSafety({ action, ownerId, token, allowReview }: {
     }
   }
 
-  if (!allowReview || closed) return status || delivery ? <LocationChatActionCard model={{
-    phase: "result", title: "Save My Soul", status, facts: delivery ? deliveryFacts(delivery) : undefined,
-  }} /> : null;
   const active = Boolean(review?.activeGrants.length || review?.incident?.grantIds.length);
   const paused = readOneLocationControlState(ownerId).paused;
   const ready = review?.recipients.filter(isSosShareReadyRecipient) ?? [];
+  const recipients = ready.map(personName).join(", ");
+  const skipped = review ? review.contactUserIds.length - ready.length : 0;
   const contacts = [...new Map([...(directory?.recipients ?? []), ...(review?.recipients ?? [])]
     .map((person) => [person.userId, person])).values()];
+  const rosterNames = contacts.filter(person => review?.contactUserIds.includes(person.userId)).map(personName);
+  const contactText = !directory || !review ? "Checking your emergency contacts…" : contactEdit
+    ? `${contactEdit.remove ? "Remove" : "Add"} ${contactEdit.name} ${contactEdit.remove ? "from" : "to"} your emergency contacts? Reply yes to confirm or no to cancel.`
+    : contactPrompt || `${rosterNames.length ? `Your emergency contacts are ${rosterNames.join(", ")}.` : "You have no named emergency contacts."} Reply “add” or “remove” followed by a name.`;
+  function reviewContactReply(reply: string): boolean {
+    if (!directory || !review) return false;
+    const decision = locationReviewDecision(reply);
+    if (decision === "cancel") { setClosed(true); return true; }
+    if (contactEdit && decision === "confirm") {
+      const edit = contactEdit;
+      setContactEdit(undefined);
+      if (edit.members) void addCircleMembers(edit.id, edit.members, true);
+      else void changeContact(edit.id, edit.remove);
+      return true;
+    }
+    const match = /^(add|remove)\s+(.+?)(?:\s+(?:to|from) my emergency contacts)?[.!]?$/i.exec(reply.trim());
+    if (!match) return false;
+    setContactEdit(undefined);
+    const normalize = (value: string) => value.normalize("NFKC").trim().toLowerCase();
+    const name = normalize(match[2]!);
+    const remove = normalize(match[1]!) === "remove";
+    const people = contacts.filter(person => [personName(person), `${personName(person)} ${person.maskedPhone || ""}`]
+      .some(label => normalize(label) === name));
+    const circles = remove ? [] : directory.circles.filter(circle => circle.systemKind !== "trusted" &&
+      [circle.name, `${circle.name} circle`].some(label => normalize(label) === name));
+    if (people.length + circles.length !== 1) {
+      const labels = people.map(person => [personName(person), person.maskedPhone].filter(Boolean).join(" "));
+      setContactPrompt(labels.length > 1 ? `Which contact? Reply with add or remove and the full label: ${labels.join(", ")}.`
+        : "Please give the exact connection name or Circle name so I can identify the right emergency contact.");
+      return true;
+    }
+    const person = people[0];
+    if (person) {
+      if (review.contactUserIds.includes(person.userId) !== remove || (!remove && !isSosShareReadyRecipient(person))) {
+        setContactPrompt(`${personName(person)} ${remove ? "is not an emergency contact" : review.contactUserIds.includes(person.userId) ? "is already an emergency contact" : "is not ready to receive a live Location alert"}.`);
+      } else {
+        setContactEdit({ id: person.userId, name: personName(person), remove });
+      }
+    } else if (circles[0]) {
+      const circle = circles[0];
+      void run("review-circle", async () => {
+        const selection = await loadMembers(circle.id);
+        if (!isCurrent()) return;
+        const members = selection.ready.map(row => row.recipient).filter(member => !review.contactUserIds.includes(member.userId));
+        if (!members.length) { setContactPrompt("This Circle has no eligible new emergency contacts."); return; }
+        setContactEdit({ id: circle.id, name: members.map(personName).join(", "), remove: false, members: members.map(member => member.userId) });
+      });
+    }
+    return true;
+  }
+  const text = status || error || (action === "sms_contacts" ? closed ? "Cancelled." : busyKey ? "Updating emergency contacts…" : contactText : delivery ? [
+    ...deliveryFacts(delivery).map(({ label, value }) => `${label}: ${value}.`),
+    checkingEmail ? "Checking email delivery…" : delivery.emailError, delivery.error,
+  ].filter(Boolean).join(" ") : closed ? "Cancelled." : !review ? "Checking your Save My Soul alert…"
+    : busyKey ? "Working on your Save My Soul request…"
+      : action === "sos_stop" ? active ? "Stop your active Save My Soul alert and its location shares? Reply yes to stop it." : "You have no active Save My Soul alert."
+        : active ? "Your Save My Soul alert is already active."
+          : !ready.length ? "You have no emergency contacts ready to receive a Save My Soul alert."
+            : paused ? "Location updates are paused. Resume them on this device? Your existing shares can start updating again. Reply yes to resume."
+              : `Send a Save My Soul alert and share your live location with ${recipients}?${skipped ? ` ${skipped} emergency contact(s) can’t receive this alert.` : ""} Reply yes to send.`);
+  useLocationConversationTurn({ onConversationReply, onConversationText }, allowReview ? text : null, (reply) => {
+    if (!isCurrent() || !review || busy.current || closed || status || delivery || error) return false;
+    if (action === "sms_contacts") return reviewContactReply(reply);
+    if (action === "sos_stop" ? !active : active || !ready.length) return false;
+    const decision = locationReviewDecision(reply);
+    if (decision === "cancel") { close(); return true; }
+    if (decision !== "confirm") return false;
+    if (action === "sos_stop") void stop();
+    else if (paused) {
+      void run("device", async () => {
+        await enableChatDeviceLocation(isCurrent);
+        if (!isCurrent()) return;
+        updateOneLocationControlState(ownerId, (control) => ({ ...control, paused: false }));
+        setDeviceReady(true);
+      });
+    } else {
+      void send(null, true);
+    }
+    return true;
+  });
+  if (onConversationText) return <LocationChatPermissionRecovery issue={permissionIssue} />;
+  if (!allowReview || closed) return status || delivery ? <LocationChatActionCard model={{
+    phase: "result", title: "Save My Soul", status, facts: delivery ? deliveryFacts(delivery) : undefined,
+  }} /> : null;
   if (!review && !editing) return <LocationChatActionCard model={{
     phase: "recovery", title: "Save My Soul", description: error ?? "Checking for a Save My Soul alert…",
     actions: error ? [{ id: "retry", label: "Try again", variant: "primary" }, { id: "cancel", label: "Cancel" }] : [],

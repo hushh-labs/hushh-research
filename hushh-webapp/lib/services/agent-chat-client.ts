@@ -126,6 +126,8 @@ export type AgentChatMessage = {
     kind?: string;
     display?: string;
     locationChatProposal?: MainLocationProposal;
+    locationReplyFor?: string;
+    locationConversationText?: boolean;
     structuredExperience?: {
       activityType?: string;
       content?: unknown;
@@ -1422,6 +1424,7 @@ async function streamAgentChatAttempt(input: {
   /** True when this turn belongs to the user's canonical rolling Main chat stream. */
   mainChat?: boolean;
   locationChatReview?: boolean;
+  locationChatConversation?: boolean;
   locationChatContinuation?: MainLocationContinuation;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -1458,6 +1461,7 @@ async function streamAgentChatAttempt(input: {
   const handlers = input.handlers ?? {};
   const locationReviewProps = input.locationChatReview ? {
     locationChatReview: true,
+    ...(input.locationChatConversation ? { locationChatConversation: true } : {}),
     ...(input.locationChatContinuation ? { locationChatContinuation: input.locationChatContinuation } : {}),
   } : {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();

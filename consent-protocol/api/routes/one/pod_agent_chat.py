@@ -39,6 +39,7 @@ from hushh_mcp.one_adk.history_projection import _call_providers, project_conver
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONTINUATION,
+    STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
     admit_location_chat_continuation,
     admit_location_chat_review,
@@ -270,6 +271,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         plaid_posture, plaid_client_ready = admit_plaid_posture(forwarded, owner_admitted=True)
     except ValueError:
         raise HTTPException(413, detail={"code": "POD_CHAT_PLAID_POSTURE_TOO_LARGE"}) from None
+    location_review = admit_location_chat_review(forwarded, owner_admitted=True)
     state = {
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         owner_style.STATE_OWNER_STYLE: owner_style.admit_owner_style(
@@ -277,7 +279,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         ),
         owner_style.STATE_POD_STYLE_OWNER: owner.owner,
         STATE_TURN_LOCATION: admit_turn_location(forwarded),
-        STATE_LOCATION_CHAT_REVIEW: admit_location_chat_review(forwarded, owner_admitted=True),
+        STATE_LOCATION_CHAT_REVIEW: location_review,
+        STATE_LOCATION_CHAT_CONVERSATION: location_review
+        and forwarded.get("locationChatConversation") is True,
         STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
             forwarded, owner_admitted=True
         ),

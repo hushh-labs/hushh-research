@@ -26,6 +26,8 @@ import type { AutoApproveScope, OneLocationCircleSummary, OneLocationMapPreferen
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import { useLocationChatMutation } from "./use-location-chat-mutation";
+import { locationChoiceFromReply, locationReviewDecision } from "@/lib/agent/main-chat-location-conversation";
+import { useLocationConversationTurn, type LocationConversationProps } from "./use-location-conversation-turn";
 
 const LocationSetupFlow = dynamic(() => import("@/components/location/setup/location-setup-flow").then((module) => module.LocationSetupFlow), {
   loading: () => <p role="status" className="text-sm">Preparing Location setup…</p>,
@@ -56,14 +58,14 @@ function sameScope(left: AutoApproveScope | null, right: AutoApproveScope | null
   return a.length === b.length && a.every((id) => b.includes(id));
 }
 
-export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIntent, suggestedCircles, onClose }: {
+export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIntent, suggestedCircles, onClose, onConversationReply, onConversationText }: {
   token: string;
   ownerId: string;
   onChanged?: () => void;
   autoApprovalIntent?: "enable" | "disable";
   suggestedCircles?: readonly string[];
   onClose?: () => void;
-}) {
+} & LocationConversationProps) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [reload, setReload] = useState(0);
   const [loadError, setLoadError] = useState("");
@@ -275,6 +277,17 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
     };
   };
 
+  if (autoApprovalIntent && onConversationText) {
+    const choices = (view?.circles ?? []).map(({ id, name }) => ({ label: name, circleId: id }));
+    const review = autoApprovalIntent === "enable" && scope ? autoApprovalReview(scope)
+      : directDisableReview ? autoApprovalReview(null) : null;
+    return <AutomaticApprovalConversation
+      onConversationReply={onConversationReply} onConversationText={onConversationText}
+      choices={choices} review={review} error={loadError || error} notice={notice} busy={busy}
+      loaded={Boolean(view)} alreadyOff={Boolean(view) && autoApprovalIntent === "disable" && !view?.state.autoApprovePreference?.enabled}
+      chooseScope={setScope}
+      commit={(decision) => { void run(decision.run, "I couldn’t verify the change to automatic approval."); }} />;
+  }
   if (setupOpen) return <LocationSetupFlow mode="setup" onSetupSkip={() => setSetupOpen(false)} onSetupComplete={() => {
     setSetupOffered(false);
     setSetupOpen(false);
@@ -384,4 +397,33 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
       </section>
     </> : null}
   </div>;
+}
+
+function AutomaticApprovalConversation({
+  onConversationReply, onConversationText, choices, review, error, notice, loaded, alreadyOff, busy, chooseScope, commit,
+}: LocationConversationProps & {
+  choices: { label: string; circleId: string }[];
+  review: Review | null; error: string; notice: string; loaded: boolean; alreadyOff: boolean; busy: boolean;
+  chooseScope: (scope: AutoApproveScope) => void; commit: (review: Review) => void;
+}) {
+  const [cancelled, setCancelled] = useState(false);
+  const question = review ? `${review.description} Reply yes to confirm.`
+    : ["Whose location requests should I automatically approve? Type a Circle name or “all contacts”.",
+      ...choices.map((choice, index) => `${index + 1}. ${choice.label}`)].join("\n");
+  const text = cancelled ? "Cancelled. Your automatic approval settings are unchanged." : notice ||
+    (error ? `${error} Ask me to review the setting again.` : busy ? "Updating automatic approval…" :
+      !loaded ? "Checking your automatic approval settings…" : alreadyOff ? "Automatic approval is already off." : question);
+  useLocationConversationTurn({ onConversationReply, onConversationText }, text, (reply) => {
+    if (cancelled || notice || error || alreadyOff || busy) return false;
+    const decision = locationReviewDecision(reply);
+    if (decision === "cancel") { setCancelled(true); return true; }
+    if (!loaded) return false;
+    if (review && decision === "confirm") { commit(review); return true; }
+    if (reply.trim().toLowerCase() === "all contacts") { chooseScope({ kind: "all_contacts" }); return true; }
+    const choice = locationChoiceFromReply(reply, choices);
+    if (!choice?.circleId) return false;
+    chooseScope({ kind: "circles", circleIds: [choice.circleId] });
+    return true;
+  });
+  return null;
 }
