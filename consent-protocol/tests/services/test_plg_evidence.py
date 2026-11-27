@@ -3732,3 +3732,54 @@ async def test_feature_explicit_result_column_is_optional_and_never_inferred(
     # Legacy failed can mean a block; it never manufactures explicit error.
     assert result["features"][0]["phases"]["failed"]["observations"] == 1
     assert result["features"][0]["results"]["error"]["observations"] == 0
+
+
+@pytest.mark.parametrize("environment", ["production", "uat"])
+def test_feature_binding_hydrates_optionally_from_existing_runtime_config(monkeypatch, environment):
+    from hushh_mcp import runtime_settings
+
+    env_name = (
+        "ONE_METRICS_UAT_FEATURE_OBSERVATIONS_BINDING_JSON"
+        if environment == "uat"
+        else "ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON"
+    )
+    key = (
+        "one_metrics_uat_feature_observations_binding_json"
+        if environment == "uat"
+        else "one_metrics_feature_observations_binding_json"
+    )
+    monkeypatch.delenv(env_name, raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", "{}")
+    runtime_settings.hydrate_runtime_environment()
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        _feature_source.approved_binding(environment)
+    binding = {
+        "approved": True,
+        "reportKind": "feature_observations",
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "populationPolicyRevision": "c" * 64,
+        "reconciliationDigest": "d" * 64,
+        "coverageFrom": "2026-11-19",
+    }
+    if environment == "uat":
+        binding.update(databaseName="postgres", databaseUser="fixture")
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: json.dumps(binding)}))
+    runtime_settings.hydrate_runtime_environment()
+    assert _feature_source.approved_binding(environment) == binding
+    # Existing explicitly mounted configuration remains authoritative.
+    changed = {**binding, "sourceGeneration": "e" * 64}
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: json.dumps(changed)}))
+    runtime_settings.hydrate_runtime_environment()
+    assert _feature_source.approved_binding(environment) == binding
+
+
+def test_feature_candidate_native_branch_matches_reviewed_population_projection():
+    native_branch = _metrics_source.CANDIDATES_SQL.split("WITH candidates AS (", 1)[1].rsplit(
+        ")", 1
+    )[0]
+    extended_branch = _feature_source.FEATURE_CANDIDATES_SQL.split("), candidates AS (", 1)[
+        1
+    ].split(" UNION SELECT user_id FROM observed_candidates", 1)[0]
+    assert " ".join(native_branch.split()) == " ".join(extended_branch.split())

@@ -56,8 +56,7 @@ SOURCE_TABLES = (
 
 # The existing expiry index bounds this additional population branch to the
 # retained seven-day ledger. The native candidate sentinel remains intact.
-FEATURE_CANDIDATES_SQL = (
-    """
+FEATURE_CANDIDATES_SQL = """
 WITH observed_candidates AS MATERIALIZED (
  SELECT user_id FROM one_product_activity_observations
  WHERE observed_at >= GREATEST($1, $3::timestamptz - INTERVAL '7 days')
@@ -65,15 +64,18 @@ WITH observed_candidates AS MATERIALIZED (
    AND expires_at <= $2::timestamptz + INTERVAL '7 days'
  LIMIT 100001
 ), candidates AS (
- SELECT user_id FROM ("""
-    + CANDIDATES_SQL
-    + """) native
+ SELECT user_id FROM agent_chat_messages WHERE completed_at >= $1 AND completed_at <= $2
+ UNION SELECT user_id FROM pkm_domain_commits WHERE created_at >= $1 AND created_at <= $2
+ UNION SELECT user_id FROM gmail_owner_send_actions WHERE sent_at >= $1 AND sent_at <= $2
+ UNION SELECT user_id FROM one_product_value_receipts WHERE occurred_at >= $1 AND occurred_at <= $2
+ UNION SELECT user_id FROM one_action_directive_ledger WHERE settled_at >= $1 AND settled_at <= $2
+ UNION SELECT user_id FROM connected_system_audit_events WHERE created_at >= $1 AND created_at <= $2
+ UNION SELECT user_id FROM drive_share_permission_operations WHERE settled_at >= $1 AND settled_at <= $2
  UNION SELECT user_id FROM observed_candidates
 )
 SELECT user_id,(SELECT COUNT(*)>100000 FROM observed_candidates) AS observation_overflow
 FROM candidates ORDER BY user_id LIMIT 5001
 """
-)
 
 # Materialization plus the 100001 overflow sentinel bounds every downstream
 # grouping. No raw observation, owner or operation identifier leaves One.

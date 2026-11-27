@@ -28,7 +28,11 @@ An independently approved `ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON`, or
 are the native binding fields plus `reportKind: "feature_observations"`; version
 is `"1"`, and UAT retains its exact database-name/user pins. The existing lane,
 project, enabled flag, HMAC purpose, signing secret and reporting policy remain
-authoritative. Missing approval stays unavailable. No activation is installed.
+authoritative. The existing secret-backed runtime JSON can hydrate these optional
+bindings using `one_metrics_feature_observations_binding_json` or
+`one_metrics_uat_feature_observations_binding_json`; explicit existing env values
+keep precedence. No deployment tooling or HMAC mount changes are needed. Missing
+approval stays unavailable. No activation is installed.
 
 Only UTC windows of 7, 14, 30 or 90 selected days within the existing 90-day
 lookback are accepted. `cutoffAt` is exclusive: a closed window ends at the next
