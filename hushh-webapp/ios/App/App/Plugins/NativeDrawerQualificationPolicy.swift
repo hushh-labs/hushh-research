@@ -2,9 +2,7 @@ import UIKit
 import CoreFoundation
 
 enum NativeDrawerQualificationPolicy {
-    // One device choice for bootstrap, dock, chrome, bottom navigation and
-    // drawers. Snapshot it once per process; a settings write cannot replace
-    // the renderer beneath an active document or an unfinished private draft.
+    // Only an acknowledged shell restart promotes a saved device preference.
     static let customPresentationAllowed = true
     static var experimentalInterfaceAvailable: Bool {
         guard customPresentationAllowed, #available(iOS 26.0, *) else { return false }
@@ -37,6 +35,11 @@ enum NativeDrawerQualificationPolicy {
     static var coherentPresentationEnabled: Bool {
         admitsCoherentPresentation(deviceEligible: deviceEligible, coherentShell: coherentShell)
     }
-    static let coherentShell = customPresentationAllowed && requestedNativeInterface()
+    private(set) static var coherentShell = customPresentationAllowed && requestedNativeInterface()
+    @MainActor static func applySavedInterface(_ enabled: Bool) -> Bool {
+        guard experimentalInterfaceAvailable, requestedNativeInterface() == enabled else { return false }
+        coherentShell = enabled
+        return true
+    }
     static var enabled: Bool { coherentShell }
 }

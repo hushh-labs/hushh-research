@@ -126,6 +126,7 @@ struct HushhNativeRouter: Router {
  */
 class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private let nativeTestConfig = NativeTestConfiguration()
+    private var rendererScript: WKUserScript?
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
     private var nativeTestPollInFlight = false
@@ -156,10 +157,6 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     }
 
     override open func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
-        let eligible: Bool
-        if #available(iOS 26.0, *) {
-            eligible = NativeDrawerQualificationPolicy.deviceEligible
-        } else { eligible = false }
         // Capacitor replaces userContentController after its configuration
         // hook. Install against the final controller before WK creates the
         // document. This selects rendering, never operation/information authority.
@@ -173,7 +170,18 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         #endif
-        configuration.userContentController.addUserScript(WKUserScript(
+        let script = rendererBootstrap()
+        rendererScript = script
+        configuration.userContentController.addUserScript(script)
+        return super.webView(with: frame, configuration: configuration)
+    }
+
+    private func rendererBootstrap() -> WKUserScript {
+        let eligible: Bool
+        if #available(iOS 26.0, *) {
+            eligible = NativeDrawerQualificationPolicy.deviceEligible
+        } else { eligible = false }
+        return WKUserScript(
             source: """
                 const __hushhCrypto = globalThis.crypto;
                 let __hushhNativeDocumentId = __hushhCrypto?.randomUUID?.();
@@ -190,6 +198,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value: Object.freeze({
                   contractVersion: 1,
                   documentId: __hushhNativeDocumentId,
+                  liveInterfaceSwitch: \(NativeDrawerQualificationPolicy.experimentalInterfaceAvailable ? "true" : "false"),
                   nativeInterfacePreference: \(NativeDrawerQualificationPolicy.experimentalInterfaceAvailable ? "true" : "false"),
                   enabled: \(eligible ? "true" : "false"),
                   coherentShell: \(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),
@@ -197,8 +206,21 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                   walletCardForms: \(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false")
                 })});
                 """,
-            injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        return super.webView(with: frame, configuration: configuration)
+            injectionTime: .atDocumentStart, forMainFrameOnly: true)
+    }
+
+    // Apply this device choice to future documents as well as the current
+    // presentation. Preserve every other bridge script and its injection order.
+    func refreshRendererBootstrap() {
+        guard let controller = webView?.configuration.userContentController, let previous = rendererScript else { return }
+        let scripts = controller.userScripts
+        guard let index = scripts.firstIndex(where: { $0.source == previous.source }) else { return }
+        let replacement = rendererBootstrap()
+        rendererScript = replacement
+        controller.removeAllUserScripts()
+        for (position, script) in scripts.enumerated() {
+            controller.addUserScript(position == index ? replacement : script)
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -471,7 +493,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
-        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.coherentPresentationEnabled,
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.experimentalInterfaceAvailable,
            let existing = webView, view === existing {
             view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
         }

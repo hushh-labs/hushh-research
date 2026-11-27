@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -50,6 +51,7 @@ export function NativeProfileTextEditor<T>(props: {
   onRenderer?: (phase: string) => void; fallback?: ReactNode;
   save: NativeProfileNameActions<T>["save"];
 }) {
+  const interfaceRevision = useInterfaceRevision();
   const { model } = props;
   const pathname = usePathname();
   const appearance = useNativeControlAppearance("secondary");
@@ -97,7 +99,7 @@ export function NativeProfileTextEditor<T>(props: {
     if (current.presentation.publish(projection, actions())) current.fingerprint = fingerprint;
   }, [actions]);
   useEffect(() => {
-    if (!nativeDrawersPlatformEligible()) return;
+    if (!nativeDrawersPlatformEligible()) { setRenderer("web"); setAdmitted(false); return; }
     let active = true;
     void nativeDrawerAcknowledged(nativeDrawers().getCapabilities()).then(value => {
       const supported = value.contractVersion === 1 && value.supported && value.profileNameScene === true &&
@@ -107,7 +109,7 @@ export function NativeProfileTextEditor<T>(props: {
     if (!nativePrivacyObservation().state) void nativeDrawerAcknowledged(getNativeSessionPrivacyState())
       .catch(() => { if (active) setRenderer("blocked"); });
     return () => { active = false; };
-  }, [props.scene]);
+  }, [props.scene, interfaceRevision]);
 
   const epoch = snapshotVaultSessionEpoch();
   const privacyGeneration = privacy?.generation;

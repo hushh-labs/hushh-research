@@ -1,4 +1,5 @@
 "use client";
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 
@@ -53,6 +54,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
   onOpen: () => void;
   onClose: () => void;
 }) {
+  const interfaceRevision = useInterfaceRevision();
   const action = useRef({ onOpen, onClose });
   useLayoutEffect(() => { action.current = { onOpen, onClose }; }, [onOpen, onClose]);
   const [dragging, setDragging] = useState(false);
@@ -277,6 +279,6 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
       window.removeEventListener("resize", resized);
       window.removeEventListener("blur", cancel);
     };
-  }, [enabled, presentationKey, surfaceRef, drawerRef, motionRef, scrimRef]);
+  }, [enabled, presentationKey, surfaceRef, drawerRef, motionRef, scrimRef, interfaceRevision]);
   return null;
 }

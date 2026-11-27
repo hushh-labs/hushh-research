@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import type { NativeChatChromeProps as Props, NativeChatChromeHandle } from "./native-chat-chrome-contract";
 export type { NativeChatChromeHandle } from "./native-chat-chrome-contract";
 import { NATIVE_PANEL_LAYOUT_EVENT } from "@/lib/capacitor/native-panel-presentation";
@@ -37,6 +38,10 @@ function rehearsalFailureCode(error: unknown): string {
  * Qualified wrappers negotiate families before admission. A focused DOM control
  * retains input until native retirement/focus transfer is confirmed. */
 export function NativeChatChrome(props: Props) {
+  return <ChromePresentation key={useInterfaceRevision()} {...props} />;
+}
+
+function ChromePresentation(props: Props) {
   const { ref: handleRef, className, children } = props;
   const slot = useRef<HTMLDivElement>(null);
   const coherent = peekNativeChromeCapabilities()?.coherentPresentation === true;
@@ -747,6 +752,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   focusRef: RefObject<HTMLButtonElement | null>; ref?: Ref<NativeChatChromeHandle>;
   onActivate: (preferNativeFocus: boolean, trigger?: HTMLButtonElement) => void;
 }) {
+  useInterfaceRevision();
   const label = open ? "Close chat history" : "Open chat history";
   const retainedBase = customNativePresentationEnabled() && (peekNativeChromeCapabilities()?.reservedPresentationRegions === true || peekNativeChromeCapabilities()?.coherentPresentation === true);
   return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}

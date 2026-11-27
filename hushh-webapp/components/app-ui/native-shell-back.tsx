@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { subscribeNativeShellInset } from "@/lib/capacitor/native-presentation-regions";
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -15,7 +16,11 @@ import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useN
 
 /** Opt-in stationary shell Back. The existing callback retains all routing and
  * action authority; changing the route or owner expires the native lease. */
-export function NativeShellBack({ label, onBack, owner, context, eligible }: {
+export function NativeShellBack(props: Parameters<typeof ShellBackPresentation>[0]) {
+  return <ShellBackPresentation key={useInterfaceRevision()} {...props} />;
+}
+
+function ShellBackPresentation({ label, onBack, owner, context, eligible }: {
   label: string; onBack: () => void; owner: string | null; context: string; eligible: boolean;
 }) {
   const slot = useRef<HTMLDivElement>(null);

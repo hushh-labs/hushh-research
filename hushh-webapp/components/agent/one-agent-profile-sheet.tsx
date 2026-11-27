@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import {
@@ -293,6 +294,7 @@ function NativeOneAgentProfile({
 }
 
 export function OneAgentProfileSheet(props: OneAgentProfileProps) {
+  useInterfaceRevision();
   return nativeDrawersPlatformEligible() ? (
     <NativeOneAgentProfile {...props} />
   ) : (

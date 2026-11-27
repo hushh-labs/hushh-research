@@ -1,3 +1,4 @@
+import { customNativePresentationEnabled, liveInterfaceSwitchAvailable } from "./native-presentation-policy";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { NativeOwnedEditorFence } from "./native-owned-editor-fence";
 import { sameOwnedChoice, validOwnedChoiceIdentity, type OwnedChoiceIdentity } from "./native-owned-choice";
@@ -89,6 +90,7 @@ export class NativeWalletCardFence extends NativeOwnedEditorFence<OwnedChoiceIde
 /** Document-start renderer selection. Older wrappers never enter admission. */
 export function nativeWalletCardFormsEnabled(): boolean {
   if (typeof window === "undefined") return false;
+  if (liveInterfaceSwitchAvailable()) return customNativePresentationEnabled();
   const bootstrap = (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: { contractVersion: number; enabled: boolean; walletCardForms?: boolean } }).__HUSHH_NATIVE_DRAWER_BOOTSTRAP__;
   return bootstrap?.contractVersion === 1 && bootstrap.enabled === true && bootstrap.walletCardForms === true;
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
 
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -48,6 +49,7 @@ export type NativeConnectModel = {
 /** The route still owns every query, relationship and operation. This maps
  * values and callbacks, using the same admission and rich-child handoff as Feed. */
 export function NativeConnectWorkspace(props: { model: NativeConnectModel; renderFallback: () => ReactNode }) {
+  useInterfaceRevision();
   if (!customNativePresentationEnabled()) return props.renderFallback();
   return <NativeConnectPresentation {...props} />;
 }

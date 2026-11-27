@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -35,6 +36,7 @@ type PreferenceLoadState = "loading" | "ready" | "error";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function EmailOnboardingSetupClient() {
+  useInterfaceRevision();
   const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const nativeFrame = useRef<HTMLDivElement | null>(null);
