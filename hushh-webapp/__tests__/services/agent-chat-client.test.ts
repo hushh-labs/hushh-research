@@ -228,11 +228,12 @@ describe("native Cloud chat", () => {
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
   });
 
-  it("reads the current portfolio on demand after reopening a native conversation", async () => {
+  it.each(["holdings", "allocation"] as const)("reads current %s on demand after reopening a native conversation", async (section) => {
     vi.stubEnv("NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT", "0");
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     const ownerPod = vi.mocked(ApiService.ownerPodRequest);
-    const query = { source: "active", section: "holdings", detail: "expanded" };
+    const query = { source: "active", section, detail: "expanded" };
+    const allocationValues = section === "allocation";
     const requestId = "a".repeat(48);
     const onReceiptPrivate = vi.fn();
     const encoded = new TextEncoder();
@@ -241,7 +242,7 @@ describe("native Cloud chat", () => {
       start(value) {
         controller = value;
         value.enqueue(encoded.encode('event: start\ndata: {"sessionId":"native-thread"}\n\n' +
-          `event: portfolio_context\ndata: ${JSON.stringify({ requestId, request: query })}\n\n`));
+          `event: portfolio_context\ndata: ${JSON.stringify({ requestId, request: query, ...(allocationValues ? { allocationValues: true } : {}) })}\n\n`));
       },
     });
     portfolioRead.mockResolvedValueOnce({ status: "unavailable", reason: "source_unavailable" });
@@ -261,7 +262,7 @@ describe("native Cloud chat", () => {
       });
     await streamAgentChat({ ...input, mainChat: true, handlers: { onReceiptPrivate, onNativeOutput: vi.fn() } });
     expect(portfolioRead).toHaveBeenCalledWith(expect.objectContaining({ threadId: input.conversationId }),
-      query, expect.any(Function));
+      query, expect.any(Function), { allocationValues });
     const request = JSON.parse(String(ownerPod.mock.calls[1]?.[1]?.body));
     expect(request).toMatchObject({ portfolioContext: true, threadId: input.conversationId });
     expect(request).not.toHaveProperty("positions");

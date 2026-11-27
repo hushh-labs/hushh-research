@@ -22,7 +22,7 @@ export type NativeAdkTurnOutput = {
   serverMessageId?: string;
   activity?: string[];
   locationChatProposal?: MainLocationProposal;
-  portfolioContext?: { requestId: string; request: unknown };
+  portfolioContext?: { requestId: string; request: unknown; allocationValues?: true };
 };
 
 export function createNativeAdkTurnOutput(): NativeAdkTurnOutput {
@@ -95,7 +95,11 @@ export function consumeNativeAdkFrames(
       next = { ...next, activity: [...(next.activity ?? []), payload.label] };
     } else if (event === "portfolio_context" && next.sessionId && !next.portfolioContext &&
         typeof payload.requestId === "string" && /^[a-f0-9]{48}$/.test(payload.requestId)) {
-      next = { ...next, portfolioContext: { requestId: payload.requestId, request: payload.request } };
+      next = { ...next, portfolioContext: {
+        requestId: payload.requestId,
+        request: payload.request,
+        ...(payload.allocationValues === true ? { allocationValues: true } : {}),
+      } };
     } else if (event === "done" && Object.keys(payload).length === 0) {
       next = { ...next, status: "complete", settledText: next.settledText + next.partialText, partialText: "" };
     } else if (event === "review" && Object.keys(payload).length === 0) {

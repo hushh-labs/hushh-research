@@ -460,7 +460,10 @@ Native Finance portfolio follow-ups use the existing device-side vault reader
 within the same ADK run. One requests facts through the closed portfolio tool
 when the question needs them. An answer uses the current selection after
 reopen. The device does a fresh read on demand, and a short-lived request
-reference carries the facts to the model callback. The receipt policy keeps
+reference carries the facts to the model callback. The native `portfolio_context`
+event can request allocation amounts with `allocationValues: true`. This adds the
+saved row amounts and card denominator to the device response for that turn.
+The receipt policy keeps
 the answer out of derived memory, restores only a receipt in history, and
 reserves sharing for the app-owned review flow.
 

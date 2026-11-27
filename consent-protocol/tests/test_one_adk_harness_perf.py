@@ -8,6 +8,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from ag_ui.core import RunFinishedEvent, TextMessageContentEvent
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events import Event
@@ -280,7 +281,8 @@ async def test_dev_finance_presenter_streams_catalog_offers_with_the_installed_a
     )
 
 
-async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner():
+@pytest.mark.parametrize("section", ["holdings", "allocation"])
+async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(section):
     from google.adk.agents import LlmAgent
     from google.adk.models.base_llm import BaseLlm
     from google.adk.models.llm_response import LlmResponse
@@ -299,7 +301,7 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
     )
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
-    query = {"section": "holdings", "source": "active", "detail": "expanded"}
+    query = {"section": section, "source": "active", "detail": "expanded"}
     holdings = [
         {
             "ticker": f"TEST{position}",
@@ -324,6 +326,12 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
             "unique_tickers": len(holdings),
         },
     }
+    private_marker = "TEST56"
+    if section == "allocation":
+        facts.pop("holdings")
+        facts["allocation"] = [{"bucket": "Equities", "percent": 60, "value": 617.46}]
+        facts["allocation_total"] = 1029.1
+        private_marker = "617.46"
     state = {
         "hussh:user_id": "owner",
         "hussh:conversation_id": "thread",
@@ -339,7 +347,9 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
         async def generate_content_async(self, llm_request, stream=False):
             if self.asked:
                 prompt = llm_request.contents[-1].parts[0].text
-                assert "TEST56" in prompt
+                assert private_marker in prompt
+                if section == "allocation":
+                    assert '"allocation_total": 1029.1' in prompt
                 assert llm_request.config.tool_config.function_calling_config.mode == "NONE"
                 part = genai_types.Part(text="SYNTHETIC_PORTFOLIO answered")
             else:
@@ -375,7 +385,8 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
                     state_delta=state,
                     run_config=RunConfig(streaming_mode=StreamingMode.SSE),
                     new_message=genai_types.Content(
-                        role="user", parts=[genai_types.Part(text="Which holdings do I have now?")]
+                        role="user",
+                        parts=[genai_types.Part(text=f"Show my current {section} values.")],
                     ),
                 ):
                     yield event
@@ -395,6 +406,7 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
                 if frame.startswith(b"event: portfolio_context\n"):
                     request = json.loads(frame.split(b"data: ", 1)[1])
                     assert request["request"] == query
+                    assert (request.get("allocationValues") is True) == (section == "allocation")
                     kwargs = dict(
                         owner="owner",
                         thread="thread",
@@ -403,6 +415,12 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
                         result=facts,
                     )
                     assert not resolve_native_portfolio(**kwargs, binding=b"foreign-device")
+                    if section == "allocation":
+                        invalid = {**kwargs, "result": {**facts, "allocation_total": 1}}
+                        with pytest.raises(
+                            ValueError, match="disagree with the reported percentages"
+                        ):
+                            resolve_native_portfolio(**invalid, binding=b"binding")
                     assert resolve_native_portfolio(**kwargs, binding=b"binding")
                     assert not resolve_native_portfolio(**kwargs, binding=b"binding")
     finally:
@@ -410,12 +428,13 @@ async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner(
     assert replies[-1].startswith(b"event: done\n")
     output = b"".join(replies)
     assert b"SYNTHETIC_PORTFOLIO answered" in output
-    assert b"TEST56" not in output
+    assert private_marker.encode() not in output
     stored = await sessions.get_session(app_name="one", user_id="owner", session_id="thread")
     assert stored is not None
     redacted = durable_external_read_projection(stored).model_dump_json()
     assert PRIVATE_PORTFOLIO_ANSWER in redacted
     assert "SYNTHETIC_PORTFOLIO" not in redacted
+    assert private_marker not in redacted
     assert "one_secret_ref:" not in redacted
 
 

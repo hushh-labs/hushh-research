@@ -84,7 +84,12 @@ export async function streamNativeCloudChat(input: {
         const { userId, vaultKey, vaultOwnerToken, runId } = input.portfolio;
         const query = parsePortfolioContextRequest(portfolioContext.request);
         if (query?.detail === "expanded") {
-          void readPortfolioContext({ userId, vaultKey, vaultOwnerToken, threadId: conversationId }, query, active)
+          void readPortfolioContext(
+            { userId, vaultKey, vaultOwnerToken, threadId: conversationId },
+            query,
+            active,
+            { allocationValues: portfolioContext.allocationValues === true },
+          )
             .catch(() => ({ status: "unavailable", reason: "source_unavailable" }))
             .then(async result => {
               if (!active() || !admittedPod) return;

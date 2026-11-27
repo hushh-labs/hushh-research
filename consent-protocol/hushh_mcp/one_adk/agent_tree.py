@@ -1038,6 +1038,14 @@ def _compose_one_instruction_parts(
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and state_getter(STATE_USER_ID)
     )
+    if typed_finance_chat:
+        identity_instruction += (
+            "\n\nPORTFOLIO ANSWERS: For a card-only request, briefly acknowledge the view. "
+            "A card offer supplies no figures to repeat. For an allocation answer, preserve "
+            "the exact categories, amounts, percentages, currency and total supplied by "
+            "read_portfolio_context. State when a requested amount is unavailable. Never "
+            "reclassify holdings or estimate missing amounts from the percentages."
+        )
     if (
         callable(state_getter)
         and typed_finance_chat

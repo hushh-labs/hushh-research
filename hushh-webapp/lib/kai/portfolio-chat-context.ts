@@ -110,7 +110,8 @@ function portfolioChatView(resource: KaiFinancialResource, source: PortfolioSour
     knownNumber(portfolio.account_summary?.ending_value) !== null || model.hero.totalValue > 0;
   // Match the chart's saved allocation rows, including an authored allocation
   // mix supplied with the statement, and its portfolio-value denominator.
-  const allocation = currency && model.quality.allocationReady &&
+  const allocation = currency && (!statementCurrency || statementCurrency === currency) &&
+      model.quality.allocationReady &&
       model.allocation.length <= 6 && model.hero.totalValue > 0
     ? model.allocation.filter(row => Number.isFinite(row.value) && row.value > 0)
       .map(row => ({ ...row, percent: row.value / model.hero.totalValue * 100 }))
@@ -150,7 +151,7 @@ function portfolioFacts(resource: KaiFinancialResource, source: PortfolioSource,
   return {
     as_of, date_kind, currency,
     positions: positions.map(({ facts }) => facts),
-    allocation: allocation?.map(({ name, percent }) => ({ bucket: name, percent })) ?? null,
+    allocation: allocation?.map(({ name, percent, value }) => ({ bucket: name, percent, value })) ?? null,
     performance,
   };
 }
@@ -186,6 +187,7 @@ export async function readPortfolioContext(
   session: { userId: string; vaultKey: string; vaultOwnerToken: string; threadId: string },
   request: PortfolioContextRequest,
   isCurrent: () => boolean,
+  { allocationValues = false }: { allocationValues?: boolean } = {},
 ) {
   const reference = request.source === "last_card"
     ? cardReferences.get(referenceKey(session.userId, session.threadId)) : undefined;
@@ -210,7 +212,10 @@ export async function readPortfolioContext(
 
   const result = { status: "ok", source: source.kind, selection: request.source, ...metadata };
   if (request.section === "allocation") {
-    return allocation?.length ? { ...result, allocation } : unavailable("section_unavailable");
+    if (!allocation?.length || performance.value === null) return unavailable("section_unavailable");
+    return allocationValues
+      ? { ...result, allocation, allocation_total: performance.value }
+      : { ...result, allocation: allocation.map(({ bucket, percent }) => ({ bucket, percent })) };
   }
   if (request.section === "performance") {
     return performance.value !== null || performance.unrealized_gain !== null || performance.history_available

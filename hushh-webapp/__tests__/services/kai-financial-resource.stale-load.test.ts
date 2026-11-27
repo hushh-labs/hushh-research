@@ -247,11 +247,18 @@ describe("a Kai finance read that races a write", () => {
         analytics_v2: { allocation_mix: [{ bucket: "equity", value: 60 }, { bucket: "fixed_income", value: 40 }] },
       },
     };
-    mocks.prepareDomainWriteContext.mockResolvedValueOnce({ domainData, baseFullBlob: {} });
-    await expect(readPortfolioContext({ ...PARAMS, threadId: "allocation" }, {
-      section: "allocation", source: "active",
-    }, () => true)).resolves.toMatchObject({
+    mocks.prepareDomainWriteContext.mockResolvedValue({ domainData, baseFullBlob: {} });
+    const session = { ...PARAMS, threadId: "allocation" };
+    const request = { section: "allocation", source: "active" } as const;
+    const legacy = await readPortfolioContext(session, request, () => true);
+    expect(legacy).toMatchObject({
       status: "ok", allocation: [{ bucket: "Equities", percent: 60 }, { bucket: "Fixed Income", percent: 40 }],
+    });
+    expect(legacy).not.toHaveProperty("allocation.0.value");
+    expect(legacy).not.toHaveProperty("allocation_total");
+    await expect(readPortfolioContext(session, request, () => true, { allocationValues: true })).resolves.toMatchObject({
+      status: "ok", currency: "USD", allocation_total: 100,
+      allocation: [{ bucket: "Equities", percent: 60, value: 60 }, { bucket: "Fixed Income", percent: 40, value: 40 }],
     });
   });
 });

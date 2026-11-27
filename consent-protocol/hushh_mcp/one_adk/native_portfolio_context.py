@@ -59,7 +59,14 @@ class NativePortfolioContext:
         self._result = loop.create_future()
         self._expiry = loop.call_later(PORTFOLIO_READ_TIMEOUT, self.close)
         _pending[request_id] = self
-        payload = json.dumps({"requestId": request_id, "request": request}, separators=(",", ":"))
+        payload = json.dumps(
+            {
+                "requestId": request_id,
+                "request": request,
+                **({"allocationValues": True} if request["section"] == "allocation" else {}),
+            },
+            separators=(",", ":"),
+        )
         return f"event: portfolio_context\ndata: {payload}\n\n".encode()
 
     def close(self) -> None:
@@ -145,7 +152,9 @@ def resolve_native_portfolio(
         or read._request is None
     ):
         return False
-    value = validate_portfolio_context_result(read._request, result)
+    value = validate_portfolio_context_result(
+        read._request, result, allow_allocation_values=read._request["section"] == "allocation"
+    )
     read._result.set_result(value)
     _pending.pop(request_id, None)
     return True
