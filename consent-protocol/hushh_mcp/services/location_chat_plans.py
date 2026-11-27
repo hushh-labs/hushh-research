@@ -386,14 +386,22 @@ class LocationChatPlanService:
             AccountDeletionLifecycleService.lock_user_writes_in_transaction(
                 connection, user_ids=(user_id, person_user_id)
             )
-            self.location._assert_location_accounts_active(user_id, person_user_id)
-            if action in _SHARE_ACTIONS | {"ask", "ask_extension"} or circle_id:
-                eligible, source = self.location._resolve_location_peer_eligibility(
-                    owner_user_id=user_id, other_user_id=person_user_id, source_circle_id=circle_id
-                )
-                if not eligible and (circle_id or action != "ask_extension"):
-                    raise _peer_unavailable()
-                circle_id = source
+            if action == "stop" and grant_id and grant:
+                # The outgoing grant already proves the owner's authority to
+                # revoke it, even if the recipient or Circle is now unavailable.
+                if circle_id and circle_id != str(grant.get("source_circle_id") or ""):
+                    raise _changed()
+            else:
+                self.location._assert_location_accounts_active(user_id, person_user_id)
+                if action in _SHARE_ACTIONS | {"ask", "ask_extension"} or circle_id:
+                    eligible, source = self.location._resolve_location_peer_eligibility(
+                        owner_user_id=user_id,
+                        other_user_id=person_user_id,
+                        source_circle_id=circle_id,
+                    )
+                    if not eligible and (circle_id or action != "ask_extension"):
+                        raise _peer_unavailable()
+                    circle_id = source
             if not circle_id and request:
                 binding = (_loads_json(request.get("metadata")) or {}).get(
                     "chat_plan_binding"

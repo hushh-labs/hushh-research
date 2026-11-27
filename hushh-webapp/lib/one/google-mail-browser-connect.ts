@@ -3,26 +3,9 @@ import {
   preloadGoogleIdentityServices,
 } from "@/lib/contacts/google-contacts-token";
 
-export const UAT_MAIL_ORIGIN = "https://uat.one.hussh.ai";
+import { isHostedWebOAuthOrigin } from "./hosted-web-oauth-origins";
 
-export const HOSTED_WEB_OAUTH_ORIGINS = new Set<string>([
-  "https://one.hussh.si",
-  "https://one.hushh.si",
-  "https://one.hussh.ai",
-  "https://one.hushh.ai",
-  "https://uat.one.hussh.si",
-  "https://uat.one.hushh.si",
-  "https://uat.one.hussh.ai",
-  "https://uat.one.hushh.ai",
-  "https://dev.one.hussh.si",
-  "https://dev.one.hushh.si",
-  "https://dev.one.hussh.ai",
-  "https://dev.one.hushh.ai",
-]);
-
-export function isHostedWebOAuthOrigin(origin: string): boolean {
-  return HOSTED_WEB_OAUTH_ORIGINS.has(origin);
-}
+export { HOSTED_WEB_OAUTH_ORIGINS, isHostedWebOAuthOrigin, UAT_MAIL_ORIGIN } from "./hosted-web-oauth-origins";
 
 const CONNECTOR_DIALOG_HEADINGS: Record<string, string> = {
   gmail: "Connect Gmail",

@@ -149,7 +149,7 @@ describe("private-agent chat shell contract", () => {
     expect(chip).toContain('aria-label="Remove text attachment"');
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
-    expect(workspace).toContain("await submitComposerText()");
+    expect(workspace).toContain("await submitComposerText(undefined, { trustedComposer: event.nativeEvent.isTrusted })");
     expect(workspace).toContain("keepSecretsFromTurn");
     expect(workspace).toContain("const [submittedText");
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
