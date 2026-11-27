@@ -257,7 +257,7 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         from db.browser_credential_authority import definition_match_sql
 
         with connection.cursor() as cursor:
-            cursor.execute((MIGRATIONS / "465_browser_credential_fill_authority.sql").read_text())
+            cursor.execute((MIGRATIONS / "467_browser_credential_fill_authority.sql").read_text())
         for _ in range(2):
             assert asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY)) == (
                 FOUNDATION,

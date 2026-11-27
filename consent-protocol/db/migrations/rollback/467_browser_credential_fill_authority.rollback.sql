@@ -15,7 +15,7 @@ BEGIN
  WHERE c.conrelid=to_regclass('public.one_action_directive_ledger')
  AND c.contype='c' AND c.convalidated
  AND regexp_replace(pg_get_constraintdef(c.oid),'[[:space:]]','','g')=expected.definition
- AND (obj_description(c.oid,'pg_constraint')='browser-credential-fill.v1/465')) THEN
+ AND (obj_description(c.oid,'pg_constraint')='browser-credential-fill.v1/467')) THEN
  RAISE EXCEPTION 'Unqualified Browser credential authority successor';
  END IF;
  IF EXISTS(SELECT 1 FROM public.one_action_directive_ledger

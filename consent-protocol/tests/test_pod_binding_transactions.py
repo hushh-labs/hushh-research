@@ -1384,8 +1384,8 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(
     from db.migration_authority import _replay_sql, build_manifest_entries
 
     base = Path(__file__).resolve().parents[1] / "db/migrations"
-    forward = base / "465_browser_credential_fill_authority.sql"
-    rollback = base / "rollback/465_browser_credential_fill_authority.rollback.sql"
+    forward = base / "467_browser_credential_fill_authority.sql"
+    rollback = base / "rollback/467_browser_credential_fill_authority.rollback.sql"
     pg.apply_file(forward)
     try:
         for fault in (

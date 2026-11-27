@@ -57,7 +57,7 @@ Sandbox Browser worker. The Hub, chat history and AI model never receive its
 plaintext. A metadata check of current source revisions conveys no password
 custody or execution authority.
 
-Canonical migration465 admits `browser.credential_fill` through the existing
+Canonical migration467 admits `browser.credential_fill` through the existing
 single-use private action ledger. It preserves the owner-confirmation, trusted
 activation and resource-binding checks and qualifies historical replay against
 exact validated successor constraints. Application rollback preserves review

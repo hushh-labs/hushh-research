@@ -121,7 +121,7 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ### Browser credential-fill authority candidate
 
-Canonical465 appends only `browser.credential_fill` to the existing private
+Canonical467 appends only `browser.credential_fill` to the existing private
 action ledger's closed allowlist. It requires the exact validated predecessor
 constraints and records qualified lineage on all three related checks, so a
 missing individual check cannot be silently recreated by historical replay.

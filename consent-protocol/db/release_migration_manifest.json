@@ -397,7 +397,7 @@
     "462_hosted_ace_deployment_target.sql",
     "463_control_plane_kyc_redaction_and_call_indexes.sql",
     "464_one_location_chat_plans.sql",
-    "465_browser_credential_fill_authority.sql"
+    "467_browser_credential_fill_authority.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -575,7 +575,7 @@
       "364_one_private_text_processing_approvals.sql",
       "425_account_phone_transfers.sql",
       "427_workos_generation_memberships.sql",
-      "465_browser_credential_fill_authority.sql"
+      "467_browser_credential_fill_authority.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -846,6 +846,6 @@
     "462_hosted_ace_deployment_target.sql": "rollback/462_hosted_ace_deployment_target.rollback.sql",
     "463_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/463_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
     "464_one_location_chat_plans.sql": "rollback/464_one_location_chat_plans.rollback.sql",
-    "465_browser_credential_fill_authority.sql": "rollback/465_browser_credential_fill_authority.rollback.sql"
+    "467_browser_credential_fill_authority.sql": "rollback/467_browser_credential_fill_authority.rollback.sql"
   }
 }

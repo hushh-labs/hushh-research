@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-MARKER = "browser-credential-fill.v1/465"
+MARKER = "browser-credential-fill.v1/467"
 IDENTITY = "pod_chat_action_identity"
 
 
@@ -64,7 +64,7 @@ def require_successor_sql() -> str:
 
 
 def preserve_parked_successor_sql(source: str) -> str:
-    """Keep a qualified465 guard across pending, immutable945/966/971 startup."""
+    """Keep a qualified467 guard across pending, immutable945/966/971 startup."""
     body, begin = re.subn(r"^BEGIN;[ \t]*$", "", source, flags=re.M)
     body, commit = re.subn(r"^COMMIT;[ \t]*$", "", body, flags=re.M)
     if (begin, commit) != (1, 1) or "$legacy_private_action$" in body:
@@ -82,7 +82,7 @@ END $preserve_browser_credential$;
 
 
 def qualify_foundation_sql(sql: str) -> str:
-    """Admit only the measured465 constraint while replaying immutable420."""
+    """Admit only the measured467 constraint while replaying immutable420."""
     pattern = r"\('one_action_directive_ledger','pod_chat_action_identity','((?:''|[^'])*)',true\)"
     matches = list(re.finditer(pattern, sql))
     if len(matches) != 1:
