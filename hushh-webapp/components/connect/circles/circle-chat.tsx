@@ -496,11 +496,10 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_REPAIR_INTERVAL_MS);
     window.addEventListener(CIRCLE_CHAT_CHANGED, event); window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => { void refresh(); });
-    return () => { active.current = false; abort.abort(); clearInterval(timer); removeLifecycle();
+    return () => { active.current = false; abort.abort(); removeLifecycle();
       window.removeEventListener(CIRCLE_CHAT_CHANGED, event); window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh); };
   }, [session, append, decrypt, fail, mergeMembershipEvents, reconcile, cacheTargets]);
