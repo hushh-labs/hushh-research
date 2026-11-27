@@ -413,10 +413,16 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
     const selected = [replyRef.current, actionRef.current?.message].filter((item): item is OpenMessage => Boolean(item));
     const loaded = new Map([...selected.map((item) => [item.id, item] as const), ...messagesRef.current.map((item) => [item.id, item] as const), ...targetsRef.current]);
     if (!loaded.size) return;
-    const updates = await CircleChatService.updates(session, [...loaded.keys()].slice(0, 600), signal);
-    if (!active.current || signal?.aborted) return;
-    applyStates([...updates.states, ...updates.unavailableIds.map((id) => ({ id, revision: loaded.get(id)?.revision ?? 0, hidden: true, deletedForEveryoneAt: null }))]);
-    const changed = updates.states.filter((state) => !state.hidden && !state.deletedForEveryoneAt && state.revision > (loaded.get(state.id)?.revision ?? 0)).map((state) => state.id);
+    const ids = [...loaded.keys()];
+    const batches: { states: CircleMessageState[]; unavailableIds: string[] }[] = [];
+    for (let index = 0; index < ids.length; index += 600) {
+      batches.push(await CircleChatService.updates(session, ids.slice(index, index + 600), signal));
+      if (!active.current || signal?.aborted) return;
+    }
+    const states = batches.flatMap((batch) => batch.states);
+    const unavailableIds = batches.flatMap((batch) => batch.unavailableIds);
+    applyStates([...states, ...unavailableIds.map((id) => ({ id, revision: loaded.get(id)?.revision ?? 0, hidden: true, deletedForEveryoneAt: null }))]);
+    const changed = states.filter((state) => !state.hidden && !state.deletedForEveryoneAt && state.revision > (loaded.get(state.id)?.revision ?? 0)).map((state) => state.id);
     for (let index = 0; index < changed.length && active.current; index += 40) {
       const resolved = await CircleChatService.resolve(session, changed.slice(index, index + 40), signal);
       if (!active.current || signal?.aborted) return;
