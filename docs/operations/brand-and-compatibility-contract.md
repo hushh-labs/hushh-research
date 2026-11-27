@@ -6,15 +6,17 @@ Canonical visual owner: [Operations Index](README.md). Use that map for the top-
 
 ## Purpose
 
-This document defines the public documentation rebrand from `Hushh` to `Hussh (Human Secure Socket Host)`.
+This document defines the canonical brand, primary `.si` domain family, and compatibility-identifier contract for `hussh` (`Human Secure Socket Host`) and `One` (`🤫 One`, `Agent One`).
 
-`Hussh` is the public documentation and architecture brand for this repository.
+In brand and product prose, spell the company name lowercase **`hussh`** (preserving the structural `ssh` and `🤫` mark) and always capitalize the product **`One`** (`One`, `Agent One`, `🤫 One`, `Kai`, `Nav`). Title-case `Hussh` remains accepted in legacy headings and technical diagram labels where sentence-start or historical prose requires it; never spell the public brand `Hushh` or lowercase `one` when naming the product.
 
-The architecture meaning is defined in [../architecture/architecture.md](../architecture/system.md): Hussh is the governed host where human authority, private data, AI agents, apps, and consented access connect through scoped, auditable infrastructure.
+**`.si` (`hussh.si`) is the primary canonical domain** across public and internal surfaces (`https://www.hussh.si`, `https://one.hussh.si`, `https://api.hussh.si`, `https://mcp.hussh.si`, `https://wiki.hussh.si`, `https://metrics.hussh.si`), paired with the centralized Identity Platform OAuth broker (`id.hussh.si` / `id.hussh.ai`). Alias domains (`hushh.si`, `hussh.ai`, `hushh.ai`) serve solely as compatibility or `301`-redirect aliases once OAuth callbacks and mobile origins are verified on `.si`.
+
+The architecture meaning is defined in [../architecture/architecture.md](../architecture/system.md): `hussh` is the governed host where human authority, private information, AI agents, apps, and consented access connect through scoped, auditable infrastructure.
 
 Founder-facing copy may also use `hu_ssh` or `SSH for humans` as a metaphor for the same trust handshake: ask for a named scope, approve it explicitly, and audit what happened. That metaphor does not replace `Human Secure Socket Host` as the canonical expansion.
 
-This contract does **not** rename code, package names, CLI commands, repo slugs, deployed URLs, env vars, bundle IDs, or service identifiers. Those remain literal compatibility surfaces until a separate engineering rebrand program lands.
+This contract does **not** rename code, package names, CLI commands, repo slugs, immutable cloud project IDs, env vars, bundle IDs, or service identifiers. Those remain literal compatibility surfaces.
 
 ## Public Brand Rule
 

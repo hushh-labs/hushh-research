@@ -66,9 +66,9 @@ SENTINEL_IP="$(gcloud compute forwarding-rules list --project="${PROJECT_ID}" --
   --filter='description~sentinel-control-ilb' --format='value(IPAddress)' 2>/dev/null | head -n 1 || true)"
 SENTINEL_CONTROL_URL="${SENTINEL_CONTROL_URL:-http://${SENTINEL_IP:-10.128.0.3}:8081}"
 
-CORS_ORIGINS="https://uat.one.hussh.ai,https://uat.one.hushh.ai,http://localhost:3000"
+CORS_ORIGINS="https://uat.one.hussh.si,https://uat.one.hushh.si,https://uat.one.hussh.ai,https://uat.one.hushh.ai,http://localhost:3000"
 if [[ -n "${WEBAPP_URL}" ]]; then
-  CORS_ORIGINS="https://uat.one.hussh.ai,https://uat.one.hushh.ai,${WEBAPP_URL},http://localhost:3000"
+  CORS_ORIGINS="https://uat.one.hussh.si,https://uat.one.hushh.si,https://uat.one.hussh.ai,https://uat.one.hushh.ai,${WEBAPP_URL},http://localhost:3000"
 fi
 
 ENV_FILE="$(mktemp /tmp/uat-sandbox-edge-env.XXXXXX.yaml)"
