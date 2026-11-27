@@ -30,7 +30,10 @@ import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { CalendarClock } from "@/components/icons";
+import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { MediumRowLabel, SectionLabel } from "@/components/app-ui/typography";
+import { CalendarClock, RefreshCw } from "@/components/icons";
+import { cn } from "@/lib/utils";
 
 export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
   pending_delivery: "Scheduling",
@@ -244,147 +247,187 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
     return runDate.slice(0, 7) === selectedDate.slice(0, 7);
   });
 
-  const content = (
-      <>
-        {message && (
-          <p role="alert" className="text-sm text-destructive">
-            {message}
-          </p>
-        )}
-        {placementMessage && <p role="status" className="text-sm text-muted-foreground">{placementMessage}</p>}
-        {checking && !status && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Checking your agent…
-          </p>
-        )}
-        {status && !status.available && (
-          <p className="text-sm text-muted-foreground">
-            Scheduling isn’t available on this pod yet.
-          </p>
-        )}
-        {status?.available && status.tasks.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No scheduled tasks. Choose a file in Files to schedule organization.
-          </p>
-        )}
-        {selectedId && status && !status.tasks.some(task => task.id === selectedId) ? (
-          <p role="status" className="text-sm text-muted-foreground">This schedule wasn’t found on your current Pod.</p>
-        ) : null}
-        {inTasks && status?.tasks.length ? (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Schedule view">
-              {scheduleViews.map(option => (
-                <Button key={option} variant={view === option ? "secondary" : "ghost"}
-                  size="compact" aria-pressed={view === option} onClick={() => setView(option)}>{option}</Button>
-              ))}
+  const actions = (
+    <div className="flex flex-wrap items-center gap-1">
+      <Button
+        variant={inline ? "plain" : "outline"}
+        size={inline ? "icon" : "default"}
+        aria-label={inline ? "Refresh scheduled runs" : undefined}
+        title={inline ? "Refresh scheduled runs" : undefined}
+        disabled={checking || Boolean(busy)}
+        onClick={refresh}
+      >
+        {inline ? <RefreshCw className="size-4" aria-hidden="true" /> : "Refresh"}
+      </Button>
+      <Button variant={inline ? "plain" : "outline"} size={inline ? "compact" : "default"} asChild>
+        <Link
+          href={placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES}
+          onClick={close}
+          aria-disabled={Boolean(busy)}
+          onClickCapture={(event) => {
+            if (busy) event.preventDefault();
+          }}
+        >
+          {placementMessage ? "Hosting" : "Open Files"}
+        </Link>
+      </Button>
+    </div>
+  );
+
+  const rows = tasks.length > 0 && (
+    <ul className="divide-y divide-border/60" aria-busy={checking}>
+      {tasks.map((task) => (
+        <li
+          key={task.id}
+          className={cn(
+            "flex min-w-0 flex-wrap gap-x-3 gap-y-1",
+            inline ? "items-start px-3 py-2.5" : "items-center py-3",
+          )}
+        >
+          <div className="min-w-0 flex-1 basis-48 space-y-0.5">
+            <div className={cn(inline && "flex flex-wrap items-baseline gap-x-2")}>
+              <MediumRowLabel as="p" className="min-w-0 break-words [overflow-wrap:anywhere]">{task.title}</MediumRowLabel>
+              <p className="text-xs text-muted-foreground">
+                {task.run_now_pending ? "Run requested" : scheduledTaskLabels[task.state]}
+                {!inline && task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
+              </p>
             </div>
-            {view !== "Agenda" && <CalendarDateNavigation date={selectedDate} today={today}
-              disabled={Boolean(busy)} onChange={next => {
-                if (/^\d{4}-\d{2}-\d{2}$/.test(next)) setDate(next);
-              }} label="Schedule date" />}
-            {view !== "Agenda" && tasks.length === 0 && (
-              <p role="status" className="text-sm text-muted-foreground">No scheduled runs in this period.</p>
+            <p className="text-xs text-muted-foreground">
+              <span>{task.weekdays?.map(day => SCHEDULE_WEEKDAYS[day]).join(", ") ?? repeatLabels[task.repeat]}</span>
+              {inline && task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
+            </p>
+            <p className="text-xs text-muted-foreground">{scheduledRunSummary(task)}</p>
+            {task.last_run?.state === "outcome_uncertain" && (
+              <p className="text-xs text-muted-foreground">
+                Check the result before scheduling again.
+              </p>
+            )}
+            {task.recent_runs?.length ? (
+              <details className="text-xs text-muted-foreground">
+                <summary className="min-h-8 w-fit cursor-pointer content-center">Run history</summary>
+                <ul className="space-y-1 ps-3">
+                  {task.recent_runs.map(run => <li key={run.id}>{runSummary(run)}</li>)}
+                </ul>
+              </details>
+            ) : null}
+          </div>
+          <div className="flex max-w-full flex-wrap items-center gap-1 empty:hidden">
+            {["scheduled", "pending_delivery"].includes(task.state) && (
+              <Button
+                variant="ghost"
+                size="compact"
+                disabled={checking || Boolean(busy)}
+                onClick={() => void control(task, "pause")}
+              >
+                Pause
+              </Button>
+            )}
+            {task.state === "paused" && (
+              <Button
+                variant="ghost"
+                size="compact"
+                disabled={checking || Boolean(busy) || !status?.available}
+                onClick={() => void control(task, "resume")}
+              >
+                Resume
+              </Button>
+            )}
+            {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && task.capability !== MAIL_FOLLOWUP_TEMPLATE && (
+              <Button variant="ghost" size="compact"
+                disabled={checking || Boolean(busy) || task.next_run_at < Date.now() / 1000 + 60}
+                onClick={() => void control(task, "run_now")}>Run now</Button>
+            )}
+            {task.state === "scheduled" && !task.run_now_pending && task.repeat !== "once" && status?.repeat_modes?.includes("monthly") && (
+              <Button variant="ghost" size="compact" disabled={checking || Boolean(busy) || !status?.available}
+                onClick={() => void control(task, "skip_next")}>Skip next run</Button>
+            )}
+            {!["cancelled", "completed", "cancelling"].includes(
+              task.state,
+            ) && (
+              <Button
+                variant="ghost"
+                size="compact"
+                disabled={checking || Boolean(busy)}
+                onClick={() => void control(task, "cancel")}
+              >
+                Cancel
+              </Button>
             )}
           </div>
-        ) : null}
-        <ul className="divide-y divide-border" aria-busy={checking}>
-          {tasks.map((task) => (
-            <li
-              key={task.id}
-              className="flex min-w-0 flex-wrap items-center gap-3 py-3"
-            >
-              <div className="min-w-0 flex-1 basis-48">
-                <p className="break-words text-sm font-medium">{task.title}</p>
-                <p className="text-xs text-muted-foreground">
-                  {task.run_now_pending ? "Run requested" : scheduledTaskLabels[task.state]}
-                  {task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {task.weekdays?.map(day => SCHEDULE_WEEKDAYS[day]).join(", ") ?? repeatLabels[task.repeat]}
-                </p>
-                <p className="text-xs text-muted-foreground">{scheduledRunSummary(task)}</p>
-                {task.recent_runs?.length ? (
-                  <details className="mt-1 text-xs text-muted-foreground">
-                    <summary className="min-h-8 cursor-pointer content-center">Run history</summary>
-                    <ul className="space-y-1">
-                      {task.recent_runs.map(run => <li key={run.id}>{runSummary(run)}</li>)}
-                    </ul>
-                  </details>
-                ) : null}
-                {task.last_run?.state === "outcome_uncertain" && (
-                  <p className="text-xs text-muted-foreground">
-                    Check the result before scheduling again.
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {["scheduled", "pending_delivery"].includes(task.state) && (
-                  <Button
-                    variant="ghost"
-                    size="compact"
-                    disabled={checking || Boolean(busy)}
-                    onClick={() => void control(task, "pause")}
-                  >
-                    Pause
-                  </Button>
-                )}
-                {task.state === "paused" && (
-                  <Button
-                    variant="ghost"
-                    size="compact"
-                    disabled={checking || Boolean(busy) || !status?.available}
-                    onClick={() => void control(task, "resume")}
-                  >
-                    Resume
-                  </Button>
-                )}
-                {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && task.capability !== MAIL_FOLLOWUP_TEMPLATE && (
-                  <Button variant="ghost" size="compact"
-                    disabled={checking || Boolean(busy) || task.next_run_at < Date.now() / 1000 + 60}
-                    onClick={() => void control(task, "run_now")}>Run now</Button>
-                )}
-                {task.state === "scheduled" && !task.run_now_pending && task.repeat !== "once" && status?.repeat_modes?.includes("monthly") && (
-                  <Button variant="ghost" size="compact" disabled={checking || Boolean(busy) || !status?.available}
-                    onClick={() => void control(task, "skip_next")}>Skip next run</Button>
-                )}
-                {!["cancelled", "completed", "cancelling"].includes(
-                  task.state,
-                ) && (
-                  <Button
-                    variant="ghost"
-                    size="compact"
-                    disabled={checking || Boolean(busy)}
-                    onClick={() => void control(task, "cancel")}
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-        <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={checking || Boolean(busy)} onClick={refresh}>Refresh</Button>
-        <Button variant="outline" asChild>
-          <Link
-            href={placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES}
-            onClick={close}
-            aria-disabled={Boolean(busy)}
-            onClickCapture={(event) => {
-              if (busy) event.preventDefault();
-            }}
+        </li>
+      ))}
+    </ul>
+  );
+
+  const content = (
+    <>
+      {message && (
+        <p role="alert" className="text-sm text-destructive">
+          {message}
+        </p>
+      )}
+      {placementMessage && <p role="status" className="text-sm text-muted-foreground">{placementMessage}</p>}
+      {checking && !status && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Checking your agent…
+        </p>
+      )}
+      {status && !status.available && (
+        <p className="text-sm text-muted-foreground">
+          Scheduling isn’t available on this pod yet.
+        </p>
+      )}
+      {status?.available && status.tasks.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No scheduled tasks. Choose a file in Files to schedule organization.
+        </p>
+      )}
+      {selectedId && status && !status.tasks.some(task => task.id === selectedId) ? (
+        <p role="status" className="text-sm text-muted-foreground">This schedule wasn’t found on your current Pod.</p>
+      ) : null}
+      {inTasks && status?.tasks.length ? (
+        <div className="space-y-2">
+          <div
+            className={cn(
+              "flex flex-wrap",
+              inline ? "w-fit gap-0.5 rounded-2xl bg-muted/40 p-0.5" : "gap-2",
+            )}
+            role="group"
+            aria-label="Schedule view"
           >
-            {placementMessage ? "Hosting" : "Open Files"}
-          </Link>
-        </Button>
+            {scheduleViews.map(option => (
+              <Button
+                key={option}
+                variant={view === option ? "secondary" : "ghost"}
+                size="compact"
+                className={cn(inline && "rounded-xl", inline && view !== option && "text-muted-foreground")}
+                aria-pressed={view === option}
+                onClick={() => setView(option)}
+              >
+                {option}
+              </Button>
+            ))}
+          </div>
+          {view !== "Agenda" && <CalendarDateNavigation date={selectedDate} today={today}
+            disabled={Boolean(busy)} onChange={next => {
+              if (/^\d{4}-\d{2}-\d{2}$/.test(next)) setDate(next);
+            }} label="Schedule date" />}
+          {view !== "Agenda" && tasks.length === 0 && (
+            <p role="status" className="text-sm text-muted-foreground">No scheduled runs in this period.</p>
+          )}
         </div>
-      </>
+      ) : null}
+      {inline && rows ? <SurfaceInset className="p-0">{rows}</SurfaceInset> : rows}
+    </>
   );
   if (inline) {
     if (status?.available && status.tasks.length === 0 && !selectedId) return null;
     return (
-      <section aria-labelledby="scheduled-runs-heading" className="space-y-3">
-        <h2 id="scheduled-runs-heading" className="text-base font-semibold">{title}</h2>
+      <section aria-labelledby="scheduled-runs-heading" className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <SectionLabel as="h2" id="scheduled-runs-heading" compact>{title}</SectionLabel>
+          {actions}
+        </div>
         {content}
       </section>
     );
@@ -417,6 +460,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
           </DialogDescription>
         </DialogHeader>
         {content}
+        {actions}
       </DialogContent>
     </Dialog>
   );
