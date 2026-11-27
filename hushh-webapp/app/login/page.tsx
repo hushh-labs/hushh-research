@@ -9,17 +9,25 @@ import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { useOptionalAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AUTH_SESSION_NOTICE_QUERY_PARAM,
   loginRouteWithoutAuthSessionNotice,
   readAuthSessionLandingNotice,
 } from "@/lib/auth/session-invalidation";
 
+function useSafeAuth() {
+  try {
+    return useAuth();
+  } catch {
+    return null;
+  }
+}
+
 function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const auth = useOptionalAuth();
+  const auth = useSafeAuth();
   const [freshSelected, setFreshSelected] = useState(false);
   const [deletionNotice] = useState(() => {
     const notice = readAuthSessionLandingNotice(searchParams);

@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useOptionalAuth: () => mocks.optionalAuth,
+  useAuth: () => {
+    if (!mocks.optionalAuth) {
+      throw new Error("useAuth must be used within an AuthProvider");
+    }
+    return mocks.optionalAuth;
+  },
 }));
 
 vi.mock("next/navigation", () => ({

@@ -15,16 +15,12 @@
 
 "use client";
 
-import {
-  useAuth as useContextAuth,
-  useOptionalAuth as useContextOptionalAuth,
-} from "@/lib/firebase/auth-context";
+import { useAuth as useContextAuth } from "@/lib/firebase/auth-context";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 // Re-export the Context Hook as the primary useAuth
 export const useAuth = useContextAuth;
-export const useOptionalAuth = useContextOptionalAuth;
 
 /**
  * Hook to require authentication on a page

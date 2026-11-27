@@ -1,5 +1,4 @@
 "use client";
-import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 
 import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';

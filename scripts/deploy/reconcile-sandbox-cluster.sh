@@ -689,7 +689,7 @@ spec:
             medium: Memory
             sizeLimit: 64Mi
 ---
-apiVersion: extensions.agents.x-k8s.io/v1alpha1
+apiVersion: extensions.agents.x-k8s.io/v1beta1
 kind: SandboxWarmPool
 metadata:
   name: hussh-one-warm-pool
