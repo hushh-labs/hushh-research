@@ -136,7 +136,7 @@ function PrivateCheckIn({ proposal, ownerId, token, capturePoint, onBack, onChan
 
   return <>
     <div hidden={Boolean(choices.length)}>
-      <LocationChatSharePicker checkIn token={token} ownerId={ownerId} initialMode="share_pin" busy={busy}
+      <LocationChatSharePicker checkIn token={token} ownerId={ownerId} busy={busy}
         suggestedPeople={proposal.people} suggestedCircles={proposal.circles}
         onBack={onBack} onContinue={(_, targets) => setChoices(targets)} />
     </div>

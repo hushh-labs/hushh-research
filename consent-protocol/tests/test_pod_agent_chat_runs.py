@@ -110,13 +110,23 @@ def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
     assert client.post(path, json=forged).status_code == 422
     assert len(turns) == 1
 
-    from hushh_mcp.one_adk.location_chat_proposal import STATE_LOCATION_CHAT_REVIEW
+    from hushh_mcp.one_adk.location_chat_proposal import (
+        STATE_LOCATION_CHAT_CONVERSATION,
+        STATE_LOCATION_CHAT_REVIEW,
+    )
 
     monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
     regular_chat = {"screenContext": {"route": {"pathname": "/"}}, "locationChatReview": True}
     location = {**body, "message": "Request Kushal's location", "forwardedProps": regular_chat}
     assert client.post(path, json=location).status_code == 200
     assert turns[-1][1].state[STATE_LOCATION_CHAT_REVIEW] is True
+    assert turns[-1][1].state[STATE_LOCATION_CHAT_CONVERSATION] is False
+    location["forwardedProps"] = {**regular_chat, "locationChatConversation": True}
+    assert client.post(path, json=location).status_code == 200
+    assert turns[-1][1].state[STATE_LOCATION_CHAT_CONVERSATION] is True
+    location["forwardedProps"] = {"locationChatConversation": True}
+    assert client.post(path, json=location).status_code == 200
+    assert turns[-1][1].state[STATE_LOCATION_CHAT_CONVERSATION] is False
     assert "hussh:thread_title" not in turns[-1][1].state
 
 

@@ -64,6 +64,11 @@ def _invalid(message: str) -> OneLocationAgentError:
     return OneLocationAgentError("LOCATION_CHAT_PLAN_INVALID", message, status_code=422)
 
 
+def _require_current_action(action: str) -> None:
+    if action == "share_pin":
+        raise _invalid("Chat offers live location sharing. A one-time pin cannot be sent.")
+
+
 def _not_found(message: str = "Location plan was not found.") -> OneLocationAgentError:
     return OneLocationAgentError("LOCATION_CHAT_PLAN_NOT_FOUND", message, status_code=404)
 
@@ -227,8 +232,6 @@ class LocationChatPlanService:
             duration_mode = request.get("requested_duration_mode")
             if duration_mode != "until_stopped" and duration_hours is None:
                 duration_hours = DEFAULT_APPROVAL_DURATION_HOURS
-        if action == "share_pin" and duration_hours is None:
-            duration_hours = _DEFAULT_PIN_HOURS
         if action == "ask":
             hours, mode = _normalized_requested_duration(
                 duration_hours=duration_hours, duration_mode=duration_mode
@@ -240,7 +243,7 @@ class LocationChatPlanService:
         hours, expiry, mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
-            share_kind="pin" if action == "share_pin" else "share",
+            share_kind="share",
             now=now,
         )
         if relative:
@@ -268,7 +271,8 @@ class LocationChatPlanService:
     ) -> dict[str, Any]:
         if action not in _ACTIONS:
             raise _invalid("Choose a supported location action.")
-        _require_enabled(action)
+        if action != "share_pin":
+            _require_enabled(action)
         grant_id, request_id, circle_id, origin_id = map(
             _uuid, (grant_id, request_id, circle_id, origin_id)
         )
@@ -322,6 +326,7 @@ class LocationChatPlanService:
                 if prior:
                     return self._project(prior)
 
+            _require_current_action(action)
             now = _utcnow()
             request = None
             grant = None
@@ -367,7 +372,7 @@ class LocationChatPlanService:
                     person_user_id=person_user_id,
                     grant_id=None,
                     outgoing=action in _SHARE_ACTIONS,
-                    lane="pin" if action == "share_pin" else "live",
+                    lane="live",
                 )
                 if grant_id and (not grant or str(grant["id"]) != grant_id):
                     raise _changed()
@@ -381,14 +386,22 @@ class LocationChatPlanService:
             AccountDeletionLifecycleService.lock_user_writes_in_transaction(
                 connection, user_ids=(user_id, person_user_id)
             )
-            self.location._assert_location_accounts_active(user_id, person_user_id)
-            if action in _SHARE_ACTIONS | {"ask", "ask_extension"} or circle_id:
-                eligible, source = self.location._resolve_location_peer_eligibility(
-                    owner_user_id=user_id, other_user_id=person_user_id, source_circle_id=circle_id
-                )
-                if not eligible and (circle_id or action != "ask_extension"):
-                    raise _peer_unavailable()
-                circle_id = source
+            if action == "stop" and grant_id and grant:
+                # The outgoing grant already proves the owner's authority to
+                # revoke it, even if the recipient or Circle is now unavailable.
+                if circle_id and circle_id != str(grant.get("source_circle_id") or ""):
+                    raise _changed()
+            else:
+                self.location._assert_location_accounts_active(user_id, person_user_id)
+                if action in _SHARE_ACTIONS | {"ask", "ask_extension"} or circle_id:
+                    eligible, source = self.location._resolve_location_peer_eligibility(
+                        owner_user_id=user_id,
+                        other_user_id=person_user_id,
+                        source_circle_id=circle_id,
+                    )
+                    if not eligible and (circle_id or action != "ask_extension"):
+                        raise _peer_unavailable()
+                    circle_id = source
             if not circle_id and request:
                 binding = (_loads_json(request.get("metadata")) or {}).get(
                     "chat_plan_binding"
@@ -479,6 +492,8 @@ class LocationChatPlanService:
     def _project(self, row: dict[str, Any]) -> dict[str, Any]:
         terms = _loads_json(row["terms"])
         receipt = _loads_json(row["receipt"])
+        if receipt is None:
+            _require_current_action(row["action"])
         response = {
             "planId": str(row["id"]),
             "originId": str(row["origin_id"]) if row["origin_id"] else None,
@@ -531,6 +546,7 @@ class LocationChatPlanService:
             """SELECT p.* FROM one_location_chat_plans p
             WHERE p.user_id = :user_id AND p.origin_id = CAST(:origin_id AS UUID)
               AND (p.receipt IS NOT NULL OR p.expires_at > clock_timestamp())
+              AND (p.receipt IS NOT NULL OR p.action <> 'share_pin')
               AND (CAST(:cursor AS UUID) IS NULL OR (p.created_at, p.id) < (
                 SELECT c.created_at, c.id FROM one_location_chat_plans c
                 WHERE c.id = CAST(:cursor AS UUID)
@@ -580,6 +596,7 @@ class LocationChatPlanService:
                 return self._project(row)
             person = row["person_user_id"]
             action = row["action"]
+            _require_current_action(action)
             _require_enabled(action)
             AccountDeletionLifecycleService.lock_user_writes_in_transaction(
                 connection, user_ids=(user_id, person)
@@ -644,13 +661,7 @@ class LocationChatPlanService:
                         person_user_id=person,
                         outgoing=grant_direction_out,
                         grant_id=terms["grantId"] if action in _GRANT_ACTIONS else None,
-                        lane=(
-                            "pin"
-                            if action == "share_pin"
-                            else "either"
-                            if action in {"view", "stop"}
-                            else "live"
-                        ),
+                        lane="either" if action in {"view", "stop"} else "live",
                         lock=action != "view",
                     )
                     if action in {"view", "stop"}:
@@ -692,12 +703,11 @@ class LocationChatPlanService:
         confirmed_at: datetime | None,
     ) -> dict[str, Any]:
         operation = f"one-chat-location:{plan_id}"
-        if action in _SHARE_ACTIONS:
+        if action == "share_live":
             if envelope is None:
                 raise _invalid("This location share requires an encrypted location.")
-            share_kind = "pin" if action == "share_pin" else "share"
             self.location._assert_envelope_precision_matches_preference(
-                owner_user_id=user_id, envelope=envelope, share_kind=share_kind
+                owner_user_id=user_id, envelope=envelope, share_kind="share"
             )
             result = self.location.create_grant_with_initial_envelope(
                 owner_user_id=user_id,
@@ -708,7 +718,7 @@ class LocationChatPlanService:
                 client_operation_id=operation,
                 confirmed_at=confirmed_at or _utcnow(),
                 envelope=envelope,
-                share_kind=share_kind,
+                share_kind="share",
                 source_circle_id=terms["circleId"],
                 enforce_connection=True,
             )
