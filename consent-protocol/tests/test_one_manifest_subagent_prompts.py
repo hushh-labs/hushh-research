@@ -637,3 +637,86 @@ def test_request_accepts_redundant_timed_mode_without_changing_the_requested_rec
     assert timed["action"] == "ask" and timed["people"] == ["Ankit"] and timed["durationHours"] == 1
     assert "durationMode" not in timed
     assert ask("until_stopped")["status"] == "invalid_proposal"
+
+
+def test_main_chat_location_review_excludes_ask_location_agent_and_guards_emergency_taint():
+    from google.genai import types
+
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXTERNAL_READ
+
+    declarations = [
+        types.FunctionDeclaration(name="propose_location_action"),
+        types.FunctionDeclaration(name="ask_location_agent"),
+        types.FunctionDeclaration(name="ask_email_agent"),
+    ]
+    main_chat_request = SimpleNamespace(
+        config=types.GenerateContentConfig(tools=[types.Tool(function_declarations=declarations)])
+    )
+    agent_tree._scope_location_chat_review(
+        SimpleNamespace(state={STATE_LOCATION_CHAT_REVIEW: True}), main_chat_request
+    )
+    assert [item.name for item in main_chat_request.config.tools[0].function_declarations] == [
+        "propose_location_action",
+        "ask_email_agent",
+    ]
+    blocked = agent_tree._before_one_tool(
+        SimpleNamespace(name="ask_location_agent"),
+        {},
+        SimpleNamespace(state={STATE_LOCATION_CHAT_REVIEW: True}),
+    )
+    assert blocked == {
+        "status": "chat_review_required",
+        "next_tool": "propose_location_action",
+    }
+    # Negative control: non-main-chat turns retain ask_location_agent.
+    non_main_request = SimpleNamespace(
+        config=types.GenerateContentConfig(tools=[types.Tool(function_declarations=declarations)])
+    )
+    agent_tree._scope_location_chat_review(SimpleNamespace(state={}), non_main_request)
+    assert "ask_location_agent" in [
+        item.name for item in non_main_request.config.tools[0].function_declarations
+    ]
+
+    # Taint guard: emergency_share cannot be triggered from external-read content.
+    tainted = SimpleNamespace(state={STATE_EXTERNAL_READ: "inv-tainted"})
+    assert (
+        propose_location_action("emergency_share", tool_context=tainted)["status"]
+        == "blocked_by_external_read"
+    )
+    # Negative control: untainted emergency_share succeeds without naming people.
+    clean = propose_location_action("emergency_share", tool_context=SimpleNamespace(state={}))
+    assert clean["status"] == "proposal_ready" and clean["action"] == "emergency_share"
+    assert (
+        propose_location_action("emergency_share", people=["Stranger"])["status"]
+        == "invalid_proposal"
+    )
+
+
+def test_location_proposal_supports_e2e_modes_and_keeps_legacy_share_pin_refused():
+    pin = propose_location_action("share_live", people=["Maya"], share_mode="static_pin")
+    assert pin["status"] == "proposal_ready"
+    assert pin["shareMode"] == "static_pin"
+    assert location_chat_proposal_from_result(pin) == pin
+    # Negative control: legacy share_pin action name remains refused.
+    assert propose_location_action("share_pin", people=["Maya"])["status"] == "invalid_proposal"
+
+    city = propose_location_action(
+        "share_live", people=["Maya"], duration_hours=1, precision="city"
+    )
+    assert city["status"] == "proposal_ready" and city["precision"] == "city"
+
+    stop_all = propose_location_action("stop", stop_all=True)
+    assert stop_all["status"] == "proposal_ready" and stop_all["stopAll"] is True
+    assert (
+        propose_location_action("stop", people=["Maya"], stop_all=True)["status"]
+        == "invalid_proposal"
+    )
+
+    home_fence = propose_location_action(
+        "set_geofence",
+        geofence_trigger="stop_on_arrival",
+        geofence_place="Home",
+        geofence_place_kind="saved_home",
+    )
+    assert home_fence["status"] == "proposal_ready"
+    assert home_fence["geofencePlaceKind"] == "saved_home"

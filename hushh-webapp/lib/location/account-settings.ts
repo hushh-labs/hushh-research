@@ -45,6 +45,8 @@ export type LocationAccountSettings = {
   sharing_disabled_at: string | null;
   os_permission_reported: LocationOsPermissionReported;
   os_permission_reported_at: string | null;
+  paused_until?: string | null;
+  is_paused?: boolean;
   /** Alias of `sharing_state`. */
   sharingState: LocationSharingState;
   /** Alias of `sharing_enabled` (`sharing_state === "on"`). */
@@ -55,6 +57,10 @@ export type LocationAccountSettings = {
   sharingConsentAcceptedAt: string | null;
   /** Alias of `os_permission_reported`. */
   osPermissionReported: LocationOsPermissionReported;
+  /** Alias of `paused_until`. */
+  pausedUntil?: string | null;
+  /** Alias of `is_paused`. */
+  isPaused?: boolean;
 };
 
 /** `SharingTransition.as_payload()`; present only when `sharingState` changed. */
@@ -140,6 +146,11 @@ export function normalizeLocationAccountSettings(
   const osPermission = normalizeOsPermission(
     row.os_permission_reported ?? row.osPermissionReported,
   );
+  const pausedUntil = nullableString(row.paused_until ?? row.pausedUntil);
+  const isPaused =
+    row.is_paused === true ||
+    row.isPaused === true ||
+    (pausedUntil !== null && Date.parse(pausedUntil) > Date.now());
   return {
     user_id: nullableString(row.user_id) ?? undefined,
     sharing_state: sharingState,
@@ -151,11 +162,15 @@ export function normalizeLocationAccountSettings(
     sharing_disabled_at: nullableString(row.sharing_disabled_at),
     os_permission_reported: osPermission,
     os_permission_reported_at: nullableString(row.os_permission_reported_at),
+    paused_until: pausedUntil,
+    is_paused: isPaused,
     sharingState,
     sharingEnabled: sharingState === "on",
     sharingConsentVersion: consentVersion,
     sharingConsentAcceptedAt: consentAcceptedAt,
     osPermissionReported: osPermission,
+    pausedUntil,
+    isPaused,
   };
 }
 
@@ -218,6 +233,37 @@ export async function updateLocationAccountSettings(
     settings: normalizeLocationAccountSettings(response?.settings),
     transition: normalizeTransition(response?.transition),
   };
+}
+
+/** Temporarily pause outgoing location updates without revoking shares (US-030). */
+export async function pauseLocationUpdates(
+  vaultOwnerToken: string,
+  durationHours: number,
+): Promise<LocationAccountSettings> {
+  const response = await apiJson<{ settings?: unknown }>(
+    `${ACCOUNT_SETTINGS_PATH}/pause`,
+    {
+      method: "POST",
+      headers: jsonHeaders(vaultOwnerToken),
+      body: JSON.stringify({ durationHours }),
+    },
+  );
+  return normalizeLocationAccountSettings(response?.settings);
+}
+
+/** Clear an active timed pause so outgoing location updates resume immediately. */
+export async function resumeLocationUpdates(
+  vaultOwnerToken: string,
+): Promise<LocationAccountSettings> {
+  const response = await apiJson<{ settings?: unknown }>(
+    `${ACCOUNT_SETTINGS_PATH}/pause`,
+    {
+      method: "POST",
+      headers: jsonHeaders(vaultOwnerToken),
+      body: JSON.stringify({ clear: true }),
+    },
+  );
+  return normalizeLocationAccountSettings(response?.settings);
 }
 
 /** The stable `detail.code` behind a settings/setup failure, if any. */
