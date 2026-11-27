@@ -7,7 +7,7 @@ export const ONE_MEMORY_ACTIONS = [
   "auto_save_changed",
 ] as const;
 export const ONE_WALLET_ACTIONS = ["card_added", "card_deleted"] as const;
-export const ONE_CALENDAR_ACTIONS = ["connected", "disconnected", "chat_opened"] as const;
+export const ONE_CALENDAR_ACTIONS = ["connected", "disconnected", "chat_opened", "booking_create"] as const;
 export const ONE_KYC_ACTIONS = [
   "redraft_completed",
   "reply_sent",
