@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 from typing import Annotated, Any, Literal
 
 from ag_ui.core import RunAgentInput
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -60,6 +62,10 @@ from hushh_mcp.one_adk.location_chat_proposal import (
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.native_pod_chat import AdmittedNativePodTurn, NativeMcpDecision
+from hushh_mcp.one_adk.native_portfolio_context import (
+    NativePortfolioContext,
+    resolve_native_portfolio,
+)
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.plaid_connector_tools import (
     STATE_PLAID_CLIENT_READY,
@@ -84,6 +90,7 @@ from hushh_mcp.one_adk.pod_chat_transport import (
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_DESCRIPTION,
     PORTFOLIO_CONTEXT_TOOL,
+    STATE_NATIVE_PORTFOLIO_READ,
     STATE_PORTFOLIO_CONTEXT_ENABLED,
     portfolio_context_parameters,
     portfolio_context_version,
@@ -234,7 +241,7 @@ async def capabilities(owner: PodChatContext = Depends(context)):
         }
     if dev_finance_presentation_enabled():
         native.update(
-            nativeFinanceVisualVersion=1,
+            nativeFinanceVisualVersion=2,
             nativeLocationChatReview=True,
             nativeLocationChatConversation=True,
         )
@@ -429,8 +436,67 @@ async def _native_chat(input: NativePodChatRequest, owner: PodChatContext) -> Ev
     state[_STATE_NATIVE_ADK_CHAT] = True
     state[STATE_DEV_FINANCE_VISUALS] = finance_only
     await owner.require_access()
-    turn = AdmittedNativePodTurn(input.thread_id, input.run_id, state, input.message, decision)
+    portfolio = None
+    if input.portfolio_context:
+        state[STATE_PORTFOLIO_CONTEXT_ENABLED] = 2
+        state[STATE_NATIVE_PORTFOLIO_READ] = True
+        portfolio = NativePortfolioContext(
+            owner.owner, input.thread_id, input.run_id, _portfolio_binding(owner)
+        )
+    turn = AdmittedNativePodTurn(
+        input.thread_id, input.run_id, state, input.message, decision, portfolio
+    )
     return _stream_response(owner.stream_native(options, turn))
+
+
+def _portfolio_binding(owner: PodChatContext) -> bytes:
+    from hushh_mcp.services.chat_key import current_request_chat_key
+
+    holder = current_request_chat_key()
+    key = holder.key_for(owner.owner) if holder is not None else None
+    subject = owner.claims.get("subject_id")
+    version = owner.claims.get("version")
+    if key is None or not isinstance(subject, str) or not subject or type(version) is not int:
+        raise HTTPException(403, detail={"code": "POD_CHAT_PORTFOLIO_OWNER_REQUIRED"})
+    return hashlib.sha256(key + f"{version}:{subject}".encode()).digest()
+
+
+@router.post("/portfolio-context", status_code=204)
+async def finish_native_portfolio_read(
+    request: Request, owner: PodChatContext = Depends(context)
+) -> Response:
+    from json import loads
+
+    await owner.require_access()
+    raw = bytearray()
+    try:
+        async with asyncio.timeout(5):
+            async for chunk in request.stream():
+                if len(raw) + len(chunk) > 65_536:
+                    raise HTTPException(413, detail={"code": "POD_CHAT_PORTFOLIO_RESULT_TOO_LARGE"})
+                raw.extend(chunk)
+    except TimeoutError:
+        raise HTTPException(408, detail={"code": "POD_CHAT_PORTFOLIO_REQUEST_EXPIRED"}) from None
+    try:
+        body = loads(raw)
+        if not isinstance(body, dict) or set(body) != {"threadId", "runId", "requestId", "result"}:
+            raise ValueError
+        if any(not isinstance(body[key], str) for key in ("threadId", "runId", "requestId")):
+            raise ValueError
+        await owner.require_access()
+        accepted = resolve_native_portfolio(
+            owner=owner.owner,
+            thread=body["threadId"],
+            run=body["runId"],
+            request_id=body["requestId"],
+            binding=_portfolio_binding(owner),
+            result=body["result"],
+        )
+    except (ValueError, RecursionError):
+        raise HTTPException(400, detail={"code": "POD_CHAT_PORTFOLIO_RESULT_INVALID"}) from None
+    if not accepted:
+        raise HTTPException(409, detail={"code": "POD_CHAT_PORTFOLIO_REQUEST_EXPIRED"})
+    return Response(status_code=204)
 
 
 def _turn_transport(value: Any) -> str:

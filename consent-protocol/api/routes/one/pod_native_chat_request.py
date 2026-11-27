@@ -39,6 +39,7 @@ class NativePodChatRequest(BaseModel):
 
     transport: Literal["native-adk-v1"]
     visual_mode: Literal["finance-dev"] | None = Field(default=None, alias="visualMode")
+    portfolio_context: StrictBool = Field(default=False, alias="portfolioContext")
     thread_id: RunIdentity = Field(alias="threadId")
     run_id: RunIdentity = Field(alias="runId")
     message: str | None = Field(default=None, min_length=1, max_length=8000)
@@ -54,4 +55,8 @@ class NativePodChatRequest(BaseModel):
         confirmed = bool(self.decision and self.decision.confirmed)
         if confirmed != ("mcpApproval" in self.forwarded_props):
             raise ValueError("An approval is required only for a confirmed connector decision.")
+        if self.portfolio_context and (
+            self.visual_mode != "finance-dev" or self.decision is not None
+        ):
+            raise ValueError("Portfolio reads require a fresh Finance turn.")
         return self

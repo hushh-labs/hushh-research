@@ -411,6 +411,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         # app session, pkm.read, owner-bound chat key and encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/portfolio-context",
         "/api/one/pod/agent-chat/migration/import",
         "/api/one/pod/agent-chat/history/{conversation_id}/information-requests",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",

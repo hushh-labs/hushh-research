@@ -468,8 +468,11 @@ async def club_queued_input(callback_context: Any, llm_request: Any) -> LlmRespo
             turn_complete=True,
         )
     from hushh_mcp.one_adk.external_read_boundary import external_read_active
+    from hushh_mcp.one_adk.portfolio_context_contract import STATE_PORTFOLIO_CONTEXT_PRIVATE
 
-    if external_read_active(callback_context):
+    if external_read_active(callback_context) or callback_context.invocation_id in (
+        callback_context.state.get(STATE_PORTFOLIO_CONTEXT_PRIVATE) or []
+    ):
         # The post-read barrier narrows this turn's authority. A new instruction
         # would inherit it, so it waits for a fresh turn instead.
         return None

@@ -1,5 +1,6 @@
 import { readNativeAdkTurn } from "@/lib/a2ui/native-adk-visual-stream";
 import { sendWhileAgentWakes } from "@/lib/agent/owner-pod-wake";
+import { parsePortfolioContextRequest, readPortfolioContext } from "@/lib/kai/portfolio-chat-context";
 import { ApiService } from "./api-service";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import type { AgentChatStreamHandlers } from "./agent-chat-client";
@@ -27,7 +28,7 @@ export async function admitsNativeCloudChat(
   } | null;
   const version = visualMode === DEV_FINANCE_VISUAL_MODE
     ? payload?.nativeFinanceVisualVersion : payload?.nativeAdkChatVersion;
-  return isCurrent() && version === 1 &&
+  return isCurrent() && version === (visualMode === DEV_FINANCE_VISUAL_MODE ? 2 : 1) &&
     (!locationChatReview || payload?.nativeLocationChatReview === true) &&
     (!locationChatConversation || payload?.nativeLocationChatConversation === true);
 }
@@ -38,14 +39,17 @@ export async function streamNativeCloudChat(input: {
   isCurrent: () => boolean;
   handlers: AgentChatStreamHandlers;
   locationChatReview?: boolean;
+  portfolio?: { userId: string; vaultKey: string; vaultOwnerToken: string; runId: string };
 }) {
   const { request, conversationId, isCurrent, handlers } = input;
   const watchdog = new AbortController();
   const signal = request.signal ? AbortSignal.any([request.signal, watchdog.signal]) : watchdog.signal;
   const active = () => isCurrent() && !signal.aborted;
+  let admittedPod: string | undefined;
   const liveness = createAgentStreamLiveness(
     () => sendWhileAgentWakes(
-      () => ApiService.ownerPodRequest("agent-chat", { ...request, signal }, true, undefined, undefined, active),
+      () => ApiService.ownerPodRequest("agent-chat", { ...request, signal }, true,
+        hushhId => { admittedPod = hushhId; }, undefined, active),
       { signal, isOwnerAgent: async () => active(), onWaking: () => handlers.onStreamHealth?.({ kind: "waking" }) },
     ),
     () => watchdog.abort(),
@@ -55,6 +59,7 @@ export async function streamNativeCloudChat(input: {
   let started = false;
   let lastMessageId: string | undefined;
   let lastLocationProposalId: string | undefined;
+  let sentPortfolioResult = false;
   liveness.start();
   try {
     const response = await liveness.fetch({ ...request, signal });
@@ -72,6 +77,26 @@ export async function streamNativeCloudChat(input: {
         handlers.onStart?.({ conversationId });
       }
       if (!started && output.status !== "error") throw new Error("POD_CHAT_REQUEST_INVALID");
+      const { portfolioContext, ...visible } = output;
+      if (portfolioContext && input.portfolio && !sentPortfolioResult) {
+        sentPortfolioResult = true;
+        handlers.onReceiptPrivate?.("portfolio");
+        const { userId, vaultKey, vaultOwnerToken, runId } = input.portfolio;
+        const query = parsePortfolioContextRequest(portfolioContext.request);
+        if (query?.detail === "expanded") {
+          void readPortfolioContext({ userId, vaultKey, vaultOwnerToken, threadId: conversationId }, query, active)
+            .catch(() => ({ status: "unavailable", reason: "source_unavailable" }))
+            .then(async result => {
+              if (!active() || !admittedPod) return;
+              const reply = await ApiService.ownerPodRequest("agent-chat/portfolio-context", {
+                method: "POST", headers: request.headers, signal, cache: "no-store",
+                body: JSON.stringify({ threadId: conversationId, runId,
+                  requestId: portfolioContext.requestId, result }),
+              }, false, undefined, admittedPod, active);
+              await reply.body?.cancel().catch(() => undefined);
+            }).catch(() => undefined); // The admitted tool has a bounded timeout.
+        }
+      }
       handlers.onStreamHealth?.({ kind: "activity" });
       if (output.serverMessageId && output.serverMessageId !== lastMessageId) {
         lastMessageId = output.serverMessageId;
@@ -81,7 +106,7 @@ export async function streamNativeCloudChat(input: {
         lastLocationProposalId = output.locationChatProposal.id;
         handlers.onLocationProposal?.(output.locationChatProposal);
       }
-      handlers.onNativeOutput?.(output);
+      handlers.onNativeOutput?.(visible);
     }, input.locationChatReview);
     if (!active()) throw new DOMException("Agent turn cancelled", "AbortError");
     return result;

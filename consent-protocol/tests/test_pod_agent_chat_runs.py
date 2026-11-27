@@ -188,7 +188,7 @@ def test_dev_finance_visual_mode_is_separate_from_official_capability(monkeypatc
     assert received == []
 
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
-    assert client.get(f"{path}/capabilities").json()["nativeFinanceVisualVersion"] == 1
+    assert client.get(f"{path}/capabilities").json()["nativeFinanceVisualVersion"] == 2
     assert client.post(path, json=turn).status_code == 200
     assert received == [True]
 

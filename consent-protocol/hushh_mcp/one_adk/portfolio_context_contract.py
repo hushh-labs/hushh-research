@@ -8,9 +8,22 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StringConstraint
 PORTFOLIO_CONTEXT_TOOL = "read_portfolio_context"
 STATE_PORTFOLIO_CONTEXT_ENABLED = "temp:one_portfolio_context_enabled"
 STATE_PORTFOLIO_CONTEXT_PRIVATE = "hussh:portfolio_context_private_invocations"
+STATE_NATIVE_PORTFOLIO_READ = "temp:one_native_portfolio_read"
 PRIVATE_PORTFOLIO_ANSWER = (
     "A private portfolio answer was shown for that turn. Ask again to read the portfolio."
 )
+
+
+def portfolio_private_invocations(state: Any, events: list[Any]) -> set[str]:
+    """Identify portfolio turns that cannot enter derived memory."""
+    return set((state or {}).get(STATE_PORTFOLIO_CONTEXT_PRIVATE) or []) | {
+        invocation
+        for event in events
+        for invocation in getattr(getattr(event, "actions", None), "state_delta", {}).get(
+            STATE_PORTFOLIO_CONTEXT_PRIVATE, []
+        )
+    }
+
 
 PORTFOLIO_CONTEXT_DESCRIPTION = (
     "Read the signed-in owner's saved portfolio facts on their device for this answer only. "

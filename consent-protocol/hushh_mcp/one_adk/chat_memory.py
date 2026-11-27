@@ -24,6 +24,10 @@ from hushh_mcp.one_adk.account_context_contract import (
     PRIVATE_ACCOUNT_ANSWER,
     account_private_invocations,
 )
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PRIVATE_PORTFOLIO_ANSWER,
+    portfolio_private_invocations,
+)
 
 logger = logging.getLogger(__name__)
 CHECKPOINT_KEY = "hussh:chat_stm_v1"
@@ -139,7 +143,9 @@ def _consent_digest(state: Any, events: list[Any]) -> str:
     from hushh_mcp.one_adk.consent_redaction import tagged_bundles
 
     invocations = {event.invocation_id for event in events}
-    account_private = account_private_invocations(state, events) & invocations
+    private = (
+        account_private_invocations(state, events) | portfolio_private_invocations(state, events)
+    ) & invocations
     return _digest(
         sorted(
             {
@@ -148,7 +154,7 @@ def _consent_digest(state: Any, events: list[Any]) -> str:
                 for item in values
                 if item in invocations
             }
-            | account_private
+            | private
         )
     )
 
@@ -180,7 +186,8 @@ def _text(event: Any) -> str:
         return ""
     parts = getattr(event.content, "parts", None) or []
     if event.author == "one" and any(
-        getattr(part, "text", None) == PRIVATE_ACCOUNT_ANSWER for part in parts
+        getattr(part, "text", None) in (PRIVATE_ACCOUNT_ANSWER, PRIVATE_PORTFOLIO_ANSWER)
+        for part in parts
     ):
         return ""
     return "\n".join(
@@ -218,6 +225,7 @@ def summary_snapshot(session: Any) -> dict[str, Any] | None:
     offset = len(previous_prefix or [])
     tagged = {item for values in tagged_bundles(session.state).values() for item in values}
     tagged |= account_private_invocations(session.state, session.events)
+    tagged |= portfolio_private_invocations(session.state, session.events)
     messages = [
         {"role": "user" if event.author == "user" else "assistant", "content": text}
         for event in prefix[offset:]

@@ -1022,6 +1022,7 @@ def _compose_one_instruction_parts(
     state_getter = getattr(state, "get", None)
     from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS
     from hushh_mcp.one_adk.native_chat_output import STATE_NATIVE_VISUAL_CHAT
+    from hushh_mcp.one_adk.portfolio_context_contract import STATE_NATIVE_PORTFOLIO_READ
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
     location_review = callable(state_getter) and state_getter(STATE_LOCATION_CHAT_REVIEW) is True
@@ -1067,6 +1068,13 @@ def _compose_one_instruction_parts(
                 "MarketSnapshot, ticker for FinanceStockPreview, mode for the "
                 "portfolio picker, and audience for a sharing offer. The tool "
                 "constructs the surface and does not accept layouts or portfolio values."
+            )
+        if state_getter(STATE_NATIVE_PORTFOLIO_READ) is True:
+            identity_instruction += (
+                " For factual portfolio questions, call read_portfolio_context alone with detail "
+                "expanded. Use active for the current saved selection, including after reopening "
+                "this conversation. Use last_card only for a specific earlier card. Name the "
+                "reported source and date when supplied. Answer from the tool result."
             )
     elif callable(state_getter) and typed_finance_chat:
         identity_instruction += (

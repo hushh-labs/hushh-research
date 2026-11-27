@@ -9,7 +9,7 @@ const NATIVE_ERROR_CODES = [
   "POD_CHAT_BUSY", "POD_CHAT_UPDATING", "AGENT_ERROR", "PUPPY_NOT_CONFIGURED",
   "PUPPY_SESSION_UNAVAILABLE", "PUPPY_KEY_REFUSED", "PUPPY_UNAVAILABLE",
 ] as const;
-const NATIVE_EVENTS = new Set(["message", "start", "activity", "review", "done", "error"]);
+const NATIVE_EVENTS = new Set(["message", "start", "activity", "portfolio_context", "review", "done", "error"]);
 type NativeErrorCode = typeof NATIVE_ERROR_CODES[number];
 
 export type NativeAdkTurnOutput = {
@@ -22,6 +22,7 @@ export type NativeAdkTurnOutput = {
   serverMessageId?: string;
   activity?: string[];
   locationChatProposal?: MainLocationProposal;
+  portfolioContext?: { requestId: string; request: unknown };
 };
 
 export function createNativeAdkTurnOutput(): NativeAdkTurnOutput {
@@ -92,6 +93,9 @@ export function consumeNativeAdkFrames(
     } else if (event === "activity" && typeof payload.label === "string" &&
         /^[A-Za-z0-9_. -]{1,80}$/.test(payload.label) && (next.activity?.length ?? 0) < 32) {
       next = { ...next, activity: [...(next.activity ?? []), payload.label] };
+    } else if (event === "portfolio_context" && next.sessionId && !next.portfolioContext &&
+        typeof payload.requestId === "string" && /^[a-f0-9]{48}$/.test(payload.requestId)) {
+      next = { ...next, portfolioContext: { requestId: payload.requestId, request: payload.request } };
     } else if (event === "done" && Object.keys(payload).length === 0) {
       next = { ...next, status: "complete", settledText: next.settledText + next.partialText, partialText: "" };
     } else if (event === "review" && Object.keys(payload).length === 0) {

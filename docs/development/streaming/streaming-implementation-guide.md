@@ -456,6 +456,14 @@ does not accept layouts, portfolio records, recipients, or confirmation.
 The browser's app-owned Finance controllers still load the unlocked
 portfolio and perform any reviewed actions.
 
+Native Finance portfolio follow-ups use the existing device-side vault reader
+within the same ADK run. One requests facts through the closed portfolio tool
+when the question needs them. An answer uses the current selection after
+reopen. The device does a fresh read on demand, and a short-lived request
+reference carries the facts to the model callback. The receipt policy keeps
+the answer out of derived memory, restores only a receipt in history, and
+reserves sharing for the app-owned review flow.
+
 The owner Cloud Chat candidate can select `native-adk-v1` before dispatch.
 The web build opts in with `NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT=1` and verifies
 the signed-in pod advertises `nativeAdkChatVersion: 1`. Native turns send one

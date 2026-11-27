@@ -65,6 +65,7 @@ def build_chat_adk_app(
     *,
     app_name: str,
     plugins: list[BasePlugin] | None = None,
+    allow_context_cache: bool = True,
 ) -> App:
     resolved_plugins = list(plugins or [])
     if not any(isinstance(plugin, SafeSchemaRetryToolPlugin) for plugin in resolved_plugins):
@@ -76,7 +77,7 @@ def build_chat_adk_app(
         resumability_config=ResumabilityConfig(is_resumable=True),
         **(
             {"context_cache_config": cache}
-            if (cache := _adk_context_cache_config(root_agent)) is not None
+            if allow_context_cache and (cache := _adk_context_cache_config(root_agent)) is not None
             else {}
         ),
     )
@@ -114,7 +115,9 @@ def build_native_visual_chat_app(
         if getattr(tool, "__name__", None) not in legacy_finance_cards
     ]
     root_agent.tools.append(presenter)
-    return build_chat_adk_app(root_agent, app_name=app_name, plugins=plugins)
+    return build_chat_adk_app(
+        root_agent, app_name=app_name, plugins=plugins, allow_context_cache=not finance_only
+    )
 
 
 def _official_visual_presenter(root_agent: LlmAgent):

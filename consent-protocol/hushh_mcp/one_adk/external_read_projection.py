@@ -35,6 +35,7 @@ from hushh_mcp.one_adk.plaid_connector_tools import (
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_TOOL,
     PRIVATE_PORTFOLIO_ANSWER,
+    STATE_NATIVE_PORTFOLIO_READ,
     STATE_PORTFOLIO_CONTEXT_ENABLED,
     STATE_PORTFOLIO_CONTEXT_PRIVATE,
 )
@@ -72,6 +73,7 @@ _EPHEMERAL = frozenset(
         STATE_PLAID_POSTURE,
         STATE_PLAID_RESULT,
         STATE_PORTFOLIO_CONTEXT_ENABLED,
+        STATE_NATIVE_PORTFOLIO_READ,
         STATE_ACCOUNT_CONTEXT_ENABLED,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",

@@ -368,6 +368,10 @@ class PodChatContext:
             head, memory, prepare_memory = await self._prepare_text_head(
                 options, include_client_receipt_tools=False
             )
+            if turn.portfolio_read is not None:
+                from google.adk.tools import FunctionTool
+
+                head.tools.append(FunctionTool(turn.portfolio_read.read_portfolio_context))
             app = build_native_visual_chat_app(
                 head,
                 app_name=ONE_APP_NAME,

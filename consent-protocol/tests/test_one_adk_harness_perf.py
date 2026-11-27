@@ -280,6 +280,145 @@ async def test_dev_finance_presenter_streams_catalog_offers_with_the_installed_a
     )
 
 
+async def test_native_followup_reads_the_active_portfolio_inside_a_fresh_runner():
+    from google.adk.agents import LlmAgent
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.adk.tools import FunctionTool
+
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+    from hushh_mcp.one_adk.native_portfolio_context import (
+        NativePortfolioContext,
+        resolve_native_portfolio,
+    )
+    from hushh_mcp.one_adk.portfolio_context_contract import (
+        PORTFOLIO_CONTEXT_TOOL,
+        PRIVATE_PORTFOLIO_ANSWER,
+        STATE_NATIVE_PORTFOLIO_READ,
+        STATE_PORTFOLIO_CONTEXT_ENABLED,
+    )
+    from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+
+    query = {"section": "holdings", "source": "active", "detail": "expanded"}
+    holdings = [
+        {
+            "ticker": f"TEST{position}",
+            "name": "SYNTHETIC_PORTFOLIO",
+            "currency": "USD",
+            "market_value": float(position),
+        }
+        for position in range(57)
+    ]
+    facts = {
+        "status": "ok",
+        "selection": "active",
+        "source": "statement",
+        "date_kind": "statement_end",
+        "as_of": "2026-10-31",
+        "currency": "USD",
+        "holdings": {
+            "positions": holdings,
+            "total_count": len(holdings),
+            "matched_count": len(holdings),
+            "investment_rows": len(holdings),
+            "unique_tickers": len(holdings),
+        },
+    }
+    state = {
+        "hussh:user_id": "owner",
+        "hussh:conversation_id": "thread",
+        "hussh:consent_token": "synthetic",
+        STATE_PORTFOLIO_CONTEXT_ENABLED: 2,
+        STATE_NATIVE_PORTFOLIO_READ: True,
+    }
+    reads = NativePortfolioContext("owner", "thread", "run", b"binding")
+
+    class FollowupModel(BaseLlm):
+        asked: bool = False
+
+        async def generate_content_async(self, llm_request, stream=False):
+            if self.asked:
+                prompt = llm_request.contents[-1].parts[0].text
+                assert "TEST56" in prompt
+                assert llm_request.config.tool_config.function_calling_config.mode == "NONE"
+                part = genai_types.Part(text="SYNTHETIC_PORTFOLIO answered")
+            else:
+                assert "SYNTHETIC_PORTFOLIO" not in str(llm_request.contents)
+                self.asked = True
+                part = genai_types.Part(
+                    function_call=genai_types.FunctionCall(name=PORTFOLIO_CONTEXT_TOOL, args=query)
+                )
+            yield LlmResponse(
+                content=genai_types.Content(role="model", parts=[part]), turn_complete=True
+            )
+
+    app = build_chat_adk_app(
+        LlmAgent(
+            name="one",
+            model=FollowupModel(model="synthetic"),
+            tools=[FunctionTool(reads.read_portfolio_context)],
+            before_model_callback=receipt_before_model,
+            after_model_callback=receipt_after_model,
+        ),
+        app_name="one",
+    )
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="thread")
+    replies = []
+    try:
+        async with Runner(app=app, session_service=sessions) as runner:
+
+            async def source():
+                async for event in runner.run_async(
+                    user_id="owner",
+                    session_id="thread",
+                    state_delta=state,
+                    run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+                    new_message=genai_types.Content(
+                        role="user", parts=[genai_types.Part(text="Which holdings do I have now?")]
+                    ),
+                ):
+                    yield event
+
+            async for frame in native_chat_frames(
+                source,
+                owner_id="owner",
+                conversation_id="thread",
+                require_access=AsyncMock(),
+                settle=AsyncMock(),
+                admission=PodUpgradeAdmission(log_resolver=lambda: None),
+                incarnation="portfolio-test",
+                announce_start=True,
+                portfolio_offer=reads.offer,
+            ):
+                replies.append(frame)
+                if frame.startswith(b"event: portfolio_context\n"):
+                    request = json.loads(frame.split(b"data: ", 1)[1])
+                    assert request["request"] == query
+                    kwargs = dict(
+                        owner="owner",
+                        thread="thread",
+                        run="run",
+                        request_id=request["requestId"],
+                        result=facts,
+                    )
+                    assert not resolve_native_portfolio(**kwargs, binding=b"foreign-device")
+                    assert resolve_native_portfolio(**kwargs, binding=b"binding")
+                    assert not resolve_native_portfolio(**kwargs, binding=b"binding")
+    finally:
+        reads.finish()
+    assert replies[-1].startswith(b"event: done\n")
+    output = b"".join(replies)
+    assert b"SYNTHETIC_PORTFOLIO answered" in output
+    assert b"TEST56" not in output
+    stored = await sessions.get_session(app_name="one", user_id="owner", session_id="thread")
+    assert stored is not None
+    redacted = durable_external_read_projection(stored).model_dump_json()
+    assert PRIVATE_PORTFOLIO_ANSWER in redacted
+    assert "SYNTHETIC_PORTFOLIO" not in redacted
+    assert "one_secret_ref:" not in redacted
+
+
 async def test_native_stream_refuses_to_complete_when_access_ends_before_settlement():
     async def open_fixture():
         yield Event(

@@ -1541,11 +1541,16 @@ async function streamAgentChatAttempt(input: {
       const [connectors, turnLocation] = await Promise.all([connectorProjection(), resolveTurnLocation()]);
       assertTurnSessionCurrent();
       const approval = recovered?.approval;
+      const runId = crypto.randomUUID();
+      const portfolio = visualMode && !recovered && input.vaultKey && input.vaultOwnerToken
+        ? { userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken, runId }
+        : undefined;
       const body = JSON.stringify({
         transport: NATIVE_CLOUD_CHAT_TRANSPORT,
         ...(visualMode ? { visualMode } : {}),
+        ...(portfolio ? { portfolioContext: true } : {}),
         threadId,
-        runId: crypto.randomUUID(),
+        runId,
         ...(recovered ? { decision: { interruptId: recovered.interruptId, confirmed: Boolean(approval) } }
           : { message: input.message }),
         forwardedProps: {
@@ -1572,7 +1577,7 @@ async function streamAgentChatAttempt(input: {
       try {
         const output = await streamNativeCloudChat({
           request: { method: "POST", headers, body, signal: transportAbort.signal },
-          conversationId: threadId, isCurrent: current, handlers, locationChatReview: !nativeResume && input.locationChatReview,
+          conversationId: threadId, isCurrent: current, handlers, portfolio, locationChatReview: !nativeResume && input.locationChatReview,
         });
         if (output.status === "error") throw new Error(formatAgentChatErrorMessage("", output.errorCode));
         if (!handlers.onNativeOutput && output.settledText) handlers.onToken?.(output.settledText);

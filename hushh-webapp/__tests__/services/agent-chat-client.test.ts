@@ -200,7 +200,7 @@ describe("native Cloud chat", () => {
     expect(mockTransport.runAgent).toHaveBeenCalledOnce();
 
     ownerPod.mockReset()
-      .mockResolvedValueOnce(Response.json({ nativeFinanceVisualVersion: 1, nativeLocationChatReview: true }))
+      .mockResolvedValueOnce(Response.json({ nativeFinanceVisualVersion: 2, nativeLocationChatReview: true }))
       .mockResolvedValueOnce(new Response(
         'event: start\ndata: {"sessionId":"native-thread"}\n\n' +
         'data: {"author":"one","content":{"parts":[{"text":"Finance preview"}]}}\n\n' +
@@ -226,6 +226,49 @@ describe("native Cloud chat", () => {
     expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.filter(([path]) => path === "agent-chat"))
       .toHaveLength(1);
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it("reads the current portfolio on demand after reopening a native conversation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT", "0");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const ownerPod = vi.mocked(ApiService.ownerPodRequest);
+    const query = { source: "active", section: "holdings", detail: "expanded" };
+    const requestId = "a".repeat(48);
+    const onReceiptPrivate = vi.fn();
+    const encoded = new TextEncoder();
+    let controller: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+        value.enqueue(encoded.encode('event: start\ndata: {"sessionId":"native-thread"}\n\n' +
+          `event: portfolio_context\ndata: ${JSON.stringify({ requestId, request: query })}\n\n`));
+      },
+    });
+    portfolioRead.mockResolvedValueOnce({ status: "unavailable", reason: "source_unavailable" });
+    ownerPod.mockReset()
+      .mockResolvedValueOnce(Response.json({ nativeFinanceVisualVersion: 2 }))
+      .mockImplementationOnce(async (_route, _request, _wake, admitted) => {
+        expect(portfolioRead).not.toHaveBeenCalled();
+        admitted?.("dev-pod");
+        return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+      })
+      .mockImplementationOnce(async () => {
+        expect(onReceiptPrivate).toHaveBeenCalledWith("portfolio");
+        controller.enqueue(encoded.encode('data: {"author":"one","content":{"parts":[{"text":"Read settled"}]}}\n\n' +
+          'event: done\ndata: {}\n\n'));
+        controller.close();
+        return new Response(null, { status: 204 });
+      });
+    await streamAgentChat({ ...input, mainChat: true, handlers: { onReceiptPrivate, onNativeOutput: vi.fn() } });
+    expect(portfolioRead).toHaveBeenCalledWith(expect.objectContaining({ threadId: input.conversationId }),
+      query, expect.any(Function));
+    const request = JSON.parse(String(ownerPod.mock.calls[1]?.[1]?.body));
+    expect(request).toMatchObject({ portfolioContext: true, threadId: input.conversationId });
+    expect(request).not.toHaveProperty("positions");
+    const [route, reply, , , pod] = ownerPod.mock.calls[2]!;
+    expect(route).toBe("agent-chat/portfolio-context");
+    expect(pod).toBe("dev-pod");
+    expect(JSON.parse(String(reply?.body))).toMatchObject({ requestId, runId: request.runId, threadId: input.conversationId });
   });
 });
 
