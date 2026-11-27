@@ -1,35 +1,44 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect, useRef, useState } from "react";
-import { customNativePresentationEnabled, nativeInterfacePreferenceAvailable } from "@/lib/capacitor/native-presentation-policy";
+import { applySavedNativeInterface } from "@/lib/capacitor/apply-native-interface";
+import { customNativePresentationEnabled, liveInterfaceSwitchAvailable, nativeInterfacePreferenceAvailable } from "@/lib/capacitor/native-presentation-policy";
 import { useSettings } from "@/lib/services/settings-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import { Switch } from "@/components/ui/switch";
 import { SettingsGroup, SettingsRow } from "./settings-ui";
 
-/** Both presentations use the existing device settings writer. Admission is
- * still the immutable native bootstrap, never this mutable requested value. */
 export function useExperimentalNativeInterface() {
+  useInterfaceRevision();
   const [settings, updateSettings] = useSettings();
   const [available, setAvailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   useEffect(() => { setAvailable(nativeInterfacePreferenceAvailable()); }, []);
   const change = async (value: boolean) => {
-    if (!available || !settings || pending.current || settings.experimentalNativeInterface === value) return;
+    if (!available || !settings || pending.current || (settings.experimentalNativeInterface === value && customNativePresentationEnabled() === value)) return;
     pending.current = true; setSaving(true);
     try {
-      await updateSettings({ experimentalNativeInterface: value });
-      morphyToast.success(value === customNativePresentationEnabled() ? "Pending interface change cancelled." : "Saved. Fully close and reopen the app to apply.");
-    } catch { morphyToast.error("Couldn’t save the native interface preference."); }
+      if (settings.experimentalNativeInterface !== value) await updateSettings({ experimentalNativeInterface: value });
+      if (value === customNativePresentationEnabled()) {
+        morphyToast.success("Current interface kept.");
+      } else {
+        const applied = await applySavedNativeInterface(value).catch(() => false);
+        if (!applied) morphyToast.info("Preference saved. Fully close and reopen the app to switch interfaces.");
+      }
+    } catch { morphyToast.error("Couldn’t save the interface preference. Try again."); }
     finally { pending.current = false; setSaving(false); }
   };
   const active = customNativePresentationEnabled();
-  const selected = settings?.experimentalNativeInterface === true;
-  const pendingChange = available && settings !== null && selected !== active;
+  const saved = settings?.experimentalNativeInterface === true;
+  const live = liveInterfaceSwitchAvailable();
+  const selected = live ? active : saved;
+  const pendingChange = available && settings !== null && saved !== active;
   const description = pendingChange
-    ? `Experimental. ${active ? "Native" : "Standard"} is active now. Fully close and reopen the app to use ${selected ? "native" : "standard"}.`
+    ? live ? `Experimental. ${active ? "Native" : "Standard"} is active. Tap to retry, or fully close and reopen the app to use ${saved ? "native" : "standard"}.`
+      : `Experimental. ${active ? "Native" : "Standard"} is active now. Fully close and reopen the app to use ${saved ? "native" : "standard"}.`
     : `Experimental. ${active ? "Native" : "Standard"} is active now.`;
   return { available, active, selected, pendingChange, description, ready: settings !== null, saving, change };
 }

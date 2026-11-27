@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useLayoutEffect, useSyncExternalStore } from "react";
 import { useSonner } from "sonner";
 import { reconcileNativeFeedback, refreshNativeFeedback, retainNativeFeedbackOwner, receiveNativeFeedbackAction, receiveNativeFeedbackEnd, retainNativeFeedbackConsumer } from "@/lib/capacitor/native-feedback";
@@ -16,6 +17,7 @@ import { resolvedAccentHex } from "@/lib/theme/accent";
 /** Headless Sonner consumer. Native-tagged messages never mount a DOM toaster;
  * native expiry dismisses the same canonical Sonner handle. */
 export function NativeFeedbackToaster() {
+  useInterfaceRevision();
   return customNativePresentationEnabled() ? <NativeFeedbackConsumer /> : null;
 }
 

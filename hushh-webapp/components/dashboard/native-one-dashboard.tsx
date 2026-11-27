@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
 
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -28,6 +29,7 @@ export function NativeOneDashboard(props: OneAgentRosterProps) {
   return <LauncherOwner key={`${props.userId}:${generation}`} {...props} />;
 }
 function LauncherOwner(props: OneAgentRosterProps) {
+  useInterfaceRevision();
   const roster = useOneAgentRosterModel(props);
   const discovery = usePublicProfileDiscoveryEntry(props.userId);
   const tasks = useScheduledTasksModel(props.userId ?? "");

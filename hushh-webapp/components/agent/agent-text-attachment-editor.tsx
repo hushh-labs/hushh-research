@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import {
   useCallback,
   useEffect,
@@ -680,6 +681,7 @@ export function AgentTextAttachmentEditor({
   onCommit: (text: string) => boolean | void | Promise<boolean | void>;
   returnFocusRef: RefObject<HTMLElement | null>;
 }) {
+  useInterfaceRevision();
   const isMobile = useIsMobile();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);

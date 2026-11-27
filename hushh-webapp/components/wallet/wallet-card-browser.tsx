@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, Plus } from "@/components/icons";
@@ -200,7 +201,8 @@ function WebWalletCardBrowser({ cards, selectedNumber, cardholderNames = {}, art
 }
 
 export function WalletCardBrowser(props: WalletCardBrowserProps) {
-  const [native] = useState(() => nativeWalletCardFormsEnabled() && !!props.ownerId && !!props.nativeOperations);
+  useInterfaceRevision();
+  const native = nativeWalletCardFormsEnabled() && !!props.ownerId && !!props.nativeOperations;
   const [localOwner] = useState(() => new NativeWorkspacePresentationOwner());
   if (!native) return <WebWalletCardBrowser {...props} />;
   return <NativeWalletBrowser {...props} presentationOwner={props.presentationOwner ?? localOwner}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { boundNativeWalletArtwork } from "./native-wallet-workspace";
 import { retainNativeFeedbackSink, dismissNativeSinkFeedback, activateNativeSinkFeedback,
   type NativePresentationFeedback, type NativeFeedbackScope } from "./native-feedback-sink";
@@ -25,6 +26,7 @@ export type WorkspaceEditor<D extends WorkspaceDraft> = PrivateProfileEditorMode
 let nextRevision = 0, nextLayout = 0;
 
 export function useNativeWorkspacePresentation() {
+  useInterfaceRevision();
   const [owner] = useState(() => new NativeWorkspacePresentationOwner());
   const status = useSyncExternalStore(owner.subscribe, owner.getSnapshot, owner.getSnapshot);
   return { owner, status, retireForWeb: owner.retireForWeb };
@@ -45,6 +47,7 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
   /** Explicitly retry admission after an owned web handoff was cancelled. */
   activationRevision?: number;
 }) {
+  const interfaceRevision = useInterfaceRevision();
   const appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const vaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
@@ -411,7 +414,7 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
       } catch (error) { if (isCurrent()) await fail(error); }
     })().finally(() => { if (!active) { void handle?.remove(); void editHandle?.remove(); void isolationHandle?.remove(); observer?.disconnect(); void retire().then(retired => { if (retired || !finalOwnerCurrent()) releaseFinal(); }); } });
     return () => { void revoke(); };
-  }, [owner, content.workspace, vaultEpoch, privacy?.generation, privacy?.appIsActive, privacy?.shielded, contentFrame, editorKind, presentationOwner, routeActive, admissionRevision, activationRevision]);
+  }, [owner, content.workspace, vaultEpoch, privacy?.generation, privacy?.appIsActive, privacy?.shielded, contentFrame, editorKind, presentationOwner, routeActive, admissionRevision, activationRevision, interfaceRevision]);
   // The native isolation owner already disables this retained body locally.
   // A matching update readmits current actions after the drawer disappears.
   useLayoutEffect(() => { publish.current(); }, [isolation, webCovered]);

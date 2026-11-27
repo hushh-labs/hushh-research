@@ -102,8 +102,8 @@ const SURFACES: Surface[] = [
       },
       {
         label: "confirmation card render",
-        from: "{pendingAppAction && !pendingAppActionDuplicatesAskCard ? (",
-        to: "{pendingSpecialistDirective && !calendarConnectDirective ? (",
+        from: '{pendingReview === "app" && pendingAppAction ? (',
+        to: '{pendingReview === "specialist" && pendingSpecialistDirective && !calendarConnectDirective ? (',
       },
     ],
   },

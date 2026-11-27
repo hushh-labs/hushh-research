@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { nativeDrawerIsolation } from "./native-drawers";
@@ -196,6 +197,7 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
   column: NativeNavigationColumn | null;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
+  useInterfaceRevision();
   // The native tab bar and native route renderer are one presentation mode.
   // When the coherent renderer is disabled, leave the complete React bar in
   // the slot instead of installing a native control over a different shell.

@@ -1,4 +1,5 @@
 "use client";
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import dynamic from "next/dynamic";
 import { locationReviewActionForLegacyDirective, MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
 import { directLocationShareTerms, ownsLocationTranscript, typedLocationEnableAuthority, usesLocationChildConversation, usesLocationConversation, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
@@ -813,6 +814,7 @@ function AgentChatSplitSection({
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
+  useInterfaceRevision();
   const router = useRouter();
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
