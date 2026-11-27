@@ -15,6 +15,119 @@ from tests.helpers.runtime_config_writer import configuration_arguments, configu
 CANDIDATE_SECRET_NAME = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_17_1"
 
 
+def _feature_binding(environment):
+    binding = {
+        "approved": True,
+        "reportKind": "feature_observations",
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "populationPolicyRevision": "c" * 64,
+        "reconciliationDigest": "d" * 64,
+        "coverageFrom": "2026-11-22",
+    }
+    if environment == "uat":
+        binding.update(databaseName="postgres", databaseUser="hushh_uat_app")
+    return binding
+
+
+@pytest.mark.parametrize(
+    "environment,candidate,candidate_only,encoded",
+    [
+        ("production", False, False, False),
+        ("production", True, False, True),
+        ("production", True, True, False),
+        ("uat", False, False, False),
+    ],
+)
+def test_feature_binding_survives_the_actual_runtime_writer(
+    monkeypatch, plg_runtime_sync, environment, candidate, candidate_only, encoded
+):
+    key = (
+        "one_metrics_uat_feature_observations_binding_json"
+        if environment == "uat"
+        else "one_metrics_feature_observations_binding_json"
+    )
+    binding = _feature_binding(environment)
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        environment,
+        candidate,
+        {key: json.dumps(binding) if encoded else binding},
+        candidate_only=candidate_only,
+    )
+    actual = json.loads(writes[target])
+    assert actual[key] == binding
+    assert "unowned_configuration" not in actual
+    assert "one_plg_export_account_ids" not in actual
+    if candidate:
+        assert "BACKEND_RUNTIME_CONFIG_JSON" not in writes
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_missing_feature_binding_stays_absent(plg_runtime_sync, environment):
+    helper = plg_runtime_sync._runtime_config_retention["_retained_feature_observation_binding"]
+    assert helper({}, project="unconfigured", environment=environment) == {}
+
+
+@pytest.mark.parametrize(
+    "environment,project,stored_environment,key_environment",
+    [
+        ("dev", "hushh-pda-dev", "dev", "production"),
+        ("uat", "hushh-pda-uat", "uat", "production"),
+        ("production", "hushh-pda", "production", "uat"),
+        ("production", "hushh-pda-uat", "production", "production"),
+        ("uat", "hushh-pda-uat", "production", "uat"),
+    ],
+)
+def test_feature_binding_cannot_cross_environment_authority(
+    plg_runtime_sync, environment, project, stored_environment, key_environment
+):
+    key = (
+        "one_metrics_uat_feature_observations_binding_json"
+        if key_environment == "uat"
+        else "one_metrics_feature_observations_binding_json"
+    )
+    helper = plg_runtime_sync._runtime_config_retention["_retained_feature_observation_binding"]
+    with pytest.raises(ValueError, match="different environment"):
+        helper(
+            {
+                "environment": stored_environment,
+                "google_cloud_project": project,
+                key: _feature_binding(key_environment),
+            },
+            project=project,
+            environment=environment,
+        )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"approved": False},
+        {"definitionVersion": "2"},
+        {"sourceGeneration": "wrong"},
+        {"coverageFrom": "2026-02-30"},
+        {"databaseUser": "bad user"},
+        {"accountIds": ["private"]},
+    ],
+)
+def test_feature_binding_rejects_unapproved_or_extended_shapes(plg_runtime_sync, change):
+    key = "one_metrics_uat_feature_observations_binding_json"
+    helper = plg_runtime_sync._runtime_config_retention["_retained_feature_observation_binding"]
+    with pytest.raises(ValueError, match="exact approved shape"):
+        helper(
+            {
+                "environment": "uat",
+                "google_cloud_project": "hushh-pda-uat",
+                key: {**_feature_binding("uat"), **change},
+            },
+            project="hushh-pda-uat",
+            environment="uat",
+        )
+
+
 def _write_configuration(
     monkeypatch,
     module,
