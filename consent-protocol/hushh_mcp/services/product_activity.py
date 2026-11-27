@@ -177,8 +177,14 @@ def observe(
         # The expansion is optional: old schemas and rolled-back columns keep
         # accepting observations as unknown. Use the same table lock as INSERT
         # before checking capability, so a concurrent rollback cannot race it.
-        result_column = ""
-        result_value = ""
+        insert_sql = """INSERT INTO one_product_activity_observations
+          (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at)
+          SELECT :event,:uid,CAST(:generation AS UUID),:agent,:action,:catalog,:source,:phase,:operation,:at,:at + INTERVAL '7 days'
+          FROM one_product_activity_epochs epoch
+          WHERE epoch.user_id=:uid AND epoch.generation=CAST(:generation AS UUID)
+            AND (SELECT COUNT(*) FROM one_product_activity_observations
+              WHERE user_id=:uid AND observed_at>=:day_start) < :cap
+          ON CONFLICT(event_id) DO NOTHING RETURNING event_id"""
         if event_result is not None:
             conn.execute(text("LOCK TABLE one_product_activity_observations IN ROW EXCLUSIVE MODE"))
             supports_result = conn.execute(
@@ -189,17 +195,16 @@ def observe(
                 AND NOT attisdropped)""")
             ).scalar()
             if supports_result:
-                result_column = ",event_result"
-                result_value = ",:event_result"
-        result = conn.execute(
-            text(f"""INSERT INTO one_product_activity_observations
-          (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at{result_column})
-          SELECT :event,:uid,CAST(:generation AS UUID),:agent,:action,:catalog,:source,:phase,:operation,:at,:at + INTERVAL '7 days'{result_value}
+                insert_sql = """INSERT INTO one_product_activity_observations
+          (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at,event_result)
+          SELECT :event,:uid,CAST(:generation AS UUID),:agent,:action,:catalog,:source,:phase,:operation,:at,:at + INTERVAL '7 days',:event_result
           FROM one_product_activity_epochs epoch
           WHERE epoch.user_id=:uid AND epoch.generation=CAST(:generation AS UUID)
             AND (SELECT COUNT(*) FROM one_product_activity_observations
               WHERE user_id=:uid AND observed_at>=:day_start) < :cap
-          ON CONFLICT(event_id) DO NOTHING RETURNING event_id"""),
+          ON CONFLICT(event_id) DO NOTHING RETURNING event_id"""
+        result = conn.execute(
+            text(insert_sql),
             {
                 "event_result": event_result,
                 "event": event_id,
