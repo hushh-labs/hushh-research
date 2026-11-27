@@ -265,11 +265,14 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
     let removePrivacyObservation: (() => void) | undefined;
     const reconcilePrivacyAdmission = (event: NativeSessionPrivacyState) => {
       if (cancelled) return;
+      // Validation and the native listener can acknowledge the same release.
+      // A tap made after that release still belongs to this active session.
+      if (!event.shielded && event.appIsActive && releasedPrivacyGeneration === event.generation) return;
       invalidateConfirmations();
       if (event.shielded || !event.appIsActive) {
         releasedPrivacyGeneration = undefined;
         scrollDelivery.current?.update(null);
-      } else if (releasedPrivacyGeneration !== event.generation) {
+      } else {
         releasedPrivacyGeneration = event.generation;
         // Retry only presentation admission, never a choice. Validation can
         // release the cover through its completion without a listener event.
