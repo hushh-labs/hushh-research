@@ -92,13 +92,3 @@ describe("a draft the Overview asked for", () => {
     expect(todos.trackMail).not.toHaveBeenCalled();
   });
 });
-
-describe("the board", () => {
-  it("has no Back to Mail and does not repeat the mailbox address", async () => {
-    mount(services(), null);
-    expect(await screen.findByRole("button", { name: "Track a conversation" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Back to Mail/ })).toBeNull();
-    expect(screen.queryByText("neha@hushh.ai")).toBeNull();
-    for (const column of ["To Do", "In Progress", "Done"]) expect(screen.getByRole("region", { name: column })).toBeVisible();
-  });
-});

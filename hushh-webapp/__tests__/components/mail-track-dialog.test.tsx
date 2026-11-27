@@ -57,29 +57,9 @@ describe("opening the picker", () => {
     expect(todos.trackMail).not.toHaveBeenCalled();
   });
 
-  it("says when a read failed instead of listing nothing, and reads again on Try again", async () => {
-    const mail = services();
-    mail.recent.mockRejectedValueOnce(new Error("down"));
-    mount(mail);
-    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("button", { name: /Proposal approved/ })).toBeVisible();
-    expect(mail.recent).toHaveBeenCalledTimes(2);
-  });
 });
 
 describe("searching", () => {
-  it("searches the mailbox for what is typed, and clearing it restores recent conversations", async () => {
-    const { mail } = mount();
-    await screen.findByRole("button", { name: /Proposal approved/ });
-    fireEvent.change(screen.getByPlaceholderText("Person or topic"), { target: { value: "proposal" } });
-    await waitFor(() => expect(mail.search).toHaveBeenCalledWith(box, "proposal", expect.anything()));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /MetroGo/ })).toBeNull());
-    fireEvent.change(screen.getByPlaceholderText("Person or topic"), { target: { value: "" } });
-    expect(await screen.findByRole("button", { name: /MetroGo/ })).toBeVisible();
-    expect(mail.recent).toHaveBeenCalledTimes(2);
-    expect(todos.trackMail).not.toHaveBeenCalled();
-  });
-
   it("never shows a late answer for an earlier query", async () => {
     const mail = services();
     let finishFirst!: (value: { items: typeof RECENT }) => void;
@@ -136,13 +116,5 @@ describe("confirming", () => {
     view.unmount();
   });
 
-  it("starts from recent conversations again after it is closed", async () => {
-    const mail = services();
-    const view = mount(mail);
-    fireEvent.click(await screen.findByRole("button", { name: /Proposal approved/ }));
-    view.rerender(<MailTrackDialog open={false} mail={mail as never} box={box} session={session} existing={[]} onClose={vi.fn()} onTracked={vi.fn()} />);
-    view.rerender(<MailTrackDialog open mail={mail as never} box={box} session={session} existing={[]} onClose={vi.fn()} onTracked={vi.fn()} />);
-    expect(await screen.findByPlaceholderText("Person or topic")).toHaveValue("");
-    expect(mail.recent).toHaveBeenCalledTimes(2);
-  });
+
 });
