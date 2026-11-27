@@ -14,20 +14,26 @@ export type PortfolioContextRequest = {
   section: "holdings" | "allocation" | "performance";
   source: "active" | "last_card";
   ticker?: string;
+  detail?: "expanded";
 };
 
 const TICKER = /^[A-Z0-9][A-Z0-9.-]{0,15}$/;
 const MAX_CARD_REFERENCES = 16;
 const REFERENCE_TTL_MS = 30 * 60 * 1000;
-const MAX_ANSWER_POSITIONS = 40;
+const MAX_LEGACY_POSITIONS = 40;
+const MAX_EXPANDED_POSITIONS = 64;
 
 export function parsePortfolioContextRequest(value: unknown): PortfolioContextRequest | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { section, source, ticker, ...extra } = value as Record<string, unknown>;
+  const { section, source, ticker, detail, ...extra } = value as Record<string, unknown>;
   if (Object.keys(extra).length || (source !== "active" && source !== "last_card")) return null;
   if (section !== "holdings" && section !== "allocation" && section !== "performance") return null;
   if ("ticker" in value && (section !== "holdings" || typeof ticker !== "string" || !TICKER.test(ticker))) return null;
-  return { section, source, ...(typeof ticker === "string" ? { ticker } : {}) };
+  if ("detail" in value && detail !== "expanded") return null;
+  return {
+    section, source, ...(typeof ticker === "string" ? { ticker } : {}),
+    ...(detail === "expanded" ? { detail } : {}),
+  };
 }
 
 type PortfolioSource = {
@@ -213,6 +219,18 @@ export async function readPortfolioContext(
   const matched = request.ticker ? positions.filter(position => position.ticker === request.ticker) : positions;
   return {
     ...result,
-    holdings: { positions: matched.slice(0, MAX_ANSWER_POSITIONS), total_count: positions.length, matched_count: matched.length },
+    holdings: {
+      positions: matched.slice(0, request.detail === "expanded" ? MAX_EXPANDED_POSITIONS : MAX_LEGACY_POSITIONS),
+      total_count: positions.length,
+      matched_count: matched.length,
+      ...(request.detail === "expanded" ? {
+        investment_rows: (portfolio.holdings ?? []).filter(
+          row => !("pending_delete" in row && row.pending_delete === true),
+        ).length,
+        unique_tickers: positions.every(row => row.ticker !== null)
+          ? new Set(positions.map(row => row.ticker)).size
+          : null,
+      } : {}),
+    },
   };
 }

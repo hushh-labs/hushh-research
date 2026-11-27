@@ -1,7 +1,7 @@
 """Closed, read-only facts for one owner-authorized portfolio answer."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StringConstraints
 
@@ -18,7 +18,7 @@ PORTFOLIO_CONTEXT_DESCRIPTION = (
     "Choose only the section needed; ticker optionally filters holdings to a named ticker."
 )
 
-PORTFOLIO_CONTEXT_PARAMETERS = {
+PORTFOLIO_CONTEXT_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "section": {"type": "string", "enum": ["holdings", "allocation", "performance"]},
@@ -28,6 +28,31 @@ PORTFOLIO_CONTEXT_PARAMETERS = {
     "required": ["section", "source"],
     "additionalProperties": False,
 }
+
+MAX_LEGACY_POSITIONS = 40
+MAX_EXPANDED_POSITIONS = 64
+
+
+def portfolio_context_version(forwarded: dict) -> int:
+    legacy = forwarded.pop("portfolioContextContract", None)
+    expanded = forwarded.pop("portfolioContextExpanded", None)
+    if type(legacy) is not int or legacy != 1:
+        return 0
+    return 2 if expanded is True else 1
+
+
+def portfolio_context_parameters(version: int) -> dict[str, Any]:
+    if version != 2:
+        return PORTFOLIO_CONTEXT_PARAMETERS
+    return {
+        **PORTFOLIO_CONTEXT_PARAMETERS,
+        "properties": {
+            **PORTFOLIO_CONTEXT_PARAMETERS["properties"],
+            "detail": {"type": "string", "enum": ["expanded"]},
+        },
+        "required": [*PORTFOLIO_CONTEXT_PARAMETERS["required"], "detail"],
+    }
+
 
 Section = Literal["holdings", "allocation", "performance"]
 Source = Literal["active", "last_card"]
@@ -47,6 +72,7 @@ class _Request(_Closed):
     section: Section
     source: Source
     ticker: Ticker | None = None
+    detail: Literal["expanded"] | None = None
 
 
 class _Holding(_Closed):
@@ -57,9 +83,11 @@ class _Holding(_Closed):
 
 
 class _Holdings(_Closed):
-    positions: list[_Holding] = Field(max_length=40)
+    positions: list[_Holding] = Field(max_length=MAX_EXPANDED_POSITIONS)
     total_count: SafeCount
     matched_count: SafeCount
+    investment_rows: SafeCount | None = None
+    unique_tickers: SafeCount | None = None
 
 
 class _Allocation(_Closed):
@@ -103,6 +131,8 @@ def validate_portfolio_context_request(value: object) -> dict:
         and (request.section != "holdings" or request.ticker is None)
     ):
         raise ValueError("Ticker filters apply only to holdings.")
+    if isinstance(value, dict) and "detail" in value and request.detail is None:
+        raise ValueError("Portfolio detail is invalid.")
     return request.model_dump(exclude_none=True)
 
 
@@ -130,6 +160,23 @@ def validate_portfolio_context_result(request: dict, value: object) -> dict:
         <= result.holdings.total_count
     ):
         raise ValueError("Portfolio holding counts are inconsistent.")
+    if result.holdings:
+        holdings = result.holdings
+        counts = {"investment_rows", "unique_tickers"}
+        if request.get("detail") != "expanded":
+            if len(holdings.positions) > MAX_LEGACY_POSITIONS or counts & holdings.model_fields_set:
+                raise ValueError("Legacy portfolio results exceed the admitted detail.")
+        elif (
+            not counts <= holdings.model_fields_set
+            or holdings.investment_rows is None
+            or holdings.investment_rows < holdings.total_count
+            or (
+                holdings.unique_tickers is not None
+                and holdings.unique_tickers > holdings.total_count
+            )
+            or len(holdings.positions) != min(holdings.matched_count, MAX_EXPANDED_POSITIONS)
+        ):
+            raise ValueError("Expanded portfolio counts are inconsistent.")
     if (
         result.holdings
         and request.get("ticker")
