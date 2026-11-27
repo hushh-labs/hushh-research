@@ -178,6 +178,7 @@ class ActiveOwnerLease:
     last_activity_s: float
     surrogate_expires_at_s: float = 0.0
     claim_expires_at_s: float = 0.0
+    last_sentinel_sync_s: float = 0.0
     active_ws_count: int = 0
     active_http_count: int = 0
 
@@ -345,6 +346,24 @@ class SandboxEdgeGatewayManager:
             pass
         return 0
 
+    def _build_lease_domain_rules(self) -> dict[str, str]:
+        domain_rules: dict[str, str] = {
+            "oauth2.googleapis.com": "allow",
+            "openidconnect.googleapis.com": "allow",
+            "gmail.googleapis.com": "allow",
+            "www.googleapis.com": "allow",
+        }
+        extra_domains = str(os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or "").strip()
+        for extra in extra_domains.split(","):
+            host_clean = extra.strip().lower()
+            if host_clean:
+                domain_rules[host_clean] = "allow"
+        if self.hub_url:
+            hub_host = (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
+            if hub_host:
+                domain_rules[hub_host] = "allow"
+        return domain_rules
+
     async def _activate_claimed_sandbox(
         self,
         *,
@@ -405,26 +424,7 @@ class SandboxEdgeGatewayManager:
                     "domain_rules"
                     in inspect.signature(self.sentinel_control.set_lease_policy_with_ip).parameters
                 ):
-                    domain_rules: dict[str, str] = {
-                        "oauth2.googleapis.com": "allow",
-                        "openidconnect.googleapis.com": "allow",
-                        "gmail.googleapis.com": "allow",
-                        "www.googleapis.com": "allow",
-                    }
-                    extra_domains = str(
-                        os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or ""
-                    ).strip()
-                    for extra in extra_domains.split(","):
-                        host_clean = extra.strip().lower()
-                        if host_clean:
-                            domain_rules[host_clean] = "allow"
-                    if self.hub_url:
-                        hub_host = (
-                            (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
-                        )
-                        if hub_host:
-                            domain_rules[hub_host] = "allow"
-                    policy_kwargs["domain_rules"] = domain_rules
+                    policy_kwargs["domain_rules"] = self._build_lease_domain_rules()
                 sentinel_tasks.append(
                     asyncio.to_thread(
                         self.sentinel_control.set_lease_policy_with_ip,
@@ -661,6 +661,29 @@ class SandboxEdgeGatewayManager:
                     with contextlib.suppress(Exception):
                         await asyncio.to_thread(self.claim_client.delete_claim, existing.claim_name)
                 else:
+                    if (
+                        self.sentinel_control is not None
+                        and hasattr(self.sentinel_control, "set_lease_policy_with_ip")
+                        and (now_s - existing.last_sentinel_sync_s) >= 30.0
+                    ):
+                        sync_kwargs: dict[str, Any] = {
+                            "lease_id": existing.lease_id,
+                            "owner_id": clean_id,
+                            "pod_ip": existing.pod_ip,
+                        }
+                        if (
+                            "domain_rules"
+                            in inspect.signature(
+                                self.sentinel_control.set_lease_policy_with_ip
+                            ).parameters
+                        ):
+                            sync_kwargs["domain_rules"] = self._build_lease_domain_rules()
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(
+                                self.sentinel_control.set_lease_policy_with_ip,
+                                **sync_kwargs,
+                            )
+                            existing.last_sentinel_sync_s = now_s
                     existing.last_activity_s = now_s
                     return existing
 
@@ -675,6 +698,7 @@ class SandboxEdgeGatewayManager:
             lease_id = ""
             claim_created_at_s = 0.0
             endpoint: ClaimedSandboxEndpoint | None = None
+            placement_epoch: int = 0
             pub_b64 = ""
             pod_key_id = ""
             for claim_attempt in range(2):
@@ -729,6 +753,7 @@ class SandboxEdgeGatewayManager:
                     activated_at_s + float(surrogate_ttl) if surrogate_ttl > 0 else 0.0
                 ),
                 claim_expires_at_s=claim_created_at_s + float(claim_shutdown_s),
+                last_sentinel_sync_s=activated_at_s,
             )
             self._leases[clean_id] = lease
             return lease
