@@ -45,6 +45,7 @@ const resultOnlyEvents: ReadonlySet<ObservabilityEventName> = new Set([
   "gmail_disconnect_result", "gmail_receipts_loaded", "hushh_mail_signin_screen_view",
   "portfolio_viewed", "recommendation_viewed", "analysis_stream_started",
   "import_parse_completed", "import_save_completed",
+  "import_upload_started", "import_quality_gate_passed", "import_quality_gate_failed",
   "one_location_share_confirmed", "one_location_check_in_completed",
   "one_location_check_out_completed", "one_location_sos_triggered",
   "one_location_request_sent", "one_location_public_link_created",
