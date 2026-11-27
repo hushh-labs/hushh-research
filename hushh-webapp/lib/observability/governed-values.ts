@@ -8,6 +8,8 @@ import {
   GMAIL_SYNC_RESULT_ACTIONS,
   ONE_CALENDAR_ACTIONS,
   ONE_CRM_ACTIONS,
+  ONE_CAREER_ACTIONS,
+  ONE_DOCUMENT_REQUEST_ACTIONS,
   ONE_KYC_ACTIONS,
   ONE_LOCATION_JOURNEY_ACTIONS,
   ONE_MEMORY_ACTIONS,
@@ -32,6 +34,8 @@ export const GOVERNED_ACTIONS_BY_EVENT: Partial<Record<ObservabilityEventName, R
   one_calendar_action: new Set(ONE_CALENDAR_ACTIONS),
   one_kyc_action: new Set(ONE_KYC_ACTIONS),
   one_crm_action: new Set(ONE_CRM_ACTIONS),
+  one_career_action: new Set(ONE_CAREER_ACTIONS),
+  one_document_request_action: new Set(ONE_DOCUMENT_REQUEST_ACTIONS),
   gmail_sync_result: new Set(GMAIL_SYNC_RESULT_ACTIONS),
 };
 const GOVERNED_RESULTS = new Set(["success", "expected_error", "error"]);
@@ -48,6 +52,8 @@ export const GOVERNED_RESULTS_BY_EVENT: Partial<Record<ObservabilityEventName, R
   one_calendar_action: GOVERNED_RESULTS,
   one_kyc_action: GOVERNED_RESULTS,
   one_crm_action: GOVERNED_RESULTS,
+  one_career_action: GOVERNED_RESULTS,
+  one_document_request_action: GOVERNED_RESULTS,
 };
 
 /*

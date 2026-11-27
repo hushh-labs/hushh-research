@@ -23,7 +23,9 @@ const state = vi.hoisted(() => ({
   quote: vi.fn(),
   invalidate: vi.fn(),
   recipientIdentity: vi.fn(),
+  track: vi.fn(),
 }));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: state.track }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConsentMutated: state.invalidate } }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }),
@@ -69,6 +71,7 @@ vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="legacy-document-review">{requestId}</div>,
 }));
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 const personRef = "11111111-1111-4111-8111-111111111111";
@@ -111,6 +114,7 @@ describe("asking a connection about their Drive", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     state.uid = "b";
+    publishValidatedAuthSessionOwner(state.uid);
     state.unlocked = true;
     state.epoch = 1;
     state.token = "owner-b";
@@ -171,6 +175,7 @@ describe("asking a connection about their Drive", () => {
       expect(card).toHaveTextContent(`${requestId}:potential bank statement`);
       expect(card).toHaveAttribute("data-direction", "outgoing");
       expect(state.createQuery).toHaveBeenCalledOnce();
+      expect(state.track).toHaveBeenCalledExactlyOnceWith("one_document_request_action", { action: "question_send", result: "success" });
       expect(state.createQuery).toHaveBeenCalledWith(
         "owner-b",
         { ownerPersonRef: personRef, clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/), query: "potential bank statement" },
@@ -196,6 +201,7 @@ describe("asking a connection about their Drive", () => {
     await open();
     send();
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't confirm sending. Try again.");
+    expect(state.track).toHaveBeenCalledExactlyOnceWith("one_document_request_action", { action: "question_send", result: "error" });
     const firstId = state.createQuery.mock.calls[0][1].clientRequestId;
     send();
     await waitFor(() => expect(state.createQuery).toHaveBeenCalledTimes(2));
@@ -262,6 +268,7 @@ describe("asking a connection about their Drive", () => {
     await act(async () => finish(queryView()));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(state.invalidate).not.toHaveBeenCalled();
+    expect(state.track).not.toHaveBeenCalled();
     state.unlocked = true;
     rendered.rerender(<DocumentRequestButton personRef={personRef} personName="A" />);
     fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
@@ -306,12 +313,14 @@ describe("requesting exact files from a connection", () => {
     await act(async () => accept({ requestId, status: "pending", revision: 1 }));
     await screen.findByText("Request sent.");
     expect(state.create).toHaveBeenCalledOnce();
+    expect(state.track).toHaveBeenCalledExactlyOnceWith("one_document_request_action", { action: "file_request_send", result: "success" });
     expect(screen.getByRole("button", { name: "Request more files" })).toBeDisabled();
   });
   const firebaseProof = "synthetic-firebase-proof";
   beforeEach(() => {
     vi.resetAllMocks();
     state.uid = "b";
+    publishValidatedAuthSessionOwner(state.uid);
     state.unlocked = true;
     state.epoch = 1;
     state.token = "owner-b";
@@ -459,6 +468,7 @@ describe("requesting exact files from a connection", () => {
     expect(state.create).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Review the updated quote");
+    expect(state.track).toHaveBeenCalledExactlyOnceWith("one_document_request_action", { action: "file_request_send", result: "error" });
     expect(await screen.findByText("About $25. You pay only if files are found.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText("Request sent.")).toBeVisible();
