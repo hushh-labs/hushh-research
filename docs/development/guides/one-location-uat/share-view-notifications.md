@@ -47,8 +47,7 @@ For a private Chat runtime, verify the installed owner runtime or hosted sandbox
 image supports conversational Location. The shared backend revision and sandbox
 edge gateway do not establish which image a private Chat session uses.
 
-Ask to share just a city, hide coordinates, stop on arrival, or expire automatic
-approval after three hours. Verify that Chat explains the unsupported condition
+Ask to share just a city, hide coordinates, or stop on arrival. Verify that Chat explains the unsupported condition
 and that no Send control or standing approval appears. A bare “yes” must retain
 the restriction. An explicitly revised, supported request can start a fresh review.
 
@@ -124,7 +123,13 @@ their inline reviews. “Check me in here” opens the Check-in screen to find
 venues from the device’s current position. Reopening chat history must keep
 the conversation visible. Ask to enable Auto approve for a named Circle, review
 the scope, then turn it off from Chat. Verify the saved preference on both
-surfaces and that requests already waiting still require an answer.
+surfaces and that requests already waiting still require an answer. Ask Chat to
+enable automatic approval for three hours. Confirm the named scope and duration
+in the conversation. With five minutes left, submit a one-hour request from
+an eligible test contact while the owner's Chat is open and Location is on.
+Verify both devices show the grant ending at the rule deadline. A new request
+after that deadline stays pending. A client without timed approval support must
+keep the requested limit and explain that it cannot create the timed rule.
 
 For Save My Soul (SMS), review the current emergency contacts in Chat, then
 send only to consenting test accounts. Change the roster or recipient key

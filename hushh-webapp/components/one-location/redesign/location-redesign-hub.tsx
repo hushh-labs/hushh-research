@@ -419,6 +419,7 @@ export type LocationHubViewModel = {
    * waiting stay the person's own decision.
    */
   autoApproveRequestsEnabled: boolean;
+  autoApproveUntil?: string | null;
   autoApproveScope: AutoApproveScope | null;
   /**
    * General map visibility -- Ghost Mode, inverted. `false` is Ghost.
@@ -3263,7 +3264,7 @@ function LocationSettingsFlow({
       : activeCircles.length
         ? autoApproveScope
         : null;
-  const activeScopeLabel = !vm.autoApproveRequestsEnabled
+  const activeScopeName = !vm.autoApproveRequestsEnabled
     ? "Choose a Circle or all contacts."
     : activeScope?.kind === "all_contacts"
       ? "All contacts"
@@ -3272,7 +3273,11 @@ function LocationSettingsFlow({
         : activeCircles.length > 1
           ? `${activeCircles.length} Circles`
           : "Choose another scope.";
-  const primaryScopeAction = vm.autoApproveRequestsEnabled ? "Save" : "Turn on";
+  const timed = vm.autoApproveRequestsEnabled && Boolean(vm.autoApproveUntil);
+  const activeScopeLabel = timed && vm.autoApproveUntil
+    ? `${activeScopeName} until ${new Date(vm.autoApproveUntil).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}`
+    : activeScopeName;
+  const primaryScopeAction = timed ? "Save without a time limit" : vm.autoApproveRequestsEnabled ? "Save" : "Turn on";
   const allContactsScope = useMemo<AutoApproveScope>(
     () => ({ kind: "all_contacts" }),
     [],
@@ -3332,7 +3337,7 @@ function LocationSettingsFlow({
     { key: "scope-description", rows: [{ key: "scope-description", label: "Approve automatically for", detail: "New requests from current and future contacts or Circle members will be approved automatically. Requests already waiting still need your answer." }] },
     { key: "scope-contacts", rows: [{ key: "all-contacts", label: "All contacts", selected: draftScope?.kind === "all_contacts", run: () => setDraftScope(draftScope?.kind === "all_contacts" ? null : allContactsScope) }] },
     ...(ownedCircles.length ? [{ key: "scope-circles", title: "Circles", rows: [{ key: "all-circles", label: allDraftCirclesSelected ? "Clear all" : "Select all", run: toggleAllDraftCircles }, ...ownedCircles.map(circle => ({ key: circle.id, label: circle.name, detail: scopeMemberCountLabel(circle.memberCount), selected: draftCircleIds.includes(circle.id), run: () => setDraftScope(current => toggleAutoApproveCircle(current, circle.id)) }))] }] : []),
-    { key: "scope-actions", rows: [{ key: "scope-save", label: "Turn on auto-approval", prominent: true, enabled: Boolean(draftScope), run: commitAutoApproveScope }, { key: "scope-cancel", label: "Cancel", run: () => setScopeSheetOpen(false) }] },
+    { key: "scope-actions", rows: [{ key: "scope-save", label: timed ? primaryScopeAction : "Turn on auto-approval", prominent: true, enabled: Boolean(draftScope), run: commitAutoApproveScope }, { key: "scope-cancel", label: "Cancel", run: () => setScopeSheetOpen(false) }] },
   ];
   const nativeSections: NativeWorkspaceSurfaceSection[] = [
     { key: "automatic-approval", title: "Automatic approval", rows: [

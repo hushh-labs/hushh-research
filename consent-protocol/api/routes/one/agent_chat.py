@@ -133,6 +133,7 @@ from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONTINUATION,
     STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
+    STATE_LOCATION_CHAT_TIMED_APPROVAL,
     admit_location_chat_continuation,
     admit_location_chat_review,
 )
@@ -686,6 +687,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_LOCATION_CHAT_REVIEW: location_review,
         STATE_LOCATION_CHAT_CONVERSATION: location_review
         and forwarded.get("locationChatConversation") is True,
+        STATE_LOCATION_CHAT_TIMED_APPROVAL: location_review
+        and forwarded.get("locationChatConversation") is True
+        and forwarded.get("locationChatTimedApproval") is True,
         STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
             forwarded, owner_admitted=bool(token and user_id)
         ),

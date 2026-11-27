@@ -595,6 +595,7 @@ export class OneLocationService {
     vaultOwnerToken: string;
     enabled: boolean;
     scope?: AutoApproveScope | null;
+    durationHours?: number;
   }): Promise<OneLocationAutoApprovePreference> {
     const response = await apiJson<{
       preference: OneLocationAutoApprovePreference;
@@ -603,6 +604,7 @@ export class OneLocationService {
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({
         enabled: params.enabled,
+        durationHours: params.durationHours,
         scopeKind: params.enabled ? params.scope?.kind : undefined,
         circleId:
           params.enabled && params.scope?.kind === "circle"
