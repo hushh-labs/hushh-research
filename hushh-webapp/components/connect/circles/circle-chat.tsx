@@ -463,13 +463,16 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
         if (!active.current || generation !== historyGeneration.current) continue;
         await reconcile(abort.signal);
         if (!active.current || generation !== historyGeneration.current) continue;
-        await cacheTargets(page.replyTargets);
+        // Reply targets are secondary metadata. Start decrypting them in
+        // parallel, but do not hold the first visible transcript on them.
+        const replyTargetsReady = cacheTargets(page.replyTargets);
         if (!last.current) setHasOlder(page.hasMore);
         mergeMembershipEvents(page.events);
         // Keep the older scroll window stable while still reconciling live
         // reactions and receipts for the messages visible in that window.
         const holdOlderWindow = anchored.current || !atBottomRef.current && messagesRef.current.length >= 300;
         append(holdOlderWindow ? [] : await decrypt(page.items), page.receipts, page.reactionUpdates, generation);
+        await replyTargetsReady;
         if (generation !== historyGeneration.current) continue;
         if (!holdOlderWindow && active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
         // Repair a reconnect gap in bounded pages, without skipping any sequence.
