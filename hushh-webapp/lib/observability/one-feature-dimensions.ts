@@ -45,7 +45,7 @@ const resultOnlyEvents: ReadonlySet<ObservabilityEventName> = new Set([
   "one_location_check_out_completed", "one_location_sos_triggered",
   "one_location_request_sent", "one_location_public_link_created",
   "one_location_contact_signal_synced", "one_location_circle_invite_created",
-  "one_location_circle_created",
+  "one_location_circle_created", "one_location_visit_rated",
 ]);
 
 type FeatureDimensions = {
