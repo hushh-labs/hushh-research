@@ -51,8 +51,8 @@ export function ConnectorRow({ entry, leading, status, actionLabel, accessPurpos
           type="button"
           className={
             entry.connected
-              ? "min-h-9 shrink-0 rounded-full border border-border bg-background/70 px-3.5 py-1.5 text-xs font-medium text-foreground transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              : "min-h-9 shrink-0 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-xs transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              ? "min-h-9 shrink-0 rounded-full border border-border bg-background/70 px-3.5 py-1.5 text-xs font-medium text-foreground transition-opacity active:enabled:opacity-[0.84] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              : "min-h-9 shrink-0 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-xs transition-opacity active:enabled:opacity-[0.84] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           }
           aria-label={entry.action.label}
           disabled={entry.action.disabled || Boolean(entry.pending)}

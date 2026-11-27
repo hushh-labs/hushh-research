@@ -314,7 +314,7 @@ function ProfileConnectorRow({
             type="button"
             variant={entry.connected ? "outline" : "default"}
             size="compact"
-            className="rounded-full px-3.5 transition-transform active:scale-[0.97]"
+            className="rounded-full px-3.5"
             aria-label={entry.action.label}
             aria-busy={entry.pending ? true : undefined}
             disabled={entry.action.disabled || Boolean(entry.pending)}
