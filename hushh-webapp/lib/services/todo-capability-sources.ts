@@ -51,8 +51,7 @@ async function readWallet(context: TaskReadContext): Promise<CapabilityRead> {
 
 async function readAdvisor(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   const persona = await RiaService.getPersonaState(idToken, { userId: context.userId, force: true });
-  // A non-advisor persona does not prove that no advisor relationship exists.
-  if (!persona.personas.includes("ria")) return result("ria", 0, [], "unavailable");
+  if (!persona.personas.includes("ria")) return result("ria", 0, [], "not_connected");
   const home = await RiaService.getHome(idToken, { userId: context.userId, force: true });
   const rows = home.needs_attention.flatMap(item => {
     const href = normalizeInternalRouteHref(item.href);
@@ -89,7 +88,8 @@ async function readInvitations(context: TaskReadContext, idToken: string): Promi
 
 function readMemory(context: TaskReadContext): CapabilityRead {
   const view = peekLiveMirror(context.userId);
-  if (!view || view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
+  if (!view) return result("pkm", 0, [], "incomplete");
+  if (view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
   const conflicts = view.conflicts?.length ?? 0;
   const changes = view.sources.reduce((count, source) => count + (source.pendingChanges ?? 0), 0);
   const rows = conflicts || changes ? [evidence("pkm", `memory:${view.builtAt}`, `${conflicts} memory disagreements and ${changes} pending source updates need review.`)] : [];

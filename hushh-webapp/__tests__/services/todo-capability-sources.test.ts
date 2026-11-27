@@ -76,10 +76,16 @@ describe("owner-safe capability task reads", () => {
     expect(mocks.mail).not.toHaveBeenCalled();
     expect(mocks.invitations).not.toHaveBeenCalled();
   });
-  it("does not confuse an investor persona with a disconnected Advisor", async () => {
+  it("marks Advisor not connected for investor-only personas without raising an unavailable error", async () => {
     const result = await readTodoCapabilities(context());
-    expect(result.find(row => row.coverage.capability === "ria")?.coverage.status).toBe("unavailable");
+    expect(result.find(row => row.coverage.capability === "ria")?.coverage.status).toBe("not_connected");
+    expect(result.find(row => row.coverage.capability === "pkm")?.coverage.status).toBe("incomplete");
     expect(mocks.home).not.toHaveBeenCalled();
+  });
+  it("keeps Memory unavailable when a cached mirror belongs to a different owner", async () => {
+    mocks.memory.mockReturnValueOnce({ ownerId: "other-owner", vaultEpoch: 0, builtAt: "2026-11-27T00:00:00Z", inventoryComplete: true, sources: [], conflicts: [] });
+    const result = await readTodoCapabilities({ ...context(), selectedCapabilities: ["pkm"] });
+    expect(result[0]?.coverage.status).toBe("unavailable");
   });
   it("projects explicit Advisor attention work with its reviewed internal destination", async () => {
     mocks.persona.mockResolvedValue({ personas: ["ria", "investor"] });

@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hussh
+# Standalone BuildKit builder and Artifact Registry publisher for the slim
+# Confidential Sandbox pod image (consent-protocol/Dockerfile.pod).
+# Kept separate from deploy/backend.cloudbuild.yaml so UAT and Production
+# publish exact-SHA pod images into us-central1-docker.pkg.dev/$PROJECT_ID/one-pod-release
+# without touching backend.cloudbuild.yaml's Dev-only pod step or 100-env cap.
+
+tags: ["pod-image-${_DEPLOY_ENV}-${_GITHUB_RUN_ID}-${_GITHUB_RUN_ATTEMPT}"]
+
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-and-push-pod-release-image"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ -z "${_IMAGE_TAG}" || -z "${_DEPLOY_SHA}" ]]; then
+          echo "_IMAGE_TAG and _DEPLOY_SHA are required." >&2
+          exit 1
+        fi
+        rm -rf consent-protocol/contracts
+        cp -R contracts consent-protocol/contracts
+        gcloud auth configure-docker us-central1-docker.pkg.dev,gcr.io --quiet || true
+        docker buildx create --use --name hushh-pod-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-pod-builder
+        release_repo="us-central1-docker.pkg.dev/${PROJECT_ID}/one-pod-release/consent-protocol-pod"
+        docker buildx build \
+          --cache-from="type=registry,ref=${release_repo}:buildcache" \
+          --cache-to="type=registry,ref=${release_repo}:buildcache,mode=max" \
+          --tag "${release_repo}:latest" \
+          --tag "${release_repo}:${_IMAGE_TAG}" \
+          --build-arg "POD_IMAGE_TAG=${_IMAGE_TAG}" \
+          --label "org.opencontainers.image.revision=${_DEPLOY_SHA}" \
+          --file consent-protocol/Dockerfile.pod \
+          --push \
+          consent-protocol
+        docker buildx imagetools inspect --raw \
+          "${release_repo}:${_IMAGE_TAG}" \
+          > /workspace/pod-image-manifest.json
+    waitFor: ["-"]
+
+  - name: "gcr.io/google.com/cloudsdktool/google-cloud-cli:590.0.1-stable@sha256:3420fac28ac21d59623b5efbb57bd60c0a5c4223ad6cb604840080a8778679ee"
+    id: "verify-pod-release-digest"
+    entrypoint: "bash"
+    env:
+      - "PATH=/usr/lib/google-cloud-sdk/bin:/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        release_repo="us-central1-docker.pkg.dev/${PROJECT_ID}/one-pod-release/consent-protocol-pod"
+        pod_digest=""
+        for attempt in 1 2 3 4 5; do
+          pod_digest="$(gcloud artifacts docker images describe "${release_repo}:${_IMAGE_TAG}" \
+            --format='value(image_summary.digest)' 2>/dev/null || true)"
+          if printf '%s' "${pod_digest}" | grep -Eq '^sha256:[0-9a-fA-F]{64}$'; then
+            break
+          fi
+          pod_digest=""
+          sleep 2
+        done
+        if [[ -z "${pod_digest}" ]]; then
+          echo "Published pod image digest was not observable in ${release_repo}." >&2
+          exit 1
+        fi
+        echo "Verified immutable pod release image: ${release_repo}@${pod_digest}"
+    waitFor: ["build-and-push-pod-release-image"]
+
+substitutions:
+  _DEPLOY_ENV: "manual"
+  _DEPLOY_SHA: ""
+  _IMAGE_TAG: ""
+  _GITHUB_RUN_ID: "0"
+  _GITHUB_RUN_ATTEMPT: "1"
+
+timeout: "1800s"
+options:
+  machineType: "E2_HIGHCPU_8"
+  logging: "CLOUD_LOGGING_ONLY"

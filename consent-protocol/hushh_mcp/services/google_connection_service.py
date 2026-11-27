@@ -33,7 +33,10 @@ from hushh_mcp.services.google_calendar_additional_store import (
     enable_additional_mail_read,
     upsert_additional_calendar_account,
 )
-from hushh_mcp.services.google_calendar_authorization import mail_grant
+from hushh_mcp.services.google_calendar_authorization import (
+    mail_grant,
+    meeting_file_scopes_enabled,
+)
 from hushh_mcp.services.google_calendar_connection_view import CalendarAccountConnectionView
 from hushh_mcp.services.google_calendar_guest_photo_broker import exchange_guest_photo_token
 from hushh_mcp.services.google_calendar_meeting_grant import (
@@ -336,6 +339,7 @@ class GoogleConnectionService:
         if not self.is_configured():
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
         resolved_redirect = self._redirect_uri(redirect_uri)
+        effective_meeting_files = bool(include_meeting_files and meeting_file_scopes_enabled())
         attempt = await self._create_oauth_attempt(
             user_id=user_id,
             service=service,
@@ -344,7 +348,7 @@ class GoogleConnectionService:
             transport="web",
             calendar_additional=calendar_additional,
             calendar_account_id=calendar_account_id,
-            include_meeting_files=include_meeting_files,
+            include_meeting_files=effective_meeting_files,
             include_mail_access=include_mail_access,
         )
         query = {
@@ -1314,7 +1318,8 @@ class GoogleConnectionService:
         """Return the public OAuth client for a platform Google sign-in request."""
         if not self.is_configured():
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
-        include_calendar_list = include_calendar_list or include_meeting_files
+        effective_meeting_files = bool(include_meeting_files and meeting_file_scopes_enabled())
+        include_calendar_list = include_calendar_list or effective_meeting_files
         attempt = await self._create_oauth_attempt(
             user_id=user_id,
             service=service,
@@ -1323,7 +1328,7 @@ class GoogleConnectionService:
             transport="native",
             calendar_additional=calendar_additional and service == "calendar",
             calendar_account_id=calendar_account_id,
-            include_meeting_files=include_meeting_files,
+            include_meeting_files=effective_meeting_files,
             **(
                 {"include_calendar_list": True}
                 if include_calendar_list and service == "calendar"
@@ -1348,7 +1353,7 @@ class GoogleConnectionService:
             ),
             **(
                 {"include_meeting_files": True}
-                if include_meeting_files and service == "calendar"
+                if effective_meeting_files and service == "calendar"
                 else {}
             ),
         }
