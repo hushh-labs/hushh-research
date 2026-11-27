@@ -129,7 +129,7 @@ MailOperation = Literal[
     "analyze_mail",
 ]
 _OPERATIONS: dict[str, frozenset[str]] = {
-    "list_needs_reply": frozenset({"limit", "mailbox"}),
+    "list_needs_reply": frozenset({"limit", "mailbox", "min_age_days"}),
     "list_recent": frozenset({"limit", "mailbox"}),
     "search_inbox": frozenset({"limit", "query", "mailbox"}),
     "read_message": frozenset({"limit", "query", "mailbox"}),
@@ -269,6 +269,12 @@ def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str, str
         or any(ord(char) < 32 for char in query)
     ):
         raise GmailMetadataError("invalid_argument")
+    if operation == "list_needs_reply":
+        min_age_days = arguments.get("min_age_days", 0)
+        if type(min_age_days) is not int or not 0 <= min_age_days <= 30:
+            raise GmailMetadataError("invalid_argument")
+        if min_age_days > 0:
+            query = f"older_than:{min_age_days}d"
     mailbox = arguments.get("mailbox", "inbox")
     # Needs-reply is defined over inbound inbox threads; it has no other scope.
     if mailbox not in _MAILBOX_LABELS or (operation == "list_needs_reply" and mailbox != "inbox"):
@@ -509,6 +515,7 @@ class GmailMetadataReader:
         limit: int = 12,
         read_top_bodies: int = 3,
         max_candidates: int = 24,
+        include_spam: bool = False,
         embedding_client: Any | None = None,
     ) -> dict[str, Any]:
         """Pure-REST multi-query recall + in-RAM semantic re-rank + top-K body hydration."""
@@ -537,6 +544,7 @@ class GmailMetadataReader:
                 cleaned_queries.append(q)
         if len(cleaned_queries) > _MAX_HYBRID_QUERIES:
             raise GmailMetadataError("invalid_argument")
+        effective_bodies = 0 if include_spam else read_top_bodies
 
         async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
             return await self._search_hybrid(
@@ -546,12 +554,60 @@ class GmailMetadataReader:
                 queries=tuple(cleaned_queries),
                 mailbox=mailbox,
                 limit=limit,
-                read_top_bodies=read_top_bodies,
+                read_top_bodies=effective_bodies,
                 max_candidates=max_candidates,
+                include_spam=bool(include_spam),
                 embedding_client=embedding_client,
             )
 
-        return await self._session(body, reads_bodies=read_top_bodies > 0)
+        return await self._session(body, reads_bodies=effective_bodies > 0)
+
+    async def mailbox_counts(self) -> dict[str, Any]:
+        """Exact unread counts (total, inbox, and today in the owner's timezone)."""
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            tz = ZoneInfo(self._timezone_name or "UTC")
+        except ZoneInfoNotFoundError:
+            tz = timezone.utc
+        now_local = datetime.now(tz)
+        midnight_epoch = int(
+            now_local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        )
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            unread_label, inbox_label, today_listing = await asyncio.gather(
+                self._get(client, token, "/labels/UNREAD", {}, recheck=False),
+                self._get(client, token, "/labels/INBOX", {}, recheck=False),
+                self._get(
+                    client,
+                    token,
+                    "/messages",
+                    {
+                        "q": f"is:unread after:{midnight_epoch}",
+                        "maxResults": 100,
+                        "includeSpamTrash": "false",
+                        "fields": "messages(id),resultSizeEstimate,nextPageToken",
+                    },
+                    recheck=False,
+                ),
+            )
+            today_entries = today_listing.get("messages")
+            today_count = len(today_entries) if isinstance(today_entries, list) else 0
+            today_exact = not bool(today_listing.get("nextPageToken"))
+            return {
+                "status": "ok",
+                "total_unread_messages": int(unread_label.get("messagesUnread") or 0),
+                "total_unread_threads": int(unread_label.get("threadsUnread") or 0),
+                "inbox_unread_messages": int(inbox_label.get("messagesUnread") or 0),
+                "inbox_unread_threads": int(inbox_label.get("threadsUnread") or 0),
+                "today_unread_count": today_count,
+                "today_unread_exact": today_exact,
+                "timezone": self._timezone_name or "UTC",
+            }
+
+        return await self._session(body, reads_bodies=False)
 
     async def read_threads(
         self,
@@ -1407,7 +1463,7 @@ class GmailMetadataReader:
         if label is not None:
             params["labelIds"] = label
         if operation == "list_needs_reply":
-            params["q"] = _NUDGE_QUERY
+            params["q"] = f"{_NUDGE_QUERY} {query}".strip() if query else _NUDGE_QUERY
         elif operation != "list_recent" and query:
             params["q"] = query
         listing = await self._get(client, token, "/messages", params)
@@ -1687,7 +1743,8 @@ class GmailMetadataReader:
         limit: int,
         read_top_bodies: int,
         max_candidates: int,
-        embedding_client: Any | None,
+        include_spam: bool = False,
+        embedding_client: Any | None = None,
     ) -> dict[str, Any]:
         """Parallel multi-query REST recall + in-RAM E5/RRF re-rank + top-K body hydration."""
         label = _MAILBOX_LABELS[mailbox]
@@ -1697,7 +1754,7 @@ class GmailMetadataReader:
         async def list_one(query: str) -> tuple[list[dict[str, str]], bool]:
             params: dict[str, Any] = {
                 "maxResults": page_size,
-                "includeSpamTrash": "false",
+                "includeSpamTrash": "true" if include_spam else "false",
                 "fields": "messages(id,threadId),nextPageToken",
             }
             if label is not None:

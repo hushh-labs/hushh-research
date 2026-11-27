@@ -173,7 +173,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
-import { type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
+import { type EmailDraftPrimaryAction, type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
 import {
   AgentCalendarProposalCard,
   type CalendarProposalAction,
@@ -658,8 +658,12 @@ export function getGmailReplyDraftPayload(
 ): {
   sourceMailRef: string;
   to: string;
+  cc?: string;
   subject: string;
   body: string;
+  primaryAction?: EmailDraftPrimaryAction;
+  scheduledSendAt?: string | null;
+  scheduledSendDisplay?: string | null;
 } | null {
   if (!event || event.raw.toolName !== "open_gmail_reply_draft") return null;
   const rawResult = event.raw.result;
@@ -682,14 +686,32 @@ export function getGmailReplyDraftPayload(
     (typeof parsed.recipient_display === "string" && parsed.recipient_display.trim()) ||
     (typeof parsed.to === "string" && parsed.to.trim()) ||
     "Recipient verified when you send";
+  const cc = typeof parsed.cc === "string" && parsed.cc.trim() ? parsed.cc.trim().slice(0, 1024) : undefined;
   const subject =
     (typeof parsed.subject === "string" && parsed.subject.trim()) ||
     "Reply in original thread";
+  const rawPrimary = typeof parsed.primary_action === "string" ? parsed.primary_action.trim() : "";
+  const primaryAction: EmailDraftPrimaryAction | undefined =
+    rawPrimary === "save_draft" || rawPrimary === "schedule" || rawPrimary === "send"
+      ? rawPrimary
+      : undefined;
+  const scheduledSendAt =
+    typeof parsed.scheduled_send_at === "string" && parsed.scheduled_send_at.trim()
+      ? parsed.scheduled_send_at.trim().slice(0, 64)
+      : undefined;
+  const scheduledSendDisplay =
+    typeof parsed.scheduled_send_display === "string" && parsed.scheduled_send_display.trim()
+      ? parsed.scheduled_send_display.trim().slice(0, 120)
+      : undefined;
   return {
     sourceMailRef,
     to: to.slice(0, 320),
+    ...(cc ? { cc } : {}),
     subject: subject.slice(0, 512),
     body,
+    ...(primaryAction ? { primaryAction } : {}),
+    ...(scheduledSendAt ? { scheduledSendAt } : {}),
+    ...(scheduledSendDisplay ? { scheduledSendDisplay } : {}),
   };
 }
 
@@ -1357,6 +1379,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [emailDraftGmailSend, setEmailDraftGmailSend] = useState<GmailSendReadiness | null>(null);
   const [emailDraftInitialValue, setEmailDraftInitialValue] =
     useState<EmailDraft | null>(null);
+  const [emailDraftOptions, setEmailDraftOptions] = useState<{
+    primaryAction?: EmailDraftPrimaryAction;
+    scheduledSendAt?: string | null;
+    scheduledSendDisplay?: string | null;
+    credentialWarning?: boolean;
+  }>({});
   const [emailDraftAnchorMessageId, setEmailDraftAnchorMessageId] = useState<
     string | null
   >(null);
@@ -1799,6 +1827,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     clearAgentPkmContext(applicationOwnerId ?? undefined);
     setEmailDraftOpen(false);
     setEmailDraftInitialValue(null);
+    setEmailDraftOptions({});
     setEmailDraftAnchorMessageId(null);
     setEmailDeliveryHistory([]);
   }, [isVaultUnlocked, applicationOwnerId, vaultKey]);
@@ -2861,6 +2890,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setPendingSpecialistDirective(null);
     setEmailDraftOpen(false);
     setEmailDraftInitialValue(null);
+    setEmailDraftOptions({});
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
     setGmailKycEmailDraftWorkflowId(null);
@@ -3038,6 +3068,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftAutoDraft(false);
     setEmailDraftGmailSend(null);
     setEmailDraftInitialValue(null);
+    setEmailDraftOptions({});
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
     setGmailKycEmailDraftWorkflowId(null);
@@ -3359,11 +3390,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setEmailDraftInstruction(`Replying in thread: ${threadReply.subject}`);
         setEmailDraftInitialValue({
           to: threadReply.to,
-          cc: "",
+          cc: threadReply.cc ?? "",
           bcc: "",
           subject: threadReply.subject,
           body: threadReply.body,
           sourceMailRef: threadReply.sourceMailRef,
+        });
+        setEmailDraftOptions({
+          primaryAction: threadReply.primaryAction,
+          scheduledSendAt: threadReply.scheduledSendAt,
+          scheduledSendDisplay: threadReply.scheduledSendDisplay,
         });
         setEmailDraftAutoDraft(false);
         setEmailDraftGmailSend(null);
@@ -3388,6 +3424,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
             : null,
       );
+      setEmailDraftOptions({
+        primaryAction: payload.primaryAction,
+        scheduledSendAt: payload.scheduledSendAt,
+        scheduledSendDisplay: payload.scheduledSendDisplay,
+        credentialWarning: payload.credentialWarning,
+      });
       setEmailDraftAutoDraft(!payload.initialDraft?.body);
       setEmailDraftGmailSend(payload.gmailSend);
       setEmailDraftAnchorMessageId(assistantMessageId);
@@ -9999,6 +10041,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (isDraftScopeCurrent()) handleEmailDeliveryPrepared(actionId, attemptId);
           }}
           sourceBoundEnvelope={sourceMailRef ? replyEnvelope : gmailKycEmailDraftEnvelope}
+          primaryAction={emailDraftOptions.primaryAction}
+          initialScheduledSendAt={emailDraftOptions.scheduledSendAt}
+          initialScheduledSendDisplay={emailDraftOptions.scheduledSendDisplay}
+          credentialWarning={emailDraftOptions.credentialWarning}
+          onEnableGmailCompose={() => runDirectiveConnect("gmail_compose")}
           onDraftChange={handleEmailDraftChange}
           onDraftingChange={setIsEmailDrafting}
           onOpenConnections={openConnectorSurface}

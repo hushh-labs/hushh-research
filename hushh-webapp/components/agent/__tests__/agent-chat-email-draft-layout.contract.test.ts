@@ -48,6 +48,7 @@ function renderedEmailDraft(input: {
     emailDraftInstruction: "Review the reply", emailDraftAutoDraft: false,
     closeEmailDraft: vi.fn(), handleEmailSendStarted: vi.fn(), handleEmailDraftChange: vi.fn(),
     setIsEmailDrafting: vi.fn(), openConnectorSurface: vi.fn(), emailDraftGmailSend: null,
+    emailDraftOptions: {}, runDirectiveConnect: vi.fn(),
     gmailSendConnect: { pending: null }, createSourceBoundEmailReply,
     // What the workspace resolves before rendering: unrenewed, the draft as opened.
     emailDraftReply: { sourceMailRef: input.draft.sourceMailRef, envelope: input.draft, renewal: undefined },

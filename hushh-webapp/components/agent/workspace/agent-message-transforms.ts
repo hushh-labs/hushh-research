@@ -4,7 +4,11 @@ import type { AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtim
 import type {
   EmailDeliveryHistoryItem,
 } from "@/components/agent/email-delivery-history-card";
-import { parseEmailDraftToolResult, type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
+import {
+  parseEmailDraftToolResult,
+  type EmailDraftPrimaryAction,
+  type GmailSendReadiness,
+} from "@/lib/agent/email-draft-tool-result";
 import {
   scopeItemFromPendingConsent,
   type ConsentScopeItem,
@@ -542,7 +546,16 @@ export function getConsentRequiredPayload(
 
 export function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null; gmailSend: GmailSendReadiness | null } | null {
+): {
+  instruction: string;
+  driveFileId: string | null;
+  initialDraft: EmailDraft | null;
+  gmailSend: GmailSendReadiness | null;
+  primaryAction?: EmailDraftPrimaryAction;
+  scheduledSendAt?: string | null;
+  scheduledSendDisplay?: string | null;
+  credentialWarning?: boolean;
+} | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
   // A refusal opens no card; an event without a result (an older server) still does.
   const result = parseEmailDraftToolResult(event.raw.result);
@@ -568,6 +581,10 @@ export function getGmailEmailDraftPayload(
         driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null,
         initialDraft: Object.values(initialDraft).some(Boolean) ? initialDraft : null,
         gmailSend: result?.gmailSend ?? null,
+        ...(result?.primaryAction ? { primaryAction: result.primaryAction } : {}),
+        ...(result?.scheduledSendAt ? { scheduledSendAt: result.scheduledSendAt } : {}),
+        ...(result?.scheduledSendDisplay ? { scheduledSendDisplay: result.scheduledSendDisplay } : {}),
+        ...(result?.credentialWarning ? { credentialWarning: true } : {}),
       }
     : null;
 }

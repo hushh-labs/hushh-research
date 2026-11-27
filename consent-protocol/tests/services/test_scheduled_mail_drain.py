@@ -989,3 +989,73 @@ async def test_scheduled_owner_moving_during_token_resolution_never_posts(
         assert result["failed"] == [] and result["outcome_unknown"] == []
     else:
         assert row["state"] == "failed" and row["safe_error_code"] == "private_runtime_required"
+
+
+@pytest.mark.asyncio
+async def test_sp2_external_recipient_and_reply_context_drain_enforces_sender_sub(
+    harness, monkeypatch
+):
+    from hushh_mcp.services import gmail_delivery_service as delivery_module
+    from hushh_mcp.services.gmail_delivery_service import GmailDeliveryService, GmailReplyContext
+
+    monkeypatch.setattr(delivery_module, "_utcnow", lambda: NOW)
+    h = harness
+    h.connections = []  # External recipient is not in ConnectionsService
+    real_service = GmailDeliveryService(gmail_service=h.service.gmail_service)
+    real_service.current_sender_sub = AsyncMock(return_value=SENDER)  # type: ignore[method-assign]
+    reply_ctx = GmailReplyContext(
+        thread_id="thread",
+        in_reply_to="<orig@external.example>",
+        references="<orig@external.example>",
+    )
+    v2_payload = {
+        "to": ["external@example.com"],
+        "cc": ["copy@example.com"],
+        "bcc": [],
+        "subject": "Re: External thread",
+        "body": "Scheduled external reply.",
+        "recipient_kind": "explicit_address",
+        "recipient_user_id": "",
+        "sender_sub": SENDER,
+        "reply_context": {
+            "thread_id": reply_ctx.thread_id,
+            "in_reply_to": reply_ctx.in_reply_to,
+            "references": reply_ctx.references,
+        },
+    }
+    draft = normalize_draft(real_service.scheduled_draft_payload(v2_payload))
+    for action_id, payload in (
+        ("sp2-ok", v2_payload),
+        ("sp2-wrong-sender", {**v2_payload, "sender_sub": "different-google-sub"}),
+    ):
+        h.ledger.rows[action_id] = {
+            "action_id": action_id,
+            "user_id": OWNER,
+            "state": "scheduled",
+            "envelope_hmac": real_service._envelope_hmac(draft, reply_context=reply_ctx),
+            "send_at": NOW - timedelta(minutes=1),
+            "expires_at": NOW + timedelta(hours=23),
+            "sending_at": None,
+            "sent_at": None,
+            "updated_at": NOW - timedelta(hours=1),
+            "attempt_count": 0,
+            "safe_error_code": None,
+            "recipient_display": "external@example.com",
+            "subject": "Re: External thread",
+            "notified_at": None,
+            "payload_sealed": real_service.seal_schedule_payload(
+                user_id=OWNER, action_id=action_id, payload=payload, version=2
+            ),
+        }
+
+    result = await drain.drain_scheduled_mail(
+        limit=10,
+        delivery=real_service,
+        directory=SimpleNamespace(list_connections=lambda _uid: []),
+        push=lambda *args, **kwargs: h.pushes.append((args, kwargs)) or 1,
+        pool_provider=lambda: asyncio.sleep(0, result=h.ledger.pool()),
+    )
+    assert result["sent"] == ["sp2-ok"]
+    assert result["failed"] == ["sp2-wrong-sender"]
+    assert h.ledger.row("sp2-wrong-sender")["safe_error_code"] == "sender_changed"
+    assert h.gmail.posts[-1].get("threadId") == "thread"

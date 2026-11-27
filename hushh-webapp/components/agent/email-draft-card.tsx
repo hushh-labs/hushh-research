@@ -3,7 +3,7 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { FilePenLine, Loader2, Mail, Send, X } from "@/components/icons";
+import { Clock, FilePenLine, Loader2, Mail, Send, ShieldAlert, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
   EmailDeliveryService,
   type EmailDraft,
   type PreparedEmailSend,
+  type ScheduledEmailSummary,
 } from "@/lib/services/email-delivery-service";
 import {
   ConnectionsService,
@@ -25,7 +26,7 @@ import {
 } from "@/lib/services/connections-service";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
-import type { GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
+import type { EmailDraftPrimaryAction, GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
 import { deliveryFailure, recipientProblem } from "@/components/agent/email-draft-delivery";
 import { EmailDraftGmailNotice, useGmailSendGap, type GmailSendGap } from "@/components/agent/email-draft-gmail-readiness";
 
@@ -72,7 +73,17 @@ type EmailDraftCardProps = {
   /** Reuses this editor while keeping recipient and thread server-derived. */
   sourceBoundReply?: SourceBoundEmailReplyAdapter | null;
   /** Owner-visible, server-derived envelope for a source-bound reply. */
-  sourceBoundEnvelope?: { to: string; subject: string } | null;
+  sourceBoundEnvelope?: { to: string; cc?: string; subject: string } | null;
+  /** Primary action highlighted by the owner's request (send, save_draft, or schedule). */
+  primaryAction?: EmailDraftPrimaryAction;
+  /** Optional ISO-8601 send time proposed by One when scheduling an email. */
+  initialScheduledSendAt?: string | null;
+  /** Human-readable scheduled time label (e.g. "Tomorrow, 9:00 AM IST"). */
+  initialScheduledSendDisplay?: string | null;
+  /** Server-side warning flag when outbound text looks like a raw password or API secret. */
+  credentialWarning?: boolean;
+  /** Starts in-place Gmail compose (drafts) permission grant directly from the draft card. */
+  onEnableGmailCompose?: () => void;
   /**
    * Reports the draft as it is on screen, including the person's own edits,
    * so a follow-up chat turn can revise it. Observing only; never sends.
@@ -134,6 +145,18 @@ function GmailAwareEmailDraftCard(props: EmailDraftCardProps) {
   return <EmailDraftCardView {...props} gmailGap={gmailGap} />;
 }
 
+const OUTBOUND_CREDENTIAL_PATTERN =
+  /(?:\b(?:password|passwd|pwd|passcode|api[_ ]?key|client[_ ]?secret|secret[_ ]?key)\s*(?::|=)\s*\S{4,}|\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/i;
+
+function toLocalDatetimeInputValue(isoValue?: string | null): string {
+  const date = isoValue ? new Date(isoValue) : new Date(Date.now() + 60 * 60 * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return toLocalDatetimeInputValue(null);
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function EmailDraftCardView({
   initialInstruction,
   initialDraft = null,
@@ -147,6 +170,11 @@ function EmailDraftCardView({
   onSendFailed,
   sourceBoundReply = null,
   sourceBoundEnvelope = null,
+  primaryAction = "send",
+  initialScheduledSendAt = null,
+  initialScheduledSendDisplay = null,
+  credentialWarning = false,
+  onEnableGmailCompose,
   onDraftChange,
   onDraftingChange,
   onOpenConnections,
@@ -182,13 +210,21 @@ function EmailDraftCardView({
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState<"draft" | "attachment" | "save" | null>(null);
+  const [busy, setBusy] = useState<"draft" | "attachment" | "save" | "schedule" | "cancel_schedule" | null>(null);
   useEffect(() => {
     onDraftingChange?.(busy === "draft");
     return () => onDraftingChange?.(false);
   }, [busy, onDraftingChange]);
   const [savedToGmail, setSavedToGmail] = useState(false);
   const saveStartedRef = useRef(false);
+  const [showSchedulePicker, setShowSchedulePicker] = useState(
+    () => primaryAction === "schedule" || Boolean(initialScheduledSendAt),
+  );
+  const [scheduleInput, setScheduleInput] = useState(() =>
+    toLocalDatetimeInputValue(initialScheduledSendAt),
+  );
+  const [scheduledSummary, setScheduledSummary] = useState<ScheduledEmailSummary | null>(null);
+  const [scheduledStatus, setScheduledStatus] = useState<"scheduled" | "sent" | "cancelled">("scheduled");
   const [error, setError] = useState<EmailDeliveryError | null>(null);
   const [attachmentReview, setAttachmentReview] = useState<{
     draft: EmailDraft;
@@ -564,8 +600,117 @@ function EmailDraftCardView({
     })();
   };
 
+  const canSaveToGmailDrafts = !draft.driveFileId && (!sourceBoundReply || Boolean(draft.sourceMailRef));
+  const canScheduleSend = !draft.driveFileId && !reviewedSend && (!sourceBoundReply || Boolean(draft.sourceMailRef));
+  const hasCredentialWarning = Boolean(
+    credentialWarning || OUTBOUND_CREDENTIAL_PATTERN.test(`${draft.subject}\n${draft.body}`),
+  );
+
+  // Poll scheduled status every 30s while a scheduled send is pending so the
+  // card updates live once the background/opportunistic drain delivers it.
+  useEffect(() => {
+    if (!scheduledSummary || scheduledStatus !== "scheduled") return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const auth = await getAuth();
+        if (!auth || !active) return;
+        const pending = await EmailDeliveryService.listScheduledSends({ ...auth, limit: 25 });
+        if (!active) return;
+        const stillPending = pending.some((item) => item.actionId === scheduledSummary.actionId);
+        if (!stillPending) {
+          const status = await EmailDeliveryService.sendStatus({
+            ...auth,
+            actionId: scheduledSummary.actionId,
+          }).catch(() => null);
+          if (!active) return;
+          if (status?.state === "sent") setScheduledStatus("sent");
+          else if (status?.state === "cancelled") setScheduledStatus("cancelled");
+        }
+      } catch {
+        // Polling failure never alters a scheduled send's server state.
+      }
+    };
+    const timer = setInterval(() => void poll(), 30_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [getAuth, scheduledStatus, scheduledSummary]);
+
+  const scheduleSend = async () => {
+    if (busy || !canScheduleSend) return;
+    if (gmailGap && onEnableGmailSend) {
+      onEnableGmailSend();
+      return;
+    }
+    const recipientError = sourceBoundReply ? null : recipientProblem(draft);
+    if (recipientError) {
+      setError(recipientError);
+      return;
+    }
+    if (!scheduleInput.trim()) {
+      setError(new EmailDeliveryError("Choose when to send this email.", 400));
+      return;
+    }
+    const auth = await withAuth();
+    if (!auth) return;
+    setBusy("schedule");
+    setError(null);
+    try {
+      const tz =
+        typeof Intl !== "undefined"
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone
+          : undefined;
+      const result = await EmailDeliveryService.scheduleSend({
+        ...auth,
+        draft: { ...draft },
+        sendAt: scheduleInput.length === 16 ? `${scheduleInput}:00` : scheduleInput,
+        timezone: tz,
+        recipientDisplay: sourceBoundReply ? sourceBoundEnvelope?.to : undefined,
+      });
+      setScheduledSummary(result);
+      setScheduledStatus("scheduled");
+    } catch (cause) {
+      setError(
+        cause instanceof EmailDeliveryError
+          ? cause
+          : new EmailDeliveryError("Could not schedule this email. Please try again.", 500),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelScheduled = async () => {
+    if (busy || !scheduledSummary || scheduledStatus !== "scheduled") return;
+    const auth = await withAuth();
+    if (!auth) return;
+    setBusy("cancel_schedule");
+    setError(null);
+    try {
+      const res = await EmailDeliveryService.cancelScheduledSend({
+        ...auth,
+        actionId: scheduledSummary.actionId,
+      });
+      if (res.cancelled || res.state === "cancelled") {
+        setScheduledStatus("cancelled");
+      } else if (res.state === "sent") {
+        setScheduledStatus("sent");
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof EmailDeliveryError
+          ? cause
+          : new EmailDeliveryError("Could not cancel this scheduled email right now.", 500),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const saveToGmailDrafts = async () => {
-    if (busy || saveStartedRef.current || draft.driveFileId || sourceBoundReply) return;
+    if (busy || saveStartedRef.current || !canSaveToGmailDrafts) return;
     saveStartedRef.current = true;
     const saveAttemptId = newIdempotencyKey();
     onSaveStateChange?.("saving", saveAttemptId);
@@ -688,6 +833,19 @@ function EmailDraftCardView({
                   className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
                 />
               </div>
+              {sourceBoundEnvelope?.cc ? (
+                <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+                  <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">Cc</span>
+                  <Input
+                    data-testid="one-email-draft-source-bound-cc"
+                    type="text"
+                    value={sourceBoundEnvelope.cc}
+                    readOnly
+                    aria-label="Verified Cc recipients"
+                    className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
+                  />
+                </div>
+              ) : null}
               <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
                 <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">Subject</span>
                 <Input
@@ -788,6 +946,84 @@ function EmailDraftCardView({
             />
           </div>
 
+          {hasCredentialWarning ? (
+            <div
+              className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm text-foreground ${warning.tile} ${warning.border}`}
+              data-testid="one-email-draft-credential-warning"
+              role="status"
+            >
+              <ShieldAlert className={`mt-0.5 h-4 w-4 shrink-0 ${warning.glyph}`} aria-hidden="true" />
+              <span>
+                This draft looks like it includes a password, API key, or private key. Email is not
+                encrypted end-to-end — remove sensitive secrets before sending.
+              </span>
+            </div>
+          ) : null}
+          {scheduledSummary ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 bg-muted/40 px-3.5 py-3 text-sm"
+              data-testid="one-email-draft-scheduled-card"
+              role="status"
+            >
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">
+                  {scheduledStatus === "sent"
+                    ? "Scheduled email sent"
+                    : scheduledStatus === "cancelled"
+                      ? "Scheduled email cancelled"
+                      : `Scheduled for ${scheduledSummary.sendAtDisplay || initialScheduledSendDisplay || scheduledSummary.sendAt}`}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  To: {scheduledSummary.recipientDisplay} · {scheduledSummary.subject || "(no subject)"}
+                </p>
+              </div>
+              {scheduledStatus === "scheduled" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="compact"
+                  disabled={busy === "cancel_schedule"}
+                  onClick={() => void cancelScheduled()}
+                  data-testid="one-email-draft-schedule-cancel"
+                >
+                  {busy === "cancel_schedule" ? "Cancelling…" : "Cancel scheduled send"}
+                </Button>
+              ) : null}
+            </div>
+          ) : showSchedulePicker && canScheduleSend ? (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/30 px-3.5 py-2.5 text-sm"
+              data-testid="one-email-draft-schedule-picker"
+            >
+              <Clock className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <label htmlFor={`${idPrefix}-schedule-at`} className="text-xs font-medium text-muted-foreground">
+                Send at
+              </label>
+              <Input
+                id={`${idPrefix}-schedule-at`}
+                data-testid="one-email-draft-schedule-input"
+                type="datetime-local"
+                value={scheduleInput}
+                onChange={(event) => setScheduleInput(event.target.value)}
+                disabled={disabled}
+                className="h-8 w-auto min-w-[205px] bg-background text-xs"
+              />
+              {initialScheduledSendDisplay ? (
+                <span className="text-xs text-muted-foreground">({initialScheduledSendDisplay})</span>
+              ) : null}
+              <Button
+                type="button"
+                variant={primaryAction === "schedule" ? "default" : "outline"}
+                size="compact"
+                disabled={disabled || needsGeneratedDraft}
+                onClick={() => void scheduleSend()}
+                data-testid="one-email-draft-schedule-confirm"
+                className="ml-auto"
+              >
+                {busy === "schedule" ? "Scheduling…" : "Schedule send"}
+              </Button>
+            </div>
+          ) : null}
           {missingDetails.length > 0 ? (
             <div
               className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium text-foreground ${warning.tile} ${warning.border}`}
@@ -849,6 +1085,31 @@ function EmailDraftCardView({
                     <Link className="font-medium underline" href="/one/gmail">Reconnect Mail</Link>
                   )
                 ) : null}
+                {error.needsGmailComposePermission ? (
+                  onEnableGmailCompose ? (
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      data-testid="one-email-draft-enable-compose"
+                      onClick={() => onEnableGmailCompose()}
+                    >
+                      Enable Gmail drafts
+                    </button>
+                  ) : onOpenConnections ? (
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      data-testid="one-email-draft-enable-compose"
+                      onClick={(event) => onOpenConnections("gmail", event.currentTarget)}
+                    >
+                      Enable Gmail drafts
+                    </button>
+                  ) : (
+                    <Link className="font-medium underline" href="/one/gmail">
+                      Enable Gmail drafts
+                    </Link>
+                  )
+                ) : null}
                 {error.needsGmailConnect ? (
                   onOpenConnections ? (
                     <button
@@ -901,10 +1162,23 @@ function EmailDraftCardView({
           {isDrafting ? "Close draft" : "Decline"}
         </Button>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {!sourceBoundReply && !draft.driveFileId && (
+          {canScheduleSend && !scheduledSummary ? (
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
+              size="standard"
+              onClick={() => setShowSchedulePicker((prev) => !prev)}
+              disabled={disabled || needsGeneratedDraft}
+              data-testid="one-email-draft-schedule-toggle"
+            >
+              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+              {showSchedulePicker ? "Hide schedule" : "Schedule"}
+            </Button>
+          ) : null}
+          {canSaveToGmailDrafts && !scheduledSummary && (
+            <Button
+              type="button"
+              variant={primaryAction === "save_draft" ? "default" : "outline"}
               size="standard"
               onClick={() => void saveToGmailDrafts()}
               disabled={disabled || needsGeneratedDraft || saveStartedRef.current}
@@ -913,8 +1187,10 @@ function EmailDraftCardView({
               {savedToGmail ? "Saved in Gmail Drafts" : busy === "save" ? "Saving…" : "Save to Gmail Drafts"}
             </Button>
           )}
+          {!scheduledSummary ? (
           <Button
           type="button"
+          variant={primaryAction === "send" ? "default" : "outline"}
           size="standard"
           className="sm:min-w-32"
           onClick={() => void send()}
@@ -932,6 +1208,7 @@ function EmailDraftCardView({
                 ? "Send email"
                 : "Send"}
           </Button>
+          ) : null}
         </div>
       </div>
     </section>
