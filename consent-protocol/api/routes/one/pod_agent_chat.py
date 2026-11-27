@@ -37,6 +37,10 @@ from hushh_mcp.one_adk.account_context_contract import (
 )
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
 from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
+from hushh_mcp.one_adk.finance_a2ui import (
+    STATE_DEV_FINANCE_VISUALS,
+    dev_finance_presentation_enabled,
+)
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text,
     _safe_agent_history_metadata,
@@ -221,6 +225,8 @@ async def capabilities(owner: PodChatContext = Depends(context)):
             "nativeLocationChatReview": True,
             "nativeLocationChatConversation": True,
         }
+    if dev_finance_presentation_enabled():
+        native["nativeFinanceVisualVersion"] = 1
 
     return {
         **_authenticated_capabilities,
@@ -384,8 +390,12 @@ async def _native_chat(input: NativePodChatRequest, owner: PodChatContext) -> Ev
     )
     if bool(state[STATE_MCP_APPROVAL]) != bool(decision and decision.confirmed):
         raise HTTPException(409, detail={"code": "MCP_REVIEW_CHANGED"})
+    finance_only = input.visual_mode == "finance-dev"
+    if finance_only and not dev_finance_presentation_enabled():
+        raise HTTPException(409, detail={"code": "POD_CHAT_FINANCE_VISUALS_UNAVAILABLE"})
     state["temp:hussh:split_dynamic_context"] = True
     state[_STATE_NATIVE_ADK_CHAT] = True
+    state[STATE_DEV_FINANCE_VISUALS] = finance_only
     await owner.require_access()
     turn = AdmittedNativePodTurn(input.thread_id, input.run_id, state, input.message, decision)
     return _stream_response(owner.stream_native(options, turn))

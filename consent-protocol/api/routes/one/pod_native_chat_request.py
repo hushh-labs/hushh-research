@@ -38,6 +38,7 @@ class NativePodChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     transport: Literal["native-adk-v1"]
+    visual_mode: Literal["finance-dev"] | None = Field(default=None, alias="visualMode")
     thread_id: RunIdentity = Field(alias="threadId")
     run_id: RunIdentity = Field(alias="runId")
     message: str | None = Field(default=None, min_length=1, max_length=8000)

@@ -10,8 +10,13 @@ from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.models.google_llm import Gemini
 from google.adk.plugins.base_plugin import BasePlugin
+from google.adk.tools import FunctionTool
 from google.genai import types as genai_types
 
+from hushh_mcp.one_adk.finance_a2ui import (
+    dev_finance_presentation_enabled,
+    send_a2ui_json_to_client,
+)
 from hushh_mcp.one_adk.tool_retry_plugin import SafeSchemaRetryToolPlugin
 from hushh_mcp.services.generated_contracts import generated_contract_path
 
@@ -82,23 +87,21 @@ def build_native_visual_chat_app(
     *,
     app_name: str,
     plugins: list[BasePlugin] | None = None,
+    finance_only: bool = False,
 ) -> App:
-    """Attach the official visual tool to a fresh, top-level private agent."""
+    """Attach the visual presenter to a fresh, top-level private agent."""
     if root_agent.name != "one" or root_agent.parent_agent is not None:
         raise ValueError("Only the top-level private agent can compose A2UI surfaces.")
 
-    from a2ui.adk import SendA2uiToClientToolset
-    from a2ui.inference_formats import DirectJsonFormatFactory
-    from a2ui.processor import A2uiRequestProcessor, CatalogConfig
+    if finance_only:
+        if not dev_finance_presentation_enabled():
+            raise ValueError("The Finance presenter is available only in Dev.")
+        presenter = FunctionTool(send_a2ui_json_to_client)
+        if any(getattr(tool, "name", None) == presenter.name for tool in root_agent.tools):
+            raise ValueError("The visual tool is already attached.")
+    else:
+        presenter = _official_visual_presenter(root_agent)
 
-    if any(isinstance(tool, SendA2uiToClientToolset) for tool in root_agent.tools):
-        raise ValueError("The visual tool is already attached.")
-    catalog = CatalogConfig.from_path(
-        str(generated_contract_path("a2ui", "morphy-one.v1.catalog.json"))
-    ).catalog
-    # A freshly assembled app owns the stateless processor. Renderer state
-    # and credentials do not belong in the processor or its model schema.
-    processor = A2uiRequestProcessor([catalog], format_factory=DirectJsonFormatFactory())
     legacy_finance_cards = {
         "show_portfolio_card",
         "show_portfolio_upload",
@@ -110,10 +113,23 @@ def build_native_visual_chat_app(
         for tool in root_agent.tools
         if getattr(tool, "__name__", None) not in legacy_finance_cards
     ]
-    root_agent.tools.append(
-        SendA2uiToClientToolset(
-            a2ui_enabled=lambda context: context.agent_name == root_agent.name,
-            a2ui_processor=processor,
-        )
-    )
+    root_agent.tools.append(presenter)
     return build_chat_adk_app(root_agent, app_name=app_name, plugins=plugins)
+
+
+def _official_visual_presenter(root_agent: LlmAgent):
+    from a2ui.adk import SendA2uiToClientToolset
+    from a2ui.inference_formats import DirectJsonFormatFactory
+    from a2ui.processor import A2uiRequestProcessor, CatalogConfig
+
+    if any(isinstance(tool, SendA2uiToClientToolset) for tool in root_agent.tools):
+        raise ValueError("The visual tool is already attached.")
+    catalog = CatalogConfig.from_path(
+        str(generated_contract_path("a2ui", "morphy-one.v1.catalog.json"))
+    ).catalog
+    # Renderer state and credentials stay outside the processor.
+    processor = A2uiRequestProcessor([catalog], format_factory=DirectJsonFormatFactory())
+    return SendA2uiToClientToolset(
+        a2ui_enabled=lambda context: context.agent_name == root_agent.name,
+        a2ui_processor=processor,
+    )

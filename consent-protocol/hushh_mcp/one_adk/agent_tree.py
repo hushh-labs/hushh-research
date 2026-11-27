@@ -1020,6 +1020,7 @@ def _compose_one_instruction_parts(
 ) -> tuple[str, str, str]:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
+    from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS
     from hushh_mcp.one_adk.native_chat_output import STATE_NATIVE_VISUAL_CHAT
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
@@ -1057,6 +1058,14 @@ def _compose_one_instruction_parts(
             "chooses the source in the app. To connect or refresh a linked bank, offer "
             "FinancePlaidConnection. Do not claim that an offer executed."
         )
+        if state_getter(STATE_DEV_FINANCE_VISUALS) is True:
+            identity_instruction += (
+                " With send_a2ui_json_to_client, pass the component name and only "
+                "its required selection. Use section for SavedPortfolio, view for "
+                "MarketSnapshot, ticker for FinanceStockPreview, mode for the "
+                "portfolio picker, and audience for a sharing offer. The tool "
+                "constructs the surface and does not accept layouts or portfolio values."
+            )
     elif callable(state_getter) and typed_finance_chat:
         identity_instruction += (
             "\n\nFINANCE IN CHAT: Keep these in Chat. Call show_market_gainers for U.S. or "

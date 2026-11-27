@@ -168,6 +168,117 @@ async def test_native_runner_streams_and_settles_with_chat_app():
     assert "working" not in texts
 
 
+async def test_dev_finance_presenter_streams_catalog_offers_with_the_installed_adk(monkeypatch):
+    from google.adk.agents import LlmAgent
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.one_adk.chat_adk_app import build_native_visual_chat_app
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS, send_a2ui_json_to_client
+    from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME, STATE_NATIVE_VISUAL_CHAT
+    from hushh_mcp.one_adk.state_keys import STATE_USER_ID
+    from hushh_mcp.services.generated_contracts import generated_contract_path
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    selected = (
+        [
+            {"component": "SavedPortfolio", "section": section}
+            for section in ("holdings", "allocation", "performance", "sources")
+        ]
+        + [
+            {"component": "MarketSnapshot", "view": view}
+            for view in ("gainers", "losers", "movers")
+        ]
+        + [
+            {"component": "FinanceStockPreview", "ticker": "TEST"},
+            {"component": "FinancePortfolioUpload"},
+            {"component": "FinancePortfolioPicker", "mode": "switch"},
+            {"component": "FinancePortfolioPicker", "mode": "delete"},
+            {"component": "FinancePlaidConnection"},
+            {"component": "FinanceShareProposal", "audience": "connection"},
+            {"component": "FinanceShareProposal", "audience": "verified_advisor"},
+        ]
+    )
+    submitted = selected + [{"component": "FinanceStockPreview", "ticker": "link://invalid"}]
+
+    class FinanceModel(BaseLlm):
+        called: bool = False
+
+        async def generate_content_async(self, llm_request, stream=False):
+            if self.called:
+                parts = [genai_types.Part(text="Finance offers ready")]
+            else:
+                self.called = True
+                parts = [
+                    genai_types.Part(
+                        function_call=genai_types.FunctionCall(
+                            name=A2UI_TOOL_NAME,
+                            args=selection,
+                        )
+                    )
+                    for selection in submitted
+                ]
+            yield LlmResponse(
+                content=genai_types.Content(role="model", parts=parts),
+                turn_complete=True,
+            )
+
+    app = build_native_visual_chat_app(
+        LlmAgent(name="one", model=FinanceModel(model="synthetic-finance")),
+        app_name="one",
+        finance_only=True,
+    )
+    sessions = InMemorySessionService()
+    state = {
+        STATE_USER_ID: "test-owner",
+        "hussh:consent_token": "synthetic-request-reference",
+        STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_NATIVE_VISUAL_CHAT: True,
+        STATE_DEV_FINANCE_VISUALS: True,
+    }
+    assert send_a2ui_json_to_client(
+        "SavedPortfolio",
+        SimpleNamespace(agent_name="finance", state=state),
+        section="holdings",
+    ) == {"status": "unavailable"}
+    session = await sessions.create_session(app_name=app.name, user_id="test-owner", state=state)
+    async with Runner(app=app, session_service=sessions) as runner:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id=session.user_id,
+                session_id=session.id,
+                new_message=genai_types.Content(
+                    role="user", parts=[genai_types.Part(text="Show Finance")]
+                ),
+                state_delta=state,
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            )
+        ]
+    responses = [
+        part["functionResponse"]["response"]["validated_a2ui_json"][0]
+        for event in events
+        if (frame := encode_native_chat_output(event))
+        for part in json.loads(frame.removeprefix(b"data: "))["content"]["parts"]
+        if "functionResponse" in part
+    ]
+    catalog = json.loads(generated_contract_path("a2ui", "morphy-one.v1.catalog.json").read_text())
+    offered = []
+    for response in responses:
+        assert response["version"] == "1.0"
+        surface = response["createSurface"]
+        assert surface["catalogId"] == catalog["catalogId"]
+        assert "dataModel" not in surface
+        (node,) = surface["components"]
+        assert node.pop("id") == "root"
+        assert node["component"] in catalog["components"]
+        offered.append(node)
+    assert sorted(offered, key=lambda offer: str(offer)) == sorted(
+        selected, key=lambda offer: str(offer)
+    )
+
+
 async def test_native_stream_refuses_to_complete_when_access_ends_before_settlement():
     async def open_fixture():
         yield Event(

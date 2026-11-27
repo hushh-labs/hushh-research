@@ -361,6 +361,7 @@ class PodChatContext:
     ) -> AsyncGenerator[bytes, None]:
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME, _PrivateLiveAccessPlugin
         from hushh_mcp.one_adk.chat_adk_app import build_native_visual_chat_app
+        from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS
         from hushh_mcp.one_adk.native_pod_chat import run_native_pod_chat
 
         async def prepare():
@@ -371,6 +372,7 @@ class PodChatContext:
                 head,
                 app_name=ONE_APP_NAME,
                 plugins=[_PrivateLiveAccessPlugin(self.require_access)],
+                finance_only=turn.state.get(STATE_DEV_FINANCE_VISUALS) is True,
             )
             return app, memory, prepare_memory
 

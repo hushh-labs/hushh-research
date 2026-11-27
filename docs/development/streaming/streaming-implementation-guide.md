@@ -447,6 +447,13 @@ owner-keyed history and sends that decision back to the same conversation.
 
 Encrypted history retains the A2UI call identity and redacted receipt.
 Raw layout arguments and rendered values stay in the admitted turn.
+An explicitly admitted Dev owner turn can set `visualMode: "finance-dev"`.
+Dev advertises this separately as `nativeFinanceVisualVersion`. Its ADK
+Finance tool returns a catalog surface from a closed selection. The tool
+does not accept layouts, portfolio records, recipients, or confirmation.
+The browser's app-owned Finance controllers still load the unlocked
+portfolio and perform any reviewed actions.
+
 The owner Cloud Chat candidate can select `native-adk-v1` before dispatch.
 The web build opts in with `NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT=1` and verifies
 the signed-in pod advertises `nativeAdkChatVersion: 1`. Native turns send one
