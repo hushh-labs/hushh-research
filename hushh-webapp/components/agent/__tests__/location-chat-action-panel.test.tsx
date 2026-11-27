@@ -116,7 +116,7 @@ test("asking a person whose location is already available opens the exact grant 
   expect(executeMainLocationPlan).toHaveBeenCalledWith("owner-token", "view-plan");
 });
 
-test("a first-time live share offers the existing consent and device setup inside Chat", async () => {
+test("a legacy first-time share offers a setup entry point and prepares no grants", async () => {
   vi.clearAllMocks();
   vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
   vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Priya", targets: [{ label: "Priya", personUserId: "priya" }] }]);
@@ -124,6 +124,7 @@ test("a first-time live share offers the existing consent and device setup insid
 
   render(<LocationChatActionPanel proposal={{ id: "live-proposal", action: "share_live", people: ["Priya"], durationHours: 1 }} ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
   await screen.findByText("Set up Location");
+  expect(screen.queryByRole("region", { name: "Inline Location setup" })).toBeNull();
   await waitFor(() => expect(prepareMainLocationPlan).not.toHaveBeenCalled());
 });
 
