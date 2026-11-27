@@ -17,10 +17,20 @@
       "disconnected",
       "chat_opened"
     ],
+    "one_career_action": [
+      "resume_parse",
+      "resume_save",
+      "application_send"
+    ],
     "one_crm_action": [
       "record_created",
       "record_updated",
       "record_deleted"
+    ],
+    "one_document_request_action": [
+      "question_send",
+      "file_request_send",
+      "review_request"
     ],
     "one_kyc_action": [
       "redraft_completed",
@@ -88,6 +98,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "3d887c80bdc38618a8e0bae7e2442fdff3617c5bd7782f97a3e8033eafdfca0a",
+  "sourceDigest": "f61139bed6fa55e308ac5ce5969a08f25faf6cb34e91b5d66462c2cb313ca6f5",
   "version": 1
 }
