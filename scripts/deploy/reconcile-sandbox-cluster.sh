@@ -28,7 +28,7 @@ case "${PROJECT_ID}" in
     DEPLOY_ENV="uat"
     DEFAULT_CLUSTER="hussh-one-sandbox-uat"
     DEFAULT_EDGE_SA="hussh-sandbox-edge-uat@${PROJECT_ID}.iam.gserviceaccount.com"
-    DEFAULT_WARM_REPLICAS="1"
+    DEFAULT_WARM_REPLICAS="2"
     DEFAULT_CORS="https://uat.one.hussh.si,https://uat.one.hushh.si,https://uat.one.hussh.ai,https://uat.one.hushh.ai,http://localhost:3000"
     DEFAULT_PLAID_ENV="sandbox"
     ;;
@@ -63,6 +63,7 @@ if ! gcloud iam service-accounts describe "${EDGE_SA}" --project="${PROJECT_ID}"
   echo "Sandbox cluster reconcile (${DEPLOY_ENV}): service account ${EDGE_SA} absent; skipping." >&2
   exit 0
 fi
+EDGE_SA_UNIQUE_ID="$(gcloud iam service-accounts describe "${EDGE_SA}" --project="${PROJECT_ID}" --format='value(uniqueId)' 2>/dev/null || true)"
 
 ENDPOINT="$(gcloud container clusters describe "${CLUSTER_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(endpoint)' 2>/dev/null || true)"
 CA_B64="$(gcloud container clusters describe "${CLUSTER_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(masterAuth.clusterCaCertificate)' 2>/dev/null || true)"
@@ -144,25 +145,30 @@ verify_uat_sandbox_allocator() {
   local binding_json="${WORK_DIR}/sandbox-edge-binding.json"
   kctl -n hussh-agents get role sandbox-edge-allocator -o json > "${role_json}"
   kctl -n hussh-agents get rolebinding sandbox-edge-allocator-binding -o json > "${binding_json}"
-  python3 - "${role_json}" "${binding_json}" "${EDGE_SA}" <<'PY'
+  python3 - "${role_json}" "${binding_json}" "${EDGE_SA}" "${DEPLOY_ENV}" "${EDGE_SA_UNIQUE_ID:-}" <<'PY'
 import json
 import sys
 from itertools import product
 from pathlib import Path
 
-role_path, binding_path, edge_account = sys.argv[1:]
+role_path, binding_path, edge_account, deploy_env, edge_unique_id = sys.argv[1:]
 role = json.loads(Path(role_path).read_bytes())
 binding = json.loads(Path(binding_path).read_bytes())
 api_group = "rbac.authorization.k8s.io"
 role_ref = {"apiGroup": api_group, "kind": "Role", "name": "sandbox-edge-allocator"}
 edge_subject = {"apiGroup": api_group, "kind": "User", "name": edge_account}
+subjects = binding.get("subjects", [])
+require_unique_id = bool(edge_unique_id) and deploy_env in {"dev", "uat"}
 if (
     role.get("metadata", {}).get("namespace") != "hussh-agents"
     or binding.get("metadata", {}).get("namespace") != "hussh-agents"
     or binding.get("roleRef") != role_ref
-    or edge_subject not in binding.get("subjects", [])
+    or edge_subject not in subjects
+    or (require_unique_id and {"apiGroup": api_group, "kind": "User", "name": edge_unique_id} not in subjects)
 ):
-    raise SystemExit("UAT Sandbox allocator binding must reference its existing Role and Edge identity.")
+    raise SystemExit(
+        f"Sandbox allocator ({deploy_env}) binding must reference its existing Role and Edge identity."
+    )
 
 # The Edge allocator creates, reads, extends, and deletes claims, scales the
 # warm pool, and reads a pod for IP or termination status.
@@ -179,15 +185,15 @@ allowed = {
     for operation in product(rule.get("apiGroups", []), rule.get("resources", []), rule.get("verbs", []))
 }
 if not required <= allowed:
-    raise SystemExit("UAT Sandbox allocator Role is missing required namespaced permissions.")
+    raise SystemExit(
+        f"Sandbox allocator ({deploy_env}) Role is missing required namespaced permissions."
+    )
 PY
 }
 
-if [[ "${DEPLOY_ENV}" == "uat" ]]; then
-  # The cluster owner provisions allocator authorization. Routine UAT deploys
-  # verify it without replacing permissions or removing other subjects.
-  verify_uat_sandbox_allocator
-fi
+# Cluster owners provision GKE policy-group RBAC in Dev, UAT, and Production.
+# Routine deploys verify allocator authorization read-only without mutating RBAC.
+verify_uat_sandbox_allocator
 
 HUB_BASE_URL="$(gcloud run services describe "${BACKEND_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)' 2>/dev/null || true)"
 WEBAPP_URL="$(gcloud run services describe "${FRONTEND_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)' 2>/dev/null || true)"
@@ -336,6 +342,7 @@ fi
 
 kctl -n hussh-sandbox-system create secret generic sentinel-proxy-secrets \
   "${SECRET_ARGS[@]}" --dry-run=client -o yaml | kctl apply -f - >/dev/null
+SENTINEL_SECRETS_SHA256="$(kctl -n hussh-sandbox-system get secret sentinel-proxy-secrets -o jsonpath='{.data}' 2>/dev/null | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest())')"
 
 if [[ -s "${WEB_CID_FILE}" ]]; then
   kctl -n hussh-agents create secret generic sandbox-public-oauth-config \
@@ -372,6 +379,8 @@ spec:
       app: sentinel-egress-proxy
   template:
     metadata:
+      annotations:
+        hussh.ai/secrets-sha256: "${SENTINEL_SECRETS_SHA256}"
       labels:
         app: sentinel-egress-proxy
     spec:
@@ -632,38 +641,7 @@ if [[ "${DEPLOY_ENV}" == "uat" ]] && kctl -n hussh-agents get secret uat-private
 fi
 
 TEMPLATE_MANIFEST="${WORK_DIR}/sandbox-template-and-pool.yaml"
-if [[ "${DEPLOY_ENV}" != "uat" ]]; then
-  cat > "${TEMPLATE_MANIFEST}" <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: sandbox-edge-allocator
-  namespace: hussh-agents
-rules:
-  - apiGroups: ["agents.x-k8s.io", "extensions.agents.x-k8s.io"]
-    resources: ["sandboxes", "sandboxclaims", "sandboxtemplates", "sandboxwarmpools"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["pods", "services"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: sandbox-edge-allocator-binding
-  namespace: hussh-agents
-subjects:
-  - kind: User
-    name: "${EDGE_SA}"
-    apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: Role
-  name: sandbox-edge-allocator
-  apiGroup: rbac.authorization.k8s.io
----
-EOF
-fi
-cat >> "${TEMPLATE_MANIFEST}" <<EOF
+cat > "${TEMPLATE_MANIFEST}" <<EOF
 apiVersion: extensions.agents.x-k8s.io/v1beta1
 kind: SandboxTemplate
 metadata:
@@ -784,73 +762,15 @@ spec:
   replicas: ${WARM_REPLICAS}
   sandboxTemplateRef:
     name: hussh-one-sandbox-v1
-EOF
-if [[ "${DEPLOY_ENV}" == "uat" ]]; then
-  # Preserve the live strategy that replaces old pool-owned instances and
-  # prevents new claims from adopting an earlier pod image.
-  cat >> "${TEMPLATE_MANIFEST}" <<'EOF'
   updateStrategy:
     type: Recreate
 EOF
-fi
 
 echo "Applying SandboxTemplate and SandboxWarmPool (replicas=${WARM_REPLICAS})..."
 kctl apply -f "${TEMPLATE_MANIFEST}" >/dev/null
-
-# In UAT the Sandbox controller owns pod replacement. Claims can retain a
-# warm-pool name after allocation, so a workload rollout cannot delete them.
-if [[ "${DEPLOY_ENV}" != "uat" ]]; then
-  # Rotate ONLY unallocated warm-pool standby pods running an older image digest;
-  # NEVER evict a pod bound to an active owner SandboxClaim.
-  CLAIMS_JSON="${WORK_DIR}/claims.json"
-  PODS_JSON="${WORK_DIR}/pods.json"
-  kctl -n hussh-agents get sandboxclaims -o json > "${CLAIMS_JSON}" 2>/dev/null || echo '{"items":[]}' > "${CLAIMS_JSON}"
-  kctl -n hussh-agents get pods -l app=hussh-one-sandbox -o json > "${PODS_JSON}" 2>/dev/null || echo '{"items":[]}' > "${PODS_JSON}"
-
-  STALE_UNALLOCATED_PODS="$(python3 - "${CLAIMS_JSON}" "${PODS_JSON}" "${IMAGE_REF}" <<'PY'
-import json
-import sys
-
-claims = json.loads(open(sys.argv[1]).read()).get("items") or []
-pods = json.loads(open(sys.argv[2]).read()).get("items") or []
-target_image = sys.argv[3]
-
-bound_names = set()
-for claim in claims:
-    status = claim.get("status") or {}
-    for key in ("sandboxName", "podName"):
-        val = str(status.get(key) or "").strip()
-        if val:
-            bound_names.add(val)
-    sbx = status.get("sandbox") or {}
-    if isinstance(sbx, dict) and sbx.get("Name"):
-        bound_names.add(str(sbx["Name"]).strip())
-
-for pod in pods:
-    meta = pod.get("metadata") or {}
-    name = str(meta.get("name") or "").strip()
-    labels = meta.get("labels") or {}
-    owners = meta.get("ownerReferences") or []
-    is_claimed = (
-        name in bound_names
-        or any(str(b) in name for b in bound_names if b)
-        or bool(labels.get("agents.x-k8s.io/claim-name"))
-        or any(o.get("kind") == "Sandbox" and not str(o.get("name") or "").startswith("hussh-one-warm-pool") for o in owners)
-    )
-    if is_claimed:
-        continue
-    containers = (pod.get("spec") or {}).get("containers") or []
-    current_img = str(containers[0].get("image") or "") if containers else ""
-    if current_img != target_image:
-        print(name)
-PY
-)"
-
-  for stale_pod in ${STALE_UNALLOCATED_PODS}; do
-    echo "Recycling unallocated standby pod ${stale_pod} to ${IMAGE_REF}..."
-    kctl -n hussh-agents delete pod "${stale_pod}" --wait=false >/dev/null 2>&1 || true
-  done
-fi
+# Across Dev, UAT, and Production, the Sandbox controller owns standby pod
+# replacement via SandboxWarmPool updateStrategy=Recreate; claims can retain a
+# warm-pool name after allocation, so workload rollouts never delete pods directly.
 
 CORS_ORIGINS="${DEFAULT_CORS}"
 if [[ -n "${WEBAPP_URL}" ]]; then
