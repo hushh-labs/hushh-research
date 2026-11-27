@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ScheduledRunActions, ScheduledRunInformation, type useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
+import { ScheduledRunApprovalDialog } from "@/components/scheduled-tasks/scheduled-run-approval-dialog";
 import { CalendarClock, CalendarDays, ChevronLeft, ClipboardList, RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
-import { ONE_TASK_TEMPLATE, type PodScheduledTasksClient, type ScheduledRunResult, type ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
+import { ONE_TASK_TEMPLATE, type PodScheduledTasksClient, type ScheduledRun, type ScheduledRunResult, type ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
@@ -53,20 +54,27 @@ export function TodoTaskDetail({ task, busy, error, onBack, onToggle, onRemove, 
   </section>;
 }
 
-export function TodoScheduledRunDetail({ task, model, onBack }: {
+export function TodoScheduledRunDetail({ task, model, vaultOwnerToken, onBack }: {
   task: ScheduledTask | undefined;
   model: ReturnType<typeof useScheduledTasksModel>;
+  vaultOwnerToken: string | null;
   onBack: () => void;
 }) {
+  const [reviewOpen, setReviewOpen] = useState(false);
   const busy = Boolean(model.busy);
   const back = useCallback(() => {
     if (!busy) onBack();
     return true;
   }, [busy, onBack]);
   useBackLayer(ROUTES.ONE_TASKS, 2, back);
-  const run = task?.last_run;
-  const canReadResult = run?.id && (run.state === "completed" || run.state === "failed") &&
-    task?.capability === ONE_TASK_TEMPLATE && resolveAppEnvironment() === "development";
+  const client = model.client;
+  const canReview = task?.capability === ONE_TASK_TEMPLATE && task.state === "needs_review" &&
+    task.last_run?.state === "needs_review" && task.review_available &&
+    resolveAppEnvironment() === "development";
+  const renderResult = task?.capability === ONE_TASK_TEMPLATE && client && resolveAppEnvironment() === "development"
+    ? (run: ScheduledRun) => run.id && (run.state === "completed" || run.state === "failed") && (
+      <AgentRunResult key={run.id} client={client} task={task} occurrenceId={run.id} />
+    ) : undefined;
 
   return (
     <section aria-label="Scheduled run details" className={styles.detail}>
@@ -92,8 +100,7 @@ export function TodoScheduledRunDetail({ task, model, onBack }: {
           <>
             <div className={styles.sourceLabels}><span><CalendarClock aria-hidden /> Scheduled run</span></div>
             <div className={styles.divider} />
-            <div className={styles.detailMeta}><ScheduledRunInformation task={task} /></div>
-            {canReadResult && model.client && <AgentRunResult key={run.id} client={model.client} task={task} />}
+            <div className={styles.detailMeta}><ScheduledRunInformation task={task} renderResult={renderResult} /></div>
           </>
         ) : (
           <p role="status" className={styles.detailMeta}>
@@ -101,12 +108,32 @@ export function TodoScheduledRunDetail({ task, model, onBack }: {
           </p>
         )}
       </div>
-      {task && <footer className={styles.detailFooter}><ScheduledRunActions task={task} model={model} /></footer>}
+      {task && (
+        <footer className={styles.detailFooter}>
+          {canReview && client && vaultOwnerToken && (
+            <Button disabled={busy || model.checking} onClick={() => setReviewOpen(true)}>Review action</Button>
+          )}
+          <ScheduledRunActions task={task} model={model} />
+        </footer>
+      )}
+      {reviewOpen && canReview && task && client && vaultOwnerToken && (
+        <ScheduledRunApprovalDialog
+          key={`${task.id}:${task.revision}`}
+          task={task}
+          client={client}
+          vaultOwnerToken={vaultOwnerToken}
+          onExit={() => { setReviewOpen(false); model.refresh(); }}
+        />
+      )}
     </section>
   );
 }
 
-function AgentRunResult({ client, task }: { client: PodScheduledTasksClient; task: ScheduledTask }) {
+function AgentRunResult({ client, task, occurrenceId }: {
+  client: PodScheduledTasksClient;
+  task: ScheduledTask;
+  occurrenceId: string;
+}) {
   const [result, setResult] = useState<ScheduledRunResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -120,7 +147,7 @@ function AgentRunResult({ client, task }: { client: PodScheduledTasksClient; tas
     setLoading(true);
     setFailed(false);
     try {
-      const value = await client.readRunResult(task, active.signal);
+      const value = await client.readRunResult(task, active.signal, occurrenceId);
       if (!active.signal.aborted) setResult(value);
     } catch {
       if (!active.signal.aborted) setFailed(true);

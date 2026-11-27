@@ -683,7 +683,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   );
 
   const webChild = scheduleDetailOpen ? (
-    <TodoScheduledRunDetail task={currentSchedule} model={schedules} onBack={closeScheduleDetail} />
+    <TodoScheduledRunDetail task={currentSchedule} model={schedules} vaultOwnerToken={vaultOwnerToken} onBack={closeScheduleDetail} />
   ) : writeReady && currentDetail && currentDetail.status !== "deleted" ? (
     <TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => {
       void toggleTask(task, complete);

@@ -315,7 +315,7 @@ export class ExternalConnectorService {
   /** Explicit tap only. A failed acknowledgement never triggers an automatic retry. */
   static async confirmMcpCall(input: {
     vaultOwnerToken: string;
-    chatKey: string;
+    chatKey?: string;
     conversationId: string;
     reference: McpCallPreview;
     configuration?: CustomConnectorConfiguration;
@@ -330,7 +330,7 @@ export class ExternalConnectorService {
 
   private static async mcpReviewRequest(input: {
     vaultOwnerToken: string;
-    chatKey: string;
+    chatKey?: string;
     conversationId: string;
     reference: McpCallReviewReference;
     configuration?: CustomConnectorConfiguration;
@@ -355,12 +355,13 @@ export class ExternalConnectorService {
     }
     if (!privatePod && podReview) throw new Error("Private agent assignment changed.");
     const privateConfirmation = privatePod && operation === "confirm";
+    if (!privateConfirmation && !input.chatKey) throw new Error("Open the connector review again.");
     const init = {
       method: "POST", cache: "no-store" as RequestCache, signal: input.signal,
       isEffectCurrent: current,
       headers: {
         ...authHeaders(input.vaultOwnerToken),
-        ...(!privateConfirmation ? { [ONE_CHAT_KEY_HEADER]: input.chatKey } : {}),
+        ...(!privateConfirmation && input.chatKey ? { [ONE_CHAT_KEY_HEADER]: input.chatKey } : {}),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(privateConfirmation ? {

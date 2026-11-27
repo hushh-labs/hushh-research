@@ -4,6 +4,8 @@ import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner }
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { ROUTES } from "@/lib/navigation/routes";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
+import { parseMcpCallPreview, parseMcpCallReviewReference, type McpCallApproval, type McpCallPreview } from "@/lib/agent/mcp-call-review";
+import { observeServerDate } from "@/lib/agent/server-clock";
 
 import type { FollowupMailbox, MailFollowup } from "@/lib/mail/mail-followup-model";
 
@@ -41,6 +43,13 @@ export type ScheduleRecurrence = {
 };
 export type ScheduledRun = { id?: string; state: string; started_at: number; finished_at?: number };
 export type ScheduledRunResult = { outcome: "completed" | "blocked"; summary: string };
+export type ScheduledApprovalReview = {
+  scheduleId: string;
+  occurrenceId: string;
+  revision: number;
+  confirmationId: string;
+  preview: McpCallPreview;
+};
 type RecentScheduledRun = ScheduledRun & { id: string };
 export type ScheduleControl = "pause" | "resume" | "cancel" | "skip_next" | "run_now";
 
@@ -63,6 +72,7 @@ export type ScheduledTask = {
   timezone: string;
   next_run_at: number;
   run_now_pending?: boolean;
+  review_available?: boolean;
   authorization_expires_at: number;
   last_run: (ScheduledRun & { sent_source?: string }) | null;
   recent_runs?: RecentScheduledRun[];
@@ -133,6 +143,7 @@ function parseTask(value: unknown): ScheduledTask {
     row.next_run_at < 1 ||
     row.next_run_at > 253_402_300_799 ||
     (row.run_now_pending !== undefined && typeof row.run_now_pending !== "boolean") ||
+    (row.review_available !== undefined && typeof row.review_available !== "boolean") ||
     !Number.isSafeInteger(row.authorization_expires_at) ||
     row.authorization_expires_at < 1 ||
     (row.recent_runs !== undefined && (!Array.isArray(row.recent_runs) || row.recent_runs.length > 5))
@@ -158,6 +169,7 @@ function parseTask(value: unknown): ScheduledTask {
     timezone: row.timezone,
     next_run_at: row.next_run_at,
     ...(row.run_now_pending !== undefined ? { run_now_pending: row.run_now_pending } : {}),
+    ...(row.review_available === true ? { review_available: true } : {}),
     authorization_expires_at: row.authorization_expires_at,
     last_run: row.last_run === null ? null : {
       ...parseRun(row.last_run),
@@ -194,7 +206,7 @@ export class PodScheduledTasksClient {
   constructor(private readonly ownerId: string) {}
 
   private async request(
-    path: "tasks" | "tasks/control" | `tasks?${string}`,
+    path: "tasks" | "tasks/control" | "tasks/review" | "tasks/continue" | `tasks?${string}`,
     init: RequestInit,
     signal?: AbortSignal,
   ): Promise<unknown> {
@@ -246,6 +258,7 @@ export class PodScheduledTasksClient {
             ? body.detail.code
             : "SCHEDULE_REQUEST_FAILED",
         );
+      if (path === "tasks/review") observeServerDate(response.headers.get("date"));
       return body;
     } finally {
       clearTimeout(timer);
@@ -339,7 +352,10 @@ export class PodScheduledTasksClient {
   }
 
   async scheduleOne(
-    terms: { title: string; goal: string; runAt: number; expiresAt: number; requestId: string; timezone: string },
+    terms: {
+      title: string; goal: string; runAt: number; expiresAt: number; requestId: string; timezone: string;
+      recurrence?: Omit<ScheduleRecurrence, "endsAt">;
+    },
     signal: AbortSignal,
   ): Promise<ScheduledTask> {
     const task = parseTask(await this.request("tasks", {
@@ -351,7 +367,8 @@ export class PodScheduledTasksClient {
         capability: ONE_TASK_TEMPLATE,
         parameters: { goal: terms.goal },
         first_run_at: terms.runAt,
-        repeat: "once",
+        repeat: terms.recurrence?.repeat ?? "once",
+        ...(terms.recurrence?.weekdays ? { weekdays: terms.recurrence.weekdays } : {}),
         timezone: terms.timezone,
         authorization_expires_at: terms.expiresAt,
         confirmed: true,
@@ -361,12 +378,15 @@ export class PodScheduledTasksClient {
     return task;
   }
 
-  async readRunResult(task: ScheduledTask, signal: AbortSignal): Promise<ScheduledRunResult> {
+  async readRunResult(task: ScheduledTask, signal: AbortSignal, occurrenceId = task.last_run?.id): Promise<ScheduledRunResult> {
+    const run = occurrenceId === task.last_run?.id ? task.last_run :
+      task.recent_runs?.find(entry => entry.id === occurrenceId);
     if (task.capability !== ONE_TASK_TEMPLATE || !isScheduledTaskId(task.id) ||
-        !task.last_run?.id || !/^[a-f0-9]{32}$/.test(task.last_run.id)) {
+        !occurrenceId || !/^[a-f0-9]{32}$/.test(occurrenceId) ||
+        !run || (run.state !== "completed" && run.state !== "failed")) {
       throw new Error("SCHEDULE_RESULT_UNAVAILABLE");
     }
-    const query = new URLSearchParams({ result_for: task.id, occurrence_id: task.last_run.id });
+    const query = new URLSearchParams({ result_for: task.id, occurrence_id: occurrenceId });
     const body = await this.request(`tasks?${query}`, { method: "GET" }, signal) as { result?: ScheduledRunResult };
     const result = body?.result;
     if (!result || !["completed", "blocked"].includes(result.outcome) ||
@@ -374,6 +394,55 @@ export class PodScheduledTasksClient {
       throw new Error("SCHEDULE_RESPONSE_REFUSED");
     }
     return { outcome: result.outcome, summary: result.summary };
+  }
+
+  async reviewParkedRun(task: ScheduledTask, signal: AbortSignal): Promise<ScheduledApprovalReview> {
+    const occurrenceId = task.last_run?.id;
+    if (resolveAppEnvironment() !== "development" || task.capability !== ONE_TASK_TEMPLATE ||
+        task.state !== "needs_review" || task.last_run?.state !== "needs_review" ||
+        !task.review_available || !isScheduledTaskId(task.id) ||
+        !occurrenceId || !/^[a-f0-9]{32}$/.test(occurrenceId)) {
+      throw new Error("SCHEDULE_REVIEW_UNAVAILABLE");
+    }
+    const body = await this.request("tasks/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schedule_id: task.id, revision: task.revision, occurrence_id: occurrenceId }),
+    }, signal) as { review?: Record<string, unknown>; revision?: number; confirmation_id?: string } | null;
+    const reference = parseMcpCallReviewReference({ ...body?.review, kind: "mcp_call_review", version: 1 });
+    const preview = reference && parseMcpCallPreview(body?.review, reference);
+    if (!body || typeof body.revision !== "number" || !Number.isSafeInteger(body.revision) ||
+        body.revision < task.revision || typeof body.confirmation_id !== "string" ||
+        !body.confirmation_id || body.confirmation_id.length > 256 || !preview?.podReview ||
+        preview.podReview.ownerId !== this.ownerId || preview.podReview.hushhId !== this.reviewedPodId ||
+        preview.podReview.conversationId !== `scheduled_${occurrenceId}`) {
+      throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    }
+    return { scheduleId: task.id, occurrenceId, revision: body.revision, confirmationId: body.confirmation_id, preview };
+  }
+
+  async continueParkedRun(review: ScheduledApprovalReview, approval: McpCallApproval, signal: AbortSignal): Promise<ScheduledTask> {
+    const { preview } = review;
+    if (resolveAppEnvironment() !== "development" || approval.directiveId !== preview.directiveId ||
+        approval.pendingHandle !== preview.pendingHandle || approval.connectorId !== preview.connectorId ||
+        approval.toolName !== preview.toolName || !/^[A-Za-z0-9_-]{32,128}$/.test(approval.receipt)) {
+      throw new Error("SCHEDULE_REVIEW_UNAVAILABLE");
+    }
+    const task = parseTask(await this.request("tasks/continue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schedule_id: review.scheduleId, revision: review.revision, occurrence_id: review.occurrenceId,
+        pending_handle: approval.pendingHandle, confirmation_id: review.confirmationId,
+        approval: {
+          directiveId: approval.directiveId, pendingHandle: approval.pendingHandle,
+          connectorId: approval.connectorId, toolName: approval.toolName, receipt: approval.receipt,
+        },
+      }),
+    }, signal));
+    if (task.id !== review.scheduleId || task.capability !== ONE_TASK_TEMPLATE ||
+        task.revision <= review.revision) throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
   }
 
   async organizeFile(

@@ -115,6 +115,8 @@ const OWNER_POD_ROUTES = new Set([
   "browser/tasks",
   "tasks",
   "tasks/control",
+  "tasks/review",
+  "tasks/continue",
   "calendar/events",
   "gmail/todos",
   "gmail/followups/account",
@@ -318,6 +320,12 @@ export async function ownerPodRequest(
       (route === "tasks" && method === "GET" && path.includes("?") && !session.scopes.includes("pkm.read")) ||
       (method !== "GET" && !session.scopes.includes("files.manage"))
     ) {
+      throw new Error("SCHEDULE_GRANT_REFUSED");
+    }
+  }
+  if (route === "tasks/review" || route === "tasks/continue") {
+    if (method !== "POST" || session.role !== "app" ||
+      !session.scopes.includes("pod.act") || !session.scopes.includes("pkm.read")) {
       throw new Error("SCHEDULE_GRANT_REFUSED");
     }
   }

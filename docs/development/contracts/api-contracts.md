@@ -365,14 +365,23 @@ Its task records include an optional `weekdays` selection and up to
 five `recent_runs` per task, newest first, from the sealed schedule journal.
 Each history row contains an occurrence identifier, state, and timestamps.
 Task terms, grants, and worker credentials remain private to the agent.
-Dev Tasks can confirm a one-time `agent_one.execute_task.v1` run with
-`parameters: {goal}` through the same create contract. Model work uses the
-private agent's existing permissions and approval gates.
+Dev Tasks can confirm one-time or recurring `agent_one.execute_task.v1` runs
+with `parameters: {goal}` through the same create contract. Repeat choices
+follow the advertised modes. Recurring confirmation includes the repeat pattern
+and the explicit authorization end time. Model work uses the private agent's
+existing permissions and approval gates.
 `GET /api/one/pod/tasks?result_for=<schedule_id>&occurrence_id=<run_id>` on Dev
 returns the validated `{result: {outcome, summary}}` for a retained terminal
 occurrence with an exact checkpoint binding. The admitted owner must have
 `pod.status` and `pkm.read`. This response is private and no-store. It never
 includes the underlying model session, instructions, or grants.
+When one connector action is parked for owner approval, the schedule exposes
+`review_available`. On Dev, Tasks can call `POST /api/one/pod/tasks/review`
+with `schedule_id`, `revision`, and `occurrence_id` to obtain the
+exact action preview. The owner confirms the preview through the private
+connector confirmation contract. `POST /api/one/pod/tasks/continue` requires
+the pending handle, exact revision and occurrence, and the resulting approval
+receipt. Both schedule requests require `pod.act` and `pkm.read`.
 Session-only lockdown pauses a due offline occurrence before its claim. An
 interrupted active claim requires review. The owner can explicitly resume a
 paused schedule after turning off lockdown.
