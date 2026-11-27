@@ -44,6 +44,9 @@ def sandbox_worker_email() -> str:
 
 
 class SandboxScheduledDelivery:
+    def __init__(self, *, fallback=None):
+        self.fallback = fallback
+
     def require_ready(self) -> None:
         from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
 
@@ -69,8 +72,22 @@ class SandboxScheduledDelivery:
             )
         except PodHubUnavailable:
             raise ScheduleRefused("SCHEDULE_DELIVERY_UNCONFIRMED") from None
-        if response.status_code != 204:
-            raise ScheduleRefused("SCHEDULE_DELIVERY_FAILED")
+        if response.status_code == 204:
+            return
+        if response.status_code == 503 and self.fallback is not None:
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
+            refusal_code = detail.get("code") if isinstance(detail, dict) else None
+            if refusal_code in {
+                "SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED",
+                "SCHEDULE_DELIVERY_NOT_CONFIGURED",
+            }:
+                await self.fallback.offer(schedule_id, revision, occurrence_id, due_at)
+                return
+        raise ScheduleRefused("SCHEDULE_DELIVERY_FAILED")
 
 
 def sandbox_cloud_task(offer: SandboxScheduleOffer, *, placement, now: int) -> tuple[str, dict]:

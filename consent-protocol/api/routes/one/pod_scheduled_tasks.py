@@ -13,6 +13,7 @@ from api.routes.one.pod_browser import PrivateBrowserRoute
 from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_browser.contracts import StrictContract
 from hushh_mcp.services.pod_sandbox_scheduled_delivery import SandboxScheduledDelivery
+from hushh_mcp.services.pod_scheduled_delivery import ResidentScheduledDelivery
 from hushh_mcp.services.pod_scheduled_runtime import active_scheduled_tasks
 from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused, ScheduleRequest
 from hushh_mcp.services.pod_session_authority import ROLE_APP
@@ -106,7 +107,7 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
             "repeat_modes": ["once", "daily", "weekly", "monthly"] if code is None else [],
             "run_now_available": code is None,
             "files_via_schedule": code is None
-            and isinstance(runtime.delivery, SandboxScheduledDelivery),
+            and isinstance(runtime.delivery, (SandboxScheduledDelivery, ResidentScheduledDelivery)),
             "authorization_limit_at": authorization_limit_at,
             "tasks": tasks,
         }

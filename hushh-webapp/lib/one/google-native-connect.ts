@@ -237,14 +237,14 @@ export async function connectGoogleConnector(
   try {
     const ready = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
     if (!ready.ok) return { ok: false, code: refusalCode(await ready.json().catch(() => null), ready.status) };
-    if (browserSupported || (connector === "gmail" && !deps.mailAccount)) {
+    if (browserSupported) {
       const status = await ready.json().catch(() => null);
       if (!current()) return { ok: false, code: changedCode() };
       if (connector === "gmail" && !deps.mailAccount && status?.connectorId === "gmail" && status.status === "connected" &&
           status.capabilities?.manage === true && status.capabilities?.read === true) {
         return { ok: true, status: "connected" };
       }
-      if (browserSupported && status?.connectorId === connector) {
+      if (status?.connectorId === connector) {
         if (!("browserClientId" in status) || !status.browserClientId) {
           if (deps.mailAccount?.mode === "reconnect") return { ok: false, code: "MAIL_RECONNECT_ON_PHONE" };
           return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.includeOtherContacts, deps.includeCalendarList, deps.mailAccount?.mode === "add") };

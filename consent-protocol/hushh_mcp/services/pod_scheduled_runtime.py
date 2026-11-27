@@ -52,12 +52,12 @@ def active_scheduled_tasks() -> ScheduledTasks:
     sandbox = hosted_ace_runtime() or workload_platform() == "ace"
     resident_delivery: ResidentScheduledDelivery | None = None
     if sandbox:
-        external = SandboxScheduledDelivery()
+        resident_delivery = ResidentScheduledDelivery()
+        external = SandboxScheduledDelivery(fallback=resident_delivery)
         try:
             external.require_ready()
             delivery = external
         except ScheduleRefused:
-            resident_delivery = ResidentScheduledDelivery()
             delivery = resident_delivery
     else:
         delivery = GcpScheduledDelivery(log._store)

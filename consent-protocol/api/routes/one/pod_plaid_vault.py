@@ -122,8 +122,18 @@ class SentinelPlaidClient:
 
 
 async def _admit_pod_plaid(request: Request) -> tuple[SentinelPlaidClient, str]:
-    consent_token, verifier, session = owner_local_door(request)
-    await admit_owner_local(consent_token, verifier=verifier, session=session, scope=SCOPE_PKM_READ)
+    door = await owner_local_door(
+        request.headers.get("x-consent-token"),
+        request.headers.get("authorization"),
+        scope=SCOPE_PKM_READ,
+        held=False,
+    )
+    await admit_owner_local(
+        str(door.get("consent_token") or ""),
+        verifier=door.get("verifier"),
+        session=door.get("session"),
+        scope=SCOPE_PKM_READ,
+    )
     gateway_url, surrogate = _sentinel_gateway_auth()
     client = SentinelPlaidClient(gateway_url, surrogate)
     env_name = await client.ready_environment()
@@ -145,13 +155,7 @@ async def pod_create_vault_link_token(
                     "message": "This verification flow is not available.",
                 },
             )
-        # Sentinel injects the authoritative HMAC client_user_id and Plaid credentials.
-        cfg = PlaidRuntimeConfig(
-            environment="sandbox",
-            base_url="https://sandbox.plaid.com",
-            client_id="sentinel-managed",
-            secret=os.getenv("PLAID_SENTINEL_PLACEHOLDER", ""),
-        )
+        cfg = PlaidRuntimeConfig.from_env()
         link_payload: dict[str, Any] = {
             "client_name": cfg.client_name,
             "user": {"client_user_id": "sentinel_bound"},
@@ -229,16 +233,17 @@ async def pod_exchange_vault_public_token(
     institution: dict[str, str | None] | None = None
     try:
         item_response = await client.post("/item/get", {"access_token": access_token})
-        item = item_response.get("item") if isinstance(item_response.get("item"), dict) else {}
+        raw_item = item_response.get("item")
+        item: dict[str, Any] = raw_item if isinstance(raw_item, dict) else {}
         products = item_products(item)
         consented_products = string_list(item.get("consented_products"))
         institution_id = clean_string(item.get("institution_id"))
         if institution_id:
-            institution = {
+            inst_obj: dict[str, str | None] = {
                 "id": institution_id,
                 "name": clean_string(item.get("institution_name")),
             }
-            if institution["name"] is None:
+            if inst_obj["name"] is None:
                 try:
                     institution_response = await client.post(
                         "/institutions/get_by_id",
@@ -246,9 +251,10 @@ async def pod_exchange_vault_public_token(
                     )
                     record = institution_response.get("institution")
                     if isinstance(record, dict):
-                        institution["name"] = clean_string(record.get("name"))
+                        inst_obj["name"] = clean_string(record.get("name"))
                 except PlaidApiError as exc:
                     log_plaid_failure("exchange_institution", exc)
+            institution = inst_obj
     except PlaidApiError as exc:
         log_plaid_failure("exchange_item", exc)
 
