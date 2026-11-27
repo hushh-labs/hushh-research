@@ -9941,18 +9941,45 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (nativeLayout && nativeLayout.viewport.width === window.innerWidth && nativeLayout.viewport.height === window.innerHeight)
         transcript.style.setProperty("--agent-chat-native-occlusion", `${Math.max(0, Math.ceil(transcript.getBoundingClientRect().bottom - nativeLayout.frame.y + 16))}px`);
       else transcript.style.removeProperty("--agent-chat-native-occlusion");
-      if (atEnd) transcript.scrollTop = transcript.scrollHeight;
+      // A keyboard can move the dock without changing its measured height.
+      // Follow the displayed turn only while the composer owns the keyboard
+      // and the reader was following the end before the viewport changed.
+      const composerFocused = stack.contains(document.activeElement) ||
+        (nativeDockPorts?.owned && document.documentElement.classList.contains("kb-open"));
+      const end = messagesEndRef.current;
+      if (isCanonicalChatRoute && !isPuppySurface && end && composerFocused &&
+          !transcriptUserScrollRef.current && transcriptStuckToEndRef.current) {
+        const top = transcriptRevealScrollTop(measureTranscriptReveal(transcript, end, agentDockOccluder));
+        if (top > transcript.scrollTop + 1) {
+          beginTranscriptProgrammaticScroll(top);
+          transcript.scrollTop = top;
+        }
+      } else if (atEnd && !transcriptUserScrollRef.current) {
+        transcript.scrollTop = transcript.scrollHeight;
+      }
       scheduleMessagesBelowCount();
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(stack);
     let layoutFrame = 0;
-    const unsubscribe = nativeDockPorts?.subscribeLayout(() => {
+    const scheduleLayout = () => {
       if (!layoutFrame) layoutFrame = requestAnimationFrame(() => { layoutFrame = 0; publish(); });
-    });
-    return () => { observer.disconnect(); unsubscribe?.(); cancelAnimationFrame(layoutFrame); };
-  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface, nativeDockPorts, scheduleMessagesBelowCount]);
+    };
+    const unsubscribe = nativeDockPorts?.subscribeLayout(scheduleLayout);
+    const keyboardSlot = stack.closest("[data-bottom-shell-agent-slot]");
+    keyboardSlot?.addEventListener("transitionend", scheduleLayout);
+    window.visualViewport?.addEventListener("resize", scheduleLayout);
+    window.addEventListener("resize", scheduleLayout);
+    return () => {
+      observer.disconnect();
+      unsubscribe?.();
+      keyboardSlot?.removeEventListener("transitionend", scheduleLayout);
+      window.visualViewport?.removeEventListener("resize", scheduleLayout);
+      window.removeEventListener("resize", scheduleLayout);
+      cancelAnimationFrame(layoutFrame);
+    };
+  }, [agentDockFrame, agentDockOccluder, beginTranscriptProgrammaticScroll, isCanonicalChatRoute, isPuppySurface, nativeDockPorts, scheduleMessagesBelowCount]);
   const openGetApp = useCallback((trigger: HTMLButtonElement) => {
     // The drawer is modal at every width. Close it before raising the sheet.
     getAppReturnFocusRef.current =
@@ -10887,7 +10914,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       />
                     )
                   ) : message.locationChatText || locationConversation ? (
-                    <LocationChatConversationText text={message.locationChatText || (message.restoredFromHistory
+                    <LocationChatConversationText message={message} text={message.locationChatText || (message.restoredFromHistory
                       ? message.text || "This Location request was proposed in an earlier turn." : "Checking Location…")} />
                   ) : (
                     <AgentBubble

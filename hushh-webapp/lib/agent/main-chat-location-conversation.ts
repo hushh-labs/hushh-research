@@ -175,7 +175,8 @@ export function locationPlanSentence(plans: readonly MainLocationPlan[], targets
   })
     .filter((label): label is string => Boolean(label));
   if (names.length !== plans.length) return "";
-  let audience = names.join(", ");
+  const formatAudience = new Intl.ListFormat("en");
+  let audience = formatAudience.format(names);
   if (plans.length > PAGE_SIZE) {
     const scopes: string[] = [];
     const counted = new Set<string>();
@@ -189,11 +190,11 @@ export function locationPlanSentence(plans: readonly MainLocationPlan[], targets
     }
     const others = names.filter((_, i) => !counted.has(plans[i]?.circleId ?? ""));
     scopes.push(...(completed && others.length > PAGE_SIZE ? [`${others.length} recipients`] : others));
-    audience = new Intl.ListFormat("en").format(scopes);
+    audience = formatAudience.format(scopes);
   }
   const duration = formatLocationDurationLabel(first.durationHours);
   const term = first.durationMode === "until_stopped" ? " until you stop" : duration ? ` for ${duration}` : "";
-  if (first.action === "view") return `${audience} already shares their location with you.`;
+  if (first.action === "view") return `${audience} already ${names.length === 1 ? "shares" : "share"} their location with you.`;
   const action = managementVerbs[first.action];
   if (action) {
     const end = first.nextExpiresAt ? new Date(first.nextExpiresAt).toLocaleString() : "";

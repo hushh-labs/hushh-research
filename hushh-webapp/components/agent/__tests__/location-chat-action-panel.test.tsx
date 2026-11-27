@@ -572,6 +572,8 @@ test("a large reviewed Circle exposes its names in pages and reports only confir
   act(() => { expect(reply!("more")).toBe(true); });
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 8 · unconfirmed"));
   expect(executeMainLocationPlan).toHaveBeenCalledTimes(8);
+  expect(locationPlanSentence(plans.slice(0, 2), [circle], true))
+    .toBe("Sent your location request to Member 1 and Member 2 for 1 hour.");
   const differentTerms = [plans[0]!, { ...plans[1]!, durationHours: 2 }];
   expect(locationPlanGroups(differentTerms).map(group => locationPlanSentence(group, [circle], true))).toEqual([
     "Sent your location request to Member 1 for 1 hour.", "Sent your location request to Member 2 for 2 hours.",
