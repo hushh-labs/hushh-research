@@ -1793,7 +1793,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Ordinary task saves require owner confirmation. Scheduled results reflect the current Pod's last-run receipt, including uncertain outcomes. Back closes the scheduled-runs view before leaving Tasks.",
+      "completionBoundary": "Ordinary task saves require owner confirmation. Scheduled runs appear on the Tasks page and results reflect the current Pod's last-run receipt, including uncertain outcomes. When a native workspace opens scheduled runs as a dialog, Back closes that dialog before leaving Tasks.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

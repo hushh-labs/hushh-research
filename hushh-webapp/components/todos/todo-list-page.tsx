@@ -56,6 +56,7 @@ import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-sugg
 import { TodoTaskSources } from "./todo-task-sources";
 import { TodoAddItemSheet, emptyTaskDraft, type EditableTodoFields } from "./todo-add-item-sheet";
 import { NativeTodoWorkspace } from "./native-todo-workspace";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { validWorkspaceTaskDraft, type NativeWorkspaceTaskDraft } from "@/lib/capacitor/native-workspace";
 import { ROUTES } from "@/lib/navigation/routes";
 import { TodoTaskDetail } from "./todo-task-detail";
@@ -165,16 +166,18 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const requestedSchedule = useSearchParams()?.get("scheduled");
   const selectedSchedule = isScheduledTaskId(requestedSchedule) ? requestedSchedule : null;
   const schedulesEnabled = writeReady && areScheduledTasksAvailable();
-  const schedules = useScheduledTasksModel(schedulesEnabled ? userId ?? "" : "", ROUTES.ONE_TASKS);
+  const inlineSchedules = schedulesEnabled && !customNativePresentationEnabled();
+  const schedules = useScheduledTasksModel(schedulesEnabled ? userId ?? "" : "", ROUTES.ONE_TASKS, inlineSchedules && !detail);
+  const hasScheduledRuns = Boolean(schedules.status?.tasks.length);
   const seenScheduleLink = useRef<string | null>(null);
   useEffect(() => {
     if (!requestedSchedule) seenScheduleLink.current = null;
-    if (schedulesEnabled && requestedSchedule && (requestedSchedule === "1" || selectedSchedule) &&
+    if (schedulesEnabled && !inlineSchedules && requestedSchedule && (requestedSchedule === "1" || selectedSchedule) &&
         seenScheduleLink.current !== requestedSchedule) {
       seenScheduleLink.current = requestedSchedule;
       schedules.changeOpen(true);
     }
-  }, [requestedSchedule, schedules, schedulesEnabled, selectedSchedule]);
+  }, [requestedSchedule, schedules, schedulesEnabled, selectedSchedule, inlineSchedules]);
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -415,7 +418,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           : writeReady
             ? pending.length > 0 ||
               completed.length > 0 ||
-              dueReceipts.length > 0
+              dueReceipts.length > 0 || hasScheduledRuns
               ? "loaded"
               : "empty-valid"
             : "unavailable-valid",
@@ -432,7 +435,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           titleRole="agent"
           actions={
             <div className="flex max-w-full flex-wrap items-center gap-2">
-              {schedulesEnabled ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks /> : null}
+              {schedulesEnabled && !inlineSchedules ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks /> : null}
               {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoTaskSources open={sourcesOpen} onOpenChange={setSourcesOpen} persistence={{ userId, vaultKey, vaultOwnerToken }} selected={selected} coverage={liveTasks.coverage} loading={liveTasks.sourceLoading} disabled={itemsLoading || !itemsLoaded || itemsLoadError || isSaving}
                 isCurrent={isCurrent} onChange={setSelected} /> : null}
               {writeReady && agentLoadError ? (
@@ -513,6 +516,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
+        {inlineSchedules ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks inline /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">
@@ -543,7 +547,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             onDelete={requestDelete}
             onOpen={setDetail}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading || liveTasks.sourceError ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading || liveTasks.sourceError || (inlineSchedules && hasScheduledRuns) ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
