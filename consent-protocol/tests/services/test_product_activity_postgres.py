@@ -351,6 +351,7 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             conn.connection.cursor().execute(migration)
             conn.connection.cursor().execute(correlation)
             conn.connection.cursor().execute(value_migration)
+        _assert_explicit_result_roundtrip(engine, monkeypatch)
     finally:
         engine.dispose()
         with admin.connect() as conn:
@@ -892,3 +893,99 @@ def _assert_remaining_source_queries(engine):
             assert len(rows) == expected, query
             if query == outcomes.MEMORY_SQL:
                 assert all(outcomes.confirmed_memory(row, "owner") for row in rows)
+
+
+def _assert_explicit_result_roundtrip(engine, monkeypatch):
+    """Actual authenticated DTO -> writer -> old/new/rolled-back PostgreSQL schema."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.middleware import require_firebase_auth_read_only
+    from api.routes.one import plg
+
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO actor_profiles(user_id) VALUES ('result-owner')"))
+        conn.execute(text("INSERT INTO vault_keys(user_id) VALUES ('result-owner')"))
+    monkeypatch.setattr(activity, "enabled_for", lambda uid: uid == "result-owner")
+    monkeypatch.setattr(activity, "DAILY_LIMIT", 500)
+    app = FastAPI()
+    app.include_router(plg.router)
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "result-owner"
+    expansion = (ROOT / "db/migrations/465_one_product_activity_event_result.sql").read_text()
+    rollback = (
+        ROOT / "db/migrations/rollback/465_one_product_activity_event_result.rollback.sql"
+    ).read_text()
+    with TestClient(app) as client:
+        admission = client.get("/api/one/plg/activity")
+        assert admission.status_code == 200
+        assert admission.json()["resultVersion"] == 1
+        body = {
+            "generation": admission.json()["generation"],
+            "operationId": "legacy-operation-1234",
+            "actionId": "observation:one_memory_action:detail_edited",
+            "phase": "returned",
+        }
+        # New wire, old schema: capture still works without a deployment dependency.
+        assert client.post("/api/one/plg/activity", json={**body, "result": "success"}).json() == {
+            "recorded": True
+        }
+        with engine.begin() as conn:
+            conn.connection.cursor().execute(expansion)
+            conn.connection.cursor().execute(expansion)
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT event_result FROM one_product_activity_observations WHERE user_id='result-owner'"
+                    )
+                ).scalar()
+                is None
+            )
+        # Replaying a legacy receipt must not rewrite its unknown result.
+        assert client.post("/api/one/plg/activity", json={**body, "result": "success"}).json() == {
+            "recorded": False
+        }
+        for i, result in enumerate(["success", "error", "expected_error", None, None]):
+            payload = {
+                **body,
+                "operationId": f"result-operation-{i:04d}",
+                "phase": "failed" if i in (1, 2, 4) else "returned",
+            }
+            if result is not None:
+                payload["result"] = result
+            assert client.post("/api/one/plg/activity", json=payload).json() == {"recorded": True}
+            assert client.post(
+                "/api/one/plg/activity", json={**payload, "result": "error"}
+            ).json() == {"recorded": False}
+        assert (
+            client.post(
+                "/api/one/plg/activity",
+                json={**body, "actionId": "calendar.event.create", "result": "success"},
+            ).status_code
+            == 400
+        )
+        for invalid in ["PRIVATE_RESULT", {"secret": "PRIVATE_RESULT"}, 1]:
+            rejected = client.post("/api/one/plg/activity", json={**body, "result": invalid})
+            assert rejected.status_code == 400
+            assert "PRIVATE_RESULT" not in rejected.text
+        rejected = client.post("/api/one/plg/activity", json={**body, "userId": "PRIVATE_OWNER"})
+        assert rejected.status_code == 400 and "PRIVATE_OWNER" not in rejected.text
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT event_result,COUNT(*) FROM one_product_activity_observations WHERE user_id='result-owner' GROUP BY event_result"
+                )
+            ).all()
+            assert dict(rows) == {None: 3, "success": 1, "error": 1, "expected_error": 1}
+            with pytest.raises(DBAPIError):
+                with conn.begin_nested():
+                    conn.execute(
+                        text(
+                            "UPDATE one_product_activity_observations SET event_result='PRIVATE_RESULT' WHERE user_id='result-owner'"
+                        )
+                    )
+            conn.connection.cursor().execute(rollback)
+            conn.connection.cursor().execute(rollback)
+        assert client.post(
+            "/api/one/plg/activity",
+            json={**body, "operationId": "rollback-operation-1234", "result": "success"},
+        ).json() == {"recorded": True}
