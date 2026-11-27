@@ -369,6 +369,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM connections",
         "DELETE FROM trusted_connections",
         "DELETE FROM one_location_access_requests",
+        "DELETE FROM one_location_chat_plans",
         "DELETE FROM one_location_envelopes",
         "DELETE FROM one_location_share_grants",
         "DELETE FROM one_location_recipient_keys",
@@ -823,6 +824,8 @@ def test_live_erasure_catalog_is_documented_and_has_explicit_predicates():
     visibility_exclusions_sql = str(
         service._delete_by_user_queries["one_location_visibility_exclusions"]
     )
+    chat_plans_sql = str(service._delete_by_user_queries["one_location_chat_plans"])
+    assert "WHERE user_id = :user_id OR person_user_id = :user_id" in chat_plans_sql
     kai_referrals_sql = str(service._delete_by_user_queries["kai_location_referrals"])
     assert "owner_user_id = :user_id" in visibility_exclusions_sql
     assert "excluded_user_id = :user_id" in visibility_exclusions_sql
@@ -965,6 +968,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["details"]["one_kyc_workflows"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
+    assert result["details"]["one_location_chat_plans"] is True
     assert result["details"]["one_location_map_preferences"] is True
     assert result["details"]["one_location_network_connections"] is True
     assert result["details"]["connection_origins"] is True
@@ -1058,6 +1062,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert "UPDATE runtime_persona_state" in executed_sql
     assert "UPDATE vault_keys" in executed_sql
     assert "setup_completed = NULL" in executed_sql
+    assert "one_runtime_setup_choice = NULL" in executed_sql
+    assert "one_hosting_choice = NULL" in executed_sql
     assert "contact_discoverable = FALSE" in executed_sql
     assert "connection_list_shared = FALSE" in executed_sql
     assert "contact_sync_consent_enabled_at = NULL" in executed_sql

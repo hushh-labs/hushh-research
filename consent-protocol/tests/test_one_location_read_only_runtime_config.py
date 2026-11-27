@@ -13,7 +13,11 @@ _SERVICE = _REPO_ROOT / "consent-protocol/hushh_mcp/services/one_location_agent_
 _WORKFLOWS = {
     lane: (
         _REPO_ROOT
-        / f".github/workflows/deploy-{lane}{'-implementation' if lane != 'production' else ''}.yml"
+        / (
+            f".github/workflows/deploy-{lane}"
+            + ("-implementation" if lane in {"dev", "uat"} else "")
+            + ".yml"
+        )
     ).read_text()
     for lane in ("dev", "production", "uat")
 }

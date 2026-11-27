@@ -19,6 +19,7 @@ import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketpla
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
 import { warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
+import { ensureSharedToAceMigration } from "@/lib/services/shared-to-ace-migration-service";
 import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
@@ -573,14 +574,21 @@ export class UnlockWarmOrchestrator {
                 error,
               );
             });
+      const sharedToAceMigrationPromise = ensureSharedToAceMigration({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }).catch(() => undefined);
       const agentHistoryWarmPromise =
         warmPriority === "pkm"
           ? Promise.resolve()
-          : warmAgentChatHistoryCache({
-              userId: params.userId,
-              vaultOwnerToken: params.vaultOwnerToken,
-              vaultKey: params.vaultKey,
-            }).catch((error) => {
+          : sharedToAceMigrationPromise.then(() =>
+              warmAgentChatHistoryCache({
+                userId: params.userId,
+                vaultOwnerToken: params.vaultOwnerToken,
+                vaultKey: params.vaultKey,
+              }),
+            ).catch((error) => {
               console.warn(
                 "[UnlockWarmOrchestrator] Agent history warm-up failed:",
                 error,

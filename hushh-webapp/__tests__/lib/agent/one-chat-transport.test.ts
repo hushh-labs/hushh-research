@@ -34,13 +34,14 @@ describe("wakingChatTransport", () => {
     mocks.agentChatRequest.mockResolvedValueOnce(starting()).mockResolvedValueOnce(new Response("stream"));
     const onWaking = vi.fn();
     const onAdmission = vi.fn();
+    const isCurrent = () => true;
     const init = { method: "POST", body: "{\"messages\":[]}" };
-    const response = await wakingChatTransport(init, onWaking, onAdmission);
+    const response = await wakingChatTransport(init, onWaking, onAdmission, isCurrent);
     expect(response.status).toBe(200);
     expect(onWaking).toHaveBeenCalledOnce();
     expect(mocks.agentChatRequest).toHaveBeenCalledTimes(2);
     for (const call of mocks.agentChatRequest.mock.calls) {
-      expect(call).toEqual(["/api/one/agent-chat", init, true, onAdmission]);
+      expect(call).toEqual(["/api/one/agent-chat", init, true, onAdmission, isCurrent]);
     }
   });
 

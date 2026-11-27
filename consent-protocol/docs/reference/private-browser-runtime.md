@@ -205,6 +205,39 @@ neither unrestricted access to the pod nor permission to bypass another tool's
 confirmation. Task state and lifecycle belong to the private agent. Browser is not a separate
 customer service or process-security boundary.
 
+### Chat triggers and lazy execution
+
+One's existing function calling owns the Browser decision. Ordinary Chat,
+sign-in, opening the workspace and reconnect discovery do not create a Browser
+task. Public factual questions, policies and article summaries use available
+search or read tools. Browser is for an explicitly requested website interaction.
+When the task or exact public origin is missing, One asks for it rather than
+guessing. A follow-up can use an unambiguous task and origin already established
+in the conversation. There is no second classifier or numeric confidence gate.
+
+The chat hand is exposed only inside the authenticated private-pod invocation,
+with `browser.invoke` and an available qualified runtime. Chat admits
+`dev`/`development` and `uat`, preserving the exact `uat` owner binding;
+`prod`/`production` remain unavailable. The existing kill switch, exact
+host/image/model qualification, public-origin policy, owner, incarnation,
+expiry and per-call authority checks still apply. A supported environment alone
+does not enable Browser, and a missing hand must not be described as a running
+task or replaced with another execution provider.
+
+`start_browser_task` returns invocation metadata. Its acceptance is not execution
+or completion: the existing owner UI must approve model/screen processing before
+the worker allocates Chromium. The same task opens the workspace when verified
+active work starts. Close and Back hide it without cancelling; subsequent status
+refreshes respect that dismissal. Reconnect discovers the existing task rather
+than submitting the goal again.
+
+Login and consequential effects retain their existing protected-entry and exact
+review boundaries. Owner takeover suppresses model observation until explicit
+handback and a fresh observation. Approved bounded work may continue after app
+disconnection; local vault locking is not server-side revocation. Explicit Stop,
+revocation, expiry and idle cleanup retain their existing teardown controls.
+Waiting or terminal tasks stop live refreshes; opening Chat is not a keepalive.
+
 ### Qualification and owner activation
 
 The existing release may carry `browserQualifications`, one per qualified host.
@@ -835,9 +868,14 @@ One's manifest instructs the specialist to select the task's non-secret fields.
 `ScopedProjectionReader` requires a current V2 scoped export from the existing
 grant owner: exact owner/task/incarnation, recipient, scope, export revision,
 source content/manifest revisions, expiry and revocation. The pilot accepts
-bounded scalar projections only; Secrets, runtime credentials, wallet and identity
-domains are refused. Neither a replica nor conversational memory authorizes reads.
+bounded scalar projections only; general Secrets, runtime credentials, wallet and
+identity domains are refused. The separate saved-login hand accepts only the
+owner-started exact `credentials.secrets.<credential_id>` custody grant. It never
+passes that record through the model projection reader. Neither a replica nor conversational memory authorizes reads.
 The production loader must perform these checks against its authoritative sources.
+
+The saved-login source candidate, encryption, owner controls, per-record policy
+and qualification limits are described in the [Browser module](../../../docs/architecture/modules/browser.md#saved-website-logins).
 
 Model processing and website disclosure are independent exact reviews. Private
 values stay in pod/browser memory; the action ledger stores keyed commitments.
@@ -862,6 +900,17 @@ Only explicit handback and a fresh observation allow processing again. Model URL
 contain the origin only, excluding callback codes. Runtime routes must use the
 owner-only session control port, never expose state through ADK tools, and drain
 browser tasks through the existing update permit before replacing an image.
+
+Owner-approved saves from `BrowserDownloads` into encrypted Pod Files remain
+untrusted external records (`source_library`, `shareable: "never"`). Downstream
+archive synthesis such as external AI export imports into Personal Wiki Memory
+(`one_wiki`) must retain `untrusted_data: true` and `instruction_authority: "none"`
+so imported text cannot issue tool or consent instructions; see the
+[Memory workspace boundary](../../../docs/architecture/memory-workspace.md#personal-wiki-memory-and-live-adk-boundary-dev-pilot).
+Separately, `shared_owner_container` supervises Chromium under the same non-root
+UID and does not isolate arbitrary CLI packages or downloaded binaries; general
+terminal execution remains gated on its own task-worker boundary in the
+[Browser completion plan](../../../docs/roadmap/personal-agent/browser-completion-plan.md#phase-0-alignment-cli-execution-boundary-retained-workspaces-and-external-import).
 
 Remembering requires opt-in for the selected origins/account. The initial adapter
 retains persistent cookies and local storage, preserving cookie scope/security and

@@ -24,6 +24,10 @@ export function readRouteCacheSource(route, contractEntry, { appRoot, pageFileFo
   if (route === "/one/documents/open") {
     for (const file of ["components/consent/hosted-document-reader.tsx", "lib/services/document-hosting-service.ts"]) files.add(file);
   }
+  if (route === "/one/kai/analysis") {
+    // Stock-preview loading lives in this hook, so the page alone would hide its ApiService evidence.
+    files.add("lib/kai/use-stock-preview.ts");
+  }
   const sources = [];
   for (const relative of files) {
     const absolute = path.join(appRoot, relative);

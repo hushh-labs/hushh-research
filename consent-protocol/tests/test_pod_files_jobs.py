@@ -259,6 +259,95 @@ async def test_scheduled_files_rechecks_approved_revisions_inside_mutation(
         await jobs.status(library, entry["id"])
 
 
+@pytest.mark.parametrize("model_changed", [False, True])
+async def test_sandbox_files_worker_uses_only_the_reviewed_model(
+    queued_library, monkeypatch, model_changed
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pod_owner_cloud, pod_scheduled_model
+    from hushh_mcp.services import pod_scheduled_files as adapter
+    from hushh_mcp.services.pod_scheduled_checkpoint import ScheduledModelBinding
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
+
+    library, entry = queued_library
+    model = object()
+    binding = ScheduledModelBinding(
+        provider="gemini",
+        model="test-model",
+        runtime_mode="sentinel_vertex",
+        selection_revision=0,
+        destination={"transport": "sentinel_vertex"},
+    )
+
+    async def allowed():
+        pass
+
+    @asynccontextmanager
+    async def operation(**kwargs):
+        yield library
+
+    async def resolve(_log, *, pod_id, check, expected=None):
+        assert pod_id == library.owner
+        await check()
+        if expected is not None:
+            assert expected == binding
+            if model_changed:
+                raise ScheduleRefused("SCHEDULE_MODEL_CHANGED")
+        return SimpleNamespace(binding=binding, build=lambda: model)
+
+    def no_owner_queue():
+        raise AssertionError("Sandbox schedules must use their claimed delivery")
+
+    monkeypatch.setattr(pod_owner_cloud, "hosted_ace_runtime", lambda: True)
+    monkeypatch.setattr(pod_scheduled_model, "resolve_scheduled_model", resolve)
+    monkeypatch.setattr(adapter, "operation", operation)
+    monkeypatch.setattr(jobs, "require_background_delivery", no_owner_queue)
+    run = AsyncMock(return_value={"state": "completed"})
+    monkeypatch.setattr(jobs, "run_job", run)
+    capability = adapter.ScheduledFileOrganization(
+        allowed, sandbox_log=object(), sandbox_pod_id=library.owner
+    )
+    terms = await capability.prepare({"file_id": entry["id"]})
+    actual = await capability.run(terms, "b" * 32, allowed)
+    if model_changed:
+        assert actual == "needs_review"
+        run.assert_not_awaited()
+        return
+    assert actual == "completed"
+    run.assert_awaited_once()
+    assert run.await_args.kwargs["model"] is model
+
+
+async def test_schedule_prepare_refuses_a_file_or_permission_changed_after_review(
+    queued_library, monkeypatch
+):
+    from hushh_mcp.services import pod_scheduled_files as adapter
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    library, entry = queued_library
+
+    async def allowed():
+        pass
+
+    @asynccontextmanager
+    async def operation(**kwargs):
+        yield library
+
+    monkeypatch.setattr(adapter, "operation", operation)
+    capability = adapter.ScheduledFileOrganization(allowed)
+    exact = {
+        "file_id": entry["id"],
+        "expected_file_revision": entry["revision"],
+        "expected_analysis_revision": (await library.settings())["revision"],
+    }
+    assert (await capability.prepare(exact))["file_revision"] == entry["revision"]
+    for revision in ("expected_file_revision", "expected_analysis_revision"):
+        with pytest.raises(ScheduleRefused, match="SCHEDULE_SOURCE_CHANGED"):
+            await capability.prepare({**exact, revision: exact[revision] + 1})
+
+
 @pytest.mark.parametrize("state", ["pending_delivery", "queued", "running", "completed", "none"])
 async def test_scheduled_files_never_adopts_another_requests_job(
     queued_library, monkeypatch, state

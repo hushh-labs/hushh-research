@@ -1,16 +1,28 @@
 import { StrictMode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  routeReplace: vi.fn(),
   historyReplace: vi.fn(),
   search: "",
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
+  optionalAuth: null as { user?: unknown; accountRegistration?: unknown } | null,
+}));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => {
+    if (!mocks.optionalAuth) {
+      throw new Error("useAuth must be used within an AuthProvider");
+    }
+    return mocks.optionalAuth;
+  },
 }));
 
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mocks.routeReplace }),
   useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
@@ -28,6 +40,8 @@ vi.mock("@/components/app-ui/native-route-marker", () => ({
   NativeRouteMarker: () => null,
 }));
 
+vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
+
 import LoginPage from "@/app/login/page";
 
 describe("login terminal-session notice", () => {
@@ -41,6 +55,7 @@ describe("login terminal-session notice", () => {
     mocks.toastInfo.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.search = "";
+    mocks.optionalAuth = null;
   });
 
   it("shows account-not-found once and consumes only its query parameter", async () => {
@@ -193,4 +208,29 @@ describe("login terminal-session notice", () => {
     expect(screen.queryByText("Create a new account")).toBeNull();
   });
 
+});
+
+it("separates deleted account from pending cloud erasure and requires deliberate fresh sign-in", () => {
+  mocks.search = "auth_notice=account_deleted_cloud_pending";
+  render(<LoginPage />);
+  expect(screen.getByRole("status")).toHaveTextContent("Your account is deleted. Some cloud resources are awaiting permanent deletion.");
+  expect(screen.queryByTestId("redirect-path")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Start fresh"}));
+  expect(screen.getByTestId("redirect-path")).toHaveTextContent("organic");
+});
+it("lets a deleted account leave without starting signup or claiming cloud erasure", () => {
+  mocks.search = "auth_notice=account_deleted_cloud_pending";
+  render(<LoginPage />);
+  fireEvent.click(screen.getByRole("button", {name: "Done"}));
+  expect(mocks.routeReplace).toHaveBeenCalledWith("/");
+  expect(screen.queryByTestId("redirect-path")).toBeNull();
+});
+it("retires the outer deletion notice once signed-in recovery or Start fresh mounts", () => {
+  mocks.optionalAuth = null;
+  mocks.search = "auth_notice=account_deletion_requested";
+  const view = render(<LoginPage />);
+  expect(screen.getByRole("status")).toHaveTextContent("Deletion requested. Cleanup continues");
+  mocks.optionalAuth = { user: { uid: "fresh-user" }, accountRegistration: { status: "deleted_ready_to_start_fresh" } };
+  view.rerender(<LoginPage />);
+  expect(screen.queryByRole("status")).toBeNull();
 });

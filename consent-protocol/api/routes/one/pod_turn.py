@@ -106,8 +106,8 @@ class PodTurnRequest(BaseModel):
     # itself: it holds no database credential BY DESIGN, and the browser already
     # computes exactly this value for every hub turn.
     #
-    # 20000 matches the hub's cap so the two paths cannot disagree about what fits.
-    pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=20000)
+    # Match the hub's bounded field so V1 memory reaches either chat path whole.
+    pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=128_000)
     # Recent conversation turns from the browser, so this turn has the thread the
     # hub would have from its database. Seeded into the runner memory-only and
     # capped by the runner (last 20, user/assistant only, 4000 chars each); the
@@ -483,7 +483,7 @@ async def run_pod_turn(
     payload, (provider, model, runtime_mode) = _resolve_owner_target(payload, provider, model)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
-    grounding = (payload.pkm_context or "").strip() or None
+    grounding = payload.pkm_context if (payload.pkm_context or "").strip() else None
 
     # No grounding pushed in? Ask this pod's OWN index.
     #
@@ -498,12 +498,17 @@ async def run_pod_turn(
     # from older holdings on exactly the turns a person is watching.
     if grounding is None:
         try:
+            from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
+                is_wiki_serving_primary,
+                read_pod_wiki_migration_state,
+            )
             from hushh_mcp.services.pod_pkm_resolver import local_grounding  # noqa: PLC0415
 
-            # Keyed on the owner the HUB verified in the consent token, never on
-            # anything the request body carries, so a caller cannot steer this
-            # pod into rebuilding somebody else's index by naming them.
-            grounding = await local_grounding(user_id)
+            if not is_wiki_serving_primary(await read_pod_wiki_migration_state()):
+                # Keyed on the owner the HUB verified in the consent token, never on
+                # anything the request body carries, so a caller cannot steer this
+                # pod into rebuilding somebody else's index by naming them.
+                grounding = await local_grounding(user_id)
         except PodLogFenced:
             raise HTTPException(
                 status_code=409, detail="pod storage is closed for erasure"
@@ -840,20 +845,23 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         pod_hosted_adc_enabled,
         pod_managed_model_enabled,
+        pod_sentinel_model_enabled,
         pod_user_adc_enabled,
     )
 
-    # ORDER IS LOAD-BEARING: sealed selection (before this) -> BYOK -> Azure -> ADC -> managed.
+    # ORDER IS LOAD-BEARING: sealed selection (before this) -> BYOK -> Azure -> Sentinel -> ADC -> managed.
     #
     # An owner who sends a key gets their key: that is checked above and nothing here
-    # can take it from them. Next comes the person's own project, which is the
-    # production answer once their cloud exists -- no credential travels, because the
-    # pod already runs as their service account in their project.
+    # can take it from them. Inside a zero-role Personal Sandbox, Sentinel (:8082) swaps a
+    # short-lived surrogate bearer for Vertex AI outside the sandbox boundary. Next comes
+    # the person's own project ADC.
     #
     # Managed stays last precisely because it is the only branch that spends hushh's
     # identity. Putting it earlier would let a mis-set FLEET flag capture a BYOC pod
     # and quietly bill a person's thinking to hushh while their own project sat idle,
     # and nothing in the answer would look wrong.
+    if pod_sentinel_model_enabled():
+        return "sentinel_vertex"
     if pod_hosted_adc_enabled():
         return "hosted_pod_adc"
     if pod_user_adc_enabled():
@@ -929,7 +937,24 @@ async def pod_turn_route(
         if bearer(authorization):
             authority, claims = _direct_turn_session(authorization)
             return await _run_direct_turn(payload, authorization, authority, claims)
-    return await _bounded_turn(run_pod_turn(payload=payload, consent_token=x_consent_token or ""))
+    from hushh_mcp.services.pod_files.library import FilesRefused  # noqa: PLC0415
+    from hushh_mcp.services.pod_files.runtime import files_access  # noqa: PLC0415
+    from hushh_mcp.services.pod_role import require_serving_role  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import active_session_authority  # noqa: PLC0415
+
+    async def relayed_files_read() -> None:
+        await require_serving_role()
+        authority = active_session_authority()
+        if authority is not None:
+            await authority.require_held()
+
+    async def relayed_files_manage() -> None:
+        raise FilesRefused("FILES_MANAGE_SCOPE_REQUIRED", 403)
+
+    with files_access(relayed_files_read, manage=relayed_files_manage):
+        return await _bounded_turn(
+            run_pod_turn(payload=payload, consent_token=x_consent_token or "")
+        )
 
 
 def _direct_turn_session(authorization: str | None) -> tuple[Any, dict]:

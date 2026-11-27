@@ -1454,7 +1454,7 @@ describe("exact-file document review", () => {
       expect(screen.getByText("2026-01-01 – 2026-06-30")).toBeVisible();
       expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toBeEnabled();
       expect(allow).toHaveClass("bg-[color:var(--app-success-deep)]", "text-white");
-      expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toHaveClass("h-[50px]");
+      expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toHaveClass("h-10");
       expect(screen.queryByRole("button", { name: /Share files|Decline/ })).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(state.prepareStream).not.toHaveBeenCalled();
@@ -1624,7 +1624,7 @@ describe("exact-file document review", () => {
       state.approveBulkShare.mockImplementation(async () => { phase = "queued"; return { ...batch, status: "queued", canApprove: false }; });
 
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-      expect(await screen.findByRole("status")).toHaveTextContent("46 file candidates to review");
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("46 file candidates to review"));
       expect(screen.getByText("Dates inside files haven't been checked. Select the exact files before sharing.")).toBeVisible();
       expect(screen.queryByText(/Matching files are found and shared automatically/)).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();

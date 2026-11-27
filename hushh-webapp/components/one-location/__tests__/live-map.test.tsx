@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 const mockStatus = { current: "loading" as "loading" | "ready" | "error" };
@@ -99,35 +99,61 @@ describe("LiveMap", () => {
     );
   });
 
-  it("replaces the stock pin with a circular photo marker when an avatar is available", () => {
-    const marker = { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
-    const Marker = vi.fn(function () {
-      return marker;
-    });
-    const Map = vi.fn(function () {
+  it("renders the sender photo at their marker and keeps initials while it loads or fails", () => {
+    const markerPane = document.createElement("div");
+    const removeListener = vi.fn();
+    const marker = {
+      getPosition: vi.fn(() => ({ lat: () => point.latitude, lng: () => point.longitude })),
+      setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn(), setVisible: vi.fn(),
+      addListener: vi.fn((_event: string, _draw: () => void) => ({ remove: removeListener })),
+    };
+    const Marker = vi.fn(function () { return marker; });
+    const Map = vi.fn(function (host: HTMLElement) {
+      host.appendChild(markerPane);
       return { panTo: vi.fn() };
     });
-    const Size = vi.fn(function (width: number, height: number) {
-      return { width, height };
-    });
-    const Point = vi.fn(function (x: number, y: number) {
-      return { x, y };
-    });
+    const fromLatLngToDivPixel = vi.fn(() => ({ x: 15, y: 25 }));
+    class OverlayView {
+      onAdd = () => {};
+      onRemove = () => {};
+      draw = () => {};
+      getPanes = () => ({ markerLayer: markerPane });
+      getProjection = () => ({ fromLatLngToDivPixel });
+      setMap(map: object | null) { if (map) this.onAdd(); else this.onRemove(); }
+    }
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, Size, Point, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, OverlayView, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
 
-    render(<LiveMap point={point} avatarUrl="https://example.com/me.jpg" />);
-
+    const { unmount } = render(
+      <LiveMap point={point} avatarUrl="https://example.com/sender.jpg" displayName="Avery Stone" />,
+    );
     expect(Marker).toHaveBeenCalledWith(
       expect.objectContaining({
         icon: expect.objectContaining({
-          url: expect.stringContaining(
-            encodeURIComponent("https://example.com/me.jpg"),
-          ),
+          url: expect.stringContaining(encodeURIComponent(">AS</text>")),
         }),
       }),
     );
+    const photo = markerPane.querySelector("img")!;
+    expect(photo).toHaveAttribute("src", "https://example.com/sender.jpg");
+    expect(photo).toHaveAttribute("referrerpolicy", "no-referrer");
+    expect(photo.hidden).toBe(true);
+    fireEvent.error(photo);
+    expect(marker.setVisible).not.toHaveBeenCalledWith(false);
+    expect(fromLatLngToDivPixel).toHaveBeenCalledWith({ lat: point.latitude, lng: point.longitude });
+
+    fireEvent.load(photo);
+    expect(photo.hidden).toBe(false);
+    expect(marker.setVisible).toHaveBeenLastCalledWith(false);
+    marker.getPosition.mockReturnValue({ lat: () => 25, lng: () => 81 });
+    marker.addListener.mock.calls[0][1]();
+    expect(fromLatLngToDivPixel).toHaveBeenLastCalledWith({ lat: 25, lng: 81 });
+    unmount();
+    expect(markerPane.querySelector("img")).toBeNull();
+    expect(removeListener).toHaveBeenCalledOnce();
   });
 
   it("constructs a quiet preview map with the app theme's color scheme", () => {

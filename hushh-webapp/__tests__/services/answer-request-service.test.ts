@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), ownerPodRequest: vi.fn(), privateOwner: vi.fn(), current: true }));
+vi.mock("@/lib/auth/session-owner", () => ({ snapshotValidatedAuthSessionPrincipal: () => ({ ownerId: "owner", firebaseUid: "firebase-owner" }), isValidatedAuthSessionOwnerCurrent: () => mocks.current }));
+vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => 0, isVaultSessionEpochCurrent: () => mocks.current }));
+vi.mock("@/lib/services/private-agent-specialist-chat", () => ({ ownerContentIsPrivate: mocks.privateOwner }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "firebase-owner" }) } }));
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: mocks.apiFetch },
+  ApiService: { apiFetch: mocks.apiFetch, ownerPodRequest: mocks.ownerPodRequest },
 }));
 
 import { AnswerRequestService } from "@/lib/services/answer-request-service";
@@ -14,6 +18,9 @@ const ok = (body: unknown) =>
   ({ ok: true, status: 200, json: async () => body }) as unknown as Response;
 
 beforeEach(() => {
+  mocks.current = true;
+  mocks.ownerPodRequest.mockReset();
+  mocks.privateOwner.mockReset().mockResolvedValue(true);
   mocks.apiFetch.mockReset();
   mocks.apiFetch.mockResolvedValue(ok({ requestId: REQUEST }));
 });
@@ -59,4 +66,50 @@ describe("Request scope submits to its own lane", () => {
     ).rejects.toThrow();
     expect(mocks.apiFetch).not.toHaveBeenCalled();
   });
+});
+
+const projection = { memory: "Synthetic approved trip.", values: { "attr.travel.trips": { trips: ["Tokyo"] } } };
+const written = { answerMode: "agent", answer: "Tokyo.", covers: ["attr.travel.trips"], gaps: [], compositionReceipt: "v2.synthetic.receipt" };
+
+it("sends a private PKM projection only to its admitted owner pod", async () => {
+  mocks.ownerPodRequest.mockResolvedValue(ok(written));
+  await expect(AnswerRequestService.compose("token", REQUEST, projection)).resolves.toMatchObject({ answer: "Tokyo." });
+  expect(mocks.apiFetch).not.toHaveBeenCalled();
+  expect(mocks.ownerPodRequest).toHaveBeenCalledTimes(1);
+  const [route, init] = mocks.ownerPodRequest.mock.calls[0];
+  expect(route).toBe("answers/compose");
+  expect(JSON.parse(init.body)).toEqual({ requestId: REQUEST, projection });
+});
+
+it("keeps confirmed Shared preparation on the configured hub runtime", async () => {
+  mocks.privateOwner.mockResolvedValue(false);
+  mocks.apiFetch.mockResolvedValue(ok(written));
+  await AnswerRequestService.compose("token", REQUEST, projection);
+  expect(mocks.apiFetch.mock.calls[0][0]).toBe(`/api/one/answer-requests/${REQUEST}/compose`);
+  expect(mocks.ownerPodRequest).not.toHaveBeenCalled();
+});
+
+it.each([{}, { ...written, compositionReceipt: undefined }, { answerMode: "projection", answer: null }])("refuses malformed or failed preparation without projection fallback: %o", async body => {
+  mocks.ownerPodRequest.mockResolvedValue(ok(body));
+  await expect(AnswerRequestService.compose("token", REQUEST, projection)).rejects.toMatchObject({ name: "AnswerPreparationError" });
+  expect(mocks.ownerPodRequest).toHaveBeenCalledTimes(1);
+  expect(mocks.apiFetch).not.toHaveBeenCalled();
+});
+
+it("does not replay a lost success body and refuses an owner change during placement lookup", async () => {
+  mocks.ownerPodRequest.mockResolvedValue({ ok: true, json: async () => { throw new Error("synthetic connection lost"); } });
+  await expect(AnswerRequestService.compose("token", REQUEST, projection)).rejects.toMatchObject({ name: "AnswerPreparationError" });
+  expect(mocks.ownerPodRequest).toHaveBeenCalledTimes(1);
+  mocks.ownerPodRequest.mockClear();
+  mocks.privateOwner.mockImplementationOnce(async () => { mocks.current = false; return true; });
+  await expect(AnswerRequestService.compose("token", REQUEST, projection)).rejects.toMatchObject({ name: "AnswerPreparationError" });
+  expect(mocks.ownerPodRequest).not.toHaveBeenCalled();
+  expect(mocks.apiFetch).not.toHaveBeenCalled();
+});
+
+it("keeps unconfirmed ciphertext staging out of automatic model replay", async () => {
+  mocks.apiFetch.mockRejectedValue(new Error("synthetic acknowledgment lost"));
+  await expect(AnswerRequestService.deliver("token", REQUEST, { envelope: {}, hasContent: true })).rejects.toMatchObject({ name: "AnswerPreparationError" });
+  expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+  expect(mocks.apiFetch.mock.calls[0][1].authRefreshRetry).toBe("never");
 });

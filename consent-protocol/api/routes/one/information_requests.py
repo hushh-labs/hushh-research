@@ -12,17 +12,22 @@ from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
 )
+from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
 
 router = APIRouter(prefix="/api/one/information-requests", tags=["Information Requests"])
 
 
-class CreateInformationRequest(BaseModel):
+class InformationRequestPriceSelection(BaseModel):
     person_ref: UUID
     scope_refs: list[str] = Field(min_length=1, max_length=50)
-    purpose: str = Field(min_length=8, max_length=500)
     duration_seconds: int = Field(ge=3_600, le=2_592_000, multiple_of=3_600)
+
+
+class CreateInformationRequest(InformationRequestPriceSelection):
+    purpose: str = Field(min_length=8, max_length=500)
     connector_key_id: str = Field(min_length=1, max_length=200)
     idempotency_key: str = Field(min_length=16, max_length=256)
+    price_binding: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 def _service() -> InformationRequestService:
@@ -32,9 +37,33 @@ def _service() -> InformationRequestService:
 def _http(exc: Exception) -> HTTPException:
     if isinstance(exc, InformationRequestError):
         return HTTPException(status_code=exc.status_code, detail=str(exc))
+    if (
+        isinstance(exc, CommerceProviderError)
+        and exc.code == "provider_residual_resolution_unqualified"
+    ):
+        return HTTPException(
+            status_code=503,
+            detail="New paid requests are paused. Existing requests remain available.",
+        )
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Information request is unavailable.")
+
+
+@router.post("/price-preview")
+async def preview_information_request_price(
+    payload: InformationRequestPriceSelection,
+    token: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return await _service().price_preview(
+            requester_user_id=str(token["user_id"]),
+            person_ref=str(payload.person_ref),
+            scope_refs=payload.scope_refs,
+            duration_seconds=payload.duration_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
 
 
 @router.post("")
@@ -51,6 +80,7 @@ async def create_information_request(
             duration_seconds=payload.duration_seconds,
             connector_key_id=payload.connector_key_id,
             idempotency_key=payload.idempotency_key,
+            **({"price_binding": payload.price_binding} if payload.price_binding else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc

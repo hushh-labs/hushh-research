@@ -13,6 +13,8 @@ from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connecto
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.feed_attention import FEED_ATTENTION_LABEL, opened_feed_items
+from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME as LOCATION_CHAT_TOOL_NAME
+from hushh_mcp.one_adk.location_chat_proposal import location_chat_proposal_from_result
 from hushh_mcp.one_adk.text_attachments import history_text_attachments
 
 
@@ -37,6 +39,10 @@ def _bounded_text(value: Any, limit: int) -> str | None:
 
 _WORKSPACE_SETUP_TOOLS = frozenset({"discover_workspace_tools", "read_workspace_tool"})
 _WORKSPACE_PROVIDERS = frozenset({"drive", "gmail", "calendar"})
+_MANAGED_CONNECTOR_PROVIDERS = frozenset(
+    {"plaid", "stripe", "drive", "gmail", "calendar", "custom"}
+)
+_CONNECTOR_ACTIVITY_TOOLS = _WORKSPACE_SETUP_TOOLS | {"manage_connector"}
 _CUSTOM_CONNECTOR_ID = re.compile(r"^custom_[a-f0-9]{32}$")
 _CUSTOM_CONNECTOR_STATUSES = frozenset({"saved", "disabled", "reconnect_needed"})
 
@@ -63,11 +69,17 @@ def _call_providers(events: list[Any]) -> dict[str, str]:
     for event in events:
         for part in getattr(getattr(event, "content", None), "parts", None) or []:
             call = getattr(part, "function_call", None)
-            if call is None or getattr(call, "name", "") not in _WORKSPACE_SETUP_TOOLS:
+            call_name = getattr(call, "name", "") if call is not None else ""
+            if call is None or call_name not in _CONNECTOR_ACTIVITY_TOOLS:
                 continue
             call_id = _bounded_text(getattr(call, "id", None), 128)
             provider = (_record(getattr(call, "args", None)) or {}).get("provider")
-            if call_id and provider in _WORKSPACE_PROVIDERS:
+            allowed = (
+                _MANAGED_CONNECTOR_PROVIDERS
+                if call_name == "manage_connector"
+                else _WORKSPACE_PROVIDERS
+            )
+            if call_id and provider in allowed:
                 providers[call_id] = provider
     return providers
 
@@ -132,12 +144,15 @@ def _safe_workspace_connector_setup_descriptor(
                     **({"saved": saved} if saved else {}),
                 },
             }
-        if name not in _WORKSPACE_SETUP_TOOLS:
+        if name not in _CONNECTOR_ACTIVITY_TOOLS:
             continue
         status = result.get("status")
-        if status == "permission_required":
+        if status in {"permission_required", "connect_required"}:
             setup_status = "connect_required"
-        elif name == "discover_workspace_tools" and status in {"api_available", "ok"}:
+        elif (name == "discover_workspace_tools" and status in {"api_available", "ok"}) or (
+            name == "manage_connector"
+            and status in {"manage_available", "api_available", "ok", "setup_available"}
+        ):
             setup_status = "manage_available"
         else:
             continue
@@ -147,11 +162,50 @@ def _safe_workspace_connector_setup_descriptor(
         if result_provider and argument_provider and result_provider != argument_provider:
             continue
         provider = result_provider or argument_provider
-        if provider not in _WORKSPACE_PROVIDERS:
+        allowed_providers = (
+            _MANAGED_CONNECTOR_PROVIDERS if name == "manage_connector" else _WORKSPACE_PROVIDERS
+        )
+        if provider not in allowed_providers:
             continue
+        content: dict[str, Any] = {"provider": provider, "status": setup_status}
+        if provider == "custom":
+            saved = _saved_connectors(result)
+            if saved:
+                content["saved"] = saved
         return {
             "activityType": "one.workspace_connector_setup.v1",
-            "content": {"provider": provider, "status": setup_status},
+            "content": content,
+        }
+    return None
+
+
+_TURN_LOCATION_PERMISSIONS = frozenset({"not_granted", "denied", "unavailable", "not_provided"})
+
+
+def _safe_turn_location_permission_descriptor(
+    event: Any,
+    selected_parts: list[Any] | None = None,
+) -> dict[str, Any] | None:
+    """Project the inline device-location toggle card when get_my_location lacked permission."""
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        name = getattr(response, "name", "") if response is not None else ""
+        if name != "get_my_location":
+            continue
+        result = _status_result(getattr(response, "response", None))
+        if result.get("status") != "needs_location_permission":
+            continue
+        permission = str(result.get("permission") or "not_provided")
+        if permission not in _TURN_LOCATION_PERMISSIONS:
+            permission = "not_provided"
+        return {
+            "activityType": "one.turn_location_permission.v1",
+            "content": {"permission": permission},
         }
     return None
 
@@ -170,6 +224,7 @@ _ACTIVITY_TOOLS = frozenset(
         "inspect_selected_drive_files",
         "read_selected_drive_search_result",
         "inspect_private_connectors",
+        "manage_connector",
         "probe_private_connector",
         "discover_workspace_tools",
         "read_workspace_tool",
@@ -180,10 +235,18 @@ _ACTIVITY_TOOLS = frozenset(
         "list_pending_connection_requests",
         "google_search",
         "finance",
+        "show_market_gainers",
+        "show_portfolio_card",
+        "show_portfolio_upload",
+        "show_stock_preview",
         "wallet",
         "ask_memory_agent",
         "read_my_pkm_domain_summary",
         "add_to_pkm",
+        "search_wiki",
+        "read_wiki_page",
+        "trace_claim",
+        "optimize_personal_memory",
         "read_my_profile_status",
         "ask_location_agent",
         "list_my_location_circles",
@@ -207,11 +270,33 @@ _ACTIVITY_TOOLS = frozenset(
         "calendar_events",
         "calendar_availability",
         "calendar_free_slots",
+        "calendar_shared_free_slots",
+        "calendar_opening_detail",
         "propose_calendar_event",
         "propose_calendar_reschedule",
         "propose_calendar_cancellation",
+        "files",
+        "search_files",
+        "read_file",
+        "write_file",
+        "create_folder",
+        "organize_file",
+        "propose_file_schedule",
+        "propose_goal_plan",
+        LOCATION_CHAT_TOOL_NAME,
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
+        "open_gmail_reply_draft",
+        "open_gmail_forward_draft",
+        "gmail_search_mail",
+        "gmail_scan_receipts",
+        "gmail_read_thread",
+        "gmail_read_attachment",
+        "gmail_list_needs_reply",
+        "gmail_mailbox_insights",
+        "gmail_manage_labels",
+        "gmail_manage_drafts",
+        "gmail_manage_settings",
         "propose_gmail_mailbox_change",
         "propose_gmail_todo",
         "propose_drive_share",
@@ -231,6 +316,8 @@ _ACTIVITY_TOOLS = frozenset(
         "resolve_onboarding_goal",
         "get_current_time",
         "get_my_location",
+        "sync_plaid_connector",
+        "read_plaid_mirror",
     }
 )
 _MCP_ACTIVITY_TOOL = re.compile(r"^mcp_[0-9a-f]{40}$")
@@ -316,12 +403,16 @@ def _safe_turn_activity(events: list[Any]) -> dict[str, Any] | None:
                 step = {"id": call_id, "tool": name, "status": "interrupted"}
                 if call_id in providers:
                     step["provider"] = providers[call_id]
+                elif name in {"sync_plaid_connector", "read_plaid_mirror"}:
+                    step["provider"] = "plaid"
                 by_call[call_id] = step
                 steps.append(step)
             if response is not None:
                 step.update(_activity_step_from_response(name, getattr(response, "response", None)))
                 provider = _status_result(getattr(response, "response", None)).get("provider")
-                if name in _WORKSPACE_SETUP_TOOLS and provider in _WORKSPACE_PROVIDERS:
+                if (name in _WORKSPACE_SETUP_TOOLS and provider in _WORKSPACE_PROVIDERS) or (
+                    name == "manage_connector" and provider in _MANAGED_CONNECTOR_PROVIDERS
+                ):
                     step["provider"] = provider
     if not steps:
         return None
@@ -339,6 +430,16 @@ def _index_turns(events: list[Any], project_event: Callable) -> tuple:
     projected: list[tuple[str, dict[str, Any] | None]] = []
     for index, event in enumerate(events):
         text, metadata = project_event(event)
+        for part in event.content.parts or [] if event.content else []:
+            response = part.function_response
+            if event.author != "user" and response and response.name == LOCATION_CHAT_TOOL_NAME:
+                proposal = location_chat_proposal_from_result(_status_result(response.response))
+                if proposal:
+                    metadata = {**(metadata or {}), "locationChatProposal": proposal}
+            if response and response.name in READ_TOOLS:
+                receipt = redacted_read_receipt(response.response)
+                if isinstance(receipt.get("structured"), dict):
+                    receipts[event.invocation_id] = receipt["structured"]
         projected.append((text, metadata))
         if event.invocation_id:
             turn_events.setdefault(event.invocation_id, []).append(event)
@@ -346,12 +447,6 @@ def _index_turns(events: list[Any], project_event: Callable) -> tuple:
                 last_answer[event.invocation_id] = index
             if metadata and not text:
                 last_card[event.invocation_id] = index
-        for part in event.content.parts or [] if event.content else []:
-            response = part.function_response
-            if response and response.name in READ_TOOLS:
-                receipt = redacted_read_receipt(response.response)
-                if isinstance(receipt.get("structured"), dict):
-                    receipts[event.invocation_id] = receipt["structured"]
     return projected, turn_events, last_answer, last_card, receipts
 
 
@@ -364,6 +459,7 @@ def project_conversation_history(
     session_state: dict | None = None,
     consent_by_invocation: dict[str, str] | None = None,
     consent_ended: dict[str, str] | None = None,
+    before_id: str | None = None,
 ) -> dict[str, Any]:
     messages: list[dict[str, object]] = []
     state = session_state or {}
@@ -378,6 +474,7 @@ def project_conversation_history(
     # live. Card-only tool events fold into the answer; a turn without an
     # answer keeps its last card message as the anchor.
     held_cards: dict[str, list[dict[str, Any]]] = {}
+    held_location_proposals: dict[str, dict[str, Any]] = {}
     for index, event in enumerate(events):
         text, metadata = projected[index]
         attachments = history_text_attachments(event)
@@ -389,15 +486,15 @@ def project_conversation_history(
             text = ""  # Tool events restore only allowlisted safe descriptors.
         turn = event.invocation_id
         answer_index = last_answer.get(turn) if turn else None
-        if (
-            metadata
-            and not text
-            and answer_index is not None
-            and answer_index > index
-            and metadata.get("structuredExperiences")
-        ):
-            held_cards.setdefault(turn, []).extend(metadata["structuredExperiences"])
-            continue
+        if metadata and not text and answer_index is not None and answer_index > index:
+            cards = metadata.get("structuredExperiences")
+            proposal = metadata.get("locationChatProposal")
+            if cards:
+                held_cards.setdefault(turn, []).extend(cards)
+            if proposal:
+                held_location_proposals[turn] = proposal
+            if cards or proposal:
+                continue
         is_anchor = (
             bool(turn)
             and event.author != "user"
@@ -422,6 +519,11 @@ def project_conversation_history(
                 }
             if activity:
                 metadata = {**(metadata or {}), "turnActivity": activity}
+            if turn in held_location_proposals:
+                metadata = {
+                    "locationChatProposal": held_location_proposals.pop(turn),
+                    **(metadata or {}),
+                }
             if event.author == "one" and turn in receipts and answer_index == index:
                 metadata = {**(metadata or {}), "specialist_read": receipts[turn]}
         if event.author == "user" and text in outcome_labels:
@@ -462,4 +564,19 @@ def project_conversation_history(
                 "metadata": metadata,
             }
         )
-    return {"conversation_id": conversation_id, "messages": messages[-limit:]}
+    pool = messages
+    if isinstance(before_id, str) and before_id.strip():
+        normalized_before = before_id.strip()
+        for pos, entry in enumerate(messages):
+            if str(entry.get("id") or "") == normalized_before:
+                pool = messages[:pos]
+                break
+    sliced = pool[-limit:] if limit > 0 else []
+    has_more = len(pool) > len(sliced)
+    oldest_cursor = str(sliced[0]["id"]) if (has_more and sliced and sliced[0].get("id")) else None
+    return {
+        "conversation_id": conversation_id,
+        "messages": sliced,
+        "has_more": has_more,
+        "oldest_cursor": oldest_cursor,
+    }

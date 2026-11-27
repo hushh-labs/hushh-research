@@ -4,10 +4,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import catalogue from "@/lib/circle-chat/emoji-reactions.generated.json";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
 
 import styles from "./direct-message-emoji-picker.module.css";
@@ -23,6 +25,11 @@ const EMOJI_BY_VALUE = new Map(catalogue.categories.flatMap((category) =>
   category.entries.map(([emoji, name]) => [emoji!, name!] as const),
 ));
 const DEFAULT_CATEGORY = EMOJI_CATEGORIES[0]!;
+const CATEGORY_OPTIONS = EMOJI_CATEGORIES.map((category) => ({
+  value: category.id,
+  label: category.icon,
+  accessibleLabel: category.label,
+}));
 
 const EMOJI_SEARCH_TERMS: Record<string, string> = {
   "🐶": "dog puppy pet animal",
@@ -120,6 +127,7 @@ type DirectMessageEmojiPickerProps = {
   messagesLane?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  anchorToComposer?: boolean;
 };
 
 export function DirectMessageEmojiPicker({
@@ -134,8 +142,10 @@ export function DirectMessageEmojiPicker({
   messagesLane = false,
   open: controlledOpen,
   onOpenChange,
+  anchorToComposer = false,
 }: DirectMessageEmojiPickerProps) {
   const searchId = useId();
+  const content = useRef<HTMLDivElement>(null);
   const selectedEmoji = useRef(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -219,7 +229,10 @@ export function DirectMessageEmojiPicker({
           <span aria-hidden="true">{triggerIcon ?? "☺"}</span>
         </button>
       </PopoverTrigger>
+      {/* Register after the trigger so the full composer owns placement. */}
+      {anchorToComposer ? <PopoverAnchor aria-hidden className={styles.composerAnchor} /> : null}
       <PopoverContent
+        ref={content}
         data-messages-type-scale={messagesLane || undefined}
         side="top"
         align="end"
@@ -227,6 +240,12 @@ export function DirectMessageEmojiPicker({
         collisionPadding={8}
         className={styles.content}
         aria-label="Emoji picker"
+        onOpenAutoFocus={(event) => {
+          // Keep the first tap stable on phones: Search opens the keyboard
+          // only when requested, rather than moving the grid on picker open.
+          event.preventDefault();
+          content.current?.focus({ preventScroll: true });
+        }}
         onCloseAutoFocus={(event) => {
           // The composer owns focus after insertion. Returning it to the
           // trigger races that handoff and moves the iOS keyboard again.
@@ -267,30 +286,18 @@ export function DirectMessageEmojiPicker({
             </div>
           </section>
         ) : null}
-        <div
-          className={styles.categories}
-          role="tablist"
-          aria-label="Emoji categories"
-          hidden={Boolean(normalizedQuery)}
-        >
-          {EMOJI_CATEGORIES.map((category) => (
-            <button
-              key={category.id}
-              type="button"
-              role="tab"
-              aria-label={category.label}
-              aria-selected={selectedCategory?.id === category.id}
-              className={styles.categoryButton}
-              onClick={() => {
-                setQuery("");
-                setActiveCategory(category.id);
-              }}
-              title={category.label}
-            >
-              {category.icon}
-            </button>
-          ))}
-        </div>
+        {!normalizedQuery ? (
+          <SegmentedTabs
+            value={selectedCategory?.id ?? DEFAULT_CATEGORY.id}
+            onValueChange={setActiveCategory}
+            options={CATEGORY_OPTIONS}
+            ariaLabel="Emoji categories"
+            tabSetId={`emoji-${searchId}`}
+            variant="subordinate"
+            hapticFeedback={false}
+            className={styles.categories}
+          />
+        ) : null}
         <div
           className={styles.grid}
           ref={grid}
@@ -302,6 +309,7 @@ export function DirectMessageEmojiPicker({
             }
           }}
           role="tabpanel"
+          id={`top-shell-emoji-${searchId}-panel-${selectedCategory?.id ?? DEFAULT_CATEGORY.id}`}
           aria-label={
             normalizedQuery
               ? `Emoji results for ${query.trim()}`

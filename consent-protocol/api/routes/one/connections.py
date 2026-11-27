@@ -133,6 +133,9 @@ def connections_directory(
     # caller that predates the advisor split keeps the list it already had.
     audience: str = Query(default="all", pattern="^(all|people|ria)$"),
     name_only: bool = Query(default=False),
+    # The interactive Find people field uses the typed matching contract.
+    typed_search: bool = Query(default=False),
+    exclude_connected: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
@@ -144,6 +147,8 @@ def connections_directory(
             limit=limit,
             audience=audience,
             name_only=name_only,
+            typed_search=typed_search,
+            **({"exclude_connected": True} if exclude_connected else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -225,6 +230,11 @@ def browse_network(
     query: str = Query("", max_length=160),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
+    include_suggestions: bool = Query(
+        False,
+        deprecated=True,
+        description="Accepted for older clients. Network results always follow graph distance.",
+    ),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
@@ -238,6 +248,7 @@ def browse_network(
                 query=query,
                 page=page,
                 limit=limit,
+                include_suggestions=include_suggestions,
             )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -250,6 +261,7 @@ def list_connections(
     limit: int | None = Query(default=None, ge=1, le=100),
     query: str | None = Query(default=None, max_length=160),
     audience: str | None = Query(default=None, pattern="^(all|ria)$"),
+    account_check: Literal["observe", "reconcile"] | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -265,6 +277,7 @@ def list_connections(
             limit=limit or 50,
             query=query or "",
             audience=audience or "all",
+            **({"account_check": account_check} if account_check else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -382,7 +395,11 @@ async def sync_contacts(
         ) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
+    except (
+        ConnectionsError,
+        ActorIdentitySyncUnavailableError,
+        DirectoryIdentityUnavailableError,
+    ) as exc:
         raise _handle(exc) from None
     except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
         # SQLAlchemy includes bound parameters in exception text/tracebacks.
@@ -405,9 +422,11 @@ def connection_scope_catalog(
 
 @router.get("/connections/{counterpart_user_id}/context")
 def connection_person_context(
+    response: Response,
     counterpart_user_id: str = Path(..., min_length=1, max_length=128),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    response.headers["Cache-Control"] = "private, no-store"
     try:
         return _service().get_person_context(firebase_uid, counterpart_user_id)
     except Exception as exc:  # noqa: BLE001

@@ -50,6 +50,7 @@ _TYPED_RATE_LIMIT_PATHS = (
     "/api/one/connections/directory",
     "/api/one/business/suggestion",
     "/api/one/profile-research",
+    "/api/one/messages",
     "/api/auth/sso/",
 )
 
@@ -64,6 +65,7 @@ _TYPED_RATE_LIMIT_MESSAGES = {
     "/api/one/connections/directory": "Too many searches. Try again shortly.",
     "/api/one/business/suggestion": "Business suggestions are taking a moment. Try again shortly.",
     "/api/one/profile-research": "Your profile is taking a moment. Try again shortly.",
+    "/api/one/messages": "Too many messaging requests. Try again shortly.",
 }
 
 

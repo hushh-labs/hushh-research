@@ -17,7 +17,6 @@ function OptionField({ label, value, options, onChange }: {
 export function StockListToolbar({ query, setQuery, tier, setTier, sector, setSector, sectors, sources, activeSource, onSourceChange, actions }: {
   query: string; setQuery: (query: string) => void; tier: string; setTier: (tier: string) => void;
   sector: string; setSector: (sector: string) => void; sectors: string[];
-  pageSize: number; setPageSize: (size: number) => void; pageSizes: readonly number[];
   sources: KaiHomePickSource[]; activeSource: string; onSourceChange?: (source: string) => void; actions?: ReactNode;
 }) {
   return <div className="space-y-3 pb-1" data-no-route-swipe>
@@ -34,8 +33,4 @@ export function StockListToolbar({ query, setQuery, tier, setTier, sector, setSe
       <OptionField label="Sector" value={sector} onChange={setSector} options={[{ value: "all", label: "All sectors" }, ...sectors.map(value => ({ value, label: value }))]} />
     </div>
   </div>;
-}
-
-export function StockRowsPerPage({ value, onChange, options }: { value: number; onChange: (value: number) => void; options: readonly number[] }) {
-  return <div className="w-auto min-w-32"><OptionField label="Rows per page" value={String(value)} onChange={value => onChange(Number(value))} options={options.map(value => ({ value: String(value), label: `${value} rows` }))} /></div>;
 }

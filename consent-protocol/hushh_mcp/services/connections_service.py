@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -37,12 +37,17 @@ from hushh_mcp.services.connection_graph_service import (
     lock_connection_graph_users,
 )
 from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+from hushh_mcp.services.connection_row_metadata import ConnectionRowMetadata
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_MATCH_POLICY_VERSION,
     CONTACT_SYNC_PREFERENCE_DEFAULT,
     CONTACT_SYNC_PREFERENCE_ENABLED,
     contact_sync_preference_state,
     resolve_revoked_contact_match,
+)
+from hushh_mcp.services.directory_identity_service import (
+    DirectoryIdentityUnavailableError,
+    active_directory_user_ids,
 )
 from hushh_mcp.services.people_search_sql import (
     directory_search_rank,
@@ -179,6 +184,8 @@ def _default_directory_search(
     limit: int,
     audience: str = DIRECTORY_AUDIENCE_ALL,
     name_only: bool = False,
+    typed_search: bool = False,
+    exclude_network_user_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -189,6 +196,8 @@ def _default_directory_search(
         limit=limit,
         audience=audience,
         name_only=name_only,
+        typed_search=typed_search,
+        exclude_network_user_ids=exclude_network_user_ids,
     )
 
 
@@ -296,6 +305,7 @@ def _notify_connection_graph_changed(
     *,
     user_ids: set[str],
     connection_id: str = "",
+    publish_live: bool = True,
 ) -> None:
     """Post-commit, silent graph reconciliation for remote devices."""
 
@@ -312,6 +322,7 @@ def _notify_connection_graph_changed(
                 user_id,
                 transition_id=transition_id,
                 connection_id=connection_id,
+                publish_live=publish_live,
             )
         except Exception:  # noqa: BLE001 - one failed device must not fail the mutation
             logger.warning("connection.graph_sync_failed", exc_info=True)
@@ -445,7 +456,7 @@ class ConnectionsService:
             INSERT INTO feed_events (
               user_id, source_domain, event_type, metadata, source_row_id
             )
-            VALUES (
+            SELECT
               :owner_user_id,
               'connections',
               :event_type,
@@ -455,6 +466,9 @@ class ConnectionsService:
                   NULLIF(LEFT(BTRIM(:counterpart_label), 160), '')
               )),
               :source_row_id
+            WHERE NOT EXISTS (
+              SELECT 1 FROM account_deletion_tombstones deletion
+              WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(:owner_user_id, 'UTF8')), 'hex')
             )
             ON CONFLICT DO NOTHING
             RETURNING id
@@ -735,15 +749,25 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        self._assert_directory_visible(viewer, counterpart)
+        person = next(
+            (
+                profile
+                for profile in self._directory_profiles(viewer, [counterpart])
+                if profile.get("userId") == counterpart
+            ),
+            None,
+        )
+        if not person:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
         params = {"viewer": viewer, "counterpart": counterpart}
         row = self._execute_one(
-            """SELECT identity.display_name,
-            COALESCE(identity.custom_photo_url,identity.photo_url) AS photo_url,
-            EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
+            """SELECT EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
                 AND ((c.user_a_id=:viewer AND c.user_b_id=:counterpart)
-                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected
-            FROM actor_identity_cache identity WHERE identity.user_id=:counterpart""",
+                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected""",
             params,
         )
         if not row:
@@ -770,8 +794,9 @@ class ConnectionsService:
         return {
             "person": {
                 "userId": counterpart,
-                "displayName": row.get("display_name"),
-                "photoUrl": row.get("photo_url"),
+                "publicPersonRef": person.get("publicPersonRef"),
+                "displayName": person.get("displayName"),
+                "photoUrl": person.get("photoUrl"),
                 "email": None,
                 "relationship": relationship,
             },
@@ -2570,6 +2595,7 @@ class ConnectionsService:
         selected_offered_scope_handles: list[str] | None = None,
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        retired_deleted_requester = False
         with self._transaction():
             transaction_connection = getattr(self, "_transaction_connection", None)
             if transaction_connection is not None:
@@ -2635,94 +2661,151 @@ class ConnectionsService:
                 )
 
             requester = str(req.get("requester_user_id"))
-            # The statement that must satisfy `connections_canonical_order`
-            # decides the order itself, and reports back what it chose.
-            #
-            # Ordering the pair in Python and inserting the result is what
-            # broke: `CHECK (user_a_id < user_b_id)` is evaluated by Postgres
-            # under en_US.UTF8, which compares case-insensitively, while
-            # Python's `<` is bytewise and puts every uppercase letter first.
-            # For 'RPNmQ...' and 'oGltkj...' they disagree, the insert was
-            # rejected with CheckViolation, and accepting a connection failed
-            # for roughly half of all real UID pairs -- 88 of 390 pending
-            # requests on UAT, silently, because this route logged nothing.
-            #
-            # LEAST/GREATEST is the same comparison the constraint uses, in the
-            # same statement, so the two cannot drift apart again. RETURNING
-            # the columns means the canonical values used downstream are the
-            # ones actually stored rather than a second guess at them.
-            connection = self._execute_one(
-                """
-                INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-                VALUES (LEAST(:a, :b), GREATEST(:a, :b), 'active', 'request', NOW(), NOW())
-                ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-                  status = 'active', revoked_at = NULL, updated_at = NOW()
-                RETURNING id, user_a_id, user_b_id
-                """,
-                {"a": requester, "b": user_id},
-            )
-            # Prefer what the row actually stores, and fall back to the raw
-            # pair if RETURNING gave nothing. The fallback is safe because
-            # `ensure_connection_origin` canonicalises again on its own, so the
-            # worst case is passing the pair the other way round -- never a
-            # mis-ordered origin, and never the empty strings that a bare
-            # `.get()` would hand it.
-            user_a = str((connection or {}).get("user_a_id") or "") or requester
-            user_b = str((connection or {}).get("user_b_id") or "") or user_id
-            # Location eligibility needs BOTH an active `connections` row and
-            # an active non-circle origin. Acceptance wrote only the first, so
-            # a person could be connected in Connect and simply absent from
-            # Location's recipient list -- surfacing as "nobody in your
-            # connections matches that name" about someone plainly there, and
-            # leaving "connect with X, then share my location with X" broken at
-            # a step that looked like it had succeeded.
-            #
-            # Recorded through the graph service that owns origins rather than
-            # by writing the table here, and inside the same transaction that
-            # activates the connection, so the two can never disagree. The
-            # helper is idempotent, which matters because acceptance is
-            # retryable.
-            graph_connection = getattr(self, "_transaction_connection", None)
-            if graph_connection is not None:
-                ensure_connection_origin(
-                    graph_connection,
-                    user_a_id=user_a,
-                    user_b_id=user_b,
-                    kind=ORIGIN_DIRECT_REQUEST,
-                    source_ref=str(req.get("id") or "") or None,
+            requester_active = True
+            try:
+                requester_active = requester in active_directory_user_ids(
+                    [requester], use_cache=False
                 )
-            # Mirror both directional trusted edges so location/SOS readers keep working.
-            self._mirror_trusted_edge(requester, user_id)
-            self._mirror_trusted_edge(user_id, requester)
-            # A connection is intentionally only a connection. Circle
-            # membership is an explicit, owner-driven action and must never be
-            # inferred from this acceptance transaction.
-            scope_results = self._resolve_scope_proposals(
-                request_id=canonical_request_id,
-                actor_user_id=user_id,
-                selected_requested_scope_handles=selected_requested_scope_handles,
-                selected_offered_scope_handles=selected_offered_scope_handles,
-                proposals=pending_proposals,
-            )
-            self._execute_one(
-                """
-                UPDATE connection_requests
-                SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
-                WHERE id = :id AND status = 'pending'
-                RETURNING id
-                """,
-                {"id": req.get("id")},
-            )
-            connection_id = (connection or {}).get("id")
-            source_request_id = str(req.get("id") or "")
-            for owner, counterpart in ((user_id, requester), (requester, user_id)):
-                self._record_connection_feed_transition(
-                    owner_user_id=owner,
-                    counterpart_user_id=counterpart,
+            except DirectoryIdentityUnavailableError:
+                requester_active = True
+            if not requester_active:
+                self._execute_one(
+                    """
+                    UPDATE connection_requests
+                    SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
+                    WHERE id = :id AND status = 'pending'
+                    RETURNING id
+                    """,
+                    {"id": req.get("id")},
+                )
+                self._resolve_pending_scope_proposals(
+                    canonical_request_id,
+                    status="declined",
                     actor_user_id=user_id,
-                    event_type="connection_accepted",
-                    source_row_id=source_request_id,
+                    reason="requester_account_deleted",
                 )
+                retired_deleted_requester = True
+            if not retired_deleted_requester:
+                # The statement that must satisfy `connections_canonical_order`
+                # decides the order itself, and reports back what it chose.
+                #
+                # Ordering the pair in Python and inserting the result is what
+                # broke: `CHECK (user_a_id < user_b_id)` is evaluated by Postgres
+                # under en_US.UTF8, which compares case-insensitively, while
+                # Python's `<` is bytewise and puts every uppercase letter first.
+                # For 'RPNmQ...' and 'oGltkj...' they disagree, the insert was
+                # rejected with CheckViolation, and accepting a connection failed
+                # for roughly half of all real UID pairs -- 88 of 390 pending
+                # requests on UAT, silently, because this route logged nothing.
+                #
+                # LEAST/GREATEST is the same comparison the constraint uses, in the
+                # same statement, so the two cannot drift apart again. RETURNING
+                # the columns means the canonical values used downstream are the
+                # ones actually stored rather than a second guess at them.
+                connection = self._execute_one(
+                    """
+                    INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
+                    SELECT LEAST(:a, :b), GREATEST(:a, :b), 'active', 'request', NOW(), NOW()
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM account_deletion_tombstones deletion
+                      WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(:a, 'UTF8')), 'hex')
+                    )
+                    ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+                      status = 'active', revoked_at = NULL, updated_at = NOW()
+                    RETURNING id, user_a_id, user_b_id
+                    """,
+                    {"a": requester, "b": user_id},
+                )
+                if (
+                    connection is None
+                    and getattr(transaction_connection, "engine", None) is not None
+                ):
+                    self._execute_one(
+                        """
+                        UPDATE connection_requests
+                        SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
+                        WHERE id = :id AND status = 'pending'
+                        RETURNING id
+                        """,
+                        {"id": req.get("id")},
+                    )
+                    self._resolve_pending_scope_proposals(
+                        canonical_request_id,
+                        status="declined",
+                        actor_user_id=user_id,
+                        reason="requester_account_deleted",
+                    )
+                    retired_deleted_requester = True
+            if not retired_deleted_requester:
+                # Prefer what the row actually stores, and fall back to the raw
+                # pair if RETURNING gave nothing. The fallback is safe because
+                # `ensure_connection_origin` canonicalises again on its own, so the
+                # worst case is passing the pair the other way round -- never a
+                # mis-ordered origin, and never the empty strings that a bare
+                # `.get()` would hand it.
+                user_a = str((connection or {}).get("user_a_id") or "") or requester
+                user_b = str((connection or {}).get("user_b_id") or "") or user_id
+                # Location eligibility needs BOTH an active `connections` row and
+                # an active non-circle origin. Acceptance wrote only the first, so
+                # a person could be connected in Connect and simply absent from
+                # Location's recipient list -- surfacing as "nobody in your
+                # connections matches that name" about someone plainly there, and
+                # leaving "connect with X, then share my location with X" broken at
+                # a step that looked like it had succeeded.
+                #
+                # Recorded through the graph service that owns origins rather than
+                # by writing the table here, and inside the same transaction that
+                # activates the connection, so the two can never disagree. The
+                # helper is idempotent, which matters because acceptance is
+                # retryable.
+                graph_connection = getattr(self, "_transaction_connection", None)
+                if graph_connection is not None:
+                    ensure_connection_origin(
+                        graph_connection,
+                        user_a_id=user_a,
+                        user_b_id=user_b,
+                        kind=ORIGIN_DIRECT_REQUEST,
+                        source_ref=str(req.get("id") or "") or None,
+                    )
+                # Mirror both directional trusted edges so location/SOS readers keep working.
+                self._mirror_trusted_edge(requester, user_id)
+                self._mirror_trusted_edge(user_id, requester)
+                # A connection is intentionally only a connection. Circle
+                # membership is an explicit, owner-driven action and must never be
+                # inferred from this acceptance transaction.
+                scope_results = self._resolve_scope_proposals(
+                    request_id=canonical_request_id,
+                    actor_user_id=user_id,
+                    selected_requested_scope_handles=selected_requested_scope_handles,
+                    selected_offered_scope_handles=selected_offered_scope_handles,
+                    proposals=pending_proposals,
+                )
+                self._execute_one(
+                    """
+                    UPDATE connection_requests
+                    SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
+                    WHERE id = :id AND status = 'pending'
+                    RETURNING id
+                    """,
+                    {"id": req.get("id")},
+                )
+                connection_id = (connection or {}).get("id")
+                source_request_id = str(req.get("id") or "")
+                for owner, counterpart in ((user_id, requester), (requester, user_id)):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=user_id,
+                        event_type="connection_accepted",
+                        source_row_id=source_request_id,
+                    )
+
+        if retired_deleted_requester:
+            raise ConnectionsError(
+                "CONNECTION_REQUESTER_DELETED",
+                "That account is no longer active.",
+                status_code=410,
+            )
 
         # After commit, not inside the transaction: push is best-effort and
         # must never be why an accept can fail or roll back. The requester
@@ -3059,12 +3142,26 @@ class ConnectionsService:
         if direction == "incoming":
             where = "cr.addressee_user_id = :user_id"
             counterpart_col = "cr.requester_user_id"
+            pending_clause = (
+                "AND cr.status = 'pending' "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM account_deletion_tombstones deletion "
+                "WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(cr.requester_user_id, 'UTF8')), 'hex')"
+                ")"
+            )
         else:
             where = "cr.requester_user_id = :user_id"
             counterpart_col = "cr.addressee_user_id"
-        # nosec B608 # counterpart_col/where are hardcoded literals selected by
-        # `direction` above (never user input); user_id is always parameterized.
-        status_clause = "" if include_resolved else "AND cr.status = 'pending'"
+            pending_clause = (
+                "AND cr.status = 'pending' "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM account_deletion_tombstones deletion "
+                "WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(cr.addressee_user_id, 'UTF8')), 'hex')"
+                ")"
+            )
+        # nosec B608 # counterpart_col/where/pending_clause are hardcoded literals
+        # selected by `direction` above (never user input); user_id is parameterized.
+        status_clause = "" if include_resolved else pending_clause
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
@@ -3105,21 +3202,13 @@ class ConnectionsService:
         limit: int,
         audience: str,
         name_only: bool = False,
-    ) -> tuple[dict[str, Any], bool]:
+        typed_search: bool = False,
+        exclude_network_user_ids: list[str] | None = None,
+    ) -> tuple[dict[str, Any], bool, bool]:
         """Call the injected directory search with the options it supports.
 
-        Returns the page and whether the split was applied at the source.
-
-        `_directory_search` is a documented injection point -- tests and the
-        Location caller replace it with their own callables. Passing a keyword
-        those older callables never declared would turn an added tab into a
-        TypeError on the default People tab, so the parameter is offered only to
-        implementations that actually accept it. A double that does not is asked
-        the question it already understood, and the audience split is then
-        applied in Python below.
-
-        Name resolvers also request ``name_only`` from the production adapter;
-        older injected name-search callables keep their existing signature.
+        Returns the page, whether the audience split was applied at the source,
+        and whether connected-peer exclusion was applied at the source.
         """
         parameters: Mapping[str, inspect.Parameter]
         try:
@@ -3130,14 +3219,20 @@ class ConnectionsService:
         options: dict[str, Any] = {"query": query, "page": page, "limit": limit}
         if accepts_audience:
             options["audience"] = audience
-        if name_only and (
-            "name_only" in parameters
-            or any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
-            )
-        ):
-            options["name_only"] = name_only
-        return directory_search(owner_user_id, **options), accepts_audience
+        accepts_options = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+        )
+        for option, enabled in (("name_only", name_only), ("typed_search", typed_search)):
+            if enabled and (option in parameters or accepts_options):
+                options[option] = True
+        accepts_exclude = "exclude_network_user_ids" in parameters or accepts_options
+        if exclude_network_user_ids and accepts_exclude:
+            options["exclude_network_user_ids"] = exclude_network_user_ids
+        return (
+            directory_search(owner_user_id, **options),
+            accepts_audience,
+            bool(exclude_network_user_ids and accepts_exclude),
+        )
 
     def _filter_people_by_audience(
         self, people: list[dict[str, Any]], audience: str
@@ -3194,6 +3289,31 @@ class ConnectionsService:
             if row.get("user_id") and row.get("public_person_ref")
         }
 
+    def _active_connected_user_ids(self, user_id: str) -> list[str]:
+        """Active accepted connection peer IDs for ``user_id`` (excluding pending invites)."""
+        if not user_id:
+            return []
+        try:
+            rows = self._execute_many(
+                """
+                SELECT CASE WHEN user_a_id = :user_id THEN user_b_id ELSE user_a_id END AS peer_id
+                FROM connections
+                WHERE status = 'active'
+                  AND (user_a_id = :user_id OR user_b_id = :user_id)
+                LIMIT 4000
+                """,
+                {"user_id": user_id},
+            )
+        except Exception:  # noqa: BLE001 - lightweight unit doubles without DB still settle metadata below
+            return []
+        return sorted(
+            {
+                str(row.get("peer_id") or "").strip()
+                for row in rows
+                if row.get("peer_id") and str(row.get("peer_id") or "").strip() != user_id
+            }
+        )
+
     def search_directory(
         self,
         user_id: str,
@@ -3203,6 +3323,8 @@ class ConnectionsService:
         limit: int = 20,
         audience: str = DIRECTORY_AUDIENCE_ALL,
         name_only: bool = False,
+        typed_search: bool = False,
+        exclude_connected: bool = False,
     ) -> dict[str, Any]:
         """Search visible people; name resolvers opt out of contact-only matches."""
         user_id = (user_id or "").strip()
@@ -3215,6 +3337,11 @@ class ConnectionsService:
         if audience not in DIRECTORY_AUDIENCES:
             audience = DIRECTORY_AUDIENCE_ALL
 
+        excluded_connected_ids = (
+            self._active_connected_user_ids(user_id) if exclude_connected else []
+        )
+        excluded_connected_set = set(excluded_connected_ids)
+
         # Reuse the One Location "Ready people" directory (list_verified_recipients)
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
@@ -3222,9 +3349,10 @@ class ConnectionsService:
         # Set when the page was cut without knowing the audience, so the split
         # still has to happen in Python below.
         audience_pending = audience != DIRECTORY_AUDIENCE_ALL
+        exclude_pending = bool(excluded_connected_set)
         directory_search = getattr(self, "_directory_search", None)
         if directory_search is not None:
-            directory_page, audience_applied = self._call_directory_search(
+            directory_page, audience_applied, exclude_applied = self._call_directory_search(
                 directory_search,
                 user_id,
                 query=needle,
@@ -3232,11 +3360,15 @@ class ConnectionsService:
                 limit=limit,
                 audience=audience,
                 name_only=name_only,
+                typed_search=typed_search,
+                exclude_network_user_ids=excluded_connected_ids or None,
             )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
             if audience_applied:
                 audience_pending = False
+            if exclude_applied:
+                exclude_pending = False
         else:
             # The in-memory fallback has to answer the same question the SQL
             # path answers, or the two disagree about who is findable depending
@@ -3244,6 +3376,11 @@ class ConnectionsService:
             # A-Z within each, and the same rule that ranking and matching
             # finish BEFORE the page is cut.
             people = self._directory_lookup(user_id) or []
+            if excluded_connected_set:
+                people = [
+                    p for p in people if str(p.get("userId") or "") not in excluded_connected_set
+                ]
+                exclude_pending = False
             if needle:
 
                 def _tier(person: dict[str, Any]) -> int | None:
@@ -3254,6 +3391,7 @@ class ConnectionsService:
                         phone_number=person.get("phoneNumber"),
                         phone_verified=bool(person.get("phoneVerified")),
                         name_only=name_only,
+                        typed_search=typed_search,
                     )
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
@@ -3285,149 +3423,61 @@ class ConnectionsService:
             people = people[offset : offset + limit]
 
         if audience_pending:
-            # The page was cut by a directory implementation that predates the
-            # audience split, so the only remaining option is to filter what it
-            # returned. This narrows a page rather than paging the narrowed set,
-            # so `hasMore` still describes the unsplit list. Reachable only via
-            # an injected `_directory_search` double; the shipped implementation
-            # accepts `audience` and splits in SQL.
             people = self._filter_people_by_audience(people, audience)
+        if exclude_pending and excluded_connected_set:
+            people = [p for p in people if str(p.get("userId") or "") not in excluded_connected_set]
 
         # Annotate only the returned page. Reading the caller's entire pending
         # and connected graph here made a 20-row directory page scale with all
         # 5,000 relationships instead of with the page the caller can see.
-        page_user_ids = sorted(
-            {str(person.get("userId") or "") for person in people} - {"", user_id}
-        )
-        out_pending = {
-            str(r.get("addressee_user_id") or "")
-            for r in (
-                self._execute_many(
-                    """
-                SELECT addressee_user_id FROM connection_requests
-                WHERE requester_user_id = :user_id
-                  AND addressee_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
-                  AND status = 'pending'
-                """,
-                    {"user_id": user_id, "page_user_ids": page_user_ids},
-                )
-                if page_user_ids
-                else []
-            )
-        }
-        in_pending = {
-            str(r.get("requester_user_id") or "")
-            for r in (
-                self._execute_many(
-                    """
-                SELECT requester_user_id FROM connection_requests
-                WHERE addressee_user_id = :user_id
-                  AND requester_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
-                  AND status = 'pending'
-                """,
-                    {"user_id": user_id, "page_user_ids": page_user_ids},
-                )
-                if page_user_ids
-                else []
-            )
-        }
-        connected: set[str] = set()
-        connection_rows = (
-            self._execute_many(
-                """
-                SELECT user_a_id, user_b_id FROM connections
-                WHERE status = 'active'
-                  AND (
-                    (user_a_id = :user_id
-                     AND user_b_id = ANY(CAST(:page_user_ids AS TEXT[])))
-                    OR
-                    (user_b_id = :user_id
-                     AND user_a_id = ANY(CAST(:page_user_ids AS TEXT[])))
-                  )
-                """,
-                {"user_id": user_id, "page_user_ids": page_user_ids},
-            )
-            if page_user_ids
-            else []
-        )
-        for r in connection_rows:
-            a = str(r.get("user_a_id") or "")
-            b = str(r.get("user_b_id") or "")
-            connected.add(b if a == user_id else a)
-
-        def relationship(uid: str) -> str:
-            if uid in connected:
-                return "connected"
-            if uid in out_pending:
-                return "pending_outgoing"
-            if uid in in_pending:
-                return "pending_incoming"
-            return "none"
-
         # Annotated on the row, not inferred from which tab asked: voice name
         # resolution searches everyone, and a row that only knew its kind from
         # its tab would go back to being unlabelled there. Same for roleLabel.
         ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
         public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
 
-        # One page-bound graph read, then a bounded live directory lookup for
-        # shared peers. Preview visibility must not depend on the current page.
-        mutual_rows = (
-            self._execute_many(
-                MUTUAL_CONNECTIONS_SQL,
-                {"user_id": user_id, "page_user_ids": page_user_ids},
-            )
-            if page_user_ids
-            else []
-        )
-        mutuals = {str(row.get("candidate_id") or ""): row for row in mutual_rows}
-        preview_user_ids = sorted(
-            {str(row.get("preview_user_id") or "") for row in mutual_rows} - {""}
-        )
-        eligible_people = (
-            {
-                str(person.get("userId") or ""): person
-                for person in self._directory_profiles(user_id, preview_user_ids)
-            }
-            if preview_user_ids
-            else {}
-        )
-
-        def mutual_payload(uid: str) -> dict[str, Any]:
-            row = mutuals.get(uid) or {}
-            count = max(0, int(row.get("mutual_count") or 0))
-            peer = eligible_people.get(str(row.get("preview_user_id") or ""))
-            return {
-                "mutualConnectionCount": count,
-                "mutualConnectionPreview": {
-                    "displayName": peer["displayName"],
-                    "photoUrl": peer.get("photoUrl"),
-                    "publicPersonRef": peer.get("publicPersonRef"),
-                }
-                if count and peer and peer.get("displayName")
-                else None,
-            }
-
-        return {
-            "items": [
-                {
-                    "userId": str(p.get("userId") or ""),
-                    "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
-                    "displayName": p.get("displayName"),
-                    "photoUrl": p.get("photoUrl"),
-                    "email": p.get("email"),
-                    "maskedEmail": p.get("maskedEmail"),
-                    "maskedPhone": mask_directory_phone(
-                        (p.get("phoneNumber") if p.get("phoneVerified") else None)
-                        or p.get("maskedPhone")
-                    ),
-                    "relationship": relationship(str(p.get("userId") or "")),
-                    **mutual_payload(str(p.get("userId") or "")),
-                    "isRia": str(p.get("userId") or "") in ria_user_ids,
-                    **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
-                }
+        metadata = ConnectionRowMetadata(
+            self,
+            user_id,
+            [
+                {**p, "publicPersonRef": public_person_refs.get(str(p.get("userId") or ""))}
                 for p in people
             ],
+            self._directory_profiles,
+        ).settle()
+
+        items = [
+            {
+                "userId": str(p.get("userId") or ""),
+                "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
+                "displayName": p.get("displayName"),
+                "photoUrl": p.get("photoUrl"),
+                "email": p.get("email"),
+                "maskedEmail": p.get("maskedEmail"),
+                "maskedPhone": mask_directory_phone(
+                    (p.get("phoneNumber") if p.get("phoneVerified") else None)
+                    or p.get("maskedPhone")
+                ),
+                **metadata[str(p.get("userId") or "")],
+                "isRia": str(p.get("userId") or "") in ria_user_ids,
+                **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
+            }
+            for p in people
+        ]
+        if exclude_connected:
+            items = [
+                item
+                for item in items
+                if (
+                    item.get("relationship", {}).get("status")
+                    if isinstance(item.get("relationship"), dict)
+                    else item.get("relationship")
+                )
+                != "connected"
+            ]
+
+        return {
+            "items": items,
             "page": page,
             "hasMore": has_more,
             "audience": audience,
@@ -3463,8 +3513,33 @@ class ConnectionsService:
             page=page,
             limit=limit,
         )
-        counts = self._execute_many(
-            MUTUAL_CONNECTIONS_SQL, {"user_id": user_id, "page_user_ids": [target_id]}
+        metadata = ConnectionRowMetadata(self, user_id, result["items"], self._directory_profiles)
+        from hushh_mcp.services.connection_mutuals import MUTUAL_DIRECTORY_FILTER_SQL
+        from hushh_mcp.services.directory_candidate_statement import (
+            DIRECTORY_PROFILE_ELIGIBILITY_SQL,
+        )
+
+        context_sql = f"""WITH mutual AS ({MUTUAL_CONNECTIONS_SQL})
+            SELECT EXISTS (SELECT 1 FROM actor_profiles profile
+              WHERE profile.user_id = :target AND profile.public_person_ref::TEXT = :person_ref
+                AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL})) AS target_available,
+              COALESCE((SELECT mutual_count FROM mutual WHERE candidate_id = :target), 0) AS total_count
+            """.replace(":page_user_ids", ":count_target_ids")  # nosec B608 -- static fragments
+        payloads = metadata.settle(
+            f"""SELECT profile.user_id, 1 AS degree, FALSE AS overflow
+            FROM actor_profiles profile JOIN actor_profiles target ON target.user_id = :mutual_target_user_id
+            WHERE target.public_profile_status = 'active'
+              AND target.public_person_ref::TEXT = :person_ref
+              AND profile.user_id = ANY(CAST(:candidates AS TEXT[]))
+              AND ({MUTUAL_DIRECTORY_FILTER_SQL})""",  # nosec B608 -- static fragment
+            {
+                "mutual_target_user_id": target_id,
+                "person_ref": person_ref,
+                "target": target_id,
+                "count_target_ids": [target_id],
+                "candidates": [str(p["userId"]) for p in result["items"]],
+            },
+            context_sql=context_sql,
         )
         return {
             "person": {
@@ -3476,13 +3551,14 @@ class ConnectionsService:
                     "publicPersonRef": person.get("publicPersonRef"),
                     "displayName": person.get("displayName"),
                     "photoUrl": person.get("photoUrl"),
+                    **payloads[str(person["userId"])],
                 }
                 for person in result["items"]
                 if person.get("publicPersonRef")
             ],
             "page": result["page"],
             "hasMore": result["hasMore"],
-            "totalCount": max(0, int((counts[0] if counts else {}).get("mutual_count") or 0)),
+            "totalCount": metadata.total_count or 0,
         }
 
     @staticmethod
@@ -3592,10 +3668,34 @@ class ConnectionsService:
 
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
+        candidates_sql = """
+            WITH candidates AS (
+              SELECT c.id, c.created_at,
+                     CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id
+              FROM connections c
+              WHERE c.status = 'active'
+                AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
+                AND NOT EXISTS (
+                  SELECT 1 FROM account_deletion_tombstones deletion
+                  WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END,
+                    'UTF8'
+                  )), 'hex')
+                )
+            )
+        """
+        candidates = self._execute_many(
+            f"{candidates_sql} SELECT user_id FROM candidates",  # nosec B608
+            {"user_id": user_id},
+        )
+        active_ids = active_directory_user_ids([str(row["user_id"]) for row in candidates])
+        if not active_ids:
+            return []
+
         rows = self._execute_many(
-            """
-            SELECT c.id AS connection_id,
-                   CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
+            f"""
+            {candidates_sql}
+            SELECT c.id AS connection_id, c.user_id,
                    a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, a.email_verified, c.created_at,
                    EXISTS (
                      SELECT 1
@@ -3605,14 +3705,12 @@ class ConnectionsService:
                        AND contact_origin.origin_kind = 'contact_sync'
                        AND contact_origin.source_ref = :user_id
                    ) AS connected_from_contacts
-            FROM connections c
-            LEFT JOIN actor_identity_cache a
-              ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
-            WHERE c.status = 'active'
-              AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
+            FROM candidates c
+            LEFT JOIN actor_identity_cache a ON a.user_id = c.user_id
+            WHERE c.user_id = ANY(CAST(:active_user_ids AS TEXT[]))
             ORDER BY c.created_at DESC
-            """,
-            {"user_id": user_id},
+            """,  # nosec B608
+            {"user_id": user_id, "active_user_ids": sorted(active_ids)},
         )
         # Match search_directory's RIA annotation with one batched lookup for
         # existing connections; an empty list does not need a lookup.
@@ -3623,7 +3721,7 @@ class ConnectionsService:
                 "connectionId": str(r.get("connection_id") or ""),
                 "userId": str(r.get("user_id") or ""),
                 "publicPersonRef": public_person_refs.get(str(r.get("user_id") or "")),
-                "displayName": r.get("display_name"),
+                "displayName": label_from_identity_row(r, allow_email_handle=False) or None,
                 "photoUrl": r.get("photo_url"),
                 "email": r.get("email"),
                 "emailVerified": r.get("email_verified") is True,
@@ -3642,6 +3740,7 @@ class ConnectionsService:
         page: int = 1,
         limit: int = 50,
         audience: str = DIRECTORY_AUDIENCE_ALL,
+        account_check: Literal["observe", "reconcile"] | None = None,
     ) -> dict[str, Any]:
         """Return a stable bounded connection page without truncating legacy reads."""
 
@@ -3654,8 +3753,7 @@ class ConnectionsService:
             normalized_audience = DIRECTORY_AUDIENCE_ALL
         offset = (normalized_page - 1) * normalized_limit
 
-        rows = self._execute_many(
-            f"""
+        candidates_sql = f"""
             WITH filtered AS (
               SELECT
                 connection.id AS connection_id,
@@ -3681,6 +3779,14 @@ class ConnectionsService:
                 AND (
                   connection.user_a_id = :user_id
                   OR connection.user_b_id = :user_id
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM account_deletion_tombstones deletion
+                  WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                    CASE WHEN connection.user_a_id = :user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END,
+                    'UTF8'
+                  )), 'hex')
                 )
                 AND (
                   :query = ''
@@ -3708,7 +3814,28 @@ class ConnectionsService:
                       AND {_RIA_VERIFIED_STATUS_SQL}
                   )
                 )
-            ),
+            )
+        """  # nosec B608 # the RIA predicate is a static module constant.
+        candidate_params = {
+            "user_id": viewer_id,
+            "query": normalized_query,
+            "audience": normalized_audience,
+        }
+        candidates = self._execute_many(
+            f"{candidates_sql} SELECT user_id FROM filtered",  # nosec B608
+            candidate_params,
+        )
+        # Verify the matched owner IDs in provider batches before ranking or
+        # counting, so retired rows cannot shift the visible page boundary.
+        # A reader responding to a live hint must not emit the same hint again.
+        active_ids = active_directory_user_ids(
+            [str(row["user_id"]) for row in candidates],
+            use_cache=account_check is None,
+            notify_connections=account_check != "reconcile",
+        )
+        rows = self._execute_many(
+            f"""
+            {candidates_sql},
             matched AS (
               -- One rule for every people search; see people_search_sql.py.
               SELECT *,
@@ -3719,6 +3846,7 @@ class ConnectionsService:
                   ELSE 2
                 END AS match_rank
               FROM filtered
+              WHERE user_id = ANY(CAST(:active_user_ids AS TEXT[]))
             ),
             narrowed AS (
               SELECT * FROM matched
@@ -3763,10 +3891,9 @@ class ConnectionsService:
                      page_rows.user_id, page_rows.connection_id
             """,  # nosec B608 # the RIA predicate is a static module constant.
             {
-                "user_id": viewer_id,
-                "query": normalized_query,
+                **candidate_params,
                 **people_query_match_params(normalized_query),
-                "audience": normalized_audience,
+                "active_user_ids": sorted(active_ids),
                 "offset": offset,
                 "limit": normalized_limit,
             },
@@ -3781,7 +3908,7 @@ class ConnectionsService:
                 "connectionId": str(row.get("connection_id") or ""),
                 "userId": str(row.get("user_id") or ""),
                 "publicPersonRef": public_person_refs.get(str(row.get("user_id") or "")),
-                "displayName": row.get("display_name"),
+                "displayName": label_from_identity_row(row, allow_email_handle=False) or None,
                 "photoUrl": row.get("photo_url"),
                 "email": row.get("email"),
                 "createdAt": row.get("created_at"),
@@ -3875,6 +4002,18 @@ class ConnectionsService:
                 continue
             seen_lookup_ids.add(lookup_id)
             normalized_matches.append({**match, "lookup_id": lookup_id, "user_id": target_user_id})
+
+        # Contact proof binds a phone to the cached row. It does not prove
+        # the account still exists. Check matched owners before graph locks;
+        # the transaction below still fences concurrent app-side deletion.
+        if normalized_matches:
+            active_ids = active_directory_user_ids(
+                sorted({str(match["user_id"]) for match in normalized_matches}),
+                use_cache=False,
+            )
+            normalized_matches = [
+                match for match in normalized_matches if match["user_id"] in active_ids
+            ]
 
         if not normalized_matches:
             return {
@@ -3973,6 +4112,12 @@ class ConnectionsService:
                        photo_url, custom_photo_url
                 FROM actor_identity_cache
                 WHERE user_id = ANY(CAST(:identity_user_ids AS TEXT[]))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM account_deletion_tombstones deletion
+                    WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(
+                        actor_identity_cache.user_id, 'UTF8'
+                    )), 'hex')
+                  )
                 ORDER BY user_id
                 """,
                 {"identity_user_ids": sorted({requester_id, *candidate_user_ids})},

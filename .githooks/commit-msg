@@ -1,0 +1,13 @@
+#!/bin/sh
+# Append only existing owner-generated technical review fingerprints. No build,
+# source review or human attestation is performed by this hook.
+set -eu
+REPO_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_CACHE="$REPO_ROOT/hushh-webapp/tmp/ui-review"
+if command -v node >/dev/null 2>&1; then
+  node "$REPO_ROOT/hushh-webapp/scripts/architecture/ui-review-receipts.mjs" \
+    --append-commit-trailers "$1"
+elif [ -f "$REVIEW_CACHE/back.json" ] || [ -f "$REVIEW_CACHE/search.json" ]; then
+  echo "UI review metadata needs Node; install the frontend tools before committing." >&2
+  exit 1
+fi

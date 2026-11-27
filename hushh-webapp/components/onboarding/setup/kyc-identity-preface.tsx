@@ -2,9 +2,10 @@
 
 import { useRef, useState } from "react";
 import { Brain, Check, Copy } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
+import { ExternalAiArchiveImportSection } from "@/components/files/external-ai-archive-import-section";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ import {
   type KycIdentityProfile,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
@@ -34,6 +36,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [sex, setSex] = useState("");
   const [copied, setCopied] = useState(false);
+  const [archiveImported, setArchiveImported] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [isSaveStarted, setIsSaveStarted] = useState(false);
   const saveStartedRef = useRef(false);
@@ -42,7 +45,11 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   // age is derived from it later and a wrong date is a wrong answer, not a
   // missing one. Left blank it stays absent, which answers honestly.
   const dateOfBirthValid = !dateOfBirth || isValidDateOfBirth(dateOfBirth);
-  const canContinue = aboutMe.trim().length > 5 && dateOfBirthValid;
+  const hasPastedSummary = aboutMe.trim().length > 5;
+  const hasOptionalDetails = Boolean(
+    legalName.trim() || dateOfBirth || sex.trim(),
+  );
+  const canContinue = (hasPastedSummary || archiveImported) && dateOfBirthValid;
 
   const handlePrimary = async () => {
     if (!canContinue || saveStartedRef.current) return;
@@ -51,8 +58,15 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
       return;
     }
 
+    if (!hasPastedSummary && !hasOptionalDetails && archiveImported) {
+      saveStartedRef.current = true;
+      setIsSaveStarted(true);
+      onComplete();
+      return;
+    }
+
     const profile: KycIdentityProfile = {
-      aboutMe: aboutMe.trim(),
+      ...(aboutMe.trim() ? { aboutMe: aboutMe.trim() } : {}),
       // Omitted entirely when blank, so nothing is recorded as empty.
       ...(legalName.trim() ? { legalName: legalName.trim() } : {}),
       ...(dateOfBirth ? { dateOfBirth } : {}),
@@ -68,11 +82,14 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
 
     saveStartedRef.current = true;
     setIsSaveStarted(true);
+    const attempt = captureProductAttempt("kyc.save_profile", userId);
+    attempt.started();
     const saveTask = KycIdentityProfilePkmService.saveProfile({
       userId,
       vaultKey,
       vaultOwnerToken,
       profile,
+      onOutcome: attempt.settled,
     });
     onComplete();
     toast.info("Importing your profile into Memory in the background…");
@@ -149,6 +166,16 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
             </div>
 
             <div className="space-y-6">
+              <ExternalAiArchiveImportSection
+                userId={userId}
+                isVaultUnlocked={isVaultUnlocked}
+                vaultKey={vaultKey}
+                vaultOwnerToken={vaultOwnerToken}
+                owningRoute="/one/setup/email"
+                onRequireVaultUnlock={() => setVaultDialogOpen(true)}
+                onImported={() => setArchiveImported(true)}
+              />
+
               <section aria-labelledby="copy-import-request" className="space-y-3">
                 <h2 id="copy-import-request" className="text-sm font-semibold text-foreground">
                   1. Copy this request

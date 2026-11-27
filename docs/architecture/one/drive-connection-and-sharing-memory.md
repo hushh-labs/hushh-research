@@ -211,3 +211,30 @@ Google reference material used for this P0: [Drive `files.list`](https://develop
 - General chat does not mount or request First Connect Insights. Connecting Calendar, Gmail or Drive must not append unsolicited Keep/Forget memory offers to a conversation. The retained first-connect service and card are inactive in chat; their structured writer does not establish Soul.md recall. Any future setup-only integration must use the current personal-memory pipeline and prove session lifecycle and readback before re-enabling offers. Explicit Calendar booking, rescheduling and cancellation confirmation cards remain available.
 
 Automated checks: `npm run test:drive-sharing-web` covers consent, selection, retry, dismissal and session boundaries; `npm run test:drive-sharing-layout` includes the mounted chat card in Chromium and WebKit at mobile and desktop widths, light/dark, plus the explicit review/save interaction. Its transport and semantic preview are synthetic; actual encryption/persistence remain covered by the canonical PKM writer and ingestion suites.
+
+## Drive Request Pricing & Owner Payout Contract
+
+Google Drive file requests use a **per-successful-request** pricing model (never a recurring subscription) governed by separate consent, payment, delivery, and payout authorities.
+
+```mermaid
+flowchart LR
+  owner["Owner (B)<br/>Custom price (USD 1-500, default USD 10)<br/>+ US Stripe Connect"] --> quote["Immutable Request Quote<br/>(locked at request creation)"]
+  requester["Requester (A)"] --> quote
+  quote --> circle{"Trusted Circle?"}
+  circle -->|"Yes"| search["Authorized Drive Search"]
+  circle -->|"No"| consent["Owner Allow / Deny Gate"]
+  consent -->|"Allow"| search
+  consent -->|"Deny"| closed["Closed (zero charge)"]
+  search -->|"No matches"| closed
+  search -->|"Frozen matches"| payoutGate{"US Connect Verified?"}
+  payoutGate -->|"No"| setup["Feed Action: Set up payouts"]
+  setup --> payoutGate
+  payoutGate -->|"Yes"| checkout["Stripe Checkout"]
+  checkout -->|"Signed payment proof"| grant["Exact Drive Viewer Grants"]
+  grant --> settle["Terminal Delivery -> Prorated Refund (if partial)<br/>-> Net Transfer (retained - 3% - actual fee) -> Bank Payout"]
+```
+
+- **Immutable Quote:** Owners may set one whole-dollar price from USD 1 to USD 500 in Profile (defaulting to USD 10 when custom pricing is off). The requester sees the quoted amount before sending and before paying, and later price edits never mutate an existing request quote. Sending a request never incurs a charge.
+- **Consent Independence:** Trusted Circle bypasses per-request owner approval; outside the circle, the owner must explicitly Allow or Deny. Pricing and payout onboarding never weaken that consent boundary.
+- **Pay-Only-After-Proof:** Search may proceed before payout setup completes, but Pay unlocks only when matching files exist, the request is authorized, and the owner's US Stripe Connect account is remotely verified ready. Signed Stripe payment proof precedes exact-file Drive Viewer grants.
+- **Settlement & Proration:** After terminal delivery, undelivered files trigger proportional Stripe refunds. Hussh retains 3% of the final retained charge and the owner bears actual Stripe processing fees up to retained proceeds; net earnings transfer idempotently to the owner's connected Stripe balance for automatic US bank payout. Revocation terminates access without retroactively rewriting a completed sale; refunds, chargebacks, and reversals use explicit reconciled ledger states.

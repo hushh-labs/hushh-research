@@ -16,11 +16,17 @@ import {
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
+
+import { followupSchema, type MailFollowup } from "@/lib/mail/mail-followup-model";
 
 export const TODO_LIST_PKM_DOMAIN = "one_todos" as const;
 
 import {
   TODO_SOURCE_LABELS,
+  normalizeTodoDate as normalizeDate,
+  isReminderInstant,
+  type PersonalTaskReminder,
   type TodoType,
   type TodoStatus,
   type TodoSourceAgent,
@@ -74,6 +80,7 @@ export type GmailTodoEvent = {
 
 export type TodoListState = {
   tasks: TodoItem[];
+  selectedCapabilities?: TaskCapability[];
 };
 
 export type TodoWriteParams = {
@@ -85,6 +92,7 @@ export type TodoWriteParams = {
 type PrivateTodoData = {
   tasks?: unknown;
   updatedAt?: unknown;
+  selectedCapabilities?: unknown;
 };
 
 type MutableTodoFields = Pick<TodoItem, "title" | "date" | "time" | "notes">;
@@ -98,11 +106,6 @@ function text(value: unknown, maximum: number): string {
     .trim()
     .replace(/\s+/g, " ")
     .slice(0, maximum);
-}
-
-function normalizeDate(value: unknown): string | null {
-  const date = text(value, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
 }
 
 function normalizeTime(value: unknown): string | null {
@@ -160,6 +163,15 @@ function privateTodoData(
   return isRecord(candidate) ? candidate : {};
 }
 
+function readReminder(value: unknown): PersonalTaskReminder | undefined {
+  if (!isRecord(value) ||
+    typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) ||
+    !isReminderInstant(value.dueAt) ||
+    (value.state !== "pending" && value.state !== "delivered" && value.state !== "cancelled")
+  ) return undefined;
+  return { id: value.id, dueAt: value.dueAt, state: value.state };
+}
+
 function normalizeItem(value: unknown): TodoItem | null {
   if (!isRecord(value)) return null;
   const id = text(value.id, 240);
@@ -173,7 +185,11 @@ function normalizeItem(value: unknown): TodoItem | null {
   const type = normalizeType(value.type);
   const sourceId = text(value.sourceId ?? value.calendarEventId, 240) || null;
 
+  const personalReminder = readReminder(value.personalReminder);
+  const mail = value.mailFollowup ? followupSchema.safeParse(value.mailFollowup) : null;
   return {
+    ...(mail?.success ? { mailFollowup: mail.data } : {}),
+    ...(personalReminder && { personalReminder }),
     id,
     title,
     type,
@@ -202,13 +218,47 @@ function privateDomainData(
   current: Record<string, unknown>,
   tasks: TodoItem[],
   updatedAt: string,
+  selectedCapabilities?: TaskCapability[],
 ): Record<string, unknown> {
   const privateData = privateTodoData(current);
+  if (selectedCapabilities !== undefined) {
+    return { ...current, _private: { ...privateData, selectedCapabilities, updatedAt } };
+  }
+  if (privateData.tasks != null && !Array.isArray(privateData.tasks)) {
+    throw new Error("unsupported_task_records");
+  }
+  // Display normalization must not erase unknown fields or future saved records.
+  const originalById = new Map<string, { raw: Record<string, unknown>; normalized: TodoItem }>();
+  const identities = new Set<string>();
+  const opaque: unknown[] = [];
+  for (const raw of Array.isArray(privateData.tasks) ? privateData.tasks : []) {
+    const id = isRecord(raw) ? text(raw.id, 240) : "";
+    if (id && identities.has(id)) throw new Error("ambiguous_task_identity");
+    if (id) identities.add(id);
+    const normalized = normalizeItem(raw);
+    if (!normalized || !isRecord(raw)) {
+      opaque.push(raw);
+      continue;
+    }
+    originalById.set(normalized.id, { raw, normalized });
+  }
+  const written = new Set<string>();
+  const storedTasks = tasks.map(task => {
+    if (written.has(task.id)) throw new Error("ambiguous_task_identity");
+    written.add(task.id);
+    const original = originalById.get(task.id);
+    if (!original) {
+      if (identities.has(task.id)) throw new Error("unsupported_task_identity");
+      return task;
+    }
+    return JSON.stringify(original.normalized) === JSON.stringify(task)
+      ? original.raw : { ...original.raw, ...task };
+  });
   return {
     ...current,
     _private: {
       ...privateData,
-      tasks,
+      tasks: [...storedTasks, ...opaque],
       updatedAt,
     },
   };
@@ -260,6 +310,11 @@ export function buildTodo(
   };
 }
 
+/** Share Calendar identity normalization with cancellation tombstones. */
+export function calendarTodoSourceId(id: CalendarTodoEvent["id"]): string | null {
+  return text(id, 240) || null;
+}
+
 /**
  * Converts a confirmed Calendar event into the common private-agent To-do
  * input. It deliberately accepts only the presentation fields used by the
@@ -269,7 +324,7 @@ export function buildTodo(
 export function calendarTodoInput(
   event: CalendarTodoEvent,
 ): CreateTodoInput | null {
-  const sourceId = text(event.id, 240);
+  const sourceId = calendarTodoSourceId(event.id);
   if (!sourceId) return null;
   const title = text(event.title, 240) || "Scheduled meeting";
   const link = event.conference_url ?? event.conferenceUrl ?? null;
@@ -379,6 +434,11 @@ export function readTodoListState(
     tasks: tasks.sort((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt),
     ),
+    ...(Array.isArray(privateData.selectedCapabilities) ? {
+      selectedCapabilities: [...new Set(privateData.selectedCapabilities.filter(
+        (value): value is TaskCapability => taskCapabilitySchema.safeParse(value).success,
+      ))],
+    } : {}),
   };
 }
 
@@ -387,14 +447,28 @@ async function write(
   source: string,
   idempotencyScope: string,
   update: (current: TodoListState) => TodoItem[],
+  selectedCapabilities?: TaskCapability[],
+  isCurrent?: () => boolean,
+  verifyAuthority?: () => Promise<void>,
 ): Promise<PkmWriteCoordinatorResult> {
   return PkmWriteCoordinator.saveMergedDomain({
     userId: params.userId,
     domain: TODO_LIST_PKM_DOMAIN,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
-    confirmation: { confirmedByUser: true, surface: "web", source },
+    confirmation: source === "one_todo_list_mail_watch"
+      ? { authorizationMode: "owner_mail_watch", surface: "web", source }
+      : source === "one_todo_list_task_reminder"
+        ? { authorizationMode: "owner_task_reminder", surface: "web", source }
+        : { confirmedByUser: true, surface: "web", source },
     idempotencyScope,
+    ...(isCurrent && {
+      beforeEffect: async () => {
+        await verifyAuthority?.();
+        if (!isCurrent()) throw new DOMException("Session changed", "AbortError");
+      },
+      mayPublish: isCurrent,
+    }),
     build: (context) => {
       const currentDomain = (context.currentDomainData ?? {}) as Record<
         string,
@@ -402,10 +476,19 @@ async function write(
       >;
       const state = readTodoListState(currentDomain);
       const updatedAt = new Date().toISOString();
-      const tasks = update(state).map((task) => {
+      const updatedTasks = update(state);
+      if (updatedTasks === state.tasks && (source === "one_todo_list_task_reminder" || source === "one_todo_list_owner_reminder")) {
+        return { unchanged: true, domainData: currentDomain, summary: {} };
+      }
+      const tasks = updatedTasks.map((task) => {
         const previous = state.tasks.find((item) => item.id === task.id);
         if (previous && JSON.stringify(previous) === JSON.stringify(task))
           return task;
+        // Completion/dismissal and cancellation share one encrypted revision.
+        if (task.status !== "pending" && task.personalReminder?.state === "pending") {
+          return { ...task, personalReminder: { ...task.personalReminder, state: "cancelled" as const },
+            revision: (previous?.revision ?? 0) + 1 };
+        }
         return { ...task, revision: (previous?.revision ?? 0) + 1 };
       });
       const completedCount = tasks.filter(
@@ -413,7 +496,7 @@ async function write(
       ).length;
 
       return {
-        domainData: privateDomainData(currentDomain, tasks, updatedAt),
+        domainData: privateDomainData(currentDomain, tasks, updatedAt, selectedCapabilities),
         // Consumer details stay entirely under `_private`; the discovery
         // projection carries counters only.
         summary: {
@@ -459,6 +542,7 @@ export async function createTodo(
         completedAt: existing.completedAt,
         deletedAt: existing.deletedAt,
         createdAt: existing.createdAt,
+        ...(existing.personalReminder && { personalReminder: existing.personalReminder }),
       };
       return current.tasks.map((item) =>
         item.id === task.id ? updated : item,
@@ -480,6 +564,106 @@ export const TodoListPkmService = {
   },
 
   create: createTodo,
+
+  trackMail(persistence: TodoWriteParams, finding: MailFollowup) {
+    const item = followupSchema.parse(finding);
+    const task = buildTodo({ source: "gmail", type: "automatic", sourceId: `mail_thread:${item.key}`,
+      title: item.title, date: item.due_date ?? null, time: item.due_time ?? null, notes: item.fulfilment });
+    return write(persistence, "one_todo_list_gmail_follow_up", `one_todo_list:create:${task.id}`,
+      current => current.tasks.some(existing => existing.id === task.id)
+        ? current.tasks : [{ ...task, mailFollowup: item }, ...current.tasks]);
+  },
+
+  updateMail(persistence: TodoWriteParams, task: TodoItem, change:
+    | { received: NonNullable<MailFollowup["received"]> }
+    | { scheduleId: string; watching: true }
+    | { watching: true }
+    | { reviewed: true }
+    | { draft: NonNullable<MailFollowup["draft"]> }, isCurrent?: () => boolean, verifyAuthority?: () => Promise<void>) {
+    const expected = task.mailFollowup;
+    if (!expected) throw new Error("Missing mail obligation.");
+    const now = new Date().toISOString();
+    const autoSettle = "received" in change && expected.watching === true && !!verifyAuthority;
+    return write(persistence, autoSettle ? "one_todo_list_mail_watch" : "one_todo_list_gmail_follow_up", `one_todo_list:mail:${task.id}:${crypto.randomUUID()}`,
+      current => {
+        if (!current.tasks.some(row => row.id === task.id)) throw new Error("This task no longer exists.");
+        return current.tasks.map(row => {
+        if (row.id !== task.id) return row;
+        const item = row.mailFollowup;
+        if (!item || item.key !== expected.key || row.status === "deleted" ||
+          row.revision !== task.revision || (autoSettle && !item.watching)) throw new Error("This task changed. Reopen Follow-ups.");
+        if ("received" in change && row.status !== "pending") return row;
+        if ("reviewed" in change && !item.received?.filename) throw new Error("Document unavailable.");
+        return { ...row, mailFollowup: followupSchema.parse({ ...item, ...change, ...("received" in change ? { watching: false, draft: undefined } : {}) }),
+          ...("received" in change ? { status: "done" as const, completedAt: now } : {}), updatedAt: now };
+      }); }, undefined, isCurrent, verifyAuthority);
+  },
+
+  setPersonalReminder(persistence: TodoWriteParams, task: TodoItem, dueAt: string, isCurrent?: () => boolean) {
+    if (!isReminderInstant(dueAt) || Date.parse(dueAt) <= Date.now())
+      throw new Error("Choose a future reminder time.");
+    const id = task.personalReminder?.state === "pending" ? task.personalReminder.id : crypto.randomUUID();
+    return write(persistence, "one_todo_list_owner_reminder", `one_todo_list:remind:${id}:${dueAt}:${task.revision}`,
+      current => {
+        const row = current.tasks.find(item => item.id === task.id);
+        if (!row || row.status !== "pending") throw new Error("This task is no longer open.");
+        if (row.personalReminder?.state === "pending" && row.personalReminder.dueAt === dueAt) return current.tasks;
+        if (row.revision !== task.revision) throw new Error("This task changed. Reopen it.");
+        return current.tasks.map(item => item.id !== row.id ? item : {
+          ...row, personalReminder: { id, dueAt, state: "pending" },
+          ...(row.mailFollowup && { mailFollowup: { ...row.mailFollowup, watching: true } }),
+          updatedAt: new Date().toISOString(),
+        });
+      }, undefined, isCurrent);
+  },
+
+  cancelPersonalReminder(persistence: TodoWriteParams, task: TodoItem, isCurrent?: () => boolean) {
+    const expected = task.personalReminder;
+    if (!expected) throw new Error("This task has no reminder.");
+    return write(persistence, "one_todo_list_owner_reminder", `one_todo_list:unremind:${expected.id}:${task.revision}`,
+      current => {
+        const row = current.tasks.find(item => item.id === task.id);
+        const reminder = row?.personalReminder;
+        if (!row || !reminder || reminder.id !== expected.id) throw new Error("This reminder changed. Reopen it.");
+        if (reminder.state === "cancelled") return current.tasks;
+        if (row.revision !== task.revision || reminder.state !== "pending") throw new Error("This reminder changed. Reopen it.");
+        return current.tasks.map(item => item.id !== row.id ? item : {
+          ...row, personalReminder: { ...reminder, state: "cancelled" }, updatedAt: new Date().toISOString(),
+        });
+      }, undefined, isCurrent);
+  },
+
+  /** Claim once through the encrypted domain's cross-device CAS. A retry that
+   * sees another device's claim, replacement or completion has no effect. */
+  async claimReminder(persistence: TodoWriteParams, task: TodoItem, nowIso: string,
+    isCurrent: () => boolean, verifyAuthority?: () => Promise<void>): Promise<boolean> {
+    const expected = task.personalReminder;
+    if (!expected || expected.state !== "pending" || !isReminderInstant(nowIso) ||
+      Date.parse(nowIso) > Date.now() || expected.dueAt > nowIso || !isCurrent()) return false;
+    const result = await write(persistence, "one_todo_list_task_reminder",
+      `one_todo_list:reminder_due:${expected.id}:${task.revision}:${crypto.randomUUID()}`, current => {
+        const row = current.tasks.find(item => item.id === task.id);
+        const reminder = row?.personalReminder;
+        const expectedMail = task.mailFollowup;
+        if ((expectedMail || row?.mailFollowup) && (!expectedMail || !verifyAuthority || !expectedMail.watching || !row?.mailFollowup?.watching ||
+          row.mailFollowup.key !== expectedMail.key || row.mailFollowup.account !== expectedMail.account ||
+          row.mailFollowup.connection !== expectedMail.connection || row.mailFollowup.thread !== expectedMail.thread ||
+          row.mailFollowup.source !== expectedMail.source)) return current.tasks;
+        if (!row || row.status !== "pending" || row.revision !== task.revision ||
+          !reminder || reminder.id !== expected.id || reminder.dueAt !== expected.dueAt ||
+          reminder.state !== "pending" || !isCurrent()) return current.tasks;
+        return current.tasks.map(item => item.id !== row.id ? item : {
+          ...row, personalReminder: { ...reminder, state: "delivered" }, updatedAt: nowIso,
+        });
+      }, undefined, isCurrent, verifyAuthority);
+    return result.success && !result.idempotentReplay && isCurrent();
+  },
+
+  saveSourceChoices(params: TodoWriteParams & { selectedCapabilities: TaskCapability[] }) {
+    const selected = [...new Set(params.selectedCapabilities.map(value => taskCapabilitySchema.parse(value)))];
+    return write(params, "one_todo_list_owner_source_choices",
+      `one_todo_list:sources:${nowTodoId()}`, current => current.tasks, selected);
+  },
 
   update(
     params: TodoWriteParams & {

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 220" width="1200" height="220" role="img" aria-label="Hussh One Documentation Hub hero banner">
+  <defs>
+    <linearGradient id="hub-bg-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070B14"/>
+      <stop offset="100%" stop-color="#111C33"/>
+    </linearGradient>
+    <pattern id="hub-grid-dark" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#1E293B" stroke-width="0.7" stroke-opacity="0.45"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="220" rx="18" fill="url(#hub-bg-dark)"/>
+  <rect width="1200" height="220" rx="18" fill="url(#hub-grid-dark)"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="218.5" rx="17.25" fill="none" stroke="#1E293B" stroke-width="1.5"/>
+
+  <text x="48" y="54" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" letter-spacing="0.1em">HUSSH DOCUMENTATION ATLAS</text>
+  <text x="48" y="102" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="36" font-weight="700" letter-spacing="-0.025em">Built for Humans First. Exact for Coding Agents.</text>
+  <text x="48" y="136" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15.5">Five canonical pillars with living trust-boundary diagrams, Diataxis reader intent, and one-hop machine discovery.</text>
+
+  <!-- Five pillar chips -->
+  <rect x="48" y="162" width="112" height="30" rx="8" fill="#172554" stroke="#3B82F6" stroke-opacity="0.55"/>
+  <text x="76" y="182" fill="#DBEAFE" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600">Product</text>
+
+  <rect x="172" y="162" width="132" height="30" rx="8" fill="#0F172A" stroke="#334155"/>
+  <text x="197" y="182" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600">Architecture</text>
+
+  <rect x="316" y="162" width="136" height="30" rx="8" fill="#0F172A" stroke="#334155"/>
+  <text x="342" y="182" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600">Development</text>
+
+  <rect x="464" y="162" width="124" height="30" rx="8" fill="#0F172A" stroke="#334155"/>
+  <text x="489" y="182" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600">Operations</text>
+
+  <rect x="600" y="162" width="116" height="30" rx="8" fill="#0F172A" stroke="#334155"/>
+  <text x="627" y="182" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600">Roadmap</text>
+
+  <rect x="974" y="162" width="178" height="30" rx="8" fill="#0C4A6E" fill-opacity="0.65" stroke="#38BDF8" stroke-opacity="0.55"/>
+  <text x="994" y="182" fill="#BAE6FD" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="600">Coding Agents · llms.txt</text>
+</svg>

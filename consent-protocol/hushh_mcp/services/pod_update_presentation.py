@@ -206,8 +206,13 @@ def capability_review_presentation(
     from hushh_mcp.services.pod_release import configured_release
 
     metadata = (row or {}).get("backend_metadata") or {}
+    from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+
     files_available = bool(
-        hosting_mode == "byoc"
+        (
+            hosting_mode == "byoc"
+            or (hosting_mode == "hussh_pods" and retained_hosted_placement(row))
+        )
         and state == "active"
         and (metadata or {}).get("upgradeLease") is None
         and os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() in {"1", "true"}

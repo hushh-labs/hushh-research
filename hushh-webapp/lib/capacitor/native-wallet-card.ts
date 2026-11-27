@@ -10,7 +10,7 @@ export type NativeWalletCardDraft = {
 export type NativeWalletCardOption = { id: string; label: string; selected: boolean };
 export type NativeWalletCardProjection = OwnedChoiceIdentity & {
   updateSequence: number; privacyGeneration: number; acknowledgedEditRevision: number; draftRevision: number;
-  draft: NativeWalletCardDraft; busy: boolean; canSave: boolean; error?: string;
+  draft: NativeWalletCardDraft; busy: boolean; canSave: boolean; draftValid: boolean; error?: string;
   appearance: "light" | "dark"; accentHex: string; foregroundHex: string;
   networks: readonly NativeWalletCardOption[]; regions: readonly NativeWalletCardOption[];
   collectSecurityCode: boolean; scanEnabled: boolean; networkLoading: boolean; networkHint?: string;
@@ -52,9 +52,9 @@ function options(value: readonly NativeWalletCardOption[], maximum: number, sele
 }
 export function validNativeWalletCardProjection(value: NativeWalletCardProjection): boolean {
   return validOwnedChoiceIdentity(value) && closed(value, [...metadataKeys, "acknowledgedEditRevision", "draftRevision", "draft", "busy", "canSave", "error",
-    "appearance", "accentHex", "foregroundHex", "networks", "regions", "collectSecurityCode", "scanEnabled", "networkLoading", "networkHint"]) &&
+    "draftValid", "appearance", "accentHex", "foregroundHex", "networks", "regions", "collectSecurityCode", "scanEnabled", "networkLoading", "networkHint"]) &&
     count(value.updateSequence, 1) && count(value.privacyGeneration) && count(value.acknowledgedEditRevision) && count(value.draftRevision) &&
-    validNativeWalletCardDraft(value.draft) && typeof value.busy === "boolean" && typeof value.canSave === "boolean" &&
+    validNativeWalletCardDraft(value.draft) && typeof value.busy === "boolean" && typeof value.canSave === "boolean" && typeof value.draftValid === "boolean" &&
     typeof value.collectSecurityCode === "boolean" && typeof value.scanEnabled === "boolean" && typeof value.networkLoading === "boolean" &&
     ["light", "dark"].includes(value.appearance) && /^#[\da-f]{6}$/i.test(value.accentHex) && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value.foregroundHex) &&
     (value.error === undefined || text(value.error, 4096)) && (value.networkHint === undefined || text(value.networkHint, 1024)) &&

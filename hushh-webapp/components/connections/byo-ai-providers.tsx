@@ -49,31 +49,31 @@ function ProviderRow({
  */
 export function BringYourOwnAiProviders({
   showUnavailable = true,
+  showConfigurable = true,
+  excludeComingSoonIds = [],
   ...props
-}: Omit<OpenAiKeyCardProps, "defaultModel"> & { showUnavailable?: boolean }) {
+}: Omit<OpenAiKeyCardProps, "defaultModel"> & {
+  showUnavailable?: boolean;
+  showConfigurable?: boolean;
+  excludeComingSoonIds?: readonly string[];
+}) {
   const catalog = useRuntimeProviderCatalog().filter(
-    (provider) => provider.id !== "gemini",
+    (provider) => provider.id !== "gemini" && provider.id !== "azure_openai",
   );
   const openai = catalog.find(
     (provider) => provider.id === "openai" && provider.state === "configurable",
   );
-  const azure = catalog.find(
-    (provider) =>
-      provider.id === "azure_openai" && provider.state === "configurable",
-  );
   const comingSoon = catalog.filter(
-    (provider) => provider.state === "coming_soon",
+    (provider) =>
+      provider.state === "coming_soon" && !excludeComingSoonIds.includes(provider.id),
   );
   const newer = catalog.filter(
     (provider) => provider.state === "newer_version",
   );
   return (
     <>
-      {openai ? (
+      {showConfigurable && openai ? (
         <OpenAiKeyCard {...props} defaultModel={openai.defaultModel} />
-      ) : null}
-      {azure ? (
-        <OpenAiKeyCard {...props} provider="azure_openai" defaultModel={null} />
       ) : null}
       {showUnavailable && comingSoon.length ? (
         <SettingsGroup

@@ -84,7 +84,7 @@ describe("WalletWorkspace at scale", () => {
     await act(async () => { finish([{ ...row, artwork: { source: "neutral", version: 1 } }]); });
     expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Card 0", exact: true })).toBeVisible();
-    expect(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true })).toHaveAttribute("aria-selected", "true");
   });
   it("loads cards when the owner token arrives after the vault key", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
@@ -112,7 +112,7 @@ describe("WalletWorkspace at scale", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull();
       fireEvent.focus(window);
-      fireEvent.click(screen.getByTestId("one-wallet-add")); fillCard();
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
       await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
       fireEvent.click(screen.getByTestId("secure-card-save"));
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
@@ -138,7 +138,7 @@ describe("WalletWorkspace at scale", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       await act(async () => { await vi.advanceTimersByTimeAsync(60_001); });
       expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
-      fireEvent.click(screen.getByTestId("one-wallet-add")); fillCard();
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
       await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
       fireEvent.click(screen.getByTestId("secure-card-save"));
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
@@ -233,7 +233,7 @@ describe("WalletWorkspace at scale", () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
     render(<WalletWorkspace />);
-    expect(await screen.findByRole("tab", { name: "My cards", hidden: true, exact: true })).toBeVisible();
+    expect(await screen.findByRole("tab", { name: "Cards", hidden: true, exact: true })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Continue", exact: true })).toBeNull();
   });
   it("preserves the Cards scroll position during owner-token renewal and resets on tab entry", async () => {
@@ -253,15 +253,15 @@ describe("WalletWorkspace at scale", () => {
     };
     const workspace = render(<WalletWorkspace />);
     try {
-      await screen.findByRole("tab", { name: "My cards", hidden: true, exact: true });
+      await screen.findByRole("tab", { name: "Cards", hidden: true, exact: true });
       await flush();
       expect(scroll).toHaveBeenCalledTimes(1);
       vaultMock.token = "renewed_owner_token";
       workspace.rerender(<WalletWorkspace />);
       await flush();
       expect(scroll).toHaveBeenCalledTimes(1);
-      fireEvent.click(screen.getByRole("tab", { name: "Shared with me", hidden: true, exact: true }));
-      fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true }));
+      fireEvent.click(screen.getByRole("tab", { name: "Sharing", hidden: true, exact: true }));
+      fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true }));
       await flush();
       expect(scroll).toHaveBeenCalledTimes(2);
     } finally {
@@ -273,7 +273,7 @@ describe("WalletWorkspace at scale", () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
     const view = render(<WalletWorkspace />);
-    await screen.findByRole("tab", { name: "My cards", hidden: true, exact: true });
+    await screen.findByRole("tab", { name: "Cards", hidden: true, exact: true });
     authMock.user = { uid: "other_owner" };
     view.rerender(<WalletWorkspace />);
     expect(await screen.findByRole("button", { name: "Continue", exact: true })).toBeVisible();
@@ -304,11 +304,11 @@ describe("WalletWorkspace at scale", () => {
     // The earlier write for this same owner must not complete the new visit.
     await act(async () => { completions[0](); });
     expect(screen.getByTestId("one-wallet-empty-action")).toBeDisabled();
-    expect(screen.queryByRole("tab", { name: "My cards", hidden: true, exact: true })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Cards", hidden: true, exact: true })).toBeNull();
     await act(async () => { completions[1](); });
     expect(screen.getByTestId("one-wallet-empty-action")).toBeDisabled();
     await act(async () => { completions[2](); });
-    expect(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true })).toBeVisible();
     expect(vi.mocked(OnboardingLocalService.markWalletIntroductionSeen).mock.calls.map(([owner]) => owner))
       .toEqual(["user_1", "other_owner", "user_1"]);
   });
@@ -323,7 +323,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Opening your wallet…");
     expect(nativeBeaconMock.mock.lastCall?.[0].dataState).toBe("loading");
     await act(async () => { finishPreference(true); });
-    expect(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true })).toBeVisible();
     expect(nativeBeaconMock.mock.lastCall?.[0].dataState).toBe("empty-valid");
   });
 
@@ -335,7 +335,7 @@ describe("WalletWorkspace at scale", () => {
     const button = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(button); });
     await screen.findByTestId("wallet-card-browser");
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fillCard();
     expect(screen.queryByLabelText("PIN (optional)")).toBeNull();
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
@@ -358,7 +358,7 @@ describe("WalletWorkspace at scale", () => {
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-card-browser");
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fillCard();
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     await act(async () => { fireEvent.click(screen.getByTestId("secure-card-save")); });
@@ -367,13 +367,13 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
     expect(screen.getByRole("button", { name: "Copy card number" })).toBeEnabled();
-    expect(screen.getByRole("tab", { name: "My cards", hidden: true })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Cards", hidden: true })).toHaveAttribute("aria-selected", "true");
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(2);
     expect(serviceMock.recoverCardArtworks).toHaveBeenCalled();
     // Await the user interactions so the save-to-Cards lifecycle commits
     // before returning to the deck; its complete storage order stays asserted.
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true })); });
-    await waitFor(() => expect(Array.from(document.querySelectorAll("[data-wallet-card-id]")).map(el => el.getAttribute("data-wallet-card-id"))).toEqual(["card_0", "card_1", "saved", "agent-one-profile", "agent-one-referral", "agent-one-nws"]));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Back", exact: true })); });
+    await waitFor(() => expect(Array.from(document.querySelectorAll("[data-wallet-card-id]")).map(el => el.getAttribute("data-wallet-card-id"))).toEqual(["agent-one-profile", "agent-one-referral", "agent-one-nws", "card_0", "card_1", "saved"]));
     await waitFor(() => expect(screen.getByRole("button", { name: "New card", exact: true })).toHaveFocus());
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(2);
   });
@@ -384,7 +384,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name, exact: true }));
     await screen.findByTestId("wallet-selected-card");
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Unsaved draft" } });
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
     await screen.findByTestId("wallet-selected-card");
@@ -393,9 +393,9 @@ describe("WalletWorkspace at scale", () => {
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
     expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
     expect(unwindBackLayer("/one/wallet")).toBe(false);
-    fireEvent.click(screen.getByRole("tab", { name: "Shared with me" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Sharing" }));
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
-    expect(screen.getByRole("tab", { name: "My cards" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("returns to the overview after leaving a saved card and switching tabs", async () => {
@@ -405,12 +405,12 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-card-browser");
     fireEvent.click(screen.getByRole("button", { name: "Card 0" }));
     await screen.findByTestId("wallet-selected-card");
-    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
     const browser = screen.getByTestId("wallet-card-browser");
     const deck = screen.getByTestId("wallet-card-browser");
-    for (const tab of ["Shared with me"]) {
+    for (const tab of ["Sharing"]) {
       fireEvent.click(screen.getByRole("tab", { name: tab }));
-      fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true }));
+      fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true }));
       await screen.findByTestId("wallet-card-browser");
       expect(screen.queryByTestId("wallet-selected-card")).toBeNull();
       expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
@@ -432,7 +432,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(finishRead).toBeTypeOf("function"));
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fillCard();
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
@@ -446,29 +446,29 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByRole("button", { name: "Open Card 0, ending 1000" })).toBeNull();
   }, 10000);
 
-  it("links both collections to their panels and keeps Add as an action", async () => {
+  it("links Cards, Add and Sharing to their panels", async () => {
     render(<WalletWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-card-browser");
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
-    for (const name of ["My cards", "Shared with me"]) {
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    for (const name of ["Cards", "Add", "Sharing"]) {
       const tab = screen.getByRole("tab", { name });
       expect(document.getElementById(tab.getAttribute("aria-controls")!)).toHaveAttribute("aria-labelledby", tab.id);
     }
-    fireEvent.keyDown(screen.getByRole("tab", { name: "My cards" }), { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: "Shared with me" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Shared with me" }), { key: "Home" });
-    expect(screen.getByRole("tab", { name: "My cards" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Cards" }), { key: "End" });
+    expect(screen.getByRole("tab", { name: "Sharing" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Sharing" }), { key: "Home" });
+    expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     expect(screen.getByTestId("secure-card-add-form")).toBeVisible();
   });
 
-  it("keeps the open sheet draft and drops it on vault lock", async () => {
+  it("keeps the active Add draft and drops it on vault lock", async () => {
     const workspace = render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-card-browser");
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Travel" } });
     fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     expect(screen.getByLabelText("Name on card")).toHaveValue("TRAVEL");
@@ -489,12 +489,12 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-card-browser");
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     await act(async () => finish({
       summary: makeCards(1)[0],
       secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" },
     }));
-    fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true }));
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
 
@@ -532,7 +532,7 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-card-browser");
     const tiles = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-wallet-card-id]"));
     expect(tiles).toHaveLength(28);
-    expect(tiles.map(node => node.dataset.walletCardId)).toEqual([...Array.from({ length:25 }, (_, index) => `card_${index}`), "agent-one-profile", "agent-one-referral", "agent-one-nws"]);
+    expect(tiles.map(node => node.dataset.walletCardId)).toEqual(["agent-one-profile", "agent-one-referral", "agent-one-nws", ...Array.from({ length:25 }, (_, index) => `card_${index}`)]);
   });
 
   it("opens Add card from a chat offer without asking for a nickname", async () => {
@@ -558,7 +558,7 @@ describe("WalletWorkspace at scale", () => {
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await waitFor(() => expect(screen.getByTestId("wallet-card-browser")).toBeTruthy());
-    expect(screen.getByRole("tab", { name: "My cards", hidden: true })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Cards", hidden: true })).toHaveAttribute("aria-selected", "true");
   });
 
   it.each([0, 1])("keeps introduction visible when a delayed request resolves with %i cards", async (count) => {

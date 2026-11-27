@@ -36,10 +36,12 @@ class BrowserTaskLifecycle:
         draining: Callable[[], bool],
         checkpoint: Callable[[BrowserTaskState], Awaitable[None]],
         snapshot: Callable[[BrowserTaskState], BrowserTaskSnapshot],
+        credentials_factory=None,
     ) -> None:
         self._launcher, self._model, self._reviews, self._clock = launcher, model, reviews, clock
         self._capability, self._draining = capability, draining
         self._checkpoint, self._snapshot = checkpoint, snapshot
+        self._credentials_factory = credentials_factory
 
     async def run(self, task: BrowserTaskState) -> None:
         close = False
@@ -71,6 +73,8 @@ class BrowserTaskLifecycle:
                     wall_clock=self._clock,
                 )
                 await task.control.initialize()
+                if self._credentials_factory is not None:
+                    task.control.credentials = self._credentials_factory(task)
             await task.control.require_model_observation()
             task.phase, task.code = "running", None
             result = await self._model.run(
@@ -121,6 +125,8 @@ class BrowserTaskLifecycle:
                 "BROWSER_OWNER_APPROVAL_REQUIRED",
                 "BROWSER_MODEL_OBSERVATION_PAUSED",
                 "BROWSER_CONTINUATION_REQUIRED",
+                "BROWSER_CREDENTIAL_OWNER_REQUIRED",
+                "BROWSER_CREDENTIAL_VAULT_REQUIRED",
             }:
                 task.phase = "needs_owner"
             else:
@@ -234,6 +240,10 @@ class BrowserTaskLifecycle:
                 input_worker.cancel()
                 await asyncio.gather(input_worker, return_exceptions=True)
             await self.cancel_worker(task, except_task=initiator)
+            credentials = task.credential_worker
+            if credentials and credentials is not initiator and not credentials.done():
+                credentials.cancel()
+                await asyncio.gather(credentials, return_exceptions=True)
         finally:
             if stop is not None:
                 async with asyncio.timeout(35):

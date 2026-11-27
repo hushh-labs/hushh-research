@@ -114,7 +114,7 @@ export function resolveOneNavSlot(
   if (isBottomNavRoute(normalizedPathname, ROUTES.LEGACY_CONNECTED_SYSTEMS)) {
     return "connected";
   }
-  if (normalizedPathname === ROUTES.ONE_KYC) return "email";
+  if (normalizedPathname === ROUTES.ONE_KYC || normalizedPathname === ROUTES.EMAIL_AGENT) return "email";
   if (
     normalizedPathname === ROUTES.GMAIL ||
     normalizedPathname === ROUTES.LEGACY_GMAIL ||

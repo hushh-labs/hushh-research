@@ -39,6 +39,30 @@ describe("account identity session admission", () => {
     await expect(AccountIdentityService.startUatTestPhoneVerification(user, "+12025550101")).rejects.toBe(failure);
   });
 
+  it("does not dispatch a phone claim when its originating verification visit retires during token acquisition", async () => {
+    let active = true;
+    let finish!: (token: string) => void;
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockReturnValue(new Promise<string>(resolve => { finish = resolve; })) } as unknown as User;
+    const pending = AccountIdentityService.claimCurrentUserPhone(user, "phone-token", () => active);
+    active = false;
+    finish("owner-token");
+    await expect(pending).resolves.toBeNull();
+    expect(claimPhone).not.toHaveBeenCalled();
+  });
+
+  it("does not cache a phone claim that settles after its verification visit retires", async () => {
+    let active = true;
+    let finish!: (payload: object) => void;
+    claimPhone.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("owner-token") } as unknown as User;
+    const pending = AccountIdentityService.claimCurrentUserPhone(user, "phone-token", () => active);
+    await vi.waitFor(() => expect(claimPhone).toHaveBeenCalledOnce());
+    active = false;
+    finish({ identity: { user_id: "owner-a", phone_verified: true, phone_number: "+12025550101" } });
+    await expect(pending).resolves.toBeNull();
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
+  });
+
   it("keeps an avatar save eligible during token refresh and reconciles its delayed old phone snapshot", async () => {
     publishValidatedAuthSessionOwner("owner-a");
     let finishToken!: (token: string) => void;
@@ -81,7 +105,7 @@ describe("account identity session admission", () => {
     expect(AccountIdentityService.peekCachedIdentity("owner-a")?.data).toEqual(current);
   });
 
-  it("a committed phone save outranks a read started while that save was pending", async () => {
+  it.each([false, true])("a committed phone save outranks a read started while that save was pending (readOnly: %s)", async readOnly => {
     publishValidatedAuthSessionOwner("owner-a");
     let finishClaim!: (payload: object) => void;
     let finishRead!: (response: Response) => void;
@@ -90,13 +114,30 @@ describe("account identity session admission", () => {
     const save = AccountIdentityService.claimCurrentUserPhone(user, "phone-token");
     await vi.waitFor(() => expect(claimPhone).toHaveBeenCalledTimes(1));
     refreshShadow.mockReturnValueOnce(new Promise<Response>((resolve) => { finishRead = resolve; }));
-    const read = AccountIdentityService.refreshIdentityForSession("owner-a", "read-token");
+    const read = AccountIdentityService.refreshIdentityForSession("owner-a", "read-token", { readOnly });
     const current = { user_id: "owner-a", phone_verified: true, phone_number: "+12025550102" };
     finishClaim({ identity: current });
     await expect(save).resolves.toEqual(current);
     finishRead(Response.json({ identity: { ...current, phone_number: "+12025550101" } }));
     await expect(read).resolves.toBeNull();
     expect(AccountIdentityService.peekCachedIdentity("owner-a")?.data).toEqual(current);
+  });
+
+  it("keeps a read-only identity request separate from a concurrent provider refresh", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "firebase-a", ownerId, accountGeneration: 1 });
+    const identity = { user_id: ownerId, phone_verified: true, phone_number: "+12025550101" };
+    const user = { uid: "firebase-a", getIdToken: vi.fn().mockResolvedValue("token") } as unknown as User;
+    refreshShadow.mockImplementation(async () => Response.json({ identity }));
+    await Promise.all([
+      AccountIdentityService.refreshCurrentUserIdentity(user, { readOnly: true }),
+      AccountIdentityService.refreshCurrentUserIdentity(user, { force: false }),
+    ]);
+    expect(refreshShadow).toHaveBeenCalledTimes(2);
+    expect(refreshShadow).toHaveBeenCalledWith("token", { readOnly: true });
+    expect(refreshShadow).toHaveBeenCalledWith("token", { force: false });
+    expect(user.getIdToken).toHaveBeenCalledWith(false);
+    expect(AccountIdentityService.peekCachedIdentity(ownerId)?.data).toEqual(identity);
   });
 
   it("rejects a late identity response after logout and login as the same owner", async () => {

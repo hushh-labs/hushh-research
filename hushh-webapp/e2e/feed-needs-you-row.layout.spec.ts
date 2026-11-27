@@ -10,7 +10,7 @@ import {
 } from "./fixtures/product-font";
 
 // Captured from the current real components by verify:feed, never handwritten DOM.
-const WIDTHS = [320, 375, 390, 393, 430, 1280] as const;
+const WIDTHS = [320, 375, 390, 393, 430, 768, 1280, 1440] as const;
 async function buildFixture(dark: boolean): Promise<string> {
   const root = process.cwd();
   const { compile } = await import(
@@ -78,7 +78,7 @@ test("explicit Feed typography survives outside the page shell", async ({ page }
   await page.goto(await buildFixture(false));
   await awaitProductFont(page);
   await page.evaluate(() => {
-    const row = document.querySelector('[data-testid="feed-row"]')!;
+    const row = document.querySelector('[data-testid="feed-row"]:has([data-slot="feed-event-description"])')!;
     row.setAttribute("data-profile-type-scale", "feed");
     document.body.appendChild(row);
     row.setAttribute("data-portal-feed", "true");
@@ -89,7 +89,7 @@ test("explicit Feed typography survives outside the page shell", async ({ page }
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`Feed uses one text line and right-side times at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+    test(`Feed separates title and activity with readable right-side times at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1100 });
       await page.goto(await buildFixture(dark));
       await awaitProductFont(page);
@@ -102,21 +102,21 @@ for (const dark of [false, true]) {
         const box = row.getBoundingClientRect();
         const copy = row.querySelector('[data-slot="feed-inline-copy"]')!;
         const title = copy.querySelector('[data-profile-role="name"]')!;
-        const description = copy.querySelector('[data-slot="feed-event-description"]')!;
+        const description = copy.querySelector('[data-slot="feed-event-description"]');
         const time = row.querySelector('[data-slot="feed-event-time"]')!;
         const t = title.getBoundingClientRect();
-        const d = description.getBoundingClientRect();
+        const d = description?.getBoundingClientRect();
         const stamp = time?.getBoundingClientRect();
         const buttons = [...row.querySelectorAll('button')].filter(node => node.getBoundingClientRect().width > 0 && !node.contains(copy));
         return {
           label: title.textContent,
           titleSize: getComputedStyle(title).fontSize,
-          descriptionSize: getComputedStyle(description).fontSize,
+          descriptionSize: description ? getComputedStyle(description).fontSize : null,
           timeSize: time ? getComputedStyle(time).fontSize : null,
           titleWidth: t.width,
           titleHeight: t.height,
-          descriptionHeight: d.height,
-          textCenterDelta: Math.abs((t.top + t.height / 2) - (d.top + d.height / 2)),
+          descriptionHeight: d?.height ?? null,
+          descriptionGap: d ? d.top - t.bottom : null,
           timeCenterDelta: stamp ? Math.abs((box.top + box.height / 2) - (stamp.top + stamp.height / 2)) : null,
           timeWidth: stamp?.width,
           timeLeft: stamp?.left,
@@ -125,26 +125,30 @@ for (const dark of [false, true]) {
           overflow: [...row.querySelectorAll('*')].some(node => {
             if (node.classList.contains('sr-only')) return false;
             const rect = node.getBoundingClientRect();
-            // Text can extend inside an ellipsis box; the visible box itself cannot.
+            // Neither the text track nor the trailing controls may escape the row.
             return rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1);
           }),
           actions: buttons.map(node => ({ height: node.getBoundingClientRect().height, top: node.getBoundingClientRect().top })),
         };
       }));
+      // Concise outcomes stand alone; person/action rows still prove two-line spacing.
+      expect(measurements.some(row => row.descriptionHeight !== null)).toBe(true);
+      expect(measurements.some(row => row.descriptionHeight === null)).toBe(true);
       for (const row of measurements) {
         expect.soft(row.titleSize, row.label ?? "").toBe("13px");
-        expect.soft(row.descriptionSize).toBe("12px");
+        if (row.descriptionSize !== null) expect.soft(row.descriptionSize).toBe("12px");
         if (row.timeSize) expect.soft(row.timeSize).toBe("12px");
-        expect.soft(row.titleHeight).toBeLessThanOrEqual(17);
-        expect.soft(row.descriptionHeight).toBeLessThanOrEqual(17);
-        expect.soft(row.textCenterDelta).toBeLessThanOrEqual(1);
+        expect.soft(row.titleHeight).toBeGreaterThan(0);
+        if (row.descriptionHeight !== null) {
+          expect.soft(row.descriptionHeight).toBeGreaterThan(0);
+          expect.soft(row.descriptionGap, row.label ?? "").toBeGreaterThanOrEqual(1);
+        }
         if (row.timeCenterDelta != null) {
           expect.soft(row.timeCenterDelta).toBeLessThanOrEqual(1);
           expect.soft(row.timeWidth).toBeGreaterThan(40);
           expect.soft(row.timeLeft).toBeGreaterThanOrEqual(row.copyRight - 1);
         }
-        expect.soft(row.height).toBeGreaterThanOrEqual(52);
-        expect.soft(row.height).toBeLessThanOrEqual(60);
+        expect.soft(row.height).toBeGreaterThanOrEqual(64);
         expect.soft(row.titleWidth, row.label ?? "").toBeGreaterThan(20);
         expect.soft(row.overflow, row.label ?? "").toBe(false);
         for (const action of row.actions) expect.soft(action.height).toBeGreaterThanOrEqual(44);
@@ -159,15 +163,13 @@ for (const dark of [false, true]) {
       }
       await expect(page.locator('[data-testid="feed-actionable-android-connection"]').getByRole("button", { name: /^Report/ })).toBeVisible();
       await expect(page.locator("button button, button a, a button")).toHaveCount(0);
-      const sms = page.getByTestId("feed-sms-alert-group");
-      await expect(sms.locator("summary")).toContainText("3 recent SMS alerts · 1 active");
-      await expect(sms.locator("summary time")).toBeVisible();
-      await sms.locator("summary").focus();
-      await page.keyboard.press("Enter");
-      await expect(sms).toHaveAttribute("open", "");
-      await expect(sms.getByRole("link", { name: /Emergency SMS · Active/ })).toBeVisible();
-      const sentTimes = sms.locator('[data-testid^="feed-actionable-sms-emergency:"] time');
-      await expect(sentTimes).toHaveCount(3);
+      const live = page.getByRole("region", { name: "Live" });
+      await expect(live.getByRole("link", { name: /Emergency SMS · Active/ })).toHaveCount(2);
+      await expect(live.locator("details")).toHaveCount(0);
+      await expect(page.locator('[data-testid^="feed-actionable-sms-emergency:ended-"]')).toHaveCount(2);
+      await expect(page.getByTestId("feed-sms-alert-group")).toHaveCount(0);
+      const sentTimes = page.locator('[data-testid^="feed-actionable-sms-emergency:"] time');
+      await expect(sentTimes).toHaveCount(4);
       for (const stamp of await sentTimes.all()) {
         await expect(stamp).toBeVisible();
         const box = await stamp.boundingBox();

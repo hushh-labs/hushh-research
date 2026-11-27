@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const items: ConsentScopeItem[] = ["location", "financial"].map((domain) => ({
   id: domain, label: `${domain} detail`, domainKey: domain, domainLabel: domain,
@@ -35,5 +36,21 @@ describe("profile category presentation", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Filter categories" }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "All categories" }));
     expect(await screen.findByRole("checkbox", { name: "Everything in Location" })).toBeChecked();
+  });
+
+  it("registers useBackLayer while drilled into a nested scope branch and unwinds one level", () => {
+    render(<Fixture />);
+    expect(unwindBackLayer("/")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Location" }));
+    expect(screen.getByTestId("consent-scope-back")).toBeInTheDocument();
+
+    let handled = false;
+    act(() => {
+      handled = unwindBackLayer("/");
+    });
+    expect(handled).toBe(true);
+    expect(screen.queryByTestId("consent-scope-back")).not.toBeInTheDocument();
+    expect(unwindBackLayer("/")).toBe(false);
   });
 });

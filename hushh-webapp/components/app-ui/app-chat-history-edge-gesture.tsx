@@ -4,6 +4,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { createPointerVelocityTracker } from "@/lib/motion/closed-form-spring";
 import { renderedDrawerOffset } from "./drawer-motion";
 
 const EDGE_BACK_LANE = 28;
@@ -73,6 +74,8 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
     let settling: Gesture | null = null;
     let settlingOpen = false;
     let timer = 0;
+    const velocityTracker = createPointerVelocityTracker();
+    let lastDistance = 0;
     let generation = 0;
     let suppressClickUntil = 0;
     // Read the drawer's authored pixel clearance even if access freshness
@@ -89,12 +92,26 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
         for (const property of ["transition", "opacity", "visibility"]) current.semantic.style.removeProperty(property);
       }
     };
-    const place = (current: Gesture, distance: number, phase: "drag" | "open" | "close") => {
-      const offset = Math.min(0, Math.max(-current.width, distance - current.width));
+    const place = (
+      current: Gesture,
+      distance: number,
+      phase: "drag" | "open" | "close" = "drag",
+      releaseVelocityPxPerSec = 0,
+    ) => {
+      const clamped = Math.min(current.width, Math.max(0, distance));
+      const delta = Math.abs(clamped - lastDistance);
+      lastDistance = clamped;
+      const offset = clamped - current.width;
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const motion = phase === "open" ? "enter" : "exit";
+      const durationMs = 190;
+      const normSlope = delta > 2
+        ? Math.min(1.04, Math.max(0.55, 0.18 * ((Math.abs(releaseVelocityPxPerSec) * (durationMs / 1000)) / delta)))
+        : 1;
+      const curve = phase === "open"
+        ? `cubic-bezier(0.18, ${normSlope.toFixed(3)}, 0.3, 1)`
+        : `cubic-bezier(0.22, ${Math.min(1, normSlope).toFixed(3)}, 0.36, 1)`;
       current.panel.style.transition = phase === "drag" || reduced ? "none"
-        : `transform var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
+        : `transform ${durationMs}ms ${curve}`;
       // Tailwind v4's resting translate is independent of transform. Disable
       // it for the pull, otherwise both offsets add and the panel stays hidden.
       current.panel.style.translate = "none";
@@ -102,37 +119,34 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
       // visibility; reveal this owned preview without admitting its actions.
       current.panel.style.visibility = "visible";
       current.scrim.style.transition = phase === "drag" || reduced ? "none"
-        : `opacity var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
+        : `opacity ${durationMs}ms ${curve}`;
       current.panel.style.transform = `translate3d(${offset}px, 0, 0)`;
       current.scrim.style.opacity = String(1 - Math.abs(offset) / current.width);
       current.scrim.style.visibility = "visible";
       if (current.semantic !== current.panel) {
         current.semantic.style.transition = phase === "drag" || reduced ? "none"
-          : `opacity var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
+          : `opacity ${durationMs}ms ${curve}`;
         current.semantic.style.visibility = "visible";
         current.semantic.style.opacity = String(1 - Math.abs(offset) / current.width);
       }
     };
-    const settle = (current: Gesture, open: boolean, notify = false) => {
+    const settle = (current: Gesture, open: boolean, notify = false, releaseVelocityPxPerSec = 0) => {
       window.clearTimeout(timer);
       const currentGeneration = ++generation;
       gesture = null;
       settling = current;
       settlingOpen = open;
-      place(current, open ? current.width : 0, open ? "open" : "close");
+      const targetDistance = open ? current.width : 0;
+      place(current, targetDistance, open ? "open" : "close", releaseVelocityPxPerSec);
       if (notify && open !== current.initialOpen) {
         appHaptic("selection");
         // Existing state, focus, loading and isolation owner, once per release.
         if (open) action.current.onOpen(); else action.current.onClose();
       }
-      const duration = getComputedStyle(current.panel).transitionDuration.split(",").reduce((max, value) => {
-        const ms = parseFloat(value) * (value.trim().endsWith("ms") ? 1 : 1000);
-        return Number.isFinite(ms) ? Math.max(max, ms) : max;
-      }, 0);
       timer = window.setTimeout(() => {
         if (currentGeneration !== generation) return;
         clear(current); settling = null; setDragging(false);
-      }, duration + 30);
+      }, 195);
     };
     const cancel = () => {
       if (gesture?.axis === "horizontal") settle(gesture, wasOpen.current);
@@ -166,9 +180,11 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
       window.clearTimeout(timer);
       generation += 1;
       settling = null;
+      lastDistance = distance;
+      velocityTracker.reset(touch.clientX, event.timeStamp);
       gesture = { identifier: touch.identifier, x: touch.clientX, y: touch.clientY,
         time: event.timeStamp, axis: interrupted ? "horizontal" : "undecided", initialOpen, surface: origin, width, distance, moved: false, panel, semantic, scrim };
-      if (interrupted) { setDragging(true); place(gesture, distance, "drag"); }
+      if (interrupted) { setDragging(true); place(gesture, distance); }
     };
     const move = (event: TouchEvent) => {
       if (!gesture) return;
@@ -188,9 +204,10 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
         scrim.style.willChange = "opacity";
         setDragging(true);
       }
+      velocityTracker.push(touch.clientX, event.timeStamp);
       suppressClickUntil = performance.now() + 500;
       event.stopPropagation(); // Keep owned moves local; Profile already yields to the open drawer.
-      place(gesture, gesture.distance + dx, "drag");
+      place(gesture, gesture.distance + dx);
     };
     const end = (event: TouchEvent) => {
       if (!gesture) return;
@@ -198,16 +215,19 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
       if (!touch) { cancel(); return; }
       if (gesture.axis !== "horizontal") { gesture = null; return; }
       if (!gesture.moved) { settle(gesture, wasOpen.current); return; }
+      velocityTracker.push(touch.clientX, event.timeStamp);
       const dx = touch.clientX - gesture.x;
       const dy = touch.clientY - gesture.y;
       event.stopPropagation();
       suppressClickUntil = performance.now() + 500;
       const directed = gesture.initialOpen ? -dx : dx;
-      const velocity = directed / Math.max(1, event.timeStamp - gesture.time);
+      const instantVx = velocityTracker.velocityPxPerSec(event.timeStamp);
+      const avgVelocity = directed / Math.max(1, event.timeStamp - gesture.time);
+      const directedVelocity = Math.max(avgVelocity, (gesture.initialOpen ? -instantVx : instantVx) / 1000);
       const committed = !domBlocked() && semantic.getAttribute("aria-hidden") === String(!gesture.initialOpen) &&
         directed > Math.abs(dy) * DIRECTION_RATIO &&
-        (directed >= COMMIT_DISTANCE || (directed >= AXIS_LOCK * 2 && velocity >= COMMIT_VELOCITY));
-      settle(gesture, committed ? !gesture.initialOpen : gesture.initialOpen, true);
+        (directed >= COMMIT_DISTANCE || (directed >= AXIS_LOCK * 2 && directedVelocity >= COMMIT_VELOCITY));
+      settle(gesture, committed ? !gesture.initialOpen : gesture.initialOpen, true, instantVx);
     };
     const click = (event: MouseEvent) => {
       // A horizontal drag over a chat row/scrim must not select/delete/close it.

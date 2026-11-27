@@ -1,5 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
+import * as observability from "@/lib/observability/client";
 
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { prepareLocalOnboardingAction, resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
@@ -64,9 +67,71 @@ function viewModel(
   } as unknown as LocationHubViewModel;
 }
 
+// Execute the real page callback without mounting the unrelated map, transport
+// and account boot tree. Only its existing execution ports are synthetic; the
+// callback body and result classifier come directly from the production page.
+function pageCheckInHandler(executePrivateCheckIn: ReturnType<typeof vi.fn>, recipients: OneLocationRecipient[]) {
+  const file = ts.createSourceFile("page.tsx", readFileSync("app/one/location/page.tsx", "utf8"),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback: ts.Node | undefined, classifier: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(file) === "handleCheckIn"
+      && node.initializer && ts.isCallExpression(node.initializer)) callback = node.initializer.arguments[0];
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "oneLocationEventResult") classifier = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  if (!callback || !classifier) throw new Error("Missing production Check-in owner");
+  const share = vi.fn();
+  const ports = {
+    auth: { userId: "owner" }, vaultOwnerToken: "synthetic-owner-token", permission: "granted",
+    sosActionRecipients: recipients, isShareReadyRecipient: () => true, locationPermissionBlocksSharing: () => false,
+    shareAudienceOwnerUserIdRef: { current: "owner" },
+    checkInOperations: { current: { begin: () => ({}), finish: () => true } },
+    setBusy: vi.fn(), ensureForegroundLocationReady: async () => ({ ready: true }), executePrivateCheckIn,
+    privateCheckInEnvelopeCacheRef: { current: new Map() }, trackLocationShareConfirmed: share,
+    trackEvent: observability.trackEvent, oneLocationDurationBucket: (value: string) => value,
+    toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() }, peopleCountLabel: String,
+    setShareCompletedTick: vi.fn(), refresh: async () => undefined,
+  };
+  const javascript = ts.transpileModule(`${classifier.getText(file)}\nconst callback = ${callback.getText(file)};`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const onCheckIn = new Function(...Object.keys(ports), `${javascript}\nreturn callback;`)(...Object.values(ports)) as LocationHubViewModel["onCheckIn"];
+  return { onCheckIn, share };
+}
+
 describe("CheckInFlow nearby private-sharing handoff", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    { label: "success", succeeded: ["user-aarav", "user-maya"], failed: [], result: "success", throws: false },
+    { label: "partial failure", succeeded: ["user-aarav"], failed: ["user-maya"], result: "error", throws: false },
+    { label: "all failed", succeeded: [], failed: ["user-aarav", "user-maya"], result: "error", throws: false },
+    { label: "thrown failure", succeeded: [], failed: ["user-aarav", "user-maya"], result: "error", throws: true },
+  ])("records $label exactly once through the page owner", async (outcome) => {
+    const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+    const execute = outcome.throws ? vi.fn().mockRejectedValue(new Error("Synthetic failure"))
+      : vi.fn().mockResolvedValue({ succeededRecipientIds: outcome.succeeded, failedRecipientIds: outcome.failed });
+    const vm = viewModel(vi.fn());
+    const owner = pageCheckInHandler(execute, vm.sosRecipients);
+    vm.onCheckIn = owner.onCheckIn;
+    render(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Maya Chen/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Share location with 2 people" }));
+    await waitFor(() => expect(event.mock.calls.filter(([name]) => name === "one_location_check_in_completed")).toHaveLength(1));
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(owner.share).toHaveBeenCalledTimes(1);
+    expect(event).toHaveBeenCalledWith("one_location_check_in_completed", {
+      route_id: "one_location", result: outcome.result, selected_count: 2,
+      success_count: outcome.succeeded.length, failure_count: outcome.failed.length, circle_targeted: false,
+    });
+    expect(owner.share).toHaveBeenCalledWith(expect.objectContaining({
+      result: outcome.result, success_count: outcome.succeeded.length, failure_count: outcome.failed.length,
+    }));
   });
 
   it("binds a private command draft without sending coordinates or its note to preparation", async () => {
@@ -446,7 +511,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     rerender(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
 
     expect(
-      screen.getByRole("button", { name: "Their security key changed - confirm again" }),
+      screen.getByRole("button", { name: "Confirm again" }),
     ).toBeDisabled();
     expect(
       screen.getByText(/selected person's secure key changed/i),

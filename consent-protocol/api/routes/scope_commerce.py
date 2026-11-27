@@ -28,8 +28,10 @@ from api.routes.scope_commerce_contracts import (
 )
 from api.routes.scope_commerce_exports import router as owner_export_router
 from api.routes.scope_commerce_reads import router as read_router
-from db.connection import get_pool
 from hushh_mcp.services.scope_commerce_requests import (
+    fetch_quote_request_id,
+    fetch_seller_account_and_withdrawals,
+    get_pool,
     resolve_commerce_request,
     validate_tariff_scope,
 )
@@ -89,27 +91,27 @@ class WithdrawalBody(OperationBody):
 
 
 @router.get("/account")
-async def account(response: Response, user_id: Payer):
+async def account(response: Response, user_id: Payer, reconcile: bool = False):
     response.headers.update(NO_STORE)
     try:
+        if reconcile and _enabled():
+            try:
+                provider = _provider()
+                if hasattr(provider, "reconcile_payer_fundings"):
+                    await provider.reconcile_payer_fundings(payer_user_id=user_id, max_operations=3)
+                else:
+                    await provider.reconcile(max_operations=3)
+            except Exception:  # noqa: BLE001 - provider outage cannot block reading local ledger
+                logger.warning("scope_commerce.account_reconcile_failed")
         service = _service()
         data = _snake(await service.balance(payer_user_id=user_id, buyer_app_id="shared"))
         earnings = _snake(await service.earnings(owner_user_id=user_id))
         # Reading obligations must work during rollback or a provider outage.
         # The onboarding/withdrawal paths refresh provider eligibility again.
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT account_id,country,eligible FROM scope_commerce_seller_accounts WHERE user_id=$1",
-                user_id,
-            )
-            withdrawals = await conn.fetch(
-                """SELECT withdrawal_id,status,net_cents,fee_micro_usd,settled_micro_usd,created_at
-                   FROM scope_commerce_withdrawals WHERE user_id=$1
-                   ORDER BY created_at DESC LIMIT 20""",
-                user_id,
-            )
-        seller = dict(row) if row else {}
+        seller, withdrawals = await fetch_seller_account_and_withdrawals(
+            user_id,
+            pool_getter=get_pool,
+        )
         return {
             "enabled": _enabled(),
             "readiness": await service.readiness(viewer_user_id=user_id),
@@ -157,13 +159,37 @@ async def account(response: Response, user_id: Payer):
 
 
 @router.get("/tariffs")
-async def tariff(scope_handle: str, machine_scope: str, response: Response, user_id: Payer):
+async def tariff(
+    response: Response,
+    user_id: Payer,
+    scope_handle: str | None = None,
+    machine_scope: str | None = None,
+):
     response.headers.update(NO_STORE)
     try:
-        result = await _service().get_tariff(
+        service = _service()
+        if scope_handle is None and machine_scope is None:
+            if hasattr(service, "list_tariffs_with_readiness"):
+                items, readiness_payload = await service.list_tariffs_with_readiness(
+                    owner_user_id=user_id
+                )
+            else:
+                items = await service.list_tariffs(owner_user_id=user_id)
+                readiness_payload = await service.readiness(viewer_user_id=user_id)
+            return {
+                "tariffs": [_snake(item) for item in items],
+                "readiness": readiness_payload,
+            }
+        if not scope_handle or not machine_scope:
+            raise HTTPException(
+                422, detail={"code": "exact_tariff_scope_required"}, headers=NO_STORE
+            )
+        result = await service.get_tariff(
             owner_user_id=user_id, scope_handle=scope_handle, machine_scope=machine_scope
         )
         return {"tariff": _snake(result) if result else None}
+    except HTTPException:
+        raise
     except Exception as error:
         raise _error(error) from None
 
@@ -241,16 +267,14 @@ async def purchase(body: PurchaseBody, response: Response, user_id: Payer):
     if body.confirmed is not True:
         raise HTTPException(422, detail={"code": "human_confirmation_required"}, headers=NO_STORE)
     try:
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT request_id FROM scope_commerce_quotes WHERE quote_id=$1 AND payer_user_id=$2",
-                body.quote_id,
-                user_id,
-            )
-        if not row:
+        request_id = await fetch_quote_request_id(
+            body.quote_id,
+            user_id,
+            pool_getter=get_pool,
+        )
+        if not request_id:
             raise HTTPException(404, detail={"code": "quote_unavailable"}, headers=NO_STORE)
-        await resolve_commerce_request(str(row["request_id"]), user_id, require_payer=True)
+        await resolve_commerce_request(request_id, user_id, require_payer=True)
         return _purchase(
             await _service().reserve_purchase(
                 payer_user_id=user_id,
@@ -261,6 +285,17 @@ async def purchase(body: PurchaseBody, response: Response, user_id: Payer):
         )
     except HTTPException:
         raise
+    except Exception as error:
+        raise _error(error) from None
+
+
+@router.post("/purchases/bank-checkout")
+async def purchase_bank_checkout(body: PurchaseBody, response: Response, user_id: Payer):
+    response.headers.update(NO_STORE)
+    if body.confirmed is not True:
+        raise HTTPException(422, detail={"code": "human_confirmation_required"}, headers=NO_STORE)
+    try:
+        return await _provider().bank_checkout(payer_user_id=user_id, quote_id=str(body.quote_id))
     except Exception as error:
         raise _error(error) from None
 

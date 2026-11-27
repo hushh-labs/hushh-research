@@ -148,9 +148,9 @@ describe("AgentTurnStreamPanel", () => {
     const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="Your answer."
       isStreaming={false} structuredExperience={experience} onOpenConnections={onOpenConnections} />);
     expect(screen.getByRole("region", { name: "Mail read details" })).toBeInTheDocument();
-    expect(screen.getByText("Metadata only · 1 cited source")).toBeInTheDocument();
-    expect(screen.getByText("Mail 1")).toBeInTheDocument();
-    expect(screen.getByText("Some matches or metadata were omitted.")).toBeInTheDocument();
+    expect(screen.queryByText("Metadata only · 1 cited source")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
+    expect(screen.getByText("Mail coverage was incomplete.")).toBeInTheDocument();
     expect(onOpenConnections).not.toHaveBeenCalled();
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
       isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
@@ -159,6 +159,31 @@ describe("AgentTurnStreamPanel", () => {
     expect(onOpenConnections).toHaveBeenCalledOnce();
     expect(onOpenConnections).toHaveBeenCalledWith("gmail", expect.any(HTMLButtonElement));
     expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
+  });
+  it("shows one human Mail status while reading and hides successful Mail telemetry afterward", () => {
+    const tool = makeToolEvent({
+      callId: "mail-read",
+      label: "Gmail",
+      message: "Mail read finished · 5 mails fetched",
+      raw: { toolName: "ask_email_agent" },
+    });
+    const running = agentToolEventToVisibleStreamEvent("start", tool, 1_700_000);
+    const finished = agentToolEventToVisibleStreamEvent("result", tool, 1_700_000);
+    const { rerender } = render(<AgentTurnStreamPanel
+      streamEvents={[running]} responseText="" isStreaming />);
+    expect(screen.getByText("Checking your email…")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Activity/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/mails fetched/)).not.toBeInTheDocument();
+
+    rerender(<AgentTurnStreamPanel streamEvents={[finished]} responseText="Five messages found."
+      sources={[{ agentId: "agent_email", label: "Mail", reason: "read" }]}
+      structuredExperience={{ type: "one.connector_read.v1", connector: "mail",
+        status: "ok", sourceRefs: ["mail:1"], metadataOnly: true, truncated: false }}
+      isStreaming={false} />);
+    expect(screen.queryByText("Checking your email…")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Activity/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Mail read details" })).not.toBeInTheDocument();
+    expect(screen.getByText("Five messages found.")).toBeInTheDocument();
   });
   it("renders tool progress without leaking raw action payloads", () => {
     const event = {
@@ -183,12 +208,15 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
   });
 
-  it("shows elapsed time only while the turn runs", () => {
+  it("shows elapsed time only while active work or tokens stream, never on initial wait or after completion", () => {
     let now = 1000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
-    expect(screen.getByText("Working for 0s")).toBeInTheDocument();
+    expect(screen.getByTestId("one-thinking-indicator")).toBeInTheDocument();
+    expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
     now = 3000;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private" isStreaming />);
+    expect(screen.getByText(/^Working for \d+s$/)).toBeInTheDocument();
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming={false} />);
     expect(screen.queryByText(/Working for|Response complete/)).not.toBeInTheDocument();
     clock.mockRestore();
@@ -228,7 +256,8 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
+    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 
@@ -254,7 +283,8 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Private memory ready.")).not.toBeInTheDocument();
     expect(screen.queryByText("Connector access checked.")).not.toBeInTheDocument();
 
-    // A failed memory load, a slow one, and a real tool call still show.
+    // A failed memory load and a slow readiness check still show. A completed
+    // Mail read belongs in the answer and its coverage, not Activity.
     const mailRead = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
       callId: "mail", actionId: null, label: "Gmail", execution: "server",
       message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
@@ -275,7 +305,7 @@ describe("AgentTurnStreamPanel", () => {
     if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
     expect(screen.getByText("Private memory could not load.")).toBeInTheDocument();
     expect(screen.getAllByText("Connector access checked.")).toHaveLength(1);
-    expect(screen.getByText("Mail read finished.")).toBeInTheDocument();
+    expect(screen.queryByText("Mail read finished.")).not.toBeInTheDocument();
   });
 
   it("shows a still-running memory preparation only once it is slow", () => {
@@ -290,11 +320,11 @@ describe("AgentTurnStreamPanel", () => {
       };
       render(<AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />);
       expect(screen.queryByText("Preparing your private memory.")).not.toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+      expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
 
       act(() => { vi.advanceTimersByTime(ROUTINE_STEP_SLOW_MS); });
       expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
-      expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -310,7 +340,7 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.getByText("Checked 1 of 30 files.")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(100 / 30));
-    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
 
     const second = driveBatchProgressToVisibleStreamEvent(
       { phase: "fetching", completed: 2, total: 30, failed: 1 }, "activity-1", 1_700_002,
@@ -452,7 +482,8 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
     expect(screen.queryByRole("log", { name: "Thinking details" })).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
+    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
 
     rerender(
@@ -717,5 +748,56 @@ describe("AgentTurnStreamPanel", () => {
       expect(screen.getByText(label).closest("li")?.querySelector('[data-connector-brand="drive"]')).not.toBeNull();
     expect(screen.getByText("Your memory").closest("li")?.querySelector('[data-agent-activity-icon="memory"]')).not.toBeNull();
     expect(screen.getByText("Connectors").closest("li")?.querySelector('[data-agent-activity-icon="connectors"]')).not.toBeNull();
+  });
+
+  it("renders rich live Mail source rows with 1-tap Read thread and Reply actions", () => {
+    const onMailQuickAction = vi.fn();
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[
+          agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+            callId: "gmail-search-1",
+            actionId: null,
+            label: "Gmail",
+            execution: "server",
+            message: "Mail search finished.",
+            raw: { protocol: "ag-ui", toolName: "gmail_search_mail" },
+          }), 1),
+        ]}
+        responseText="Found your email from Ravi."
+        isStreaming={false}
+        onMailQuickAction={onMailQuickAction}
+        structuredExperience={{
+          type: "one.connector_read.v1",
+          connector: "mail",
+          status: "ok",
+          sourceRefs: ["mail:1"],
+          truncated: false,
+          metadataOnly: false,
+          liveSources: [
+            {
+              ordinal: 1,
+              sourceRef: "mail:1",
+              sender: "Ravi Gupta",
+              subject: "Term sheet notes",
+              receivedAt: "2026-10-09T08:30:00Z",
+              unread: true,
+              hasBody: true,
+              attachments: ["TermSheet.pdf"],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Ravi Gupta")).toBeInTheDocument();
+    expect(screen.getByText("Term sheet notes")).toBeInTheDocument();
+    expect(screen.getByText(/1 attachment: TermSheet\.pdf/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("mail-source-read-1"));
+    expect(onMailQuickAction).toHaveBeenCalledWith("Read email #1 in full.");
+
+    fireEvent.click(screen.getByTestId("mail-source-reply-1"));
+    expect(onMailQuickAction).toHaveBeenCalledWith("Draft a reply to email #1.");
   });
 });

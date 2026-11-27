@@ -1,12 +1,18 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OneLocationGrant } from "@/lib/one-location/types";
+import type { OneLocationGrant, OneLocationState } from "@/lib/one-location/types";
 
 let receivedGrantsFixture: Array<Partial<OneLocationGrant>> = [];
 const mocks = vi.hoisted(() => ({
   clearSosCards: vi.fn(),
   locationRefresh: vi.fn(async () => undefined),
   vaultOwnerToken: "test-vault-token" as string | null,
+  realLocation: false,
+  getState: vi.fn(),
+}));
+
+vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
+  useFinanceShareContext: () => ({ ready: false, session: "", capture: () => null }),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -34,7 +40,8 @@ vi.mock("@/lib/vault/vault-context", () => {
   }) };
 });
 
-vi.mock("@/lib/services/cache-service", () => ({
+vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/cache-service")>(),
   CACHE_KEYS: {
     CONSENT_CENTER_SUMMARY: (userId: string) =>
       `consent-summary:${userId}`,
@@ -48,19 +55,16 @@ vi.mock("@/lib/services/cache-service", () => ({
   CACHE_TTL: {
     SHORT: 1,
   },
-  CacheService: {
-    getInstance: () => ({
-      set: () => undefined,
-      invalidate: () => undefined,
-    }),
-  },
 }));
 
-vi.mock("@/lib/cache/use-stale-resource", () => ({
-  useStaleResource: ({ cacheKey }: { cacheKey: string }) => {
+vi.mock("@/lib/cache/use-stale-resource", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cache/use-stale-resource")>();
+  return { useStaleResource: (options: Parameters<typeof actual.useStaleResource>[0]) => {
+    const { cacheKey } = options;
     const refresh = async () => undefined;
 
     if (cacheKey.startsWith("location:")) {
+      if (mocks.realLocation) return actual.useStaleResource(options);
       return {
         data: {
           requests: [],
@@ -89,8 +93,8 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
       loading: false,
       refresh,
     };
-  },
-}));
+  } };
+});
 
 vi.mock("@/lib/services/debate-run-manager", () => ({
   DebateRunManagerService: {
@@ -133,10 +137,7 @@ vi.mock("@/lib/services/connections-service", () => ({
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
-    getState: async () => ({
-      requests: [],
-      receivedGrants: [],
-    }),
+    getState: mocks.getState,
   },
 }));
 
@@ -145,6 +146,8 @@ vi.mock("@/lib/services/feed-service", () => ({
 }));
 
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { CacheService } from "@/lib/services/cache-service";
 
 function revokedSos(overrides: Record<string, unknown> = {}) {
   return {
@@ -154,6 +157,8 @@ function revokedSos(overrides: Record<string, unknown> = {}) {
     ownerDisplayName: "Test contact",
     status: "revoked",
     shareKind: "sos",
+    feedSmsConfirmed: true,
+    feedConfirmedAt: "2026-08-10T00:00:00.000Z",
     shareMessage: null,
     createdAt: "2026-08-10T00:00:00.000Z",
     ...overrides,
@@ -166,6 +171,11 @@ function emergencyCard(current: ReturnType<typeof useFeedActionables>) {
 
 describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   beforeEach(() => {
+    mocks.realLocation = false;
+    mocks.getState.mockReset();
+    mocks.getState.mockResolvedValue({ requests: [], receivedGrants: [] });
+    OneLocationStateResource.discardAll();
+    CacheService.getInstance().clear();
     window.localStorage.clear();
     delete window.__HUSHH_NATIVE_TEST__;
     mocks.vaultOwnerToken = "test-vault-token";
@@ -182,6 +192,8 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
         ownerDisplayName: "Test contact",
         status: "active",
         shareKind: "sos",
+    feedSmsConfirmed: true,
+    feedConfirmedAt: "2026-08-10T00:00:00.000Z",
         shareMessage: null,
         createdAt: "2026-08-10T00:00:00.000Z",
       },
@@ -189,9 +201,31 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   });
 
   afterEach(() => {
+    OneLocationStateResource.discardAll();
+    CacheService.getInstance().clear();
     delete window.__HUSHH_NATIVE_TEST__;
     vi.useRealTimers();
     window.localStorage.clear();
+  });
+
+  it("reconciles a Feed refresh arriving during a slow pre-event Location read without publishing that old read", async () => {
+    mocks.realLocation = true;
+    let resolveOld!: (state: OneLocationState) => void;
+    let resolveNew!: (state: OneLocationState) => void;
+    mocks.getState.mockReset();
+    mocks.getState.mockImplementationOnce(() => new Promise<OneLocationState>(resolve => { resolveOld = resolve; }));
+    mocks.getState.mockImplementationOnce(() => new Promise<OneLocationState>(resolve => { resolveNew = resolve; }));
+    const { result } = renderHook(() => useFeedActionables());
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(1));
+    let refresh!: Promise<unknown>;
+    act(() => { refresh = result.current.retry(); });
+    await act(async () => { resolveOld({ requests: [], receivedGrants: receivedGrantsFixture } as OneLocationState); });
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(2));
+    expect(OneLocationStateResource.peek("receiver-user")).toBeNull();
+    expect(emergencyCard(result.current)).toBeUndefined();
+    await act(async () => { resolveNew({ requests: [], receivedGrants: [] } as unknown as OneLocationState); await refresh; });
+    expect(OneLocationStateResource.peek("receiver-user")?.data.receivedGrants).toEqual([]);
+    expect(emergencyCard(result.current)).toBeUndefined();
   });
 
   it("does not present self-addressed or another recipient's SMS as this recipient's alert", async () => {
@@ -209,7 +243,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     vi.setSystemTime(new Date("2026-08-11T00:00:00Z"));
     receivedGrantsFixture = [
       { ...receivedGrantsFixture[0], expiresAt: "2026-08-10T00:00:01Z" },
-      { ...receivedGrantsFixture[0], id: "still-live", expiresAt: "2026-08-10T01:00:00Z" },
+      { ...receivedGrantsFixture[0], id: "still-live", ownerUserId: "other-sender-user", expiresAt: "2026-08-10T01:00:00Z" },
     ];
     const { result, rerender } = renderHook(() => useFeedActionables());
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
@@ -217,7 +251,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     mocks.locationRefresh.mockClear();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_050); });
     expect(mocks.locationRefresh).toHaveBeenCalledWith({ force: true });
-    expect(emergencyCard(result.current)?.description).toBe("Emergency SMS · Active");
+    expect(emergencyCard(result.current)?.description).toBe("");
     expect(emergencyCard(result.current)?.href).toBeTruthy();
     expect(result.current.hasClearableSmsEmergencies).toBe(false);
     await act(async () => { await result.current.clearSmsEmergencies(); });
@@ -228,9 +262,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       index === 0 ? { ...grant, status: "expired" } : grant,
     );
     rerender();
-    expect(result.current.actionables.find((item) => item.id === "sms-emergency:sos-grant-1")?.description).toBe("Emergency SMS · Expired");
-    expect(emergencyCard(result.current)?.href).toBeNull();
-    expect(emergencyCard(result.current)?.displayTimestamp).toBe(Date.parse("2026-08-10T00:00:00.000Z"));
+    expect(emergencyCard(result.current)).toBeUndefined();
     expect(result.current.actionables.find((item) => item.id === "sms-emergency:still-live")?.emphasis).toBe("emergency");
     await act(async () => { await result.current.clearSmsEmergencies(); });
     expect(mocks.clearSosCards).toHaveBeenCalledWith({ vaultOwnerToken: "test-vault-token", grantIds: ["sos-grant-1"] });
@@ -244,7 +276,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       const emergency = result.current.actionables.find(
         (item) => item.id === "sms-emergency:sos-grant-1",
       );
-      expect(emergency?.description).toBe("Emergency SMS · Active");
+      expect(emergency?.description).toBe("");
     });
 
     const emergency = result.current.actionables.find(
@@ -258,71 +290,20 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     );
   });
 
-  it("keeps a revoked SOS card visible as 'Emergency SMS · Revoked' instead of dropping it, and drops its emergency emphasis", async () => {
-    receivedGrantsFixture = [
-      {
-        id: "sos-grant-1",
-        ownerUserId: "sender-user",
-        recipientUserId: "receiver-user",
-        ownerDisplayName: "Test contact",
-        status: "revoked",
-        shareKind: "sos",
-        shareMessage: null,
-        createdAt: "2026-08-10T00:00:00.000Z",
-      },
-    ];
-
-    const { result } = renderHook(() => useFeedActionables());
-
-    await waitFor(() => {
-      const emergency = result.current.actionables.find(
-        (item) => item.id === "sms-emergency:sos-grant-1",
-      );
-      expect(emergency?.description).toBe("Emergency SMS · Revoked");
-    });
-
-    const emergency = result.current.actionables.find(
-      (item) => item.id === "sms-emergency:sos-grant-1",
-    );
-    // Ended SMS stays available in its own Feed section, with its sent time.
-    expect(emergency?.emphasis).toBeUndefined();
-    expect(emergency?.sortAt).toBe(new Date("2026-08-10T00:00:00.000Z").getTime());
-    expect(emergency?.displayTimestamp).toBe(
-      new Date("2026-08-10T00:00:00.000Z").getTime(),
-    );
+  it("removes an ended incident from Live and leaves its receipt to dated Feed history", async () => {
+    const {result,rerender}=renderHook(()=>useFeedActionables());
+    await waitFor(()=>expect(emergencyCard(result.current)?.displayTimestamp).toBe(Date.parse("2026-08-10T00:00:00.000Z")));
+    receivedGrantsFixture=[revokedSos({revokedAt:"2026-08-12T09:30:00Z"})];
+    rerender();
+    expect(emergencyCard(result.current)).toBeUndefined();
+    expect(result.current.hasClearableSmsEmergencies).toBe(true);
   });
 
-  it("keeps the original sent time when an SMS is revoked later", async () => {
-    receivedGrantsFixture = [
-      {
-        id: "sos-grant-1",
-        ownerUserId: "sender-user",
-        recipientUserId: "receiver-user",
-        ownerDisplayName: "Test contact",
-        status: "revoked",
-        shareKind: "sos",
-        shareMessage: null,
-        createdAt: "2026-08-10T00:00:00.000Z",
-        revokedAt: "2026-08-12T09:30:00.000Z",
-      },
-    ];
-
-    const { result } = renderHook(() => useFeedActionables());
-
-    await waitFor(() => {
-      const emergency = result.current.actionables.find(
-        (item) => item.id === "sms-emergency:sos-grant-1",
-      );
-      expect(emergency?.description).toBe("Emergency SMS · Revoked");
-    });
-
-    const emergency = result.current.actionables.find(
-      (item) => item.id === "sms-emergency:sos-grant-1",
-    );
-    const sentAtMs = Date.parse("2026-08-10T00:00:00.000Z");
-    expect(emergency?.sortAt).toBe(sentAtMs);
-    expect(emergency?.displayTimestamp).toBe(sentAtMs);
-    expect(emergency?.href).toBeNull();
+  it("does not publish an allocated emergency before its first confirmed envelope", async()=>{
+    receivedGrantsFixture=[{...receivedGrantsFixture[0],feedSmsConfirmed:false}];
+    const {result}=renderHook(()=>useFeedActionables());
+    await waitFor(()=>expect(result.current.loading).toBe(false));
+    expect(emergencyCard(result.current)).toBeUndefined();
   });
 
   it("does NOT put a Clear action on the card itself — the Feed page's existing Clear button owns it", async () => {
@@ -334,6 +315,8 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
         ownerDisplayName: "Test contact",
         status: "revoked",
         shareKind: "sos",
+    feedSmsConfirmed: true,
+    feedConfirmedAt: "2026-08-10T00:00:00.000Z",
         shareMessage: null,
         createdAt: "2026-08-10T00:00:00.000Z",
       },
@@ -348,7 +331,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     const emergency = result.current.actionables.find(
       (item) => item.id === "sms-emergency:sos-grant-1",
     );
-    expect(emergency?.actions).toEqual([]);
+    expect(emergency).toBeUndefined();
   });
 
   it("saves the clear on the server first and hides the card only after the server confirms", async () => {
@@ -371,7 +354,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       vaultOwnerToken: "test-vault-token",
       grantIds: ["sos-grant-1"],
     });
-    expect(emergencyCard(result.current)).toBeDefined();
+    expect(result.current.hasClearableSmsEmergencies).toBe(true);
 
     await act(async () => {
       confirm?.(["sos-grant-1"]);

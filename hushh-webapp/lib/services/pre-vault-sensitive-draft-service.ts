@@ -5,10 +5,19 @@ import {
   GEMINI_RUNTIME_TRANSPORT_REF,
   GEMINI_VERTEX_LOCATION_REF,
   GEMINI_VERTEX_PROJECT_REF,
+  OPENAI_RUNTIME_CREDENTIAL_REF,
   PersonalKnowledgeModelService,
   RUNTIME_CREDENTIAL_MODE_REF,
   type GeminiRuntimeTransport,
 } from "@/lib/services/personal-knowledge-model-service";
+import {
+  AI_ACTIVE_CONFIG_ID_REF,
+  AI_BYOK_CONFIGS_REF,
+  AI_SELECTED_MODEL_REF,
+  AI_SELECTED_PROVIDER_REF,
+  type SavedAiConfiguration,
+} from "@/lib/one/ai-selection-vault";
+import type { KaiPreferencesUpdate } from "@/lib/services/kai-profile-service";
 import {
   addSavedLocation,
   defaultLabelForCategory,
@@ -50,7 +59,14 @@ export type PreVaultSavedLocationDraft = {
   address: string | null;
 };
 
+export type PreVaultAiDraftState = {
+  configurations: SavedAiConfiguration[];
+  activeConfigId: string | null;
+};
+
 const geminiDrafts = new Map<string, PreVaultGeminiRuntimeDraft>();
+const aiConfigDrafts = new Map<string, PreVaultAiDraftState>();
+const financePreferences = new Map<string, KaiPreferencesUpdate>();
 const financeIntents = new Map<string, PreVaultFinanceIntent>();
 const savedLocationDrafts = new Map<string, PreVaultSavedLocationDraft>();
 const finalizeInFlight = new Map<string, Promise<void>>();
@@ -146,14 +162,71 @@ export class PreVaultSensitiveDraftService {
     geminiDrafts.delete(userId);
   }
 
+  static stageAiConfigurations(
+    userId: string,
+    state: PreVaultAiDraftState,
+  ): void {
+    if (!userId) throw new Error("A signed-in user is required.");
+    const sanitized = state.configurations.map((config) => ({
+      ...config,
+      apiKey: config.apiKey.trim(),
+      label: config.label.trim(),
+      model: config.model?.trim() || null,
+      vertexProject: config.vertexProject?.trim() || null,
+      vertexLocation: config.vertexLocation?.trim() || null,
+    }));
+    const activeConfigId =
+      state.activeConfigId && sanitized.some((c) => c.id === state.activeConfigId)
+        ? state.activeConfigId
+        : null;
+    aiConfigDrafts.set(userId, {
+      configurations: sanitized,
+      activeConfigId,
+    });
+  }
+
+  static getStagedAiConfigurations(userId: string): PreVaultAiDraftState | null {
+    const state = aiConfigDrafts.get(userId);
+    if (!state) return null;
+    return {
+      configurations: state.configurations.map((config) => ({ ...config })),
+      activeConfigId: state.activeConfigId,
+    };
+  }
+
+  static hasActiveStagedAiConfiguration(userId: string): boolean {
+    const state = aiConfigDrafts.get(userId);
+    if (!state || !state.activeConfigId) return false;
+    return state.configurations.some(
+      (config) => config.id === state.activeConfigId && config.apiKey.trim().length > 0,
+    );
+  }
+
+  static clearAiConfigurations(userId: string): void {
+    const state = aiConfigDrafts.get(userId);
+    if (state) {
+      for (const config of state.configurations) {
+        config.apiKey = "";
+      }
+    }
+    aiConfigDrafts.delete(userId);
+  }
+
   static clearForUser(userId: string): void {
     // Invalidate captured snapshots before deleting them. A finalizer already
     // awaiting another encrypted write must not dispatch this user's remaining
     // sensitive drafts after sign-out/account switch.
     nextCounter(userClearEpochs, userId);
     this.clearGeminiRuntime(userId);
+    this.clearAiConfigurations(userId);
     this.clearFinanceIntent(userId);
+    financePreferences.delete(userId);
     this.clearSavedLocation(userId);
+  }
+
+  static stageFinancePreferences(userId: string, updates: KaiPreferencesUpdate): void {
+    if (!userId) throw new Error("A signed-in user is required.");
+    financePreferences.set(userId, { ...updates });
   }
 
   static stageFinanceIntent(
@@ -247,7 +320,9 @@ export class PreVaultSensitiveDraftService {
   }): Promise<void> {
     if (
       !geminiDrafts.has(params.userId) &&
-      !savedLocationDrafts.has(params.userId)
+      !aiConfigDrafts.has(params.userId) &&
+      !savedLocationDrafts.has(params.userId) &&
+      !financePreferences.has(params.userId)
     ) {
       return;
     }
@@ -257,6 +332,84 @@ export class PreVaultSensitiveDraftService {
       currentCounter(userClearEpochs, params.userId) !== finalizationEpoch;
 
     commitLoop: while (!wasCancelled()) {
+      const aiDraft = aiConfigDrafts.get(params.userId);
+      if (aiDraft) {
+        const confirmation = {
+          confirmedByUser: true as const,
+          surface: "web" as const,
+          source: "one_setup_ai_access_finalize",
+        };
+        const activeConfig = aiDraft.activeConfigId
+          ? aiDraft.configurations.find((entry) => entry.id === aiDraft.activeConfigId) ?? null
+          : null;
+        const geminiToMirror =
+          (activeConfig?.provider === "gemini" ? activeConfig : null) ??
+          aiDraft.configurations.find((entry) => entry.provider === "gemini") ??
+          null;
+        const openaiToMirror =
+          (activeConfig?.provider === "openai" ? activeConfig : null) ??
+          aiDraft.configurations.find((entry) => entry.provider === "openai") ??
+          null;
+        const secretWrites: Array<[string, string]> = [];
+        if (aiDraft.configurations.length > 0) {
+          secretWrites.push([AI_BYOK_CONFIGS_REF, JSON.stringify(aiDraft.configurations)]);
+        }
+        if (geminiToMirror) {
+          secretWrites.push([GEMINI_RUNTIME_CREDENTIAL_REF, geminiToMirror.apiKey]);
+          secretWrites.push([
+            GEMINI_RUNTIME_TRANSPORT_REF,
+            geminiToMirror.transport === "vertex_api_key" ? "vertex_api_key" : "developer_api",
+          ]);
+          if (
+            geminiToMirror.transport === "vertex_api_key" &&
+            geminiToMirror.vertexProject &&
+            geminiToMirror.vertexLocation
+          ) {
+            secretWrites.push([GEMINI_VERTEX_PROJECT_REF, geminiToMirror.vertexProject]);
+            secretWrites.push([GEMINI_VERTEX_LOCATION_REF, geminiToMirror.vertexLocation]);
+          }
+        }
+        if (openaiToMirror) {
+          secretWrites.push([OPENAI_RUNTIME_CREDENTIAL_REF, openaiToMirror.apiKey]);
+        }
+        if (activeConfig) {
+          secretWrites.push([AI_ACTIVE_CONFIG_ID_REF, activeConfig.id]);
+          secretWrites.push([AI_SELECTED_PROVIDER_REF, activeConfig.provider]);
+          if (activeConfig.model) {
+            secretWrites.push([AI_SELECTED_MODEL_REF, activeConfig.model]);
+          }
+          secretWrites.push([RUNTIME_CREDENTIAL_MODE_REF, "byok"]);
+        } else {
+          secretWrites.push([RUNTIME_CREDENTIAL_MODE_REF, "hushh_managed_vertex"]);
+        }
+
+        for (const [credentialRef, secret] of secretWrites) {
+          await params.beforeEffect?.();
+          if (wasCancelled()) return;
+          if (aiConfigDrafts.get(params.userId) !== aiDraft) {
+            continue commitLoop;
+          }
+          const result = await PersonalKnowledgeModelService.storeRuntimeSecret({
+            userId: params.userId,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+            credentialRef,
+            secret,
+            confirmation,
+            beforeEffect: params.beforeEffect,
+          });
+          assertStored(result);
+        }
+
+        if (wasCancelled()) return;
+        await params.beforeEffect?.();
+        if (aiConfigDrafts.get(params.userId) === aiDraft) {
+          this.clearAiConfigurations(params.userId);
+        } else {
+          continue;
+        }
+      }
+
       const geminiDraft = geminiDrafts.get(params.userId);
       if (geminiDraft) {
         const confirmation = {
@@ -353,9 +506,34 @@ export class PreVaultSensitiveDraftService {
         this.clearSavedLocation(params.userId);
       }
 
+      if (wasCancelled()) return;
+      const preferences = financePreferences.get(params.userId);
+      if (preferences) {
+        const { KaiProfileService } = await import("@/lib/services/kai-profile-service");
+        if (wasCancelled()) return;
+        if (financePreferences.get(params.userId) !== preferences) continue;
+        await KaiProfileService.savePreferences({
+          ...params,
+          mode: "onboarding",
+          updates: preferences,
+          beforeEffect: async () => {
+            await params.beforeEffect?.();
+            if (wasCancelled() || financePreferences.get(params.userId) !== preferences) {
+              throw new Error("Finance setup has changed.");
+            }
+          },
+        });
+        if (wasCancelled()) return;
+        if (financePreferences.get(params.userId) === preferences) {
+          financePreferences.delete(params.userId);
+        }
+      }
+
       if (
         !geminiDrafts.has(params.userId) &&
-        !savedLocationDrafts.has(params.userId)
+        !aiConfigDrafts.has(params.userId) &&
+        !savedLocationDrafts.has(params.userId) &&
+        !financePreferences.has(params.userId)
       ) {
         return;
       }

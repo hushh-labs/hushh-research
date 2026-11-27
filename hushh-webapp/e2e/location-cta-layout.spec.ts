@@ -270,9 +270,12 @@ test.describe("One Location compact CTA layout", () => {
         ),
       ).toBeLessThanOrEqual(1);
       expect(result.publicDuration.width).toBeCloseTo(
-        result.publicControls.width -
-          result.publicControlsPaddingLeft -
-          result.publicControlsPaddingRight,
+        Math.min(
+          176,
+          result.publicControls.width -
+            result.publicControlsPaddingLeft -
+            result.publicControlsPaddingRight,
+        ),
         0,
       );
       expect(
@@ -286,7 +289,7 @@ test.describe("One Location compact CTA layout", () => {
         result.publicDuration.width,
         0,
       );
-      expect(result.publicCta.height).toBeCloseTo(48, 0);
+      expect(result.publicCta.height).toBeCloseTo(50, 0);
       expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
       expect(result.publicCta.width).toBeLessThanOrEqual(244);
       expect(
@@ -315,10 +318,9 @@ test.describe("One Location compact CTA layout", () => {
         ).toBeLessThanOrEqual(1);
       }
 
-      expect(result.shareActions.width).toBeLessThanOrEqual(244.5);
-      expect(result.shareCta.width).toBeCloseTo(result.shareActions.width, 0);
+      expect(result.shareActions.width).toBeLessThanOrEqual(288.5);
       expect(result.shareCta.height).toBeCloseTo(50, 0);
-      expect(result.shareCta.width).toBeCloseTo(244, 0);
+      expect(result.shareCta.width).toBeCloseTo(result.shareActions.width, 0);
       expect(result.shareCtaBorderRadius).toBeGreaterThanOrEqual(
         result.shareCta.height / 2,
       );

@@ -14,6 +14,14 @@ vi.mock("@/lib/pkm/memory-refresh", () => ({ peekLiveMirror: mocks.memory }));
 const context = (): TaskReadContext => ({ userId: "owner", vaultOwnerToken: "fixture", getIdToken: async () => "fixture-id", isCurrent: () => true, mailConnected: true, calendarConnected: true, mailStatusKnown: true, calendarStatusKnown: true });
 const requestId = "00000000-0000-4000-8000-000000000001";
 describe("owner-safe capability task reads", () => {
+  it("never collects a disabled capability or gets a token with every source off", async () => {
+    const getIdToken = vi.fn().mockResolvedValue("fixture-id");
+    expect(await readTodoCapabilities({ ...context(), getIdToken, selectedCapabilities: [] })).toEqual([]);
+    expect(getIdToken).not.toHaveBeenCalled();
+    const reads = await readTodoCapabilities({ ...context(), selectedCapabilities: ["pkm"] });
+    expect(reads.map(read => read.coverage.capability)).toEqual(["pkm"]);
+    for (const read of [mocks.messages, mocks.wallet, mocks.persona, mocks.mail, mocks.invitations, mocks.privateMail]) expect(read).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.stubGlobal("crypto", webcrypto);
     vi.clearAllMocks();
@@ -68,10 +76,16 @@ describe("owner-safe capability task reads", () => {
     expect(mocks.mail).not.toHaveBeenCalled();
     expect(mocks.invitations).not.toHaveBeenCalled();
   });
-  it("does not confuse an investor persona with a disconnected Advisor", async () => {
+  it("marks Advisor not connected for investor-only personas without raising an unavailable error", async () => {
     const result = await readTodoCapabilities(context());
-    expect(result.find(row => row.coverage.capability === "ria")?.coverage.status).toBe("unavailable");
+    expect(result.find(row => row.coverage.capability === "ria")?.coverage.status).toBe("not_connected");
+    expect(result.find(row => row.coverage.capability === "pkm")?.coverage.status).toBe("incomplete");
     expect(mocks.home).not.toHaveBeenCalled();
+  });
+  it("keeps Memory unavailable when a cached mirror belongs to a different owner", async () => {
+    mocks.memory.mockReturnValueOnce({ ownerId: "other-owner", vaultEpoch: 0, builtAt: "2026-11-27T00:00:00Z", inventoryComplete: true, sources: [], conflicts: [] });
+    const result = await readTodoCapabilities({ ...context(), selectedCapabilities: ["pkm"] });
+    expect(result[0]?.coverage.status).toBe("unavailable");
   });
   it("projects explicit Advisor attention work with its reviewed internal destination", async () => {
     mocks.persona.mockResolvedValue({ personas: ["ria", "investor"] });

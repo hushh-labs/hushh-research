@@ -1,4 +1,4 @@
-import { resolveAppEnvironment } from "@/lib/app-env";
+import { resolveAppEnvironment, resolveDiagnosticEnvironment } from "@/lib/app-env";
 
 export type ObservabilityEnvironment = "uat" | "production";
 
@@ -55,7 +55,7 @@ export function shouldLoadWebAnalyticsScripts(): boolean {
 
 export function isObservabilityDebugEnabled(): boolean {
   const raw = normalizeValue(process.env.NEXT_PUBLIC_OBSERVABILITY_DEBUG);
-  return ["1", "true", "yes", "on"].includes(raw);
+  return resolveDiagnosticEnvironment() !== null && ["1", "true", "yes", "on"].includes(raw);
 }
 
 export function resolveObservabilitySampleRate(): number {

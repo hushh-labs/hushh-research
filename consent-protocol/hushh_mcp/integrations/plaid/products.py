@@ -119,3 +119,30 @@ def _link_token_product_sets() -> tuple[list[str], list[str], list[str]]:
     ]
     additional_consented = list(dict.fromkeys(additional_consented))
     return primary_products, required_if_supported, additional_consented
+
+
+def apply_new_vault_link_products(
+    link_payload: dict[str, Any], *, score_link: bool, history_days: int, liabilities_enabled: bool
+) -> None:
+    primary, required_if_supported, additional_consented = _link_token_product_sets()
+    if score_link:
+        # Score links request only products used by the finance journey.
+        primary = ["transactions"]
+        required_if_supported = [
+            product for product in required_if_supported if product == "investments"
+        ]
+        additional_consented = []
+    link_payload["products"] = primary
+    if "transactions" in primary or "transactions" in required_if_supported:
+        link_payload["transactions"] = {"days_requested": min(730, history_days)}
+    if liabilities_enabled and "liabilities" not in required_if_supported:
+        required_if_supported.append("liabilities")
+        additional_consented = [
+            product for product in additional_consented if product != "liabilities"
+        ]
+    if required_if_supported:
+        link_payload["required_if_supported_products"] = required_if_supported
+    if additional_consented:
+        link_payload["additional_consented_products"] = additional_consented
+    if "investments" in primary:
+        link_payload["account_filters"] = {"investment": {"account_subtypes": ["all"]}}

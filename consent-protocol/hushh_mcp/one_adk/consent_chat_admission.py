@@ -33,20 +33,48 @@ async def admit_session_continuation(
         app_name=app_name, user_id=owner_id, session_id=input_data.thread_id
     )
 
+    submitted_person_by_bundle: dict[str, str] = {}
+    submitted_person_by_ref: dict[str, str] = {}
+    for event in session.events if session is not None else []:
+        metadata = event.custom_metadata
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("kind") != "information_request_submission_v1"
+        ):
+            continue
+        card = metadata.get("card")
+        if not isinstance(card, dict):
+            continue
+        card_bundle_id = str(card.get("bundleId") or "").strip().lower()
+        card_person_name = str(card.get("personName") or "").strip()
+        card_subject_ref = str(card.get("subjectRef") or "").strip()
+        if card_bundle_id:
+            submitted_person_by_bundle[card_bundle_id] = card_person_name
+        if card_subject_ref and card_person_name:
+            submitted_person_by_ref[card_subject_ref] = card_person_name
+
     def asked_here(bundle_id: str) -> bool:
-        for event in session.events if session is not None else []:
-            metadata = event.custom_metadata
-            if not isinstance(metadata, dict):
-                metadata = {}
-            card = metadata.get("card")
-            if not isinstance(card, dict):
-                card = {}
-            if (
-                metadata.get("kind") == "information_request_submission_v1"
-                and str(card.get("bundleId") or "").lower() == bundle_id
-            ):
-                return True
-        return False
+        return bundle_id in submitted_person_by_bundle
+
+    requested_bundle_id = (
+        str(
+            (forwarded.get("consentContinuation") or {}).get("bundleId")
+            if isinstance(forwarded.get("consentContinuation"), dict)
+            else ""
+        )
+        .strip()
+        .lower()
+    )
+
+    def resolved_person_name(person_ref: str) -> str:
+        resolved = str(person_name(person_ref) or "").strip() if callable(person_name) else ""
+        if resolved and resolved.lower() != "they":
+            return resolved
+        return (
+            submitted_person_by_bundle.get(requested_bundle_id)
+            or submitted_person_by_ref.get(str(person_ref or "").strip())
+            or resolved
+        )
 
     return await admit_consent_continuation(
         forwarded,
@@ -55,7 +83,7 @@ async def admit_session_continuation(
         session_state=dict(session.state) if session is not None else None,
         asked_here=asked_here,
         get_bundle=get_bundle,
-        person_name=person_name,
+        person_name=resolved_person_name,
     )
 
 

@@ -15,6 +15,7 @@ import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
 import { baseProps, recipient } from "./sos-panel-fixtures";
 import { toast } from "sonner";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
@@ -23,12 +24,95 @@ const toastError = vi.mocked(toast.error);
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
+  appInteractionCoordinator.handleLifecycle("active");
   vi.runOnlyPendingTimers();
   vi.useRealTimers();
   vi.clearAllMocks();
 });
 
 describe("SosPanel", () => {
+  it.each([
+    ["hold", "wall"], ["tap", "wall"], ["hold", "monotonic"], ["tap", "monotonic"],
+  ])("rejects an overdue %s when the %s clock advances before lifecycle callbacks arrive", async (mode, clock) => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    if (mode === "hold") fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    else fireEvent.click(send);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    // Either clock must independently veto an old intent after suspension.
+    const monotonicClock = clock === "monotonic"
+      ? vi.spyOn(performance, "now").mockReturnValue(performance.now() + 86_400_000)
+      : null;
+    if (clock === "wall") vi.setSystemTime(Date.now() + 86_400_000);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+    // The expired gesture cannot become a fresh countdown through a queued click.
+    fireEvent.click(send);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+    monotonicClock?.mockRestore();
+    fireEvent.pointerDown(send, { button: 0, pointerId: 2 });
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onTrigger).toHaveBeenCalledExactlyOnceWith("Come get me");
+  });
+
+  it.each(["hold", "tap"])("cancels a pending %s on native background without DOM visibility events", async (mode) => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    if (mode === "hold") fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    else fireEvent.click(send);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => appInteractionCoordinator.handleLifecycle("background"));
+    await act(async () => vi.advanceTimersByTimeAsync(2_500));
+    act(() => appInteractionCoordinator.handleLifecycle("active"));
+    await act(async () => vi.advanceTimersByTimeAsync(2_500));
+    expect(onTrigger).not.toHaveBeenCalled();
+    // A late release/click from the interrupted press cannot arm a new send.
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    fireEvent.click(send);
+    await act(async () => vi.advanceTimersByTimeAsync(2_500));
+    expect(onTrigger).not.toHaveBeenCalled();
+    // Returning to the app requires a new deliberate gesture.
+    fireEvent.pointerDown(send, { button: 0, pointerId: 2 });
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onTrigger).toHaveBeenCalledExactlyOnceWith("Come get me");
+  });
+
+  it.each(["sms", "composer"])("cancels a %s hold on lost pointer capture without arming a trailing click", async (target) => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const control = target === "sms"
+      ? screen.getByRole("button", { name: /press and hold for two seconds/i })
+      : screen.getByTestId("sos-send-custom-message");
+    fireEvent.pointerDown(control, { button: 0, pointerId: 1 });
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    fireEvent.lostPointerCapture(control, { pointerId: 1 });
+    fireEvent.click(control);
+    await act(async () => vi.advanceTimersByTimeAsync(2_500));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("preserves a deliberate short tap when normal capture release emits lostpointercapture", async () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    send.setPointerCapture = vi.fn();
+    send.hasPointerCapture = vi.fn().mockReturnValue(true);
+    send.releasePointerCapture = vi.fn(() => fireEvent.lostPointerCapture(send, { pointerId: 1 }));
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    fireEvent.click(send);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onTrigger).toHaveBeenCalledExactlyOnceWith("Come get me");
+  });
+
   it("keeps the composer usable without per-person diagnostics while connected recipients reconcile", () => {
     render(<SosPanel {...baseProps} contactCount={4} isRecipientShareReady={isSosShareReadyRecipient} recipients={[
       recipient({ userId: "ready", displayName: "Ready contact", keyId: "key", publicKeyJwk: { kty: "EC" } }),
@@ -62,7 +146,7 @@ describe("SosPanel", () => {
 
   it("keeps Stop available if the circle becomes empty during an active alert", () => {
     render(<SosPanel {...baseProps} active recipients={[]} />);
-    expect(screen.getByRole("button", { name: "Stop Save My Soul alert" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
   });
 
   it("keeps a known selected Circle sendable while the recipient projection is loading", () => {
@@ -85,7 +169,8 @@ describe("SosPanel", () => {
   });
   it.each(["pointer", "keyboard"])("sends a preset through a two-second %s Send hold exactly once even after late release", async (mode) => {
     const onTrigger = vi.fn().mockResolvedValue(undefined);
-    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} />);
+    const onPrepareSend = vi.fn<(signal: AbortSignal) => void>();
+    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} onPrepareSend={onPrepareSend} />);
     expect(screen.getByText("8 contacts · Live location")).toBeInTheDocument();
     expect(screen.getByText("Choose or type a message")).toBeInTheDocument();
     expect(screen.queryByText("Pick a quick message.")).toBeNull();
@@ -93,6 +178,8 @@ describe("SosPanel", () => {
     const send = screen.getByTestId("sos-send-custom-message");
     if (mode === "pointer") fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
     else fireEvent.keyDown(send, { key: " " });
+    expect(onPrepareSend).toHaveBeenCalledTimes(1);
+    expect(onPrepareSend.mock.calls[0][0].aborted).toBe(false);
     act(() => vi.advanceTimersByTime(1_999));
     expect(onTrigger).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTime(1));
@@ -122,9 +209,10 @@ describe("SosPanel", () => {
     expect(send).toHaveTextContent("Send");
   });
 
-  it("cancels an interrupted Send hold including its synthesized click", () => {
+  it("cancels preparation and sending when a pointer hold is interrupted", () => {
     const onTrigger = vi.fn();
-    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    const onPrepareSend = vi.fn<(signal: AbortSignal) => void>();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} onPrepareSend={onPrepareSend} />);
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
     const send = screen.getByTestId("sos-send-custom-message");
     fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
@@ -132,6 +220,8 @@ describe("SosPanel", () => {
     fireEvent.pointerUp(send, { pointerId: 1 });
     fireEvent.click(send);
     act(() => vi.advanceTimersByTime(3_000));
+    expect(onPrepareSend).toHaveBeenCalledTimes(1);
+    expect(onPrepareSend.mock.calls[0][0].aborted).toBe(true);
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
@@ -563,25 +653,25 @@ describe("SosPanel", () => {
     // Idle: no stop affordance, the core is the pressable SOS control.
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
     expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
 
     // Live: the core becomes a receipt and the stop button appears.
     rerender(<SosPanel {...baseProps} active onStopSos={onStopSos} />);
-    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
-    expect(screen.getByText("SENT")).toBeInTheDocument();
+    expect(screen.getByText("Alert active", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Alert active",
     );
-    expect(screen.getAllByText("Live location sharing is active")).toHaveLength(1);
+    expect(screen.getAllByText("You can stop this alert.")).toHaveLength(1);
     const cancel = screen.getByRole("button", {
-      name: "Stop Save My Soul alert",
+      name: "Stop SMS alert",
     });
     expect(cancel).toHaveTextContent("Stop alert");
     fireEvent.click(cancel);
     const dialog = screen.getByRole("alertdialog");
     expect(
       within(dialog).getByRole("heading", {
-        name: "Stop Save My Soul alert?",
+        name: "Stop SMS alert?",
       }),
     ).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Stop alert" }));
@@ -600,12 +690,12 @@ describe("SosPanel", () => {
 
   it("returns the core to SMS once the session is no longer active (external revoke sync)", () => {
     const { rerender } = render(<SosPanel {...baseProps} active />);
-    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
+    expect(screen.getByText("Alert active", { exact: true })).toBeInTheDocument();
     // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
     // which flips `active` back to false and must reset the SMS screen.
     rerender(<SosPanel {...baseProps} active={false} />);
     expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.queryByText("SMS alert sent", { exact: true })).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Hold 2 seconds",
     );

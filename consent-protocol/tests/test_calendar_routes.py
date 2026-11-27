@@ -30,6 +30,35 @@ def _app() -> FastAPI:
     return app
 
 
+@pytest.mark.parametrize("version", [None, 1, True, "1", 1.0, 2])
+def test_calendar_confirmation_preserves_strict_screen_contract(monkeypatch, version):
+    execute = AsyncMock(return_value={"action": "create", "event": {}})
+    monkeypatch.setattr(
+        calendar, "_selected_calendar", lambda _account: type("Service", (), {"execute": execute})()
+    )
+    app = _app()
+    app.dependency_overrides[hub_content_owner] = lambda: {"user_id": "calendar-user"}
+    response = TestClient(app).post(
+        "/api/one/calendar/proposals/execute",
+        json={
+            "user_id": "calendar-user",
+            "proposal_id": "gcal_reviewed",
+            **({"review_contract": version} if version is not None else {}),
+        },
+    )
+    if type(version) is int and version == 1 or version is None:
+        assert response.status_code == 200
+        execute.assert_awaited_once_with(
+            user_id="calendar-user",
+            proposal_id="gcal_reviewed",
+            account_id="default",
+            **({"client_review_contract": 1} if version == 1 else {}),
+        )
+    else:
+        assert response.status_code == 422
+        execute.assert_not_awaited()
+
+
 def test_calendar_native_connect_uses_the_authenticated_owner(monkeypatch) -> None:
     calls: list[tuple[str, dict[str, object]]] = []
 
@@ -222,3 +251,38 @@ def test_calendar_error_preserves_typed_recovery_reason() -> None:
         "message": "Google Calendar took too long to respond",
         "reason_code": "calendar_timeout",
     }
+
+
+@pytest.mark.parametrize("changes", [{}, {"attendees": [], "description": "", "location": ""}])
+def test_calendar_proposal_preserves_omission_and_explicit_removal(monkeypatch, changes):
+    calls = []
+
+    class Service:
+        async def propose(self, **kwargs):
+            calls.append(kwargs)
+            return {"confirmation_required": True}
+
+    monkeypatch.setattr(calendar, "_selected_calendar", lambda _account: Service())
+    app = _app()
+    app.dependency_overrides[hub_content_owner] = lambda: {"user_id": "calendar-user"}
+    response = TestClient(app).post(
+        "/api/one/calendar/proposals",
+        json={
+            "user_id": "calendar-user",
+            "action": "reschedule",
+            "event_id": "evt-1",
+            "account_id": "account-b",
+            "calendar_id": "primary",
+            "start_at": "2026-12-02T16:00:00Z",
+            "end_at": "2026-12-02T16:30:00Z",
+            **changes,
+        },
+    )
+    assert response.status_code == 200
+    payload = calls[0]["payload"]
+    assert payload["account_id"] == "account-b" and payload["calendar_id"] == "primary"
+    for field in ("attendees", "description", "location"):
+        if field in changes:
+            assert payload[field] == changes[field]
+        else:
+            assert field not in payload

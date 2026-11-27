@@ -180,6 +180,33 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     expect(locked.projections).toEqual([]); expect(locked.complete).toBe(false);
   });
 
+  it.each(["object", "array", "excluded_leaf", "private_scope", "internal_parent", "unknown_parent"])("honors explicit leaf admission beneath structural containers: %s", async posture => {
+    const parent = posture === "internal_parent" ? "_private.scope_access_rehearsal" : "agent_memory.scope_access_rehearsal";
+    const path = `${parent}.role`;
+    const scope = `attr.professional.${path}`;
+    const snapshot = envelope("professional", 1, 2, [path]);
+    const source = { ...snapshot, manifest: { ...snapshot.manifest,
+      paths: [
+        { json_path: parent, path_type: posture === "array" ? "array" : posture === "unknown_parent" ? undefined : "object", exposure_eligibility: false },
+        { json_path: path, path_type: "leaf", exposure_eligibility: posture !== "excluded_leaf" },
+      ],
+      scope_registry: posture === "private_scope" ? [{ exposure_enabled: false, summary_projection: { top_level_scope_path: "agent_memory" } }] : [],
+    } };
+    transport.snapshot.mockImplementation(async ({ domain }: { domain: string }) => domain === "professional" ? source : null);
+    transport.export.mockResolvedValue({ payload: { professional: payload(path, "Synthetic role") }, sourceContentRevision: 1, sourceManifestRevision: 2 });
+
+    const result = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [scope] });
+    if (posture === "object" || posture === "array") {
+      expect(result.complete).toBe(true);
+      expect(resultValue(result, scope, path)).toBe("Synthetic role");
+      await expect(result.assertCurrent()).resolves.toBeUndefined();
+    } else {
+      expect(result).toMatchObject({ complete: false, unavailableScopes: [scope], projections: [] });
+      expect(transport.export).not.toHaveBeenCalled();
+      expect(transport.write).not.toHaveBeenCalled();
+    }
+  });
+
   it("rechecks current exposure posture and never lets a Soul fallback bypass an exact blocked scope", async () => {
     identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: { identity_profile: { sex: "entered value" } } };
     soul = { revision: 9, markdown: "- Sex: entered value\n", deletedFactLabels: [] };

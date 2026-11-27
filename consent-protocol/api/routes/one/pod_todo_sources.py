@@ -1,11 +1,13 @@
-"""Bounded Calendar and email metadata for the owner's task list, read in their pod.
+"""Bounded Calendar/email reads and explicitly approved suggestions in the owner's pod.
 
-No hub content door, model invocation, provider mutation or body/snippet read.
+No hub content door, provider mutation or body/snippet read. Only the explicit
+suggestion door invokes a model through the owner's existing runtime selection.
 These doors require the owner's app session with pkm.read, not pod.status.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -17,9 +19,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from api.routes.one.pod_owner_door import admit_owner_local, owner_local_door
+from api.utils.private_no_store import PrivateNoStoreRoute
 from hushh_mcp.services.pod_session_authority import SCOPE_PKM_READ
 
-router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
+router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"], route_class=PrivateNoStoreRoute)
 _HEADERS = {"Cache-Control": "private, no-store"}
 
 
@@ -48,7 +51,10 @@ class CalendarWindow(BaseModel):
 
 
 async def _admit(door: dict[str, Any]) -> str:
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+    from hushh_mcp.services.pod_owner_cloud import (
+        personal_sandbox_workspace_runtime,
+        pod_owner_user_id,
+    )
     from hushh_mcp.services.pod_session_authority import (
         PodSessionRefused,
         active_session_authority,
@@ -64,8 +70,8 @@ async def _admit(door: dict[str, Any]) -> str:
         await active_session_authority().require_held()
     except PodSessionRefused:
         raise _refuse(409, "POD_SESSION_CHANGED") from None
-    # Match the existing local Google ports; managed hosting is not newly admitted.
-    if not owner_cloud_agent():
+    # Match the existing local Google ports; legacy managed hosting is not newly admitted.
+    if not personal_sandbox_workspace_runtime():
         raise _refuse(503, "OWNER_GOOGLE_READ_UNAVAILABLE")
     if claims["user_id"] != pod_owner_user_id():
         raise _refuse(403, "POD_OWNER_CHANGED")
@@ -231,3 +237,120 @@ async def mail_todos_route(
     return JSONResponse(
         await run_mail_todos(**await _door(x_consent_token, authorization)), headers=_HEADERS
     )
+
+
+async def _suggestion_owner(door: dict[str, Any]) -> str:
+    from hushh_mcp.services.pod_owner_cloud import pod_owner_user_id
+    from hushh_mcp.services.pod_session_authority import active_session_authority
+
+    claims = await admit_owner_local(
+        door["consent_token"],
+        verifier=door.get("verifier"),
+        session=door.get("session"),
+        scope=SCOPE_PKM_READ,
+    )
+    await active_session_authority().require_held()
+    if claims["user_id"] != pod_owner_user_id():
+        raise _refuse(403, "POD_OWNER_CHANGED")
+    return str(claims["user_id"])
+
+
+def private_workspace_model() -> Any:
+    from api.routes.one import pod_turn
+    from hushh_mcp.one_adk.text_runtime import _runtime_model
+
+    payload = pod_turn.PodTurnRequest(message="private-task-suggestions")
+    provider, model = pod_turn._resolve_model()
+    payload, (provider, model, mode) = pod_turn._resolve_owner_target(payload, provider, model)
+    # This surface never borrows the Shared service's model credentials.
+    if mode not in {"user_adc", "hosted_pod_adc", "sentinel_vertex", "byok", "user_azure_mi"}:
+        raise _refuse(503, "PRIVATE_TASK_MODEL_UNAVAILABLE")
+    return _runtime_model(
+        runtime_model=model,
+        runtime_mode=mode,
+        runtime_provider=provider,
+        runtime_credential=payload.runtime_credential,
+        puppy_device_id=payload.puppy_device_id,
+        runtime_credential_transport=payload.runtime_credential_transport,
+        runtime_vertex_project=payload.vertex_project,
+        runtime_vertex_location=payload.vertex_location,
+    )
+
+
+async def _private_todo_gene(**kwargs: Any) -> object:
+    from hushh_mcp.services.one_todo_suggestions import run_todo_gene
+
+    return await run_todo_gene(**kwargs, model=private_workspace_model())
+
+
+async def run_task_suggestions(body: Any, *, runner: Any = None, **door: Any) -> dict:
+    from hushh_mcp.services.one_todo_suggestions import suggest_tasks
+
+    owner = await _suggestion_owner(door)
+
+    async def current() -> None:
+        if await _suggestion_owner(door) != owner:
+            raise _refuse(403, "POD_OWNER_CHANGED")
+
+    result = await suggest_tasks(
+        body,
+        user_id=owner,
+        consent_token=door["consent_token"],
+        require_access=current,
+        runner=runner or _private_todo_gene,
+    )
+    return dict(result.model_dump())
+
+
+@router.get("/todos/suggestions/status")
+async def task_suggestion_status_route(
+    x_consent_token: str | None = Header(default=None, alias="X-Consent-Token"),
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from hushh_mcp.runtime_settings import one_todo_suggestions_enabled
+
+    await _suggestion_owner(await _door(x_consent_token, authorization))
+    return JSONResponse({"available": one_todo_suggestions_enabled()}, headers=_HEADERS)
+
+
+@router.post("/todos/suggestions")
+async def task_suggestions_route(
+    request: Request,
+    x_consent_token: str | None = Header(default=None, alias="X-Consent-Token"),
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from api.routes.one.pod_commands import _admitted
+    from hushh_mcp.services.one_todo_suggestions import TaskSuggestionRequest
+
+    door = await _door(x_consent_token, authorization)
+    await _suggestion_owner(door)
+    try:
+        # Consume the authenticated bounded body before the existing disconnect
+        # watcher starts reading receive(); it must not consume request chunks.
+        raw = bytearray()
+        async with asyncio.timeout(25):
+            async for chunk in request.stream():
+                raw.extend(chunk)
+                if len(raw) > 160_000:
+                    raise _refuse(413, "TASK_REQUEST_TOO_LARGE")
+        try:
+            body = TaskSuggestionRequest.model_validate_json(raw)
+        except (ValidationError, ValueError):
+            raise _refuse(422, "INVALID_TASK_REQUEST") from None
+        # Existing bounded execution, drain admission, disconnect cancellation and cleanup.
+        async with _admitted(authorization, request):
+            try:
+                result = await run_task_suggestions(body, **door)
+            except HTTPException:
+                raise
+            except PermissionError:
+                raise _refuse(403, "TASK_PROCESSING_APPROVAL_REQUIRED") from None
+            except Exception:
+                raise _refuse(503, "TASK_SUGGESTIONS_UNAVAILABLE") from None
+        return JSONResponse(result, headers=_HEADERS)
+    except HTTPException:
+        raise
+    except PermissionError:
+        raise _refuse(403, "TASK_PROCESSING_APPROVAL_REQUIRED") from None
+    except Exception:
+        raise _refuse(503, "TASK_SUGGESTIONS_UNAVAILABLE") from None

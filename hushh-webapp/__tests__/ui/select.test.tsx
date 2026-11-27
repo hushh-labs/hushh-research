@@ -9,6 +9,7 @@ import { NativeOwnedChoiceLease, validOwnedChoiceProjection, type OwnedChoiceEve
 
 const runtime = vi.hoisted(() => ({
   native: true, current: true, revision: 0, privacy: new Set<(state: unknown) => void>(),
+  appearance: { appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" },
   events: new Set<(event: OwnedChoiceEvent) => void>(), capabilities: vi.fn(), prepare: vi.fn(), retire: vi.fn(), read: vi.fn(), update: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/wallet", useSearchParams: () => new URLSearchParams() }));
@@ -17,7 +18,7 @@ vi.mock("@/lib/auth/use-session-chrome-suppression", () => ({ isSessionChromeSup
 vi.mock("@/lib/capacitor/native-navigation", () => ({ useNativeNavigationOverlayRef: (ref: unknown) => ref }));
 vi.mock("@/lib/capacitor/native-presentation-regions", () => ({ useNativeOverlayCollisionPadding: (padding: unknown) => padding }));
 vi.mock("@/lib/capacitor/native-control-appearance", () => ({
-  readNativeControlAppearance: () => ({ appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" }),
+  readNativeControlAppearance: () => runtime.appearance,
 }));
 vi.mock("@/lib/capacitor/native-drawer-owner", () => ({
   captureNativeDrawerOwner: () => runtime.current ? ({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1 }) : null,
@@ -61,14 +62,59 @@ function Field(props: Partial<React.ComponentProps<typeof Select>> = {}) {
 
 beforeEach(() => {
   runtime.native = true; runtime.current = true; runtime.events.clear(); runtime.privacy.clear();
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 24, y: 80, width: 180, height: 44,
+    top: 80, right: 204, bottom: 124, left: 24, toJSON: () => ({}) });
+  runtime.appearance = { appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" };
   runtime.capabilities.mockReset().mockResolvedValue({ ownedChoices: true });
   runtime.prepare.mockReset().mockImplementation(async state => receipt(state));
   runtime.retire.mockReset().mockImplementation(async state => ({ ...state, phase: "retired" }));
   runtime.read.mockReset(); runtime.update.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("shared Select native presentation", () => {
+  it("anchors to the actual trigger and retires when its retained tab becomes inactive", async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 24, y: 80, width: 180, height: 44, top: 80, right: 204, bottom: 124, left: 24, toJSON: () => ({}) });
+    const view = render(<div role="tabpanel"><Field /></div>);
+    try {
+      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+      await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+      expect(runtime.prepare.mock.calls[0][0].anchor).toEqual({ x: 24, y: 80, width: 180, height: 44,
+        viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+      view.container.querySelector('[role="tabpanel"]')!.setAttribute("aria-hidden", "true");
+      await waitFor(() => expect(runtime.retire).toHaveBeenCalledOnce());
+      expect(screen.queryByRole("listbox")).toBeNull();
+    } finally { bounds.mockRestore(); }
+  });
+
+  it("reopens after its retained pane leaves during capability admission", async () => {
+    const capabilities = deferred<{ ownedChoices: boolean }>();
+    runtime.capabilities.mockReturnValueOnce(capabilities.promise);
+    const view = render(<div role="tabpanel"><Field /></div>);
+    const panel = view.container.querySelector('[role="tabpanel"]')!;
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.capabilities).toHaveBeenCalledOnce());
+    panel.setAttribute("aria-hidden", "true");
+    await act(async () => capabilities.resolve({ ownedChoices: true }));
+    expect(runtime.prepare).not.toHaveBeenCalled();
+    panel.removeAttribute("aria-hidden");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+  });
+
+  it("keeps an initially unset choice empty if it becomes a required named field", () => {
+    const field = (named: boolean) => <form><Select {...(named ? { name: "choice", required: true } : {})}>
+      <SelectTrigger aria-label="Time"><SelectValue placeholder="Choose a time" /></SelectTrigger>
+      <SelectContent><SelectItem value="first">First</SelectItem><SelectItem value="second">Second</SelectItem></SelectContent>
+    </Select></form>;
+    const view = render(field(false));
+    view.rerender(field(true));
+    const form = view.container.querySelector("form")!;
+    expect(new FormData(form).get("choice")).toBe("");
+    expect(form.checkValidity()).toBe(false);
+  });
   it("opens the country selector after cancelling an adjacent native choice without replacing either form owner", async () => {
     render(<form><Field /><Select value="none"><SelectTrigger aria-label="Issuing region"><SelectValue /></SelectTrigger>
       <SelectContent><SelectItem value="none">Select region…</SelectItem>
@@ -134,6 +180,17 @@ describe("shared Select native presentation", () => {
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
     await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
   });
+  it("uses the committed theme when capabilities resolve after a preference change", async () => {
+    const capabilities = deferred<{ ownedChoices: boolean }>();
+    runtime.capabilities.mockReturnValueOnce(capabilities.promise);
+    render(<Field />);
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    await waitFor(() => expect(runtime.capabilities).toHaveBeenCalledOnce());
+    runtime.appearance = { appearance: "dark", accentHex: "#D19A66", foregroundHex: "#E0A36A" };
+    await act(async () => capabilities.resolve({ ownedChoices: true }));
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    expect(runtime.prepare.mock.calls[0][0]).toMatchObject(runtime.appearance);
+  });
   it("keeps the form owner and controlled refusal while projecting opaque handles only", async () => {
     const changed = vi.fn();
     const view = render(<form><Field value="private-a" onValueChange={changed} required /></form>);
@@ -162,14 +219,55 @@ describe("shared Select native presentation", () => {
   });
 
   it("retains uncontrolled form reset semantics after native choice", async () => {
-    const view = render(<form><Field /></form>);
+    const changed = vi.fn();
+    const view = render(<form><Field onValueChange={changed} /></form>);
     const form = view.container.querySelector("form")!;
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
     await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
     await act(async () => runtime.events.forEach(callback => callback(choose(runtime.prepare.mock.calls[0][0]))));
     expect(new FormData(form).get("posture")).toBe("private-b");
+    expect(trigger).toHaveTextContent("Ask first");
     await act(async () => { form.reset(); });
     expect(new FormData(form).get("posture")).toBe("private-a");
+    expect(trigger).toHaveTextContent("Private");
+    expect(changed).toHaveBeenCalledExactlyOnceWith("private-b");
+  });
+
+  it("retires an open choice on form reset and ignores its late selection", async () => {
+    const changed = vi.fn();
+    const view = render(<form><Field onValueChange={changed} /></form>);
+    const form = view.container.querySelector("form")!;
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    const pending = runtime.prepare.mock.calls[0][0] as OwnedChoiceProjection;
+    await act(async () => { form.reset(); });
+    await waitFor(() => expect(runtime.retire).toHaveBeenCalledOnce());
+    await act(async () => runtime.events.forEach(callback => callback(choose(pending))));
+    expect(changed).not.toHaveBeenCalled();
+    expect(trigger).toHaveTextContent("Private");
+  });
+
+  it("preserves the selection when the form cancels its reset", async () => {
+    const view = render(<form onReset={event => event.preventDefault()}><Field /></form>);
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    await act(async () => runtime.events.forEach(callback => callback(choose(runtime.prepare.mock.calls[0][0]))));
+    await act(async () => { view.container.querySelector("form")!.reset(); });
+    expect(trigger).toHaveTextContent("Ask first");
+  });
+
+  it("resets a Select associated with a form outside its tree", async () => {
+    const view = render(<><form id="choice-form" /><Field form="choice-form" /></>);
+    const trigger = screen.getByRole("combobox");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    await act(async () => runtime.events.forEach(callback => callback(choose(runtime.prepare.mock.calls[0][0]))));
+    await act(async () => { view.container.querySelector("form")!.reset(); });
+    expect(trigger).toHaveTextContent("Private");
+    expect(new FormData(view.container.querySelector("form")!).get("posture")).toBe("private-a");
   });
 
   it("does not substitute a web popup while failed native presentation is still retiring", async () => {
@@ -182,7 +280,7 @@ describe("shared Select native presentation", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     const state = runtime.prepare.mock.calls[0][0];
     await act(async () => retirement.resolve(receipt(state, "retired")));
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    // The original open intent survives confirmed failure; a second tap is not required.
     await waitFor(() => expect(screen.getByRole("listbox")).toBeVisible());
     expect(runtime.prepare).toHaveBeenCalledOnce();
   });
@@ -225,6 +323,21 @@ describe("private immediate-choice boundary", () => {
       } };
     return { value: new NativeOwnedChoiceLease(state, port, () => true, complete, failed), complete, failed };
   }
+  it("prepares with the latest theme received while its listener is attaching", async () => {
+    const listener = deferred<{ remove: () => Promise<void> }>();
+    const attach = vi.fn().mockReturnValue(listener.promise);
+    const port = { prepareOwnedChoice: runtime.prepare, retireOwnedChoice: runtime.retire,
+      getOwnedChoiceState: runtime.read, updateOwnedChoice: runtime.update, addListener: attach };
+    const value = new NativeOwnedChoiceLease(state, port, () => true, vi.fn(), vi.fn());
+    const presenting = value.present(state);
+    await waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    const next = { appearance: "dark" as const, accentHex: "#D19A66", foregroundHex: "#E0A36A" };
+    value.updateAppearance(next);
+    await act(async () => listener.resolve({ remove: async () => undefined }));
+    await presenting;
+    expect(runtime.prepare.mock.calls[0][0]).toMatchObject(next);
+    await value.retire();
+  });
   it("rejects extra protected fields, malformed options and duplicate handles", () => {
     expect(validOwnedChoiceProjection(state)).toBe(true);
     for (const invalid of [{ ...state, vaultKey: "forbidden" }, { ...state, options: [null] },

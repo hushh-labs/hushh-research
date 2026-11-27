@@ -106,7 +106,7 @@ class HostedErasure(HostedErasureCleanup, HostedErasureFacts):
                 journal, retained, step=result["step"], mutate=observed, observe=observed
             )
 
-    def publish_host(self):
+    def publish_host(self, *, reserve=True):
         phases = (
             "reserved",
             "substrate",
@@ -125,6 +125,9 @@ class HostedErasure(HostedErasureCleanup, HostedErasureFacts):
             "runtime_service_account": self.runtime["email"],
             "substrateReceipt": self.inventory,
         }
+        if not reserve:
+            self.inventory["tenantRef"] = f"{self.project}/{self.region}"
+            metadata["image"] = self.image
         ack = {
             "backend": "gcp",
             "project": self.project,
@@ -148,9 +151,12 @@ class HostedErasure(HostedErasureCleanup, HostedErasureFacts):
                 "SELECT publish_personal_agent_provision(%s,%s,%s,%s,%s::jsonb)",
                 (self.owner, self.provision["attemptId"], before, after, json.dumps(evidence)),
             )[0][0]
-        self.pg.execute("SELECT reserve_personal_agent_erasure(%s,%s)", (self.owner, self.erase))
+        if reserve:
+            self.pg.execute(
+                "SELECT reserve_personal_agent_erasure(%s,%s)", (self.owner, self.erase)
+            )
 
-    def memory_compute_writer(self):
+    def memory_binding(self):
         memory = {
             "hushhId": self.provision["intent"]["hushh_id"],
             "attemptId": self.erase,
@@ -173,6 +179,10 @@ class HostedErasure(HostedErasureCleanup, HostedErasureFacts):
             "reservationGeneration": 1,
             "engineIncarnation": memory["memoryBinding"]["engineIncarnation"],
         }
+        return memory
+
+    def memory_compute_writer(self):
+        memory = self.memory_binding()
         for port, receipt in (
             ("retain_erasure_memory_binding", memory),
             ("retain_erasure_memory_deletion", {**memory, "status": "provider_deleted"}),
@@ -241,7 +251,11 @@ class HostedErasure(HostedErasureCleanup, HostedErasureFacts):
                 )
 
 
-async def admitted_erasure(pg):
+async def admitted_erasure(pg, *, reserve=True):
+    # Create production-like roles before migration ACL blocks are exercised.
+    for role_name in ("anon", "authenticated", "service_role"):
+        if not pg.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role_name,)):
+            pg.execute(f"CREATE ROLE {role_name} NOLOGIN")
     for number in (956, 957, 960, 961, 962, 963, 964, 972):
         pg.apply_file(next((ROOT / "db/migrations/parked").glob(f"{number}_*.sql")))
     pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
@@ -250,7 +264,7 @@ async def admitted_erasure(pg):
     client = _Client(pg)
     try:
         await fixture.prepare(client)
-        fixture.publish_host()
+        fixture.publish_host(reserve=reserve)
         yield fixture, client
     finally:
         client._engine.dispose()

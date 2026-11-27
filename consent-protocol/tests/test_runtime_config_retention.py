@@ -97,6 +97,35 @@ def plg_runtime_sync():
     return module
 
 
+@pytest.mark.parametrize(
+    "environment,project", [("dev", "hushh-pda-dev"), ("uat", "hushh-pda-uat")]
+)
+def test_auth_authority_survives_the_real_runtime_writer(
+    monkeypatch, plg_runtime_sync, environment, project
+):
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        environment,
+        False,
+        {"firebase_auth_project_id": project},
+    )
+    config = json.loads(writes[target])
+    assert config["firebase_auth_project_id"] == project
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    monkeypatch.delenv("FIREBASE_AUTH_PROJECT_ID", raising=False)
+    runtime_settings.hydrate_runtime_environment()
+    runtime_settings.clear_runtime_settings_caches()
+    assert runtime_settings.get_firebase_credential_settings().auth_project_id == project
+
+
+def test_auth_authority_cannot_be_inherited_from_another_environment(monkeypatch, plg_runtime_sync):
+    with pytest.raises(SystemExit):
+        _write_configuration(
+            monkeypatch, plg_runtime_sync, "dev", False, {"firebase_auth_project_id": "hushh-pda"}
+        )
+
+
 @pytest.mark.feature_auth_reliability
 def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch, plg_runtime_sync):
     writes, target = _write_configuration(
@@ -270,6 +299,53 @@ def test_plg_activation_cannot_cross_environment_or_project(
         )
 
 
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_owner_activity_settings_survive_writer_and_hydration(
+    monkeypatch, plg_runtime_sync, environment, enabled
+):
+    keys = (
+        ("one_plg_owner_export_enabled",)
+        if environment == "production"
+        else (f"one_plg_{environment}_export_enabled", f"one_plg_activity_{environment}_enabled")
+    )
+    stored = {
+        **dict.fromkeys(keys, enabled),
+        "one_plg_activity_enabled": enabled,
+        **({} if environment == "production" else {"one_plg_attempt_email_enabled": enabled}),
+    }
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
+    actual = json.loads(writes[target])
+    assert all(actual[key] is value for key, value in stored.items())
+    assert "one_plg_export_account_ids" not in actual
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in stored:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
+    runtime_settings.hydrate_runtime_environment()
+    assert all(os.environ[key.upper()] == str(value).lower() for key, value in stored.items())
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_owner_activation_rejects_other_lane_and_retains_no_cohort(plg_runtime_sync, environment):
+    project = "hushh-pda" if environment == "production" else f"hushh-pda-{environment}"
+    base = {"environment": environment, "google_cloud_project": project}
+    foreign = "uat" if environment != "uat" else "dev"
+    with pytest.raises(ValueError):
+        plg_runtime_sync._retained_plg_config(
+            {**base, f"one_plg_{foreign}_export_enabled": True},
+            project=project,
+            environment=environment,
+        )
+    for value in [1, [], "True", None]:
+        with pytest.raises(ValueError, match="explicit boolean"):
+            plg_runtime_sync._retained_plg_config(
+                {**base, "one_plg_attempt_email_enabled": value},
+                project=project,
+                environment=environment,
+            )
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 def test_uat_plg_flags_default_off_and_survive_the_deployment_writer(
     monkeypatch, plg_runtime_sync, enabled
@@ -308,20 +384,6 @@ def test_uat_plg_rejects_foreign_flags_and_activity_without_its_lane(
             project=project,
             environment=environment,
         )
-
-
-def test_retained_uat_fields_do_not_activate_main_legacy_runtime(monkeypatch):
-    keys = (
-        "one_plg_uat_export_enabled",
-        "one_plg_activity_uat_enabled",
-        "one_plg_attempt_email_enabled",
-    )
-    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
-    for key in keys:
-        monkeypatch.delenv(key.upper(), raising=False)
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(dict.fromkeys(keys, True)))
-    runtime_settings.hydrate_runtime_environment()
-    assert all(key.upper() not in os.environ for key in keys)
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
@@ -514,14 +576,25 @@ def test_candidate_only_read_failures_never_create_or_update(
 def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
     monkeypatch, plg_runtime_sync
 ):
+    import ast
     import inspect
     from types import CodeType, FunctionType
 
     source = inspect.getsource(plg_runtime_sync.main)
-    boundary = '    if args.production_drive_candidate_only:\n        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)\n'
-    assert source.count(boundary) == 1
+    tree = ast.parse(source)
+    function_tree = tree.body[0]
+    boundaries = [
+        node
+        for node in function_tree.body
+        if isinstance(node, ast.If)
+        and ast.dump(node.test)
+        == ast.dump(ast.parse("args.production_drive_candidate_only", mode="eval").body)
+    ]
+    assert len(boundaries) == 1
+    assert isinstance(boundaries[0].body[0], ast.Return)
+    function_tree.body.remove(boundaries[0])
     # Negative control changes this isolated module in memory, never disk/runtime.
-    code = compile(source.replace(boundary, ""), "candidate-only-negative-control", "exec")
+    code = compile(tree, "candidate-only-negative-control", "exec")
     function = next(
         value for value in code.co_consts if isinstance(value, CodeType) and value.co_name == "main"
     )

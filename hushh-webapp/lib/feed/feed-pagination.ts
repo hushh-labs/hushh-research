@@ -31,10 +31,11 @@ export function latestFeedId(items: FeedItem[]): string | null {
   let latestValue: string | null = null;
   let latestId: bigint | null = null;
   for (const item of items) {
-    const id = parseFeedId(item.id);
+    const value = item.activity_revision ?? item.id;
+    const id = parseFeedId(value);
     if (id === null || (latestId !== null && id <= latestId)) continue;
     latestId = id;
-    latestValue = item.id;
+    latestValue = value;
   }
   return latestValue;
 }
@@ -50,9 +51,37 @@ export function isFeedIdAtOrBefore(
 }
 
 export function feedItemIdentity(item: FeedItem): string {
+  if (item.activity_group_id) return item.activity_group_id;
+  if (typeof item.metadata.feed_group_key === "string") return `group:${item.metadata.feed_group_key}`;
   if (["location_circle_message", "direct_message_received"].includes(item.event_type)
       && typeof item.metadata.chat_thread_key === "string") return item.metadata.chat_thread_key;
   return item.id;
+}
+
+/** Quiet status changes keep the reading position; the row still shows its actual event time. */
+export function updateKnownFeedItem(item: FeedItem, update: FeedItem | undefined): FeedItem {
+  if (!update) return item;
+  return update.metadata.feed_silent === true ? {
+    ...update, presentationCreatedAt: item.presentationCreatedAt ?? item.created_at,
+  } : update;
+}
+
+export function feedItemPresentationTime(item: FeedItem): string {
+  return item.presentationCreatedAt ?? item.created_at;
+}
+
+/** Settle known rows without moving the reader or admitting unseen arrivals. */
+export function updateLoadedFeedItems(
+  state: FeedPaginationState,
+  items: readonly FeedItem[],
+): FeedPaginationState {
+  const updates = new Map(items.map(item => [feedItemIdentity(item), item]));
+  const update = (item: FeedItem) => updateKnownFeedItem(item, updates.get(feedItemIdentity(item)));
+  return {
+    ...state,
+    previousFirstPageItems: state.previousFirstPageItems.map(update),
+    additionalItems: state.additionalItems.map(update),
+  };
 }
 
 function mergeAdditionalItems(

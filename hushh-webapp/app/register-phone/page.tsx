@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
@@ -22,13 +22,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
+  buildOneSetupCloudRoute,
   buildOneSetupRoute,
   normalizeStaticExportPathname,
   normalizeInvitationReturnTo,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { isByocSelectableOnBuild, isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ApiService } from "@/lib/services/api-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -72,6 +75,9 @@ export function PhoneMandatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || undefined;
+  const verificationDestination = normalizeStaticExportPathname(
+    (redirectPath ?? "").split(/[?#]/)[0] ?? "",
+  );
   const recoveryId = phoneRecoveryId(searchParams.get("recovery"));
   const {
     user,
@@ -116,27 +122,45 @@ export function PhoneMandatePageContent() {
       // redirect. Refresh the authoritative root state before resolving a
       // destination: a stale cached bootstrap result must never let a newly
       // verified account skip One setup and land in Profile/Home.
-      const setupResolved = await PreVaultUserStateService.bootstrapState(
+      const bootstrapState = await PreVaultUserStateService.bootstrapState(
         owner,
         {
           force: true,
         },
-      )
-        .then((state) => PreVaultUserStateService.isSetupResolved(state))
-        .catch((error) => {
-          console.warn(
-            "[RegisterPhonePage] Failed to refresh setup state:",
-            error,
-          );
-          return false;
-        });
+      ).catch((error) => {
+        console.warn(
+          "[RegisterPhonePage] Failed to refresh setup state:",
+          error,
+        );
+        return null;
+      });
+      if (
+        bootstrapState &&
+        PreVaultUserStateService.hasOneCloudProject?.(bootstrapState) &&
+        !PreVaultUserStateService.hasOneRuntimeChoice?.(bootstrapState) &&
+        typeof ApiService?.getPersonalAgentStatus === "function"
+      ) {
+        const agentStatus = await ApiService.getPersonalAgentStatus().catch(() => null);
+        if (
+          agentStatus?.hostingMode === "hussh_pods" &&
+          (agentStatus.deploymentTarget === "ace" || agentStatus.state === "active")
+        ) {
+          await PreVaultUserStateService.markOneRuntimeChoice?.(
+            owner,
+            "hushh_managed_vertex",
+          ).catch(() => undefined);
+        }
+      }
+      const setupResolved = bootstrapState
+        ? PreVaultUserStateService.isSetupResolved(bootstrapState)
+        : false;
       const idToken = await activeUser.getIdToken().catch(() => undefined);
 
       // The number they just verified is the trigger for claiming: if the SEC
       // lists a firm or advisers at it, show that instead of the generic next
       // screen. Fails open — any error, timeout or miss continues as normal.
       const claimRoute = await (async () => {
-        // Finish the invitation the person chose before optional discovery.
+        // Resume the chosen operation before optional discovery.
         if (normalizeInvitationReturnTo(redirectPath)) return null;
         // identity.phone_number is the authoritative verified number. The
         // Firebase user object is null here whenever the phone was confirmed
@@ -176,6 +200,8 @@ export function PhoneMandatePageContent() {
             phoneNumber: activeUser.phoneNumber,
             phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
           })
+        : isPooledSandboxSwitchAvailable() && isByocSelectableOnBuild()
+        ? buildOneSetupCloudRoute(redirectPath)
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: owner,
@@ -238,12 +264,9 @@ export function PhoneMandatePageContent() {
         /^\/one\/location\/invite\/[^/]+$/.test(invitationPath!) ||
         (invitationPath === ROUTES.CIRCLE_JOIN && invitationUrl.searchParams.get("invite")?.trim())
       ));
-      // Setup's explicit Verify action must remain usable after reset too:
-      // vault ownership exempts generic admission, not a chosen phone operation.
-      const isSetupVerification = normalizeStaticExportPathname(
-        (redirectPath ?? "").split(/[?#]/)[0] ?? "",
-      ) === ROUTES.ONE_SETUP;
-      if (isTokenInvitation || isSetupVerification) {
+      // Setup also needs explicit verification for
+      // established accounts that are exempt from generic onboarding.
+      if (isTokenInvitation || verificationDestination === ROUTES.ONE_SETUP) {
         const identity = await AccountIdentityService.syncCurrentUser(user);
         if (cancelled) return;
         if (typeof identity?.phone_verified !== "boolean") {
@@ -407,17 +430,14 @@ export function PhoneMandatePageContent() {
                       </button>
                     </DialogTrigger>
                     <DialogContent srDescription="How your mobile number is used">
-                      <DialogTitle>About SMS notifications</DialogTitle>
-                      <p>
-                        We’ll send a verification code to confirm your mobile
-                        number. You may also receive SMS notifications from Hushh.
-                      </p>
+                      <DialogTitle>Text messages</DialogTitle>
+                      <p>We’ll text you a verification code. We may also send notifications.</p>
                     </DialogContent>
                   </Dialog>
                 </>
               }
             />
-            <div id="recaptcha-container" className={cn("mt-3 min-h-0", styles.recaptcha)} />
+            <div id="recaptcha-container" className={cn("min-h-0", styles.recaptcha)} />
           </div>
         </div>
       </div>

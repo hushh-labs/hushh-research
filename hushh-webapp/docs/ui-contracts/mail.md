@@ -28,9 +28,7 @@ storage authority are unchanged.
 - The shared top shell owns the visible **Mail** breadcrumb beside its existing
   Back control. Existing authored Back targets and Profile remain unchanged.
   The body retains one visually hidden accessible H1 and compact account detail.
-- Mail uses Connect's 728px **outer** reading frame, including 24px gutters above
-  620px, 20px at 351–620px and 16px at 350px or below. Header and navigation
-  retain their independently sized frames.
+- Mail and Location use the shared 864px reading frame and responsive page gutters.
 - Self-hosted Plus Jakarta Sans remains the family. Effective roles are shared
   header 17/22/600; workspace labels 15/20/550; section 14/22/600; row title
   14/21/550; supporting copy 12/18/400; ordinary action 12/18/550. Inputs retain
@@ -74,7 +72,7 @@ Owners: [Mail scope](../../components/gmail/mail-workspace.module.css),
 
 The source-coupled mounted fixture compiles Tailwind and local CSS, minifies the
 result with Lightning CSS, and loads the shipped Plus Jakarta Sans binaries.
-WebKit light/dark screenshots and computed assertions cover Overview/KYC/Receipts,
+WebKit light/dark screenshots and computed assertions cover Overview/Follow-ups/Receipts and the KYC screen,
 setup introduction/body and OAuth cancellation recovery at 360, 393, 430, 768,
 1024 and 1440 CSS pixels, plus frame edges at 350/351, 620/621 and 767/768,
 device scale 1. KYC queue/review, monitoring confirmation, receipt detail and
@@ -104,9 +102,9 @@ destination mounts and performs its own read.
 | Disconnected setup | Status card gives source-owned title/detail/helper and **Connect Mail** or **Reconnect Mail**; optional **Retry Mail status** rechecks status. Footer **Skip Mail setup** and its explanatory copy are separate from a verified connection. | Status GET/reconcile as selected by caller; Connect starts consent, Retry only rechecks, Skip settles setup without claiming a grant. |
 | Connected setup | Status/header **Sync receipts**, **Syncing receipts…** or **Sync unavailable**, shared **Disconnect** confirmation, footer **Finish Mail setup**. Busy/disabled states retain caller guards. | Existing receipt resource and connector service; Finish verifies readiness then writes setup completion, Disconnect alone calls connector disconnect. |
 | Google popup/native/callback | Waiting, cancellation, blocked popup, timeout, verified/unverified success and failed return keep their exact [OAuth outcome table](#oauth-each-affirmative-negative-and-uncertain-outcome). The return route owns its genuine full-page title and loader; provider/OS captions belong to Google/OS. | Attempt/source/origin/owner correlation, native server code and status verification. Opening a provider window is not completion. |
-| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / KYC / Receipts**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
+| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / Follow-ups / Receipts**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
 | Manage menu | **Reconnect** opens a deliberate new authorization. **Disconnect** opens **Disconnect Mail?**; **Keep connected** cancels; confirm disconnect closes reads, aborts scan and calls the service. Escape/outside restores Manage focus; nested confirmation takes focus when selected. | Reconnect OAuth or connector disconnect only after the explicit action. Existing success/failure copy and retained encrypted snapshot distinctions are in [Overview](#overview-and-connection-management). |
-| Overview | **Draft with One.**, **Instant drafts & replies**, **Ready for your 1-tap review**, decorative Reply/Follow up/Write stack, **Chat with One**. No receipt metric card is currently mounted here. | Chat navigation only; no model call or email send from opening chat. |
+| Overview | **Search mail**, **Recent mail** (up to five rows, newest first), **View more**, one **Compose** action; a row opens its exact email in place with **Reply**. See [Overview and connection management](#overview-and-connection-management). | Provider-backed reads through the Overview routes; Compose/Reply open One's reviewed draft card. Nothing is sent or changed by reading, searching or opening. |
 | KYC intake check/vault | **KYC requests / Getting your KYC workspace ready.** skeleton; locked state **Set up KYC**, vault explanation and **Open private vault**. | Existing intake display read and vault unlock; no disclosed profile in skeleton. |
 | KYC profile | **Build your KYC profile**, supporting copy and decorative Name/Address/Employment preview; **Paste details** opens the controlled dialog. The preview is not editable data. | Opening is local. |
 | Paste dialog | **Paste your profile details**, explanation, **KYC details** textarea/placeholder, **Copy AI prompt**→**Copied**, **Save profile**, **Skip for now**, privacy footnote, Close/Escape/outside. Closing returns focus to Paste details while it remains mounted. | Copy writes clipboard; Save explicitly authorizes encrypted PKM intake and proceeds optimistically with success/failure toast; Skip defers locally. Neither closing nor copying sends mail. |
@@ -114,8 +112,8 @@ destination mounts and performs its own read.
 | KYC queue/review | Request and activity cards show requested fields/time/status, **Open mail** external handoff, **Review**, **Draft with One**, **Ignore** and local pagination. Fullscreen phone/desktop modal **Review request** contains selected scope pills, editable private reply, prepare/review/send and negative outcomes. | List/scan/prepare/send/ignore use the exact [wire table](#kyc-request-wire-and-streaming); local scope choice/draft edits do not disclose. Final Send needs explicit reviewed approval; unknown outcome never retries automatically. |
 | Receipts entry | Restore encrypted current-account snapshot before stale automatic update. Toolbar **Saved receipts** or **Your receipts** and the exact opening/checking/checked/saving/updated/error text above. Header Sync remains a distinct manual action; failed restore has a separate recovery. | Device snapshot/resource, then consented Gmail read only when eligible; five-minute freshness owner, signed continuation and owner/vault fences remain. |
 | Receipt updates dialog | Conditional **View details** opens **Receipt updates** with disabled/migration description and earlier-history note. **Manage Mail** opens Profile connector settings with focus handoff; **Got it**, Back, Escape and outside close without a request. | Local dialog/navigation. No consent or sync on acknowledgement. |
-| Receipt collection | Current **Overview** / **Categories** cards: saved count, Paid/Needs attention/Coming up, sample note, category count/percentage/bars. Archived/unresolved rows are excluded from current counts; no mixed-currency spend. | Pure projection of verified saved rows. Cards are not navigation. |
-| Recent receipts | **Recent receipts**, vault/setup/reconnect/loading/empty/partial/error branches, **Search receipts**, All/Paid/Due/Overdue/Upcoming/Cancelled, month groups, merchant/status/amount rows and local Previous/Next. Due currently matches no records. | Search/filter/page are local over ten-row display pages. Row click opens detail; provider scan pagination is separate. Background insertion retains current row/page anchor. |
+| Receipts header | **Receipts** heading, **Activity** (**History** on Recurring), **All receipts / Recurring** switch, compact **Saved receipts** status with **Try again** on failure. The earlier Overview and Categories cards are no longer mounted. | Local view state; Activity and History open a sheet of recorded decisions. |
+| All receipts | One noticed card (**See all**, one action such as **Review plans**), **Search receipts**, **All dates**, **All types** (no Due), month cards with payment count and net amount **After refunds**, tappable rows (merchant, date, type, amount, status) and local Previous/Next. | Search, filters and paging are local over the saved rows; a month's count and net come from its listed rows, per currency, with failed, cancelled and unpaid receipts excluded and unknown amounts left out. |
 | Receipt detail | Phone adaptive sheet/desktop 520px modal, **Receipt details**, loading/**Try again**, conditional saved fallback, Amount/Status/Attention/Category/Document/Recurrence/identifiers, optional dates/sender/subject, Activity/excerpt/Source evidence, conditional **Visit merchant**. Close/Back/Escape/outside restore row focus as supported by surface. | Live detail GET only when usable; encrypted saved fallback stays available without fabricating original email evidence. Visit merchant opens verified external URL, not Gmail or payment. |
 | Earlier saved history | Separate **Earlier saved receipts** with opening/retry/unverified-origin copy; same grouped list/detail owner without current-account overview. No original Mail account attribution, live email excerpt or current-account count. | Existing owner-authorized encrypted history read. It is never merged by a matching label. |
 | One and compatibility | `/one/email` connection/handoff and the editable One Mail draft keep their separate send/review owner. `/one/setup/email` is the legacy platform-mailbox preference route. Inline Chat/Nudges and old receipt hero remain source-only at this mount. | Opening chat/draft does not send; only the final approved delivery path can. |
@@ -124,7 +122,7 @@ destination mounts and performs its own read.
 
 | Surface/control | Classification | Verified presentation boundary |
 | --- | --- | --- |
-| Shared header, Back, avatar, three tabs, Overview Chat, Manage menu | Already aligned | Header 17/22/600, tabs 15/20/550, existing 44px MailActionButton and focus/keyboard/swipe owners are reused. No duplicate shell or button primitive. |
+| Shared header, Back, avatar, three tabs, Overview Compose, Manage menu | Already aligned | Header 17/22/600, tabs 15/20/550, existing 44px MailActionButton and focus/keyboard/swipe owners are reused. No duplicate shell or button primitive. |
 | Mail root/skeleton/return | Changed | Mail role variables now reach skeleton/return mounts; callback title uses the full-flow rung. The shared setup intro/footer retain their own full-primary owner. |
 | Disconnected connection status | Changed | Narrow Gmail source eyebrow, support copy and full-width inner pill now match the scoped roles while status/badge/scope logic stays in the connector owner. |
 | Paste/monitor/review | Changed | Paste title, form label/input, Copy/Skip utilities, KYC row/status text, selected scope contrast, quiet Open mail, full-width actions and Task portal description inherit the intended role. The ref-forwarding MailActionButton remains the trigger, and paste close returns focus. |
@@ -145,9 +143,10 @@ flowchart TD
   skip --> hub
   roster --> mail["Mail workspace"]
   mail --> overview["Overview"]
-  mail --> kyc["KYC"]
+  mail --> followups["Follow-ups"]
   mail --> receipts["Receipts"]
-  overview --> one["Chat with One"]
+  overview --> one["Compose or Reply in One's reviewed draft card"]
+  roster --> kyc["KYC screen (/one/kyc), not a Mail tab"]
   kyc --> profile["Paste details or Skip for now"]
   profile --> monitor["Explicit monitoring opt-in"]
   monitor --> request["Request card"]
@@ -173,7 +172,7 @@ flowchart TD
 - [Overview and management](#overview-and-connection-management)
 - [Receipts: every row, field and control](#receipts-tab-scan-rows-filters-and-detail)
 - [Mail onboarding, Google approval and status copy](#mail-onboarding-google-authorization-and-status-copy)
-- [KYC intake, monitoring and every review decision](#kyc-tab-profile-intake-monitoring-and-requests)
+- [KYC intake, monitoring and every review decision](#kyc-screen-profile-intake-monitoring-and-requests)
 - [One editor, formatting, Send and recovery](#one-handoff-mail-editor-and-delivery-activity)
 - [Mailbox changes, follow-ups and voice](#mailbox-changes-follow-ups-and-voice-mail-surfaces)
 - [HTTP methods, bodies, authentication and response fields](#api-and-field-provenance-ledger)
@@ -195,10 +194,11 @@ are not finite app-owned English copy.
 | Product boundary | Current truth |
 | --- | --- |
 | Mail capability | `gmail`, title **Mail**, specialist `agent_email`, description **Receipt sync and purchase-memory review.**, preview **Receipt & purchase memory**. It requires the private vault. |
-| Three workspace tabs | **Overview**, **KYC**, **Receipts**; values `overview`, `kyc`, `receipts`. There is no current Chat or Nudges tab. |
+| Three workspace tabs | **Overview**, **Follow-ups**, **Receipts**; values `overview`, `followups`, `receipts`. KYC is not a tab: it is its own screen at `/one/kyc`. There is no current Chat or Nudges tab. |
 | Personal Gmail | Current connection and provider approval are owned by `GmailReceiptsService`; the stored connection is `kai_gmail_connections`. Personal Gmail KYC requests use the person's inbox. |
-| One | The private agent owns conversation. **Chat with One** opens its existing conversation with an empty composer. Opening chat alone does not start a model turn or send mail. |
-| Compatibility Email/KYC | `/one/email` is a connection/handoff page. `/one/setup/email` is the distinct legacy platform-mailbox preference page. Neither is a fourth Mail tab. |
+| One | The private agent owns conversation. Overview **Compose** and **Reply** hand an explicit Mail intent to One and open its existing reviewed draft card directly. Entering it starts no model turn and sends nothing. |
+| KYC screen | `/one/kyc` (`ROUTES.ONE_KYC`) is the KYC request-and-review screen: the setup tile, the Feed, To-dos, Memory and chat open it. It runs on the one Mail connection and shows the same connect, reconnect and vault states, but none of Mail's tabs, brief or receipts. It has no native presentation of its own; the web screen shows. |
+| Compatibility Email | `/one/email` is a connection/handoff page. `/one/setup/email` is the distinct legacy platform-mailbox preference page. Neither is a Mail tab. |
 | Unmounted components | `GmailChatPanel` and `GmailNudgesSection` have source/tests but no current production caller. Their controls are not current Mail workspace controls. |
 | Send | A chat reply, connection, receipt scan, profile paste or monitoring toggle does not send personal mail. Sending has its own reviewed snapshot and explicit final action. |
 
@@ -213,11 +213,11 @@ Sources: [capability registry](../../lib/onboarding/one-capabilities.ts),
 | Entry/state | Owner and result |
 | --- | --- |
 | `/one/gmail` | `OneGmailPageClient` checks enabled capability, then `CapabilityVaultPrerequisite`, then `GmailReceiptsPage`. Disabled capability replaces route with `/one`; **Opening One…** is the interim state. |
-| `/one/setup/gmail` | Setup-scoped introduction and the same connector workspace; finish/skip return through setup authority. This route has no three-tab workspace rail. |
-| `?workspace=kyc` / `?workspace=receipts` | Explicit deep link takes precedence over remembered view. Only the tab value belongs in the URL. Sensitive prefills travel in memory. |
-| Default/invalid query | `gmailDeepLinkWorkspace` accepts only `kyc` or `receipts`; otherwise the page uses remembered owner/path workspace, then `overview`. A literal `workspace=overview` is not an explicit force override. |
-| Tab tap/swipe | Shared `SegmentedTabs`/`SwipeViews`, tab-set `gmail-workspace`, accessible name **Gmail workspace**. Changes local selection and owner/path-scoped session key `hushh.gmail.workspace.v1:{userId}:{pathname}`. No tab-selection API or history entry. |
-| Inactive pane | Retained pager pane is inert and `aria-hidden`; it cannot publish active voice controls. KYC first mounts when visited, then can retain its local draft; its request owner receives `active=false` off-tab. |
+| `/one/setup/gmail` | Setup-scoped introduction and the same connector workspace; finish/skip return through setup authority. This route has no tab rail. |
+| `?workspace=kyc` / `?workspace=followups` / `?workspace=receipts` | Explicit deep link takes precedence over remembered view. Only the tab value belongs in the URL. Sensitive prefills travel in memory. `kyc` is not a Mail tab: the Mail page forwards it, replacing its own history entry, to the KYC screen (`/one/kyc`), so every existing link still lands on the KYC requests and Back does not return to the forwarding link. Memory's older offer link uses it. |
+| Default/invalid query | `gmailDeepLinkWorkspace` accepts only `kyc`, `followups` or `receipts`; otherwise the page uses remembered owner/path workspace, then `overview`. A literal `workspace=overview` is not an explicit force override. |
+| Tab tap/swipe | Shared `SegmentedTabs`/`SwipeViews`, tab-set `gmail-workspace`, accessible name **Gmail workspace**, three tabs in this order: **Overview**, **Follow-ups**, **Receipts**. Changes local selection and owner/path-scoped session key `hushh.gmail.workspace.v1:{userId}:{pathname}`. No tab-selection API or history entry. |
+| Inactive pane | Retained pager pane is inert and `aria-hidden`; it cannot publish active voice controls. The KYC requests are not part of any Mail pane; their owner mounts only on the KYC screen. |
 | `/one/email` | **Mail Agent**; skeleton while connection resolves; disconnected **Connect Mail** routes to `/one/gmail`; connected **Ask One about Mail** opens One. |
 | Compatibility redirects | `/gmail`, `/one/profile/gmail`, `/one/profile/gmail/connection`, `/one/profile/gmail/actions`, and old receipt entries resolve through existing route owners to canonical Mail. Profile connector details remain the connection/recovery owner described in [Connectors](./profile-connectors.md). |
 | OAuth return | `/one/profile/gmail/oauth/return`, shared implementation under `app/profile/gmail/oauth/return`; signed provider state and current owner determine setup versus Mail continuation. |
@@ -281,22 +281,78 @@ Sources: [snapshot schema/projection](../../lib/mail/receipt-snapshot.ts),
 
 | Rendered control/content | Effect and every branch |
 | --- | --- |
-| Connected account | **Mail**, **Connected**, green status dot. This is shared connector status, not a read per label. Account address appears in page description **Connected to {google_email}**; without an active connection but with stored records: **Saved receipts are still available here.** |
-| **Manage** | Opens end-aligned dropdown; busy status/action disables trigger and items. Opening/closing/outside/Escape makes no API call. |
+| Mail header | Product mark and **Mail**, the one connected mailbox (**{google_email}**) with a badge of how many things need the owner, a chevron menu, and the owner's initial. The header appears on every tab when connected; it is shared connector status, not a read per label. Without an active connection but with stored records: **Saved receipts are still available here.** On Overview and Follow-ups the header names the mailbox, so the page description **Connected to {google_email}** appears only on **Receipts**. |
+| Mailbox menu (**{google_email}**) | Opens end-aligned dropdown with **Reconnect** and **Disconnect**; busy status/action disables trigger and items. Opening/closing/outside/Escape makes no API call and returns focus to the trigger. |
 | **Reconnect** | Starts deliberate Google authorization; no confirmation dialog before opening provider. It preserves existing modify permission where applicable. Provider cancellation does not equal disconnect. |
 | **Disconnect** menu item | Opens **Disconnect Mail?** confirmation. Focus restoration from menu is suppressed so confirmation owns focus. No disconnect call yet. |
 | Confirmation body | **Stops Mail access and receipt sync, and deletes Mail receipts and summaries from Hussh. Information saved to private memory stays.** |
 | **Keep connected** | Closes confirmation without disconnect API. Buttons disable during disconnect; the root open-state callback itself is not a universal busy dismissal guard. |
 | Confirm **Disconnect** | Immediately closes local receipt-read admission, aborts scanning, invalidates read sequence, then calls connector disconnect. Requires response with `connected:false`; otherwise **Mail could not be disconnected.** Success closes dialog, empties live collection/page/cursors, and releases busy. Failure reopens local read admission and releases busy; no successful-disconnect claim. |
 | Disconnect feedback | **Disconnecting Mail...**; if encrypted snapshot revision exists: **Mail disconnected. Saved receipts remain available; reconnect to open their original emails.** Otherwise **Mail disconnected and Mail receipt data was deleted.** Failure fallback **We couldn't disconnect Mail right now. Please try again in a moment.** |
-| Hero | **Draft with One.**, **Instant drafts & replies**, **Ready for your 1-tap review**. Decorative stack **Reply**, **Follow up**, **Write** is `aria-hidden`, not three buttons. |
-| **Chat with One** | `navigateToAgentChat()`; empty composer, no demonstration prompt, draft, model request or send. |
-| Receipt metrics on Overview | Parent computes/passes fetching/count/update/issue props, but `MailOverview` consumes only `onOpenChat`. Those metrics are not rendered current Overview content. Do not design against a presumed count card. |
+| **Needs your attention** | Up to three cards from `POST /api/one/mail/overview/brief` for the connected mailbox, nearest promised or needed-by date first. Each card shows who it is with (the message header's sender, or **{context} · Follow-up**/**Reply** when the mail names an organization), a short task title, the date the email states (**Promised 20 November**, **Needed by 28 November**) or the term it states exactly (**30 to 45 days**), and one action. Nothing on a card comes from the model's own words except the title and one reason line; people, dates, ids and targets are read from the messages. Only the first card's action is the primary button. |
+| Brief verification | The `agent_email_overview_brief` gene proposes items from a bounded 21-day window of received and sent mail; the service keeps an item only when its message refs, thread, exact quotes, dates and numbers are in that mail. A reply need must be unanswered; a follow-up must still be unresolved; a date must be stated in the quote and agree with its ISO day; a number in an update must appear in its quotes; an approval needs the owner's own earlier message and the other person's words. Anything else is discarded, never softened. The packet carries aliases, never Gmail ids; message text is hidden-instruction-stripped and untrusted. |
+| **Why this?** | Opens a sheet with the reason and each supporting message: who, when, and the exact quote. **View email** reads that one message fresh from the connected mailbox through its owner- and account-bound `ms1.` id (`POST /api/one/mail/overview/open`) and shows it as text with the quoted words marked, **Back** to the list. A message that is gone says **That email can't be opened. It may have been deleted or moved.**; a different account is refused, never shown. Reading marks nothing read and changes nothing. |
+| **Draft follow-up** / **Draft reply** | `POST /api/one/mail/overview/reply-source` for the message the card rests on, then the existing reviewed draft card opens on that thread: recipient and subject verified and read-only, body editable. A suggested first draft, when the service verified it (no links, addresses or numbers new to the thread), arrives as editable text; otherwise the body is empty. Nothing sends: **Send** stays the explicit reviewed step, **Decline** closes the card, and neither marks anything completed. While preparing the button says **Preparing…**; a failure says why on the card and leaves it retryable. |
+| **All N in Follow-ups** | Shown when more than three items need the owner; **N** is the real count, and the header badge shows the same count. It opens **Follow-ups** with exactly those N items, from the same read (no second request). |
+| **Recent updates** | Verified changes since an earlier message in the same thread (**Proposal approved**, **Scope and ₹2.4 lakh budget confirmed.**), plus saved price rises from One's mailbox check in Receipts (**Renewal increases by ₹600**, **You paid ₹1,200. The 26 Nov renewal is ₹1,800.**; the rise is the difference of two validated amounts and the date is the provider's). Reading saved findings starts no mailbox check and no model call. |
+| **Thank {first name}** | Only on an approval or confirmation. Prepares a reply on the approving message with an editable starting text, exactly as **Draft reply** does. |
+| **Open in Receipts** | Opens the **Receipts** tab and that exact finding's review (its facts and the emails behind it). A finding the owner already answered is not listed on Overview. |
+| **Recently completed** | A confirmed send: a delivery-ledger row with `state = 'sent'` and a Gmail message id, found in the connected mailbox with the SENT label (`POST /api/one/mail/overview/completed`, no model). Opening, editing, cancelling or declining a draft, a failed or uncertain send, a message in another mailbox and a draft never appear. An attachment is mentioned only when the sent message has it (**Attached: pricing-sheet.pdf**). The time is the send's, in the viewer's time zone. |
+| **View sent email** | Opens that exact sent message from its `ms1.` id in the same sheet, read fresh; no list and no quote to mark. |
+| Brief states | Each section says what happened: loading skeleton while One checks; **Nothing needs a reply or a follow-up. One checked N recent messages from the last 21 days** only after a read that found nothing; **No recent mail to check yet.** for an empty window; **No changes to report.**; **Nothing sent through One in the last 30 days.**; a failed or slow check says **One couldn't check your mail just now. Try again.** or **Couldn't refresh. Showing what One found earlier.** with **Try again**, **Reconnect** or **Unlock** as the cause requires, and is never worded as an empty brief. The brief and the confirmed sends fail independently. |
+| Brief freshness | **Updated {time}** with **Refresh** under the sections: the time of the last successful read on this device, moved only by a success; **Refreshing…** while it runs, old items kept; a failure keeps them and says so. |
+| Brief isolation | Brief items and confirmed sends stay in memory, scoped to the owner, Google account and vault session. After a full restart, Overview waits for a verified read. Encrypted Tasks and receipt snapshots can restore independently. Each Overview section retains the timestamp of its own last successful read. An answer for another account than the one shown is dropped; a late answer from a superseded read cannot land. One brief per owner runs at a time; the server caches a verified brief for five minutes by content. |
+| Brief authority | Hub content routes (`CONTENT`), Shared owners, `gmail.readonly`, owner-authorized Mail reads. The model call is a tool-free, schema-only Email child (kill switch `KAI_MAIL_OVERVIEW_BRIEF_ENABLED`). Mail text never triggers a tool, a send, a label or a navigation. |
+| Secondary tools | **Search and recent mail** (toggle) opens the reader below: **Search mail**, **Recent mail**, **View more**, **Open**, **Refresh** and **Reply**. **Write with One** hands One an empty reviewed draft. They are tools, not the Overview's body. |
+| **Search mail** | An explicit query: Enter or **Search**. It calls `POST /api/one/mail/overview/search`, a Gmail `messages.list` query over **all mail except Spam and Trash**, one provider page of at most 25 rows. It is not Receipts' local filter and never searches only loaded rows. Typing alone searches nothing. A query over 512 bytes is refused in the page (**That search is too long...**) before any request. |
+| **Recent mail** | Loads when the Overview tab is visible, independent of any receipt scan, Calendar or follow-up monitor. `POST /api/one/mail/overview/recent` reads the **Inbox** (label `INBOX`), newest first, five rows at first. Each row is sender, subject, a short source preview and received time; an absent field is named (**Unknown sender**, **No subject**) or omitted, never invented. Unread rows show a dot. No summary or importance ranking is used. |
+| **View more** | Appears only when the provider reported more mail than the page. It re-reads up to 25 rows. At 25 the note **Showing the newest 25 in your Inbox. Search to find older mail.** replaces it; there is no continuation, total or **All mail** claim. |
+| Search results | Heading **Recent mail** becomes a **Recent mail** back button; the field stays editable. Scope line: **All mail (Spam and Trash excluded)**. **Showing the first N matches. Refine your search to narrow them.** appears only when Gmail reported further matches. **No matching emails.** is shown only for a successful search with no rows. |
+| Open a row | `POST /api/one/mail/overview/open` with the row's `source_id`. The row opens in place with **Back** to the same list and row. The body is readable text from the same extractor One's mail reads use, rendered as a text node: no markup, remote images or links. Reading is `gmail.readonly` GET only, so it does not mark read, label, archive, delete or complete anything. |
+| `source_id` | `ms1.` plus an authenticated, opaque encryption of the Google account and message, bound to the owner. Deterministic and non-expiring: a row keeps its identity across refreshes, reorders and searches. It is an identity, not an authority: every use needs the vault owner, an unrevoked grant and the same Google account, and re-reads the message. The browser never holds a Gmail id or a list position. |
+| **Updated / Refresh** | Beside the scope line: **Updated 2:31 PM** (this device's clock, when the list on screen was read) and **Refresh**, which re-reads the Inbox (**Refreshing…** while it runs, old rows kept in place; a failure keeps them and says so). The list never refetches or reorders by itself while the tab stays visible, so a row cannot move under a tap; a tab that returns after more than a minute revalidates. Not shown while searching, where Enter runs the search again. |
+| **Reply** | `POST /api/one/mail/overview/reply-source` mints a fresh 15-minute `rs1.` reply reference through the existing reply service (the same one One's reply tools and `/email/send` use), then hands off to the reviewed card with the server-derived recipient and subject, an empty body and the reference. Replies are refused for mail the owner sent, Trash, Spam and drafts, with the service's own words shown. Gated by the same two switches as sending. No attachment or reply-all. |
+| Reply that outlasts its reference | The handoff also carries the stable `ms1.` source id and the Google account, so the 15-minute reference is renewed from the same original email (`POST /api/one/mail/overview/reply-source` again) about two minutes before it expires while the card is open, and when the tab becomes visible after being away. Renewal reads the original email only: it never touches the text being written and never sends. A renewal that would change the recipient or subject is held, not swapped in. If a reference still expires before **Send** (a closed laptop, an offline tab), the server refuses it before anything is sent, Mail renews it from the same source and the failed attempt reads **Your reply was refreshed from the original email. Nothing was sent. Review it, then send it.**, with **Review again** returning the same text on the same message. A renewal refused for another reason (original deleted, account changed, Mail reconnect needed, replying switched off) says so and also states that nothing was sent. |
+| **Compose** / **Write with One** | **Write with One** (beside the tools toggle) and **Compose** (inside the reader) hand One an explicit `mailCompose` intent (owner, Google account) and open the existing draft card empty. The card keeps recipient review, the editable body, the explicit **Send**, the connect/allow-sending gap and send-status recovery (`sending`, `sent`, `failed`, `outcome_unknown` are existing delivery states). It never sends on its own, and an opened, edited or declined draft completes nothing. |
+| States | **Loading your mail...**; **No mail in your Inbox.** (verified empty only); **No matching emails.**; refresh failure with rows kept **Couldn't refresh your mail. Showing what we loaded earlier.** plus **Try again**; no rows **Couldn't load your mail. Try again.**; lost access **Your mail connection needs attention. Reconnect to continue.** with **Reconnect**; a different account **Your mail account changed...**; an unavailable email **That email can't be opened. It may have been deleted or moved.** A failed read is never worded as an empty Inbox or **up to date**. |
+| Isolation | Rows are kept in memory only, keyed by owner, Google account and vault epoch, and purged on sign-out, disconnect, vault change and account change. A response for another account than the one shown is dropped, and so is a late response from a superseded request. Rows survive only an ordinary refresh failure for the same account; lost access, a different account or withdrawn reads clear them. The submitted search and open email are remembered for returning from a reply. |
+| Hosting and gates | Hub content routes (`CONTENT`) for Shared owners; a privately hosted owner gets `409 AGENT_PRIVATE_RUNTIME_REQUIRED`. Reads use owner-authorized Mail reads (`gmail_chat_reads`). Responses are `Cache-Control: private, no-store`; logs carry codes only, never mail or the query. |
+| Receipt state on Overview | The Overview reads no receipt list and no scan. It reads only the price rises One's mailbox check already saved in Receipts (device-local, encrypted, no network); receipt loading never gates or delays it, and the mailbox check itself runs only while Receipts is open. |
 
-Sources: [Overview and Manage](../../components/gmail/mail-overview.tsx),
+Sources: [Overview brief](../../components/gmail/mail-brief.tsx),
+[Mail header and mailbox menu](../../components/gmail/mail-header.tsx),
+[Search and recent mail reader](../../components/gmail/mail-overview.tsx),
+[message list](../../components/gmail/mail-message-list.tsx),
+[opened message](../../components/gmail/mail-message-view.tsx),
+[Overview state](../../lib/mail/use-mail-overview.ts),
+[Overview client](../../lib/mail/mail-overview-client.ts),
+[Compose/Reply handoff](../../lib/mail/mail-compose-handoff.ts),
+[Reply renewal](../../lib/mail/mail-reply-binding.ts),
+[Renewal timer](../../lib/mail/use-mail-reply-renewal.ts),
+[Overview service](../../../consent-protocol/hushh_mcp/services/mail_overview.py),
+[Overview routes](../../../consent-protocol/api/routes/one/mail_overview.py),
 [connect/disconnect owners](../../components/gmail/gmail-receipts-page.tsx),
 [connection service](../../lib/services/gmail-receipts-service.ts),
 [shared connector store](../../lib/profile/gmail-connector-store.ts).
+
+## Follow-ups tab
+
+| Rendered control/content | Effect and every branch |
+| --- | --- |
+| **Follow-ups** | Every item that needs the owner, from the same read as the Overview's **Needs your attention** (no second request), nearest date first, with the count (**4 need you**, **None waiting**). Each item is the same card: who, the date or term the email states, **Why this?** and **Draft follow-up**/**Draft reply**, with the same verification, sheet and draft behavior. |
+| States | Loading skeleton; **Nothing is waiting on you right now.** only after a read that found nothing; a failed check shows its cause with **Try again**, **Reconnect** or **Unlock** and never reads as empty; items stay on screen when only a refresh fails. |
+| KYC requests | Not listed here and not linked from here. Requests for the owner's personal details have their own screen (`/one/kyc`); Follow-ups lists only the mail that needs a reply or a follow-up. |
+| Changes outside this tab | Receipts is unchanged except that it opens a named finding on request (`reviewRequest`, once per request); Follow-ups reads no Calendar follow-up monitor, and Mail Overview works with Mail connected on its own. |
+
+Sources: [Follow-ups](../../components/gmail/mail-followups.tsx),
+[attention card and sections](../../components/gmail/mail-brief.tsx),
+[Why this? sheet](../../components/gmail/mail-brief-why.tsx),
+[brief and Receipts panel](../../components/gmail/mail-brief-panel.tsx),
+[header](../../components/gmail/mail-header.tsx),
+[brief client](../../lib/mail/mail-brief-client.ts),
+[brief state](../../lib/mail/use-mail-brief.ts),
+[price-rise wording](../../lib/mail/receipt-price-update.ts),
+[brief service](../../../consent-protocol/hushh_mcp/services/mail_overview_brief.py).
 
 ## Receipts tab: scan, rows, filters and detail
 
@@ -500,7 +556,7 @@ old syncs retain saved receipts rather than implying lost authorization.
 Sources: [status card](../../components/gmail/mail-kyc-connect-entry.tsx),
 [status presenter and sanitation](../../lib/profile/mail-flow.ts).
 
-## KYC tab: profile intake, monitoring and requests
+## KYC screen: profile intake, monitoring and requests
 
 ### Profile intake and exact pasted-profile content
 
@@ -996,6 +1052,8 @@ mutation did not happen.
 | Confirm Disconnect | POST `/api/kai/gmail/disconnect`; F; `{user_id}` | Require `connected:false`, advance cache generation and clear live receipt cache. Backend disables connection/grants, clears encrypted token columns, cancels active runs and deletes provider cache/sync artifacts; device snapshot/private memory are different owners. |
 | Start/continue/retry scan | POST `/api/kai/gmail/receipts/scan`; F+V; `{user_id,page,per_page:6,cursor?}` | `items,page,per_page,returned_count,has_more,next_cursor,coverage`. Loaded item count, continuation and limit state drive list; no server-wide total claim. |
 | Receipt detail read | POST `/api/kai/gmail/receipts/detail`; F+V; `{user_id,source_id}` | `item,email_excerpt,source_evidence`; exact field-to-row mapping above. Often bypassed for already extracted row or saved/offline fallback. |
+| One noticed check | POST `/api/kai/gmail/receipts/notice`; F+V; `{user_id,account_key,receipt_keys,prior}` | `findings,resolved,coverage,generated_at`. Runs only when the saved receipts changed or the last good check is a day old; saved findings show first. A failed check keeps them and says so; it is never shown as a fresh check. |
+| Finding email | POST `/api/kai/gmail/receipts/notice/source`; F+V; `{user_id,account_key,open_key}` | `subject,from_name,received_at,excerpt`. The quoted passage is highlighted in the provider's own email. |
 | Legacy cache list, not current scan CTA | GET `/api/kai/gmail/receipts/{uid}?page={p}&per_page={n}`; F+V | `items,page,per_page,total,has_more`; read-only old server cache. Bounds page1–1000/per_page1–100. |
 | Legacy background Sync, not mounted Receipts update | POST `/api/kai/gmail/sync`; F; `{user_id}` | During current storage cutover200 `accepted:false,reason:"receipt_storage_migration",message,run:null`; not current saved-first resource failure. |
 | Forced connection reconcile | POST `/api/kai/gmail/reconcile`, F, `{user_id}` | Mounted native connection success and other store forced refreshes default to reconcile, with GET-status fallback. Retry Mail status explicitly sets `reconcile:false`. This is distinct from a receipt resource update. |
@@ -1120,8 +1178,8 @@ X/Y are formulas/anchors; there are no invented screenshot coordinates.
 
 | Surface | Width, X/Y, layout and scroll ownership |
 | --- | --- |
-| Main Mail workspace | Connect reading shell `S=min(V,728px)`, centered; content `C=S−2G`, with `G=16px` at ≤350, `20px` at 351–620, `24px` above620. The shared header and bottom navigation own independent frames. |
-| Setup Gmail, Email handoff, setup Email | Separate setup/handoff shells and footer; they do not inherit the 728px workspace cap. The Mail-specific setup skeleton and OAuth return are scoped at their existing route roots. |
+| Main Mail workspace | Shared reading shell `S=min(V,864px)`, centered. Content width is `S−2G`, where the standard gutter grows from 16px to 20px at 640px, 24px at 1024px and 28px at 1280px. The shared header and bottom navigation own independent frames. |
+| Setup Gmail, Email handoff, setup Email | Separate setup/handoff shells and footer; they do not inherit the workspace cap. The Mail-specific setup skeleton and OAuth return are scoped at their existing route roots. |
 | Initial body Y | Standard signed-in shell content offset applies; local Mail content and the body's tabs scroll beneath the independent top app bar. Scrolling/chrome collapse changes visible coordinates. |
 | Header/stack | Shared top app bar owns Back, `Mail` breadcrumb at 17/22/600 and avatar. The workspace's hidden PageHeader supplies accessible H1 without a second visible title. Tabs are in the body, not another fixed top rail. |
 | Page bottom | Resolved `.app-page-shell` bottom padding24px outranks ordinary route `pb-*` utility. Scroll root separately owns measured bottom-chrome clearance. Do not add these as if one fixed120px rule always wins. |
@@ -1132,15 +1190,15 @@ X/Y are formulas/anchors; there are no invented screenshot coordinates.
 | CSS viewport width | Main Mail content width | Reading-shell content width |
 | ---: | ---: | ---: |
 | 350 |318|318|
-| 351 |311|311|
-| 360 |320|320|
-| 393 |353|353|
-| 430 |390|390|
-| 620 |580|580|
-| 621 |573|573|
-| 768 |680|680|
-| 1024 |680|680|
-| 1440 |680|680|
+| 351 |319|319|
+| 360 |328|328|
+| 393 |361|361|
+| 430 |398|398|
+| 620 |588|588|
+| 621 |589|589|
+| 768 |728|728|
+| 1024 |816|816|
+| 1440 |808|808|
 
 These are arithmetic examples, not rendered screenshots or evidence that the
 reading column must grow monotonically across a gutter breakpoint.
@@ -1150,7 +1208,7 @@ reading column must grow monotonically across a gutter breakpoint.
 | Element | Source geometry and responsive behavior |
 | --- | --- |
 | Connected account | Flex row with 12px gap and 12px block padding, bottom separator; icon36. Manage 44px target. Account email is the separate page description. |
-| Overview | Vertical stack with 24px gaps and block padding; compact section title, benefits and decorative card stack. The draft stack's own 640/1024 media queries change height and card spacing; it is not a page grid. |
+| Overview | Vertical stack with 12px gaps and 16px block padding: search row, header row (section title and **Compose**), scope line, then full-width rows (min height 64px, hairline separators) with single-line ellipsis for sender, subject and preview. No grid, card or decorative artwork. |
 | Decorative stack | Heights224/280/200, fan Y-step76/94/66 and tilt3/3/2° at base/640/1024. Fine pointer resting transform Y46+22i, rotate−6+6i°, scale1−.04i; hover fans,450ms transition/35i ms delay. Touch/reduced motion keeps fan. Local layers stay inside isolated stack. |
 | Ordinary Mail CTA | Outer transparent 44px target; inner neutral-surface 44px pill, 1px border mixed 32% accent/neutral, full radius, accent 12/18/550 label. Compact variants retain the same owner. Wide Connect/Paste/Save/Sync controls fill their authored container to max244px; utility actions stay unfilled, 44px target, 13/21/550 desktop and 12px phone. Destructive confirmation uses the shared destructive control. |
 | Receipt collection | Two 256px-high, internally scrolling cards: stacked below `md` (768px), two equal columns at `md`. Overview saved-count metric remains 28/34/600; category rows are count and percentage, not spend. |
@@ -1229,9 +1287,9 @@ root and each actual portal; it does not opt the whole app into this scale.
 | Meaning/placement | Source-derived size / line height / weight and use |
 | --- | --- |
 | Shared top bar | Visible Mail breadcrumb 17 / 22 / 600; the accessible workspace PageHeader H1 remains visually hidden. Back/avatar keep the shared shell owner. |
-| Agent-top tabs | Overview/KYC/Receipts 15 / 20 / 550. |
+| Agent-top tabs | Overview/Follow-ups/Receipts 15 / 20 / 550. |
 | Full flow title | Setup/callback genuine full-page title 28 / 36 / 600 where the owning route uses that role; no giant Overview hero. |
-| In-page section | Draft with One, KYC profile/requests, Receipts/Overview/Categories/history/recent headings 14 / 22 / 600. Semantic heading variables win the base-layer locks. |
+| In-page section | Recent mail, KYC profile/requests, Receipts/Overview/Categories/history/recent headings 14 / 22 / 600. Semantic heading variables win the base-layer locks. |
 | Source group | Gmail/status eyebrow and receipt month/evidence labels 12 / 18 / 600 with normal tracking; month `h3` has a narrowly scoped global base rule. |
 | Primary row text | KYC request/activity, receipt detail values and equivalent row names 14 / 21 / 550. |
 | Ordinary supporting copy | 12 / 18 / 400; do not promote every support line to the distinct 13px helper role. |
@@ -1314,7 +1372,7 @@ owner's details. Nothing is predicted or inferred from mail text.
 | --- | --- |
 | Header | Group label **Mail**; count summary such as **1 overdue payment · 2 requests for your details**. |
 | **Brief me** | Accessible **Brief me on my mail**; sends the fixed prompt **Brief me on my mail** to One, never item text. Disabled whenever the welcome prompts are: while the chat checks for a draft saved before a Drive visit, while voice connects, or while a reply loads or streams. **Remind me later**, **Mark as done**, **Show all** and **Hide** stay usable. |
-| Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or Mail KYC for a request. |
+| Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or the KYC screen for a request. |
 | **Remind me later** / **Mark as done** | Per item, accessible **Remind me later: {title}** / **Mark as done: {title}**. Later hides for 24 hours; done hides until the item's state changes. Toast **Hidden for 24 hours** / **Marked as done** with **Undo**. Focus is placed once the choice is applied, since applying it re-reads the device record and can bring other items back: it moves to the stack while any item is left; when none is, the stack is removed and keyboard use moves focus to the composer (**Message One**), while a tap leaves it so no phone keyboard opens. |
 | **Show all** / **Hide** | Only with two or more items; expanded rows show a local date. The expanded state registers a Back layer that collapses it. Collapsing from the toggle or Back moves focus from a removed row to the toggle. |
 | Choices storage | Device-local per owner (`hushh.mail_attention.v1.<ownerId>`), opaque state keys and times only; Mail itself is unchanged. Each choice builds on the record as stored at that moment, so another tab's choice or Reset is kept, and open tabs pick up another tab's change even while the stack is unmounted. If storage refuses a write (full or disabled), the choice still holds in this tab until it reloads and is saved with this tab's next successful write. Cleared on Reset or account deletion, kept across sign-out. |
@@ -1435,7 +1493,6 @@ Sources: [setup state service](../../lib/services/pre-vault-user-state-service.t
 | All pages versus all source files | Contract covers mounted interaction paths plus explicitly labeled compatibility/source-only code. A component name or service method alone is not a shipped page/CTA. |
 | Profile paste optimistic completion | Intake moves into requests before save acknowledgement. Save-started ref is one-shot for that mount; background failure does not itself restore the original form/draft. Do not promise automatic retry or successful persistence from navigation alone. |
 | Due filter | Visible but always empty because no general due lifecycle exists. No undocumented date/amount inference added. |
-| Overview metrics | Calculated/passed but not consumed/rendered by current hero. |
 | Direct KYC review | Errors outside open modal; no universal busy dismissal guard, no displayed expiry, unavailable private-field labels ignored, partial scan counters not surfaced, incomplete direct-section race/dedupe protection. These are source findings, not fixes delivered by this contract. |
 | Disconnect wording | Server artifacts are cleared; verified encrypted device snapshot can remain, with distinct success text. Private-memory statements are separate. |
 | Native compose | Service type declares compose purpose but native-start parser accepts read/send; native compose is not verified supported merely from the type. |
@@ -1462,6 +1519,7 @@ identify those actually run for this presentation pass.
 | OAuth attempt/owner/return/connection cache | [popup](../../__tests__/lib/profile/gmail-oauth-popup.test.ts), [callback](../../__tests__/app/profile/gmail/oauth/return/page.test.tsx), [connector store](../../__tests__/lib/profile/gmail-connector-store.test.tsx), [status cache](../../__tests__/services/gmail-receipts-service-status-cache.test.ts) |
 | Receipt response validation, storage/owner/fences | [live service](../../__tests__/services/gmail-receipts-live-service.test.ts), [device boundary](../../__tests__/lib/profile/receipt-storage-boundary.test.ts), [snapshot fence](../../components/gmail/__tests__/gmail-receipt-memory-snapshot-fence.test.tsx), [backend live route](../../../consent-protocol/tests/test_gmail_receipt_live_routes.py) |
 | Receipt table, pagination and layouts | [table](../../__tests__/components/gmail-recent-receipts.test.tsx), [pagination layout](../../e2e/receipt-pagination.layout.spec.ts), [storage layout](../../e2e/receipt-storage.layout.spec.ts), [sync hero layout](../../e2e/receipt-sync-hero.layout.spec.ts) |
+| Overview rows, search, open/reply and isolation; handoff | [Overview behavior](../../__tests__/components/mail-overview.test.tsx), [client](../../__tests__/mail/mail-overview-client.test.ts), [handoff](../../__tests__/mail/mail-compose-handoff.test.ts), [routes](../../../consent-protocol/tests/test_mail_overview_routes.py), [service](../../../consent-protocol/tests/services/test_mail_overview.py) |
 | Overview geometry/menu and KYC retained panes | [Overview layout](../../e2e/mail-overview.layout.spec.ts), [connection layout](../../e2e/mail-kyc-connect.layout.spec.ts), [KYC hero layout](../../e2e/kyc-profile-hero.layout.spec.ts) |
 | KYC intake/request selection, SSE, opt-out and source attachment | [intake](../../__tests__/components/gmail-verification-onboarding.test.tsx), [request UI](../../__tests__/components/gmail-information-requests-section.test.ts), [wire/SSE](../../__tests__/services/gmail-information-requests-service.test.ts), [exact draft](../../__tests__/services/gmail-information-request-draft-service.test.ts), [source attachment](../../components/agent/__tests__/gmail-information-request-attachment.test.tsx) |
 | Metadata-only queue/source/request auth | [request routes](../../../consent-protocol/tests/test_gmail_information_request_routes.py), [monitor service](../../../consent-protocol/tests/services/test_gmail_personal_information_request_service.py) |
@@ -1516,3 +1574,52 @@ focus to that persistent trigger. No acknowledgment changes consent or hosting.
 A failed local restore has a distinct retry action, which cannot enable an
 unavailable provider scan. The migration-empty state has no automatic-update
 promise and no fabricated processing indicator.
+
+## Receipts: insights and Recurring bills (tracking only)
+
+Owners: [header and list](../../components/gmail/receipts), [All receipts](../../components/gmail/gmail-recent-receipts.tsx), [insight, cadence, price-rise and filter logic](../../lib/mail), [tracking store](../../lib/mail/receipt-tracking.ts).
+
+- **One noticed.** One card at a time: a headline, one reason, one action (for example **Review plans**) and **See all**. Tapping the card opens **Why you're seeing this**: the emails behind the finding, each with its provider, date and exact quote, and **View email** to read the provider's own message with the quoted passage marked. The finding is made by One's backend Mail agent, not by a rule: for the connected mailbox only, it reads the receipts the device holds plus the other recent mail from the same providers, and a model decides whether anything deserves attention (it may decide nothing does). The server then checks every message reference, quote, amount, date and rule before anything is shown. Findings: three or more active plans that the emails show are the same kind of plan, such as streaming, in one currency (a monthly total only when every plan is monthly); a paid plan plus the provider's own explicit statement, to the same address and about the same plan, that the account was not used for N days (a message that says you did use it, a condition such as "if you haven't...", a general note, or another profile or plan can only ever be asked about as **Do you still use this plan?**, or not shown at all); a refund the provider promised, with no confirmation in the mail after the promised date ("I couldn't find the refund confirmation"; One reads mail, not the bank); a possible double charge (one order with two emails is not two charges; two order numbers are two purchases); and a bill or announced price strictly above 20%. A later confirmation, cancellation or new notice updates or removes a finding.
+- **Honest freshness.** Saved findings load with the receipts. A check runs only when the saved receipts changed, or the last good check is a day old; never on every page open. While it runs the card says **Checking for updates**; if it fails the saved findings stay with **Couldn't update. From 10 Dec.** and **Try again**. Until a check has worked once for this mailbox, findings read from the saved receipts alone stand in and are labelled **From your saved receipts**; they are never shown as One's mailbox check.
+- **Your choices.** **Keep it** (a plan), **Not an issue** and saved plan choices are remembered for this mailbox. The same evidence has the same finding id, so it is not asked again; new evidence is a new finding. **I want to cancel** and **Cancel** on a plan only record the choice: One cancels nothing, changes no mailbox and starts no payment. A cancellation stays pending until the provider's own cancellation email arrives after the choice; only then does it count toward savings.
+- **Price rise.** Variable bill: the newest paid bill against the middle of the three paid bills before it. Bills that came out the same each time are a usual amount, never an agreed price: an agreed price needs an agreement (a lease, a plan or subscription confirmation, a contract) that states it, and only a mailbox check can cite one. Strictly above 20%, using whole minor units, and only with three earlier paid bills and a newest bill from the last 60 days; otherwise nothing is shown and no baseline is invented.
+- **Recurring.** A pattern needs three receipts on a regular rhythm. The screen is **Choose your bills**: the real count (**9 recurring payments**), **Add bill**, and one row per bill with a checkbox, its name, frequency and next date (**est.** from the receipts, or the date you set; **Date unknown** when there is none), the agreed amount or **Last** paid amount (**Amount on the bill** when unknown), and a menu. Selecting bills shows **N bills selected** with **Track selected bills**, which saves every selected bill in one change or none. A tracked bill shows a **Tracking** mark instead of a checkbox. The menu offers Track bill, See why and receipts, Change date, Skip this one, Stop tracking and Not a recurring bill. There is one step, so no step number is shown. **History** and **Activity** list each recorded choice. Stopped bills sit under **Stopped** with **Track again**.
+- **No payments.** This screen tracks bills; it does not pay them and never calls a payment or bank service. Bank authorization, automatic debits and payment execution belong to a later phase.
+- **Storage.** Tracked bills, skipped dates, review choices, reviewed insights and the last mailbox check's findings (with sealed keys that reopen their emails) are encrypted with the vault key and stored on this device beside the saved receipts. They are bound to the owner and the connected mailbox, so switching mailbox or account never shows another's choices, and Reset removes them. They do not sync to other devices. A failed save keeps the screen as it was and says so; a failed read shows **Try again** and never blocks the receipts.
+- **Filters.** The unsupported Due filter is removed; an earlier saved selection (including `due`) resolves to **All**. Overdue stays, from each receipt's own evidence.
+- **Back.** On Recurring, Back returns to All receipts, then follows the existing Mail Back hierarchy. Sheets close first.
+
+## Private mailbox
+
+An owner whose agent runs privately reads mail only through that runtime; the hub never serves their mail. The tabs are the same three, with the same sections, filled from the one selected mailbox.
+
+- **Header.** One header: the app bar's **Mail**, then on the right the selected address with its badge and a menu, the one **Add account** action, and the owner's avatar. There is no separate mailbox picker, **Check connection** button or duplicate account bar. The menu lists the owner's mailboxes (a mailbox whose Google permission lapsed is listed as **Reconnect needed** and cannot be selected), then **Reconnect** and **Disconnect** for the selected one. Connection status refreshes on its own when the page returns to the foreground or a grant changes. An owner with a lapsed mailbox and none readable sees **Mail access for {address} has expired. Reconnect to see its mail.** on every tab.
+- **Overview.** **Needs your attention** (up to three cards, **All N in Follow-ups**), **Recent updates** (including a saved price rise that opens its Receipts finding) and **Recently completed**, each with its own loading, empty and failure state. The private runtime has no list of confirmed sends, so **Recently completed** is what One settled for this mailbox: a follow-up it sent on a schedule (**View sent email**) or a promised reply that settled its Task (**View email**), from the last 30 days. Reading mail stays behind **Search and recent mail**. A draft action opens **Review draft** in Follow-ups and creates a Task only when it is saved.
+- **Receipts.** The heading, **Activity**/**History**, **All receipts** and **Recurring** stay on screen while a scan runs, when a scan fails, and when nothing is saved; saved rows are kept.
+- **Track a conversation.** On the board, **Track a conversation** opens a dialog over it: the selected mailbox, **Person or topic**, and a scrollable list of conversations (subject, sender name and address). It loads recent conversations on open; typing searches that mailbox after a short pause, clearing the field restores recent conversations, and only the answer to the current query is shown. Choosing a conversation asks **What are you waiting for?**, **Check with Mail AI** reads it, and **Track in Tasks** creates or reuses one Task linked to that exact email. Opening or searching creates nothing, and closing returns to the same board. The board has no **Back to Mail** and does not repeat the address; the app Back control leaves it, and detail views offer **Back to Follow-ups**.
+
+## Tracked conversations
+
+In Dev, Open Follow-ups on the connected Overview opens the board. The mailbox
+picker starts on the existing default connection. All Mail combines verified
+connections and sends each evidence or draft action back to its source mailbox.
+
+Tracking records one obligation in the encrypted shared Tasks collection.
+The source link opens the email containing the promise. An opted-in watch checks
+on vault unlock and about once a minute while One is visible, on any page. It
+checks each watched task against its own mailbox and connection. A matching
+reply completes the encrypted task and clears its watch. Locking the vault or
+hiding One pauses checks. Returning to an unlocked One checks again. Review of a
+received document requires opening the attachment and confirming review before preparing
+the next draft. An exact approved send uses the private agent's qualified
+one-time scheduler where available. Its final check can suppress delivery, and
+only a confirmed provider receipt enables the sent-email link.
+
+In a tracked conversation, **Remind me in One** lets the owner choose a local date
+and time. **Save reminder** stores that instant on the encrypted Task and turns on
+its reply watch. The owner can change the time or cancel the personal reminder.
+One checks the watched thread before showing a due reminder while the app is
+visible and the vault is unlocked. It checks overdue reminders on return. Matching
+evidence completes the Task and cancels its pending reminder in the same saved
+change. This action sends no email. An independently approved outgoing follow-up
+has its own schedule and controls.

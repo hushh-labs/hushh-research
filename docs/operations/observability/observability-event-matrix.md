@@ -80,6 +80,7 @@ Every emitted observability event carries centrally added shared params:
 
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
+| `hushh_mail_signin_screen_view` | Mail connection prompt shown to the signed-in owner once per page visit | `result` | `hushh-webapp/components/gmail/gmail-receipts-page.tsx` | Counts views of the Mail connection prompt | focused component test, GA DebugView |
 | `gmail_connect_started` | Gmail connect flow started | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Gmail onboarding baseline | GA DebugView |
 | `gmail_connect_result` | Gmail web/native connect start or OAuth completion result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Connection attempts and completed connections remain separate | focused native-service test, GA DebugView |
 | `gmail_disconnect_result` | Gmail disconnect outcome | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | disconnect success/error rate | GA DebugView |
@@ -95,7 +96,7 @@ These are deliberate *feature* actions, not proof that a specialist AI agent was
 | --- | --- | --- | --- |
 | `one_memory_action` | `capture_prepared`, `capture_saved`, `detail_edited`, `detail_deleted`, `export_saved`, `auto_save_changed` | Memory workspace after a completed action | Memory adoption and action mix; a prepared review is not a save |
 | `one_wallet_action` | `card_added`, `card_deleted` | Owner Wallet workspace after service success | Card-management activity, never card contents or reveal count |
-| `one_calendar_action` | `connected`, `disconnected`, `chat_opened` | Calendar owner workspace, or the verified same-window OAuth callback when no popup attempt exists | Connector adoption and assistance handoffs; opening chat is not an agent answer |
+| `one_calendar_action` | `connected`, `disconnected`, `chat_opened`, `booking_create` | Calendar owner workspace, verified same-window OAuth callback or existing booking dialog | Connector adoption, assistance handoffs and observed booking results; opening chat is not an agent answer |
 | `one_kyc_action` | `access_approved`, `access_denied`, `redraft_completed`, `reply_sent`, `reply_rejected`, `workflow_refreshed` | One KYC workflow after the corresponding confirmed operation | KYC workflow progress; reply sent is counted even if subsequent encrypted PKM writeback fails |
 | `one_crm_action` | `record_created`, `record_updated`, `record_deleted` | Development-only Connected Systems workspace after confirmed mutations | Developer diagnostics only; excluded from the production founder and One capability KPIs |
 

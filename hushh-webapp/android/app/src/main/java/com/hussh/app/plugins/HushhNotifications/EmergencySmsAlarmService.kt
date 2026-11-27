@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
@@ -26,6 +27,7 @@ class EmergencySmsAlarmService : Service() {
     private val grants = linkedSetOf<String>()
     private var owner: String? = null
     private var firebaseUid: String? = null
+    private var showHeadsUp = false
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private val authListener = FirebaseAuth.AuthStateListener {
@@ -72,6 +74,7 @@ class EmergencySmsAlarmService : Service() {
             if (grants.isEmpty()) dispose()
             return START_NOT_STICKY
         }
+        if (grants.isEmpty()) showHeadsUp = !HushhNotificationsPlugin.activityActive
         grants.add(grant)
         try {
             present()
@@ -111,9 +114,18 @@ class EmergencySmsAlarmService : Service() {
         val grant = grants.first()
         val user = owner ?: return
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        // The service owns the repeating sound. Use a visual high-priority
+        // channel in the background so Android can also show a heads-up banner.
+        val headsUp = showHeadsUp && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            (manager.getNotificationChannel(HushhNotificationsPlugin.EMERGENCY_SMS_CHANNEL_ID)
+                ?.importance ?: NotificationManager.IMPORTANCE_NONE) >= NotificationManager.IMPORTANCE_HIGH)
+        val channel = if (headsUp) HEADS_UP_CHANNEL else CHANNEL
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(CHANNEL, "Active SMS alarms", NotificationManager.IMPORTANCE_LOW).apply {
+            val importance = if (headsUp) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_LOW
+            val name = if (headsUp) "Emergency SMS banners" else "Active SMS alarms"
+            manager.createNotificationChannel(NotificationChannel(channel, name, importance).apply {
                 setSound(null, null)
+                setBypassDnd(false)
             })
         }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).apply {
@@ -129,13 +141,16 @@ class EmergencySmsAlarmService : Service() {
             putExtra("userId", user)
             putExtra("grantId", grant)
         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_stat_message)
+        val notification = NotificationCompat.Builder(this, channel).setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle("Emergency SMS alert")
             .setContentText(if (grants.size == 1) "Tap to view the alert or dismiss its alarm" else "${grants.size} SMS alerts need acknowledgement")
-            .setContentIntent(open).setOngoing(true).setSilent(true)
+            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .addAction(0, "Dismiss alarm", dismiss).build()
-        startForeground(NOTIFICATION_ID, notification)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .addAction(0, "Dismiss alarm", dismiss)
+        if (headsUp) notification.setPriority(NotificationCompat.PRIORITY_HIGH)
+        else notification.setSilent(true)
+        startForeground(NOTIFICATION_ID, notification.build())
     }
 
     private fun acknowledge(grant: String) {
@@ -170,6 +185,7 @@ class EmergencySmsAlarmService : Service() {
 
     companion object {
         private const val CHANNEL = "one_location_sms_active_v1"
+        private const val HEADS_UP_CHANNEL = "one_location_sms_heads_up_v1"
         private const val ACK_STORE = "one_location_sms_ack_v1"
         private const val ACKNOWLEDGE = "com.hussh.app.SMS_ACKNOWLEDGE"
         private const val NOTIFICATION_ID = 24091
@@ -208,11 +224,17 @@ class EmergencySmsAlarmService : Service() {
                 putExtra("userId", user); putExtra("grantId", grant)
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             try {
-                manager.notify(fallbackTag(user, grant), 24092, NotificationCompat.Builder(context, channelId)
+                val notification = NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_stat_message).setContentTitle("Emergency SMS alert")
                     .setContentText("Open Hussh to review this alert").setContentIntent(open).setDeleteIntent(dismiss)
-                    .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_ALARM).setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .addAction(0, "Dismiss alarm", dismiss).build())
+                    .setAutoCancel(true).setOnlyAlertOnce(true)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM).setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .addAction(0, "Dismiss alarm", dismiss)
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    @Suppress("DEPRECATION")
+                    notification.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), AudioManager.STREAM_ALARM)
+                }
+                manager.notify(fallbackTag(user, grant), 24092, notification.build())
                 // Acknowledgement/key disposal can beat this queued post.
                 if (acknowledged(context, user, grant) || ChatPreviewKeys.legacyKey(context, user).isNullOrBlank()) cancelFallback(context, user, grant)
             } catch (_: SecurityException) { /* Notification permission remains authoritative. */ }

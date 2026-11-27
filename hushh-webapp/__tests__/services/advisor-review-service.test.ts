@@ -1,4 +1,6 @@
 import { webcrypto } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   api: vi.fn(),
@@ -159,4 +161,27 @@ it("retains the HTTP refusal class so the flow can distinguish definite rejectio
   expect(new AdvisorReviewError("ADVISOR_CONNECT_STRIPE").message).toMatch(
     /Stripe payout setup/,
   );
+});
+
+it("explains every advisor error code a button can hit instead of the generic text", () => {
+  const generic = new AdvisorReviewError("NOT_A_CODE").message;
+  const root = join(process.cwd(), "..", "consent-protocol");
+  const files = [
+    join(root, "api", "routes", "one", "advisor_reviews.py"),
+    ...readdirSync(join(root, "hushh_mcp", "services"))
+      // The billing events file only answers Stripe's webhook; no button reaches it.
+      .filter((name) => /^advisor_.*\.py$/.test(name) && name !== "advisor_review_billing_events.py")
+      .map((name) => join(root, "hushh_mcp", "services", name)),
+  ];
+  const codes = new Set<string>();
+  for (const file of files)
+    for (const match of readFileSync(file, "utf8").matchAll(/AdvisorReviewError\(\s*"([A-Z_]+)"/g))
+      codes.add(match[1]);
+  // The UI never offers these controls to the wrong person.
+  const uiGated = new Set(["ADVISOR_WRONG_PARTICIPANT", "ADVISOR_ORGANIZER_REQUIRED", "ADVISOR_CALENDAR_REVIEW_REQUIRED"]);
+  const unexplained = [...codes].filter(
+    (code) => !uiGated.has(code) && new AdvisorReviewError(code).message === generic,
+  );
+  expect(codes.size).toBeGreaterThan(20);
+  expect(unexplained).toEqual([]);
 });

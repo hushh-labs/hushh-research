@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -6,9 +6,96 @@ import {
 } from "./helpers/one-location-notification-harness";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import * as locationNotifications from "@/lib/one-location/notifications";
-import { acknowledgeSmsAlarm, forgetSmsAlarms, isSmsAlarmAcknowledged, pendingSmsAlarms, rememberSmsAlarm } from "@/lib/one-location/sms-alarm-state";
+import { acknowledgeSmsAlarm, dispatchSmsAlertsChanged, forgetSmsAlarms, isSmsAlarmAcknowledged, pendingSmsAlarms, rememberSmsAlarm } from "@/lib/one-location/sms-alarm-state";
 
 describe("foreground SMS alarm presentation and cancellation", () => {
+  it.each([
+    ["web", false],
+    ["ios", false],
+    ["android", false],
+    ["ios", true],
+    ["android", true],
+  ] as const)("recovers a foreground SOS on %s with device notifications enabled: %s", async (platform, pushEnabled) => {
+    mocks.platform.native = platform !== "web";
+    mocks.platform.value = platform;
+    mocks.pathname = "/one/feed";
+    mocks.initializeFCM.mockResolvedValue({ status: pushEnabled ? "push_active" : "push_not_requested" });
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const sound = vi.spyOn(locationNotifications, "playOneLocationNotificationSound").mockReturnValue(true);
+    try {
+      await act(async () => { renderProvider(); });
+      await waitFor(() => expect(mocks.getRecentSmsAlerts).toHaveBeenCalledTimes(1));
+      const alert = {
+        type: "location_share_created",
+        grant_id: `recovered-${platform}-${pushEnabled}`,
+        user_id: "recipient-user",
+        owner_user_id: "sender-user",
+        share_kind: "sos",
+      };
+      mocks.getRecentSmsAlerts.mockResolvedValue([
+        { ...alert, grant_id: "wrong-account", user_id: "another-user" },
+        { ...alert, grant_id: "ordinary-share", share_kind: "share" },
+        { ...alert, grant_id: "expired-alert", expires_at: "2000-01-01T00:00:00Z" },
+        alert,
+      ]);
+      await act(async () => dispatchSmsAlertsChanged("recipient-user"));
+      await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+      if (pushEnabled) {
+        expect(mocks.playEmergencySmsCue).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ grantId: alert.grant_id, userId: "recipient-user" }),
+        );
+        expect(sound).not.toHaveBeenCalled();
+      } else {
+        expect(sound).toHaveBeenCalledExactlyOnceWith("sos", alert.grant_id);
+        expect(mocks.playEmergencySmsCue).not.toHaveBeenCalled();
+      }
+      dispatchLocation(alert);
+      await act(async () => dispatchSmsAlertsChanged("recipient-user"));
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
+    } finally {
+      focus.mockRestore();
+      sound.mockRestore();
+    }
+  });
+
+  it("recovers an SOS when the browser regains focus after an unfocused stream hint", async () => {
+    mocks.pathname = "/one/feed";
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    try {
+      await act(async () => { renderProvider(); });
+      mocks.getRecentSmsAlerts.mockResolvedValue([{
+        type: "location_share_created",
+        grant_id: "focus-recovered-sms",
+        user_id: "recipient-user",
+        owner_user_id: "sender-user",
+        share_kind: "sos",
+      }]);
+      await act(async () => dispatchSmsAlertsChanged("recipient-user"));
+      expect(mocks.getRecentSmsAlerts).not.toHaveBeenCalled();
+      expect(mocks.toast).not.toHaveBeenCalled();
+      focus.mockReturnValue(true);
+      await act(async () => { window.dispatchEvent(new Event("focus")); });
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
+  it("keeps OS fallback eligible if the selected browser tab becomes hidden before it handles the push", async () => {
+    await renderReady();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      expect(dispatchLocation({
+        type: "location_share_created",
+        grant_id: "hidden-sms",
+        share_kind: "sos",
+      }, { source: "service_worker" }).accepted).toBe(false);
+      expect(mocks.toast).not.toHaveBeenCalled();
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
   it("never overwrites an acknowledgement arriving from another tab during alarm admission", () => {
     const set = Storage.prototype.setItem;
     const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {

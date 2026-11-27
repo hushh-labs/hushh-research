@@ -27,7 +27,8 @@ export type DirectMessageReplyPreview = {
   deletedForEveryoneAt: string | null;
 };
 
-export const DIRECT_MESSAGE_MAX_LENGTH = 4_000;
+export { DIRECT_MESSAGE_MAX_LENGTH } from "@/lib/direct-messages/limits";
+import { DIRECT_MESSAGE_MAX_LENGTH } from "@/lib/direct-messages/limits";
 
 export type DirectMessage = {
   id: string;
@@ -60,6 +61,7 @@ export type DirectMessageConversation = {
 export type DirectMessageInbox = {
   items: DirectMessageConversation[];
   unreadCount: number;
+  nextCursor: string | null;
 };
 
 export type DirectMessagePeerState = {
@@ -200,7 +202,7 @@ function parseMessage(value: unknown): DirectMessage | null {
     editedAt: asTrimmedString(source.editedAt),
     deletedForEveryoneAt: asTrimmedString(source.deletedForEveryoneAt),
     replyTo: parseReplyPreview(source.replyTo),
-    reactions: parseReactions(source.reactions),
+    reactions: asTrimmedString(source.deletedForEveryoneAt) ? [] : parseReactions(source.reactions),
     kind: source.kind === "text" ? "text" : undefined,
     attachment: parseAttachment(source.attachment),
   };
@@ -280,18 +282,25 @@ export class DirectMessagesService {
 
   static async listConversations(input: {
     idToken: string;
+    cursor?: string;
   }): Promise<DirectMessageInbox> {
-    const response = await ApiService.apiFetch("/api/one/messages/conversations", {
+    const query = input.cursor ? `?${new URLSearchParams({ cursor: input.cursor })}` : "";
+    const response = await ApiService.apiFetch(`/api/one/messages/conversations${query}`, {
       method: "GET",
       cache: "no-store",
       headers: authHeaders(input.idToken),
     });
-    const payload = await jsonOrThrow<{ items?: unknown; unreadCount?: unknown }>(
+    const payload = await jsonOrThrow<{ items?: unknown; unreadCount?: unknown; nextCursor?: unknown }>(
       response,
     );
+    if (payload.nextCursor != null && (typeof payload.nextCursor !== "string"
+      || !payload.nextCursor.length || payload.nextCursor.length > 512)) {
+      throw new Error("Conversations could not be continued. Refresh and try again.");
+    }
     return {
       items: parseConversations(payload.items),
       unreadCount: asNonNegativeInt(payload.unreadCount),
+      nextCursor: payload.nextCursor ?? null,
     };
   }
 

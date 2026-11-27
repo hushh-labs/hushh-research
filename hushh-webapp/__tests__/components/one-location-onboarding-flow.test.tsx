@@ -136,7 +136,7 @@ describe("OneLocationOnboardingFlow introduction", () => {
         render(<ControlledFlow {...createProps({ onPrepareLocation })} />);
         await screen.findByText(/Couldn't find your location/);
         expect(onPrepareLocation).toHaveBeenCalledTimes(1);
-        fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+        fireEvent.click(screen.getByRole("button", { name: "Retry location capture" }));
         await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(2));
         await screen.findByText(/Couldn't find your location/);
         expect(screen.queryByTestId("one-location-onboarding-ready")).toBeNull();
@@ -145,6 +145,39 @@ describe("OneLocationOnboardingFlow introduction", () => {
         expect(screen.queryByTestId("one-location-onboarding-place")).toBeNull();
       },
     );
+
+    it("recaptures with an existing point and saves a manually entered address when the map is offline", async () => {
+      const onSave = vi.fn().mockResolvedValue(true);
+      const capture = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      const initial = { latitude: 19, longitude: 72 };
+      const recaptured = { latitude: 20, longitude: 73 };
+      const onPick = vi.fn();
+      function OfflineSetup() {
+        const [point, setPoint] = useState(initial);
+        return <ControlledFlow {...createProps({
+          place: { mapInitial: point, address: null, onPickExactLocation: onPick, onSave },
+          onPrepareLocation: async (reason) => {
+            const ok = await capture(reason);
+            if (ok) setPoint(recaptured);
+            return ok;
+          },
+        })} />;
+      }
+      render(<OfflineSetup />);
+      await screen.findByText(/Couldn't find your location/);
+      expect(capture).toHaveBeenNthCalledWith(1, "entry");
+      expect(screen.getByRole("button", { name: "Save & continue" })).toBeDisabled();
+      fireEvent.click(await screen.findByRole("button", { name: "Retry location capture" }));
+      await waitFor(() => expect(capture).toHaveBeenNthCalledWith(2, "retry"));
+      await screen.findByText(/Map preview unavailable/);
+      expect(onPick).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Edit address details" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Address", exact: true }), { target: { value: "15 Lake Road" } });
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith("home", "", expect.any(Object), "15 Lake Road", { ...recaptured, address: null }));
+      expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
+    });
 
     it("coalesces location acquisition and consumes Back while it settles", async () => {
       const routeId = "/one/location";
@@ -565,10 +598,10 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     fireEvent.change(screen.getByLabelText("Circle code"), {
       target: { value: "ZXCVBNMASDFG" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Look up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
 
     expect(await screen.findByText("Family")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Join Family" }));
+    fireEvent.click(screen.getByRole("button", { name: "Join circle", exact: true }));
     await waitFor(() =>
       expect(onAcceptCircleCode).toHaveBeenCalledWith("ZXCVBNMASDFG"),
     );
@@ -584,7 +617,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     fireEvent.change(screen.getByLabelText("Circle code"), {
       target: { value: "ABCD-EFGH-JKLM" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Look up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("your own code");
     expect(onPreviewCircleCode).not.toHaveBeenCalled();
@@ -632,7 +665,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
   it("keeps the map claim honest", async () => {
     await renderReady({ mapPoint: null });
     expect(
-      screen.getByRole("heading", { name: "Your people." }),
+      screen.getByRole("heading", { name: "Find your circle" }),
     ).toBeTruthy();
     expect(screen.getByText("Turn on Location when you're ready.")).toBeTruthy();
   });

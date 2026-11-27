@@ -23,6 +23,24 @@ from hushh_mcp.services.push_notifications import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _active_accounts_for_circle_sql_doubles(monkeypatch):
+    # DB doubles return preselected rows; provider and tombstone admission are
+    # integration-tested against the real roster statements separately.
+    monkeypatch.setattr(
+        OneLocationCircleService, "_live_circle_account_ids", lambda self, uid, **kwargs: []
+    )
+    monkeypatch.setattr(
+        OneLocationCircleService, "_assert_circle_accounts_active", lambda self, ids: None
+    )
+    monkeypatch.setattr(
+        circle_service_module, "active_directory_user_ids", lambda ids, **kwargs: set(ids)
+    )
+    monkeypatch.setattr(
+        circle_service_module, "exclude_retired_account_ids", lambda ids, execute: set(ids)
+    )
+
+
 def test_custom_circle_type_normalization_and_bounds() -> None:
     clean = circle_service_module._clean_custom_type_label
     assert clean("  Ｆｉｎａｎｃｅ  team  ", "other") == "Finance team"
@@ -326,6 +344,26 @@ def test_circle_member_queries_use_the_shared_verified_ria_gate() -> None:
     assert "ria_profiles ria_annotation" in source
 
 
+def test_circle_add_reports_a_deleted_peer_without_retrying_the_write() -> None:
+    deleted = RuntimeError("private constraint context")
+    deleted.diag = SimpleNamespace(constraint_name="account_deletion_tombstone_guard")
+
+    class Connection:
+        def execute(self, statement, params):
+            if "pg_advisory_xact_lock_shared" not in str(statement):
+                raise deleted
+
+    service = OneLocationCircleService(db=_TransactionDb(Connection()), hmac_key="a" * 32)
+    with pytest.raises(OneLocationCircleError) as error:
+        service.create_member_invites(
+            actor_user_id="owner",
+            circle_id="550e8400-e29b-41d4-a716-446655440000",
+            invitee_user_ids=["retired"],
+        )
+    assert (error.value.status_code, error.value.code) == (409, "LOCATION_PEER_UNAVAILABLE")
+    assert "private" not in str(error.value)
+
+
 def test_eligible_connection_queries_use_the_shared_verified_ria_gate() -> None:
     import inspect
 
@@ -402,6 +440,8 @@ class _CapacityConnection:
 
     def execute(self, statement, params):
         sql = str(statement)
+        if "pg_advisory_xact_lock_shared" in sql:
+            return _Rows()
         self.sql.append(sql)
         self.params.append(dict(params))
         if "current_setting('hushh.circle_member_add_batch_id'" in sql:
@@ -3141,6 +3181,54 @@ class _RecordingDb:
         self.params.append(dict(params or {}))
         rows = self.results.pop(0) if self.results else []
         return SimpleNamespace(data=rows)
+
+
+@pytest.mark.parametrize(
+    "retired_role", ["circle_owner_user_id", "inviter_user_id", "invitee_user_id"]
+)
+def test_pending_member_invite_projection_excludes_retired_accounts_but_preserves_inventory(
+    monkeypatch, retired_role
+):
+    row = {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "circle_id": "550e8400-e29b-41d4-a716-446655440000",
+        "circle_owner_user_id": "owner",
+        "inviter_user_id": "inviter",
+        "invitee_user_id": "invitee",
+        "status": "pending",
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    service = OneLocationCircleService(db=_RecordingDb([row], [row], [row]))
+    monkeypatch.setattr(
+        circle_service_module,
+        "exclude_retired_account_ids",
+        lambda ids, execute: set(ids) - {row[retired_role]},
+    )
+    assert service.list_member_invites(user_id="invitee", expire_stale=False) == []
+    with pytest.raises(OneLocationCircleError) as missing:
+        service.get_member_invite(user_id="invitee", invite_id=row["id"])
+    assert missing.value.status_code == 404
+    # Cleanup/source proof still sees its exact retained participant inventory.
+    assert len(service.list_member_invites(user_id="invitee", require_complete=True)) == 1
+
+
+def test_member_invite_provider_outage_remains_retryable(monkeypatch):
+    from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
+
+    row = {"id": "550e8400-e29b-41d4-a716-446655440001", "inviter_user_id": "active"}
+    service = OneLocationCircleService(db=_RecordingDb([row], [row]))
+
+    def unavailable(*args, **kwargs):
+        raise DirectoryIdentityUnavailableError()
+
+    monkeypatch.setattr(circle_service_module, "active_directory_user_ids", unavailable)
+    with pytest.raises(OneLocationCircleError) as outage:
+        service.list_member_invites(user_id="invitee", expire_stale=False)
+    assert outage.value.status_code == 503
+    monkeypatch.setattr(
+        circle_service_module, "active_directory_user_ids", lambda ids, **kwargs: set(ids)
+    )
+    assert len(service.list_member_invites(user_id="invitee", expire_stale=False)) == 1
 
 
 def test_shared_circle_roster_keeps_all_members_and_marks_only_strangers_connectable() -> None:

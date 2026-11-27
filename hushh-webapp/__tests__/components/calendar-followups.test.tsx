@@ -1,20 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
 import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
-  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary, senderName,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, rowSummary,
 } from "@/lib/calendar/calendar-followup-presentation";
+import { FollowupRequestError } from "@/lib/services/calendar-followups-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 
 const service = vi.hoisted(() => ({
   status: vi.fn(), list: vi.fn(), detail: vi.fn(), source: vi.fn(), sourceLink: vi.fn(),
   resolve: vi.fn(), post: vi.fn(), change: vi.fn(), scan: vi.fn(),
 }));
-vi.mock("@/lib/services/calendar-followups-service", () => ({ CalendarFollowupsService: service }));
-vi.mock("@/components/app-ui/settings-ui", () => ({
-  AdaptiveDetailSurface: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div role="dialog">{children}</div> : null,
-}));
-
+vi.mock("@/lib/services/calendar-followups-service", async importOriginal => ({ ...await importOriginal<object>(), CalendarFollowupsService: service }));
 const conversationId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 const callId = "33333333-3333-4333-8333-333333333333";
@@ -50,7 +48,7 @@ function props(accountId: string, onConnectMail: (accountId: string) => Promise<
   return {
     userId: "owner", accountId, accountEmail: `${accountId}@example.test`,
     zone: "Asia/Kolkata", expanded: false,
-    getIdToken: async () => "synthetic-id-token", getVaultOwnerToken: () => "synthetic-owner-token",
+    getIdToken: async () => "synthetic-id-token",
     onViewAll: vi.fn(), onConnectMail, onReviewMeeting: vi.fn(),
   };
 }
@@ -85,16 +83,14 @@ describe("Follow-ups wording", () => {
     expect(primaryRequest({ preview_requests: entry.preview_requests.slice(0, 1) } as never)?.id).toBe("a");
   });
 
-  it("uses an actionable subtitle for a valuable undated document request", () => {
+  it("shows date status without repeating the action or sender", () => {
     const request = { ...document, due_date: null, urgency: "none", category: "document_or_information" };
     expect(rowSummary({ ...bList.conversations[0], preview_requests: [request] } as never).detail)
-      .toBe("Document to send · From Jhumma");
+      .toBe("No date given · +1 more");
   });
 
-  it("names the sender, links the exact Gmail message and states reminders honestly", () => {
-    expect(senderName('"IIT Professor" <prof@iit.example>')).toBe("IIT Professor");
-    expect(senderName("prof@iit.example")).toBe("prof");
-    expect(gmailMessageUrl("owner@example.test", "18c0ffee")).toBe("https://mail.google.com/mail/u/owner%40example.test/#all/18c0ffee");
+  it("links the exact Gmail message and states reminders honestly", () => {
+    expect(gmailMessageUrl("owner+test@example.test", "18c0ffee")).toBe("https://mail.google.com/mail/?authuser=owner%2Btest%40example.test#all/18c0ffee");
     const request = { ...document, state: "pending", reminder_at: null, reminder_status: "none", source_excerpt: "", time_zone: null, responsibility: "owner", source_internal_date_ms: 0, revision: 1, booking_state: null };
     expect(reminderText(request as never, "Asia/Kolkata")).toBe("No reminder set");
     expect(reminderText({ ...request, due_date: null } as never, "Asia/Kolkata")).toBe("No reminder · no date in the email");
@@ -104,14 +100,18 @@ describe("Follow-ups wording", () => {
   it("is quiet while recoverable and speaks only when the owner must act", () => {
     const base = { waiting_source_count: 0, exhausted_source_count: 0, unreadable_count: 0 };
     expect(coverageNotice({ coverage: "complete", attention: null, ...base })).toBeNull();
-    expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Catching up on your email…", action: null });
+    expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Updating follow-ups…", action: null });
     expect(coverageNotice({ coverage: "needs_attention", attention: "reconnect_mail", ...base })?.action).toBe("reconnect");
-    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.action).toBe("retry");
+    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.text).toBe("Checking remaining email in the background.");
+    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })?.text).toBe("Email sync paused. Retrying automatically.");
+    expect(coverageNotice({ coverage: "catching_up", attention: null, ...base }, false)?.text).toMatch(/Unlock One/);
   });
 });
 
 describe("Calendar Insights Follow-ups card", () => {
   beforeEach(() => {
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
     Object.values(service).forEach(mock => mock.mockReset());
     service.scan.mockResolvedValue(undefined);
     service.sourceLink.mockImplementation(async (_user, accountId, requestId) => ({
@@ -127,7 +127,7 @@ describe("Calendar Insights Follow-ups card", () => {
       ? status("account_B")
       : status("account_C", {
         mail_connected: cConnected, monitoring_enabled: cEnabled, monitor_current: cEnabled,
-        scan_state: cEnabled ? "complete" : "off", coverage: null, notifications_enabled: false,
+        scan_state: cEnabled ? "complete" : "off", coverage: null, notifications_enabled: cEnabled,
         historical_start_at: null, time_zone: null,
       }));
     service.list.mockImplementation(async (_user, accountId) => accountId === "account_B"
@@ -146,31 +146,36 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(1));
     service.scan.mockClear(); service.post.mockClear();
     view.rerender(<CalendarFollowups key="account_C" {...props("account_C", onConnectMail)} />);
-    expect(await screen.findByText("Find meeting requests and reminders in my email.")).toBeInTheDocument();
-    expect(screen.getByText(/one extra permission to read account_C@example.test/)).toBeInTheDocument();
+    expect(await screen.findByText("Find Calendar follow-ups in email.")).toBeInTheDocument();
+    expect(screen.getByText(/check account_C@example.test/)).toBeInTheDocument();
     expect(screen.queryByText("Send the research document")).not.toBeInTheDocument();
+    // There is no look-back choice: a first scan is always the most recent 30 days.
+    expect(screen.queryByText(/Look back/)).not.toBeInTheDocument();
     // One action both asks for Mail and turns monitoring on: no second "Enable" step.
     fireEvent.click(screen.getByRole("button", { name: "Allow email access" }));
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
       account_id: "account_C", enabled: true, notifications_enabled: true,
-    }), "synthetic-id-token", "synthetic-owner-token"));
+    }), "synthetic-id-token"));
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_C", "synthetic-id-token", "synthetic-owner-token"));
+      "owner", "account_C", "synthetic-id-token", {}, expect.any(AbortSignal)));
     expect(onConnectMail).toHaveBeenCalledOnce();
+    const approved = service.post.mock.calls.find(([path]) => path === "preferences")![1];
+    expect(Math.round((Date.now() - Date.parse(approved.historical_start_at)) / 86_400_000)).toBe(30);
     expect(screen.queryByRole("button", { name: "Allow email access" })).not.toBeInTheDocument();
     expect(service.post.mock.calls.some(([, body]) => body.account_id === "account_B")).toBe(false);
     expect(service.scan.mock.calls.some(call => call[1] === "account_B")).toBe(false);
   });
 
-  it("does not ask for Mail again once access exists", async () => {
-    service.status.mockResolvedValue(status("account_granted", { monitoring_enabled: false, monitor_current: false, scan_state: "off", coverage: null }));
+  it("starts an already granted account without Turn on or another OAuth", async () => {
+    let enabled = false;
+    service.status.mockImplementation(async () => status("account_granted", { monitoring_enabled: enabled, monitor_current: enabled, scan_state: enabled ? "complete" : "off", coverage: null }));
     const onConnectMail = vi.fn(async () => true);
-    service.post.mockResolvedValue({ account_id: "account_granted" });
+    service.post.mockImplementation(async () => { enabled = true; return { account_id: "account_granted", monitoring_enabled: true }; });
+    service.list.mockResolvedValue({ ...bList, account_id: "account_granted" });
     render(<CalendarFollowups {...props("account_granted", onConnectMail)} />);
-    expect(await screen.findByText(/already has read access to account_granted@example.test/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Connect Mail|Allow email access/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
-    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true }), expect.anything(), expect.anything()));
+    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({ enabled: true, initialize_only: true }), expect.anything(), expect.anything()));
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Turn on|Allow email access/ })).not.toBeInTheDocument();
     expect(onConnectMail).not.toHaveBeenCalled();
   });
 
@@ -188,7 +193,7 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.getByText("Send document 2")).toBeInTheDocument();
     expect(screen.queryByText("Send document 3")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Review / })).toHaveLength(2);
-    expect(screen.getAllByText(/From Prof$/)).toHaveLength(2);
+    expect(screen.queryByText(/From Prof$/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View all" })).toBeInTheDocument();
   });
 
@@ -197,8 +202,7 @@ describe("Calendar Insights Follow-ups card", () => {
     service.list.mockResolvedValue(bList);
     render(<CalendarFollowups {...props("account_B")} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
-    expect(screen.getByText("1 more in this email")).toBeInTheDocument();
-    expect(screen.getByText(/Due before .*26 · From Jhumma/)).toBeInTheDocument();
+    expect(screen.getByText(/Due before .*26 · \+1 more/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Review / })).toHaveLength(1);
   });
 
@@ -210,22 +214,88 @@ describe("Calendar Insights Follow-ups card", () => {
     service.list.mockResolvedValue({ ...bList, account_id: "account_quiet", scan_state: "partial", incomplete_source_count: 2 });
     render(<CalendarFollowups {...props("account_quiet")} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
-    expect(screen.getByText("Catching up on your email…")).toBeInTheDocument();
+    expect(screen.getByText("Updating follow-ups…")).toBeInTheDocument();
     expect(screen.queryByText(/could not be checked completely/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
   });
 
-  it("asks the owner to act only when retrying cannot fix it, and Check again forces a retry", async () => {
+  it("allows slow progressive reads and page selections to finish between polling ticks", async () => {
+    const intervals = vi.spyOn(window, "setInterval");
+    service.scan.mockImplementation(() => new Promise(() => {}));
+    service.status.mockResolvedValue(status("account_slow_progress", {
+      scan_state: "partial", coverage: { coverage: "catching_up", attention: null,
+        waiting_source_count: 1, exhausted_source_count: 0, unreadable_count: 0 },
+    }));
+    let finishRead: (value: unknown) => void = () => {};
+    service.list.mockImplementation(() => new Promise(resolve => { finishRead = resolve; }));
+    const view = render(<CalendarFollowups {...props("account_slow_progress")} expanded />);
+    try {
+      await waitFor(() => expect(service.list).toHaveBeenCalledTimes(1));
+      const poll = intervals.mock.calls.find(call => call[1] === 5_000)?.[0] as () => void;
+      expect(poll).toBeTypeOf("function");
+      await act(async () => { poll(); poll(); poll(); });
+      expect(service.list).toHaveBeenCalledTimes(1);
+      await act(async () => finishRead({ ...bList, total_conversations: 16, next_offset: 15 }));
+      expect(screen.getByText("Send the research document")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+      await waitFor(() => expect(service.list).toHaveBeenCalledTimes(2));
+      await act(async () => { poll(); poll(); });
+      expect(service.list).toHaveBeenCalledTimes(2);
+      await act(async () => finishRead({ ...bList, total_conversations: 16, conversations: [{
+        ...bList.conversations[0], id: "last-slow", preview_requests: [{
+          ...bList.conversations[0].preview_requests[0], title: "Newly checked follow-up",
+        }],
+      }] }));
+      expect(screen.getByText("Newly checked follow-up")).toBeInTheDocument();
+      expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    } finally { view.unmount(); intervals.mockRestore(); }
+  });
+
+  it("says the email is synced once when the check finishes, not on every load", async () => {
+    service.status.mockResolvedValue(status("account_synced", {
+      scan_state: "partial",
+      coverage: { coverage: "catching_up", attention: null, waiting_source_count: 1, exhausted_source_count: 0, unreadable_count: 0 },
+    }));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_synced" });
+    const view = render(<CalendarFollowups {...props("account_synced")} />);
+    expect(await screen.findByText("Updating follow-ups…")).toBeInTheDocument();
+    expect(screen.queryByText("Your email is synced.")).not.toBeInTheDocument();
+    view.unmount();
+    service.status.mockResolvedValue(status("account_synced"));
+    const finished = render(<CalendarFollowups {...props("account_synced")} />);
+    expect(await screen.findByText("Your email is synced.")).toBeInTheDocument();
+    finished.unmount();
+    render(<CalendarFollowups {...props("account_synced")} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("Your email is synced.")).not.toBeInTheDocument();
+  });
+
+  it("has no settings menu and keeps the last verified list when a reload fails", async () => {
+    service.status.mockResolvedValue(status("account_B"));
+    service.list.mockResolvedValue(bList);
+    const view = render(<CalendarFollowups {...props("account_B")} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Follow-up settings" })).not.toBeInTheDocument();
+    service.list.mockRejectedValue(new Error("FOLLOWUPS_UNAVAILABLE"));
+    view.rerender(<CalendarFollowups {...props("account_B")} refreshRevision={1} />);
+    await waitFor(() => expect(service.list).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps verified follow-ups visible and retries quietly when email coverage is partial", async () => {
     service.status.mockResolvedValue(status("account_stuck", {
       scan_state: "partial", incomplete_source_count: 1,
       coverage: { coverage: "needs_attention", attention: "retry_needed", waiting_source_count: 0, exhausted_source_count: 1, unreadable_count: 0 },
     }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_stuck" });
     render(<CalendarFollowups {...props("account_stuck")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("A few emails could not be read yet.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_stuck", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
+      "owner", "account_stuck", "synthetic-id-token", {}, expect.any(AbortSignal)));
   });
 
   it("continues in the background once and not again on reopening", async () => {
@@ -235,7 +305,7 @@ describe("Calendar Insights Follow-ups card", () => {
     // Verified items appear without waiting for the catch-up scan.
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
     await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(1));
-    expect(service.scan.mock.calls[0]).toEqual(["owner", "account_catchup", "synthetic-id-token", "synthetic-owner-token", {}, expect.anything()]);
+    expect(service.scan.mock.calls[0]).toEqual(["owner", "account_catchup", "synthetic-id-token", {}, expect.anything()]);
     first.unmount();
     render(<CalendarFollowups {...props("account_catchup")} />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
@@ -243,30 +313,45 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan).toHaveBeenCalledTimes(1);
   });
 
+  it("turns reminders on for a monitored account that had them off, without asking", async () => {
+    service.status.mockResolvedValue(status("account_quiet_off", { notifications_enabled: false }));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_quiet_off" });
+    service.post.mockResolvedValue({ account_id: "account_quiet_off" });
+    render(<CalendarFollowups {...props("account_quiet_off")} />);
+    await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
+      account_id: "account_quiet_off", enabled: true, notifications_enabled: true,
+      historical_start_at: "2026-09-10T00:00:00Z",
+    }), "synthetic-id-token", expect.anything()));
+    expect(screen.queryByText(/Remind me/)).not.toBeInTheDocument();
+  });
+
   it("rebinds a renewed Mail grant silently, keeping the approved period", async () => {
-    service.status.mockResolvedValue(status("account_renewed", { monitor_current: false }));
+    let rebound = false;
+    service.status.mockImplementation(async () => status("account_renewed", { monitor_current: rebound }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_renewed" });
-    service.post.mockResolvedValue({ account_id: "account_renewed" });
+    service.post.mockImplementation(async () => { rebound = true; return { account_id: "account_renewed" }; });
     const onConnectMail = vi.fn(async () => true);
     render(<CalendarFollowups {...props("account_renewed", onConnectMail)} />);
     await waitFor(() => expect(service.post).toHaveBeenCalledWith("preferences", expect.objectContaining({
       account_id: "account_renewed", enabled: true, historical_start_at: "2026-09-10T00:00:00Z",
       notifications_enabled: true, reminder_lead_days: 1, reminder_hour: 9,
-    }), "synthetic-id-token", "synthetic-owner-token", expect.anything()));
+    }), "synthetic-id-token", expect.anything()));
     expect(onConnectMail).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /Allow email access|Turn on/ })).not.toBeInTheDocument();
     expect(service.post).toHaveBeenCalledTimes(1);
   });
 
-  it("retains a failed notification link and retries the exact request", async () => {
-    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${callId}`);
+  it("retains a failed notification link and retries the resolved request", async () => {
+    const mergedId = "44444444-4444-4444-8444-444444444444";
+    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${mergedId}`);
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: callId });
     const request = (preview: typeof bList.conversations[0]["preview_requests"][number]) => ({
       ...preview, source_excerpt: "Could we have a call on 27 October", due_relation: null,
       proposed_at: null, time_zone: "Asia/Kolkata", responsibility: "owner",
-      reminder_at: null, reminder_status: "none", linked_event: null,
+      reminder_at: preview.kind === "meeting" ? "2026-10-26T03:30:00Z" : null,
+      reminder_status: preview.kind === "meeting" ? "scheduled" : "none", linked_event: null,
       source_internal_date_ms: Date.parse("2026-10-10T12:00:00Z"),
       revision: 1, booking_state: preview.kind === "meeting" ? "not_booked" : null,
     });
@@ -275,10 +360,10 @@ describe("Calendar Insights Follow-ups card", () => {
       requests: bList.conversations[0].preview_requests.map(request),
     });
     const handled = vi.fn();
-    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={callId} onDeepLinkHandled={handled} />);
+    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={mergedId} onDeepLinkHandled={handled} />);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByText("Follow-ups could not be checked. Try again.")).toBeInTheDocument();
-    expect(window.location.search).toContain(callId);
+    expect(window.location.search).toContain(mergedId);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(handled).toHaveBeenCalledOnce());
     expect(window.location.search).not.toContain("followupRequest");
@@ -287,11 +372,14 @@ describe("Calendar Insights Follow-ups card", () => {
     // A proposed meeting is never described as scheduled.
     expect(screen.getByText(/Meeting proposed · .*27 · Time to confirm · Not on your Calendar yet/)).toBeInTheDocument();
     expect(screen.queryByText(/scheduled/i)).not.toBeInTheDocument();
+    // The reminder reaches the call too, and the way to book it is one clear action.
+    expect(screen.getByText(/^Reminder .*26/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule" })).toBeInTheDocument();
     expect(document.activeElement?.textContent).toContain("Review proposed call with Jhumma");
     window.history.replaceState(null, "", "/one/calendar");
   });
 
-  it("opens the exact original email and shows only a brief sanitized excerpt", async () => {
+  it("links the original email and reviews the Calendar action without mail content", async () => {
     service.status.mockResolvedValue(status("account_B"));
     service.list.mockResolvedValue(bList);
     service.detail.mockResolvedValue({
@@ -306,33 +394,28 @@ describe("Calendar Insights Follow-ups card", () => {
     render(<CalendarFollowups {...props("account_B")} />);
     fireEvent.click(await screen.findByRole("button", { name: /^Review / }));
     const link = await screen.findByRole("link", { name: /Open original email/ });
-    expect(link).toHaveAttribute("href", "https://mail.google.com/mail/u/account_B%40example.test/#all/18c0ffee");
+    expect(link).toHaveAttribute("href", "https://mail.google.com/mail/?authuser=account_B%40example.test#all/18c0ffee");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    expect(screen.getByText(/Please send the signed document/)).toBeInTheDocument();
+    expect(screen.queryByText(/Please send the signed document/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Research document and call|View email text/)).not.toBeInTheDocument();
+    expect(service.source).not.toHaveBeenCalled();
     // An email that is about a meeting already on Calendar points at it.
-    expect(screen.getByText(/About: Hushh Growth Sync/)).toBeInTheDocument();
-    expect(screen.getByText("No reminder set")).toBeInTheDocument();
+    expect(screen.getByText(/Hushh Growth Sync/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark done" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Snooze 1 day" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reminder", exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Snooze 1 day" })).not.toBeInTheDocument();
   });
 
-  it("loads a notification target after the vault is unlocked", async () => {
-    service.status.mockResolvedValue(status("account_B"));
-    service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
-    service.detail.mockResolvedValue({
-      ...bList.conversations[0], account_id: "account_B", requests: [],
-    });
-    let token: string | null = null;
-    const base = props("account_B", vi.fn());
-    const view = render(<CalendarFollowups {...base} getVaultOwnerToken={() => token} deepLinkRequestId={documentId} />);
-    expect(await screen.findByText("Unlock One to view follow-ups.")).toBeInTheDocument();
-    expect(service.list).not.toHaveBeenCalled();
-    token = "synthetic-owner-token";
-    view.rerender(<CalendarFollowups {...base} getVaultOwnerToken={() => token} deepLinkRequestId={documentId} />);
+  it("loads a notification target without vault authority", async () => {
+    service.status.mockResolvedValue(status("account_notification"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_notification" });
+    service.resolve.mockResolvedValue({ conversationId, requestId: documentId });
+    service.detail.mockResolvedValue({ ...bList.conversations[0], account_id: "account_notification", requests: [] });
+    render(<CalendarFollowups {...props("account_notification")} deepLinkRequestId={documentId} />);
     await waitFor(() => expect(service.resolve).toHaveBeenCalledWith(
-      "owner", "account_B", documentId, "synthetic-id-token", token, expect.anything(),
+      "owner", "account_notification", documentId, "synthetic-id-token", expect.anything(),
     ));
+    expect(screen.queryByText(/Unlock One/)).toBeNull();
   });
 
   it("shows one 15-conversation page at a time with server offsets", async () => {
@@ -348,7 +431,7 @@ describe("Calendar Insights Follow-ups card", () => {
     const first = { ...bList, account_id: "account_page", total_conversations: 16,
       next_offset: 15, conversations: conversations.slice(0, 15) };
     const second = { ...first, next_offset: null, conversations: conversations.slice(15) };
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) => offset === 15 ? second : first);
+    service.list.mockImplementation(async (_user, _account, _id, _signal, offset = 0) => offset === 15 ? second : first);
     render(<CalendarFollowups {...props("account_page", vi.fn())} expanded />);
     expect(await screen.findByText("Send document 1")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
@@ -356,10 +439,35 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(await screen.findByText("Send document 16")).toBeInTheDocument();
     expect(screen.queryByText("Send document 1")).toBeNull();
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
-    expect(service.list.mock.calls.some(call => call[5] === 15)).toBe(true);
+    expect(service.list.mock.calls.some(call => call[4] === 15)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Go to previous page" }));
     expect(await screen.findByText("Send document 1")).toBeInTheDocument();
     expect(screen.queryByText("Send document 16")).toBeNull();
+  });
+
+  it("opens Overdue at offset zero and restores All on collapse", async () => {
+    const account = "account_followup_views";
+    service.status.mockResolvedValue(status(account));
+    const view_counts = { all: 1, upcoming: 1, overdue: 1, snoozed: 0, history: 0 };
+    const upcoming = { ...bList, account_id: account, view: "all", view_counts };
+    const [entry] = bList.conversations;
+    const overdue = { ...upcoming, view: "overdue", conversations: [{
+      ...entry, preview_requests: [{ ...entry.preview_requests[0], title: "Overdue document", bucket: "overdue" }],
+    }] };
+    service.list.mockImplementation(async (_user, _account, _id, _signal, _offset, view) =>
+      view === "overdue" ? overdue : upcoming);
+    const base = props(account);
+    const screenView = render(<CalendarFollowups {...base} />);
+    expect(await screen.findByRole("button", { name: "View all" })).toBeInTheDocument();
+    screenView.rerender(<CalendarFollowups {...base} expanded />);
+    expect(screen.getByRole("button", { name: "All (1)" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Overdue (1)" }));
+    expect(await screen.findByText("Overdue document")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Overdue (1)" })).toHaveAttribute("aria-pressed", "true");
+    expect(service.list.mock.calls.some(call => call[4] === 0 && call[5] === "overdue")).toBe(true);
+    screenView.rerender(<CalendarFollowups {...base} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("Overdue document")).not.toBeInTheDocument();
   });
 
   it("re-enables pagination when a background refresh supersedes a pending page", async () => {
@@ -374,7 +482,7 @@ describe("Calendar Insights Follow-ups card", () => {
       }],
     }] };
     let resolvePage: (page: typeof second) => void = () => {};
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) =>
+    service.list.mockImplementation(async (_user, _account, _id, _signal, offset = 0) =>
       offset === 15 ? new Promise<typeof second>(resolve => { resolvePage = resolve; }) : first);
     const base = props("account_page");
     const view = render(<CalendarFollowups {...base} expanded refreshRevision={0} />);
@@ -400,7 +508,7 @@ describe("Calendar Insights Follow-ups card", () => {
       }],
     }] };
     let resolvePage: (page: typeof second) => void = () => {};
-    service.list.mockImplementation(async (_user, _account, _id, _owner, _signal, offset = 0) =>
+    service.list.mockImplementation(async (_user, _account, _id, _signal, offset = 0) =>
       offset === 15 ? new Promise<typeof second>(resolve => { resolvePage = resolve; }) : first);
     const base = props("account_page");
     const view = render(<CalendarFollowups {...base} expanded />);
@@ -428,11 +536,11 @@ describe("Calendar Insights Follow-ups card", () => {
     });
     const onConnectMail = vi.fn(async () => true);
     render(<CalendarFollowups {...props("account_stale", onConnectMail)} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Reconnect email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_stale", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
+      "owner", "account_stale", "synthetic-id-token", {}, expect.any(AbortSignal)));
     expect(attempts).toBeGreaterThanOrEqual(2);
-    expect(onConnectMail).toHaveBeenCalledOnce();
+    expect(onConnectMail).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument());
     expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
   });
@@ -458,28 +566,99 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(service.scan).toHaveBeenCalledTimes(20);
   });
 
-  it("says to unlock One instead of offering a Mail reconnect that cannot help", async () => {
-    // UAT: with the vault locked the card never listed or scanned, yet showed
-    // "Reconnect email" and a generic failure, sending the owner through Google twice.
-    service.status.mockResolvedValue(status("account_locked", {
-      monitor_current: false, scan_state: "partial", coverage: {
-        coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
-        exhausted_source_count: 0, unreadable_count: 0 } }));
-    render(<CalendarFollowups {...props("account_locked")} getVaultOwnerToken={() => null} />);
-    expect(await screen.findByText("Unlock One to check your email.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument();
-    expect(service.list).not.toHaveBeenCalled();
-    expect(service.scan).not.toHaveBeenCalled();
+  it("does not open OAuth after leaving during the permission check", async () => {
+    service.status.mockResolvedValue(status("account_departure", { mail_connected: false, monitoring_enabled: false, scan_state: "off", coverage: null }));
+    const connect = vi.fn(async () => true);
+    const view = render(<CalendarFollowups {...props("account_departure", connect)} />);
+    const button = await screen.findByRole("button", { name: "Allow email access" });
+    let finish!: (value: ReturnType<typeof status>) => void;
+    service.status.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(button);
+    await waitFor(() => expect(finish).toBeDefined());
+    view.unmount();
+    finish(status("account_departure", { mail_connected: false }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(connect).not.toHaveBeenCalled();
+    expect(service.post).not.toHaveBeenCalled();
   });
 
-  it("checks the vault before opening Google consent and names the real problem", async () => {
-    service.status.mockResolvedValue(status("account_new", {
-      mail_connected: false, monitoring_enabled: false, monitor_current: false, scan_state: "off", coverage: null }));
-    const onConnectMail = vi.fn(async () => true);
-    render(<CalendarFollowups {...props("account_new", onConnectMail)} getVaultOwnerToken={() => null} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Allow email access" }));
-    expect(await screen.findByText("Unlock One before turning on email follow-ups.")).toBeInTheDocument();
-    expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
-    expect(onConnectMail).not.toHaveBeenCalled();
+  it("renders a saved snapshot immediately on return while refreshing", async () => {
+    service.status.mockResolvedValue(status("account_cached"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_cached" });
+    const first = render(<CalendarFollowups {...props("account_cached")} />);
+    await screen.findByText("Send the research document");
+    first.unmount();
+    service.status.mockImplementation(() => new Promise(() => {}));
+    render(<CalendarFollowups {...props("account_cached")} />);
+    expect(screen.getByText("Send the research document")).toBeInTheDocument();
+  });
+
+  it("refreshes completed results on focus and clears revoked information", async () => {
+    service.status.mockResolvedValue(status("account_live"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_live" });
+    render(<CalendarFollowups {...props("account_live")} />);
+    await screen.findByText("Send the research document");
+    await waitFor(() => expect(service.scan).toHaveBeenCalled());
+    service.list.mockRejectedValue(new FollowupRequestError("mail_grant_changed", 409));
+    fireEvent.focus(window);
+    await waitFor(() => expect(screen.queryByText("Send the research document")).toBeNull());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("reads saved follow-ups with Firebase and no vault recovery", async () => {
+    service.status.mockResolvedValue(status("account_renewal"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_renewal" });
+    render(<CalendarFollowups {...props("account_renewal")} />);
+    await screen.findByText("Send the research document");
+    expect(service.list).toHaveBeenCalledWith("owner", "account_renewal", "synthetic-id-token", expect.any(AbortSignal), 0, "all");
+    expect(screen.queryByText(/Unlock One/)).toBeNull();
+  });
+
+  it("does not open details after sign-out during ID-token retrieval", async () => {
+    const getIdToken = vi.fn(async () => "synthetic-id-token");
+    service.status.mockResolvedValue(status("account_delayed_id"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_delayed_id" });
+    render(<CalendarFollowups {...props("account_delayed_id")} getIdToken={getIdToken} />);
+    await screen.findByText("Send the research document");
+    await waitFor(() => expect(service.scan).toHaveBeenCalled());
+    let finish!: (value: string) => void;
+    getIdToken.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: /^Review / }));
+    await waitFor(() => expect(finish).toBeDefined());
+    publishValidatedAuthSessionOwner(null);
+    finish("synthetic-id-token");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(service.detail).not.toHaveBeenCalled();
+  });
+
+  it("does not read an account after delayed authentication is unmounted", async () => {
+    let finish!: (token: string) => void;
+    const getIdToken = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
+    const view = render(<CalendarFollowups {...props("account_departed")} getIdToken={getIdToken} />);
+    await waitFor(() => expect(finish).toBeDefined());
+    view.unmount();
+    finish("synthetic-id-token");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(service.status).not.toHaveBeenCalled();
+    expect(service.list).not.toHaveBeenCalled();
+  });
+
+});
+
+describe("Follow-ups catch-up loop", () => {
+  const run = (refresh = vi.fn(async () => undefined)) => scanWhilePending({
+    userId: "owner", accountId: "account_B", maxCalls: 10,
+    getIdToken: async () => "synthetic-id-token", refresh,
+  });
+
+  beforeEach(() => { service.scan.mockReset(); });
+
+  it("survives one failed call and keeps scanning until the server is done", async () => {
+    service.scan.mockRejectedValueOnce(new Error("FOLLOWUPS_UNAVAILABLE"))
+      .mockResolvedValueOnce({ state: "pending" }).mockResolvedValueOnce({ state: "complete" });
+    const refresh = vi.fn(async () => undefined);
+    await expect(run(refresh)).resolves.toBe(true);
+    expect(service.scan).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenCalledTimes(3);
   });
 });

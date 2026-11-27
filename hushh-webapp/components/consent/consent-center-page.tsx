@@ -1,6 +1,17 @@
 "use client";
 
+import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
+
+
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
+import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
+
+import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
+import type { NativeDrawerRow } from "@/lib/capacitor/native-drawers";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { nativePrivacyCanInteract, nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
@@ -10,18 +21,27 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
+import {
+  ScopeCommerceService,
+  formatCommerceMicroUsd,
+  formatCommerceMoney,
+  scopeCommerceStatusCopy,
+  type NegativeNetAcknowledgement,
+  type NegativeNetTerms,
+} from "@/lib/services/scope-commerce-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { ConsentSharingRevokeDialog } from "@/components/consent/consent-sharing-revoke-dialog";
-import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -64,6 +84,17 @@ import {
 } from "@/lib/consent";
 
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
+import {
+  buildConsentTrailEventItems,
+  consentHistoryBadgeClassName,
+  ConsentHistoryEventTrail,
+  ConsentHistoryTrails,
+  formatConsentHistoryStatus,
+  formatLifecycleEventLabel,
+  sortedConsentTrails,
+  sortedTrailEvents,
+} from "@/components/consent/consent-history-trails";
+export { formatLifecycleEventLabel };
 import { DocumentRequestReviewRouter } from "@/components/consent/calendar-meeting-review-card";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
@@ -179,8 +210,6 @@ import {
 type ConsentTab = "requests" | "active" | "history" | "connections";
 type ConsentManagerMode = ConsentCenterMode;
 type PendingNotificationAction = "review" | "approve" | "deny" | null;
-type ConsentTrail = NonNullable<ConsentCenterEntry["consent_trails"]>[number];
-type ConsentTrailEvent = NonNullable<ConsentTrail["events"]>[number];
 type ConnectionScopeProposalPresentation = {
   scopeHandle: string;
   direction: "requested" | "offered";
@@ -275,15 +304,7 @@ function resolveConsentTab(
 }
 
 function formatStatus(status?: string | null) {
-  const normalized = String(status || "pending").toLowerCase();
-  const labels: Record<string, string> = {
-    revoked: "Ended",
-    cancelled: "Withdrawn",
-    pending: "Waiting",
-    request_pending: "Waiting",
-    accepted: "Accepted",
-  };
-  return labels[normalized] || normalized.replaceAll("_", " ");
+  return formatConsentHistoryStatus(status);
 }
 
 /**
@@ -292,35 +313,6 @@ function formatStatus(status?: string | null) {
  */
 function formatDate(value?: string | number | null) {
   return formatRequestedAt(value);
-}
-
-function eventTimeMs(value?: string | number | null) {
-  if (!value) return 0;
-  const timestamp = new Date(value).getTime();
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function trailTimeMs(trail: ConsentTrail) {
-  return Math.max(
-    eventTimeMs(trail.issued_at || trail.expires_at),
-    ...(trail.events || []).map((event) =>
-      eventTimeMs(event.issued_at || event.expires_at),
-    ),
-  );
-}
-
-function sortedConsentTrails(entry: ConsentCenterEntry) {
-  return [...(entry.consent_trails || [])].sort(
-    (left, right) => trailTimeMs(right) - trailTimeMs(left),
-  );
-}
-
-function sortedTrailEvents(trail: ConsentTrail) {
-  return [...(trail.events || [])].sort(
-    (left, right) =>
-      eventTimeMs(right.issued_at || right.expires_at) -
-      eventTimeMs(left.issued_at || left.expires_at),
-  );
 }
 
 function parseDurationHours(value?: string | null) {
@@ -392,22 +384,7 @@ function isAuthConsentLoadError(error?: string | null) {
 }
 
 function badgeClassName(status?: string | null) {
-  switch (String(status || "").toLowerCase()) {
-    case "approved":
-    case "active":
-      return "border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-200";
-    case "pending":
-    case "request_pending":
-      return "border-transparent bg-amber-500/10 text-amber-800 dark:text-amber-200";
-    case "denied":
-    case "revoked":
-    case "cancelled":
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
-    case "expired":
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
-    default:
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
-  }
+  return consentHistoryBadgeClassName(status);
 }
 
 function isRevocableConsentStatus(status?: string | null) {
@@ -418,38 +395,6 @@ function isRevocableConsentStatus(status?: string | null) {
 
 function lifecycleLabel(index: number) {
   return `Access ${index + 1}`;
-}
-
-/**
- * What the owner reads for one event in a request's history.
- *
- * The backend records an EXPORT_READ row whenever the requester opens a live
- * grant. It is an audit record, not a lifecycle transition, and the generic
- * fallback below would have printed it as "Export read", a word the owner
- * never sees. Named actions get their own sentence; anything unnamed still
- * falls back to the humanised action so a new row type is never blank.
- */
-/** The owner's words for each step, never the protocol's ("Consent granted"). */
-const LIFECYCLE_EVENT_LABELS: Record<string, string> = {
-  CONSENT_GRANTED: "Allowed",
-  CONSENT_DENIED: "Declined",
-  REVOKED: "Stopped sharing",
-  CANCELLED: "Withdrawn",
-  TIMEOUT: "Expired",
-  REQUESTED: "Requested",
-  EXPORT_READ: "Opened",
-};
-
-export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
-  const action = String(event.action || "")
-    .trim()
-    .toUpperCase();
-  const named = LIFECYCLE_EVENT_LABELS[action];
-  if (named) return named;
-  const value = String(event.action || event.status || "Consent event")
-    .replaceAll("_", " ")
-    .toLowerCase();
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
@@ -681,6 +626,8 @@ function buildConnectionEntries(
       counterpart_label: connection.displayName || "Someone",
       counterpart_email: connection.email || null,
       counterpart_image_url: connection.photoUrl || null,
+      counterpart_is_ria: connection.isRia,
+      counterpart_connected_from_contacts: connection.connectedFromContacts,
       issued_at: connection.createdAt,
     }),
   );
@@ -822,7 +769,7 @@ function ConsentEntryRow({
         entry.kind === "connection" ? null : (
           <Badge data-consent-role="status"
             variant="outline"
-            className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
+            className={cn("shrink-0 font-medium", badgeClassName(entry.status))}
           >
             {formatStatus(entry.status)}
           </Badge>
@@ -927,115 +874,54 @@ function ConsentHistoryLifecycleDetails({
   if (trails.length === 0) return null;
 
   return (
-    <SettingsGroup
+    <ConsentHistoryTrails
       embedded
       title="Access history"
       description="See how each type of access changed over time."
-    >
-      <div className="divide-y divide-[color:var(--app-card-border-standard)]/45 px-[var(--settings-row-px)]">
-        {trails.map((trail, trailIndex) => {
-          const events = sortedTrailEvents(trail);
-          const status = trail.status || trail.action || "history";
-          const latestDate = formatDate(trail.issued_at || trail.expires_at);
-          const scopeLabel =
-            trail.scope_description ||
-            (trail.scope
-              ? humanizeConsentScope(trail.scope)
-              : "Shared information");
-          const canRevoke =
-            Boolean(trail.scope) && isRevocableConsentStatus(trail.status);
-          const revokeBusy = isScopeBusy(trail.scope);
-          return (
-            <div
-              key={
-                trail.id ||
-                trail.trail_key ||
-                trail.latest_request_id ||
-                `${entry.id}:${trailIndex}`
-              }
-              className="py-[var(--settings-row-py)]"
+      items={trails.map((trail, trailIndex) => {
+        const events = sortedTrailEvents(trail);
+        const status = trail.status || trail.action || "history";
+        const latestDate = formatDate(trail.issued_at || trail.expires_at);
+        const scopeLabel =
+          trail.scope_description ||
+          (trail.scope
+            ? humanizeConsentScope(trail.scope)
+            : "Shared information");
+        const canRevoke =
+          Boolean(trail.scope) && isRevocableConsentStatus(trail.status);
+        const revokeBusy = isScopeBusy(trail.scope);
+        const trailKey = String(
+          trail.id ||
+            trail.trail_key ||
+            trail.latest_request_id ||
+            `${entry.id}:${trailIndex}`,
+        );
+        return {
+          key: trailKey,
+          eyebrow: lifecycleLabel(trailIndex),
+          title: scopeLabel,
+          meta: latestDate ? `Latest ${latestDate}` : null,
+          statusLabel: formatStatus(status),
+          statusTone: status,
+          actions: canRevoke ? (
+            <Button
+              data-consent-role="compact-action"
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              disabled={revokeBusy}
+              onClick={() => onRevokeScope(String(trail.scope))}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div data-consent-role="fact-label" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                    {lifecycleLabel(trailIndex)}
-                  </div>
-                  <div data-consent-role="row-title" className="mt-1 text-sm font-semibold leading-5 text-foreground">
-                    {scopeLabel}
-                  </div>
-                  {latestDate ? (
-                    <div data-consent-role="helper" className="mt-1 text-xs text-muted-foreground">
-                      Latest {latestDate}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                  <Badge data-consent-role="status" className={cn("capitalize", badgeClassName(status))}>
-                    {formatStatus(status)}
-                  </Badge>
-                  {canRevoke ? (
-                    <Button data-consent-role="compact-action"
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      disabled={revokeBusy}
-                      onClick={() => onRevokeScope(String(trail.scope))}
-                    >
-                      {revokeBusy && activeAction?.kind === "revoke"
-                        ? "Stopping..."
-                        : "Stop active access"}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              {events.length > 0 ? (
-                <div className="mt-4 space-y-0">
-                  {events.map((event, eventIndex) => {
-                    const eventStatus = event.status || event.action;
-                    return (
-                      <div
-                        key={`${event.request_id || event.id || trailIndex}-${event.action || event.status}-${event.issued_at || eventIndex}`}
-                        className="grid grid-cols-[18px_1fr] gap-2"
-                      >
-                        <div className="flex flex-col items-center">
-                          <span
-                            className={cn(
-                              "mt-1 h-2.5 w-2.5 rounded-full border",
-                              badgeClassName(eventStatus),
-                            )}
-                          />
-                          {eventIndex < events.length - 1 ? (
-                            <span className="min-h-6 flex-1 border-l border-border/70" />
-                          ) : null}
-                        </div>
-                        <div className="pb-3 text-xs last:pb-0">
-                          <div className="font-medium text-foreground/85">
-                            {formatLifecycleEventLabel(event)}
-                          </div>
-                          <div className="mt-0.5 leading-5 text-muted-foreground">
-                            {[
-                              event.scope_description ||
-                                (event.scope
-                                  ? humanizeConsentScope(event.scope)
-                                  : null),
-                              formatDate(event.issued_at || event.expires_at),
-                            ]
-                              .filter(Boolean)
-                              .join(" · ") || "Event recorded"}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-    </SettingsGroup>
+              {revokeBusy && activeAction?.kind === "revoke"
+                ? "Stopping..."
+                : "Stop active access"}
+            </Button>
+          ) : null,
+          events: buildConsentTrailEventItems(events, String(trailIndex)),
+        };
+      })}
+    />
   );
 }
 
@@ -1156,6 +1042,7 @@ function ConsentEntryDetail({
     members: ConsentCenterEntry[],
     durationHours?: number,
     modelProcessingAllowed?: boolean,
+    negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
   ) => void;
   onDenyBundle?: (members: ConsentCenterEntry[]) => void;
   /**
@@ -1167,6 +1054,7 @@ function ConsentEntryDetail({
     decline: ConsentCenterEntry[],
     durationHours?: number,
     modelProcessingAllowed?: boolean,
+    negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
   ) => void;
   onApprove: (
     entry: ConsentCenterEntry,
@@ -1176,6 +1064,7 @@ function ConsentEntryDetail({
       offeredScopeHandles: string[];
     },
     modelProcessingAllowed?: boolean,
+    negativeNetAcknowledgement?: NegativeNetAcknowledgement,
   ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
@@ -1220,6 +1109,10 @@ function ConsentEntryDetail({
   );
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
   const [modelApproval, setModelApproval] = useState<{ review: string; epoch: number } | null>(null);
+  const [negativeNetTermsByRequestId, setNegativeNetTermsByRequestId] = useState<
+    Record<string, NegativeNetTerms>
+  >({});
+  const [acknowledgedNegativeBindings, setAcknowledgedNegativeBindings] = useState<string>("");
   useEffect(() => subscribeVaultSessionEpoch(() => setModelApproval(null)), []);
   useEffect(() => {
     setSelectedDuration(defaultDuration);
@@ -1270,7 +1163,7 @@ function ConsentEntryDetail({
     setRevokeDialogOpen(false);
   }, [disarmDeny, entry?.id, requestedProposalKey]);
 
-  const { userId: previewUserId } = useAuth();
+  const { user: authUser, userId: previewUserId } = useAuth();
   const {
     vaultKey: previewVaultKey,
     getVaultOwnerToken: getPreviewVaultOwnerToken,
@@ -1294,6 +1187,57 @@ function ConsentEntryDetail({
       : [],
     enabled: previewEnabled,
   });
+
+  const entryAllowedNextAction = String(entry?.allowed_next_action || "").trim();
+  const entryIsPendingDecision = Boolean(
+    entry &&
+    !isDriveSharingEntry(entry) &&
+    !isCircleMemberInviteConsent(entry.metadata) &&
+    (entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+    (entryAllowedNextAction
+      ? entryAllowedNextAction === "review_request"
+      : entry.status === "pending"),
+  );
+  const paidReviewIds = entry && entryIsPendingDecision
+    ? (bundleMembers.length > 1 ? bundleMembers : [entry])
+        .filter(
+          (member) =>
+            member.metadata?.commercial_required === true &&
+            (member.request_id || member.metadata?.request_id || member.id) &&
+            !(
+              typeof member.metadata?.request_price_coins === "number" &&
+              member.metadata.request_price_coins > 50
+            ),
+        )
+        .map((member) => String(member.request_id || member.metadata?.request_id || member.id))
+    : [];
+  const paidReviewKey = paidReviewIds.join("|");
+  useEffect(() => {
+    let active = true;
+    setNegativeNetTermsByRequestId({});
+    setAcknowledgedNegativeBindings("");
+    if (!paidReviewKey || typeof ScopeCommerceService?.scopeRequest !== "function") {
+      return () => { active = false; };
+    }
+    void AuthService?.getIdToken?.()
+      .then(async (firebaseToken) => {
+        if (!active || !firebaseToken) return;
+        const resolved = await Promise.all(
+          paidReviewKey.split("|").map(async (id) => {
+            const req = await ScopeCommerceService.scopeRequest(firebaseToken, id).catch(() => null);
+            return req?.negative_net_acknowledgement ? ([id, req.negative_net_acknowledgement] as const) : null;
+          }),
+        );
+        if (!active) return;
+        const next: Record<string, NegativeNetTerms> = {};
+        for (const item of resolved) {
+          if (item) next[item[0]] = item[1];
+        }
+        setNegativeNetTermsByRequestId(next);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [paidReviewKey]);
 
   if (!entry) {
     return (
@@ -1424,8 +1368,9 @@ function ConsentEntryDetail({
   };
   const isMarketplaceDecision =
     isPendingDecision && isMarketplaceConsent(entry.metadata, entry.scope);
+  const fundedDuration = [entry, ...bundleMembers].some(member => member.metadata?.upfront_price_reviewed === true && member.metadata?.commercial_required === true);
   const durationOptions =
-    isPendingDecision && !isConnectionDecision && !isMarketplaceDecision
+    isPendingDecision && !fundedDuration && !isConnectionDecision && !isMarketplaceDecision
       ? isLocationEntry
         ? locationDurationOptionsFor(requestedDurationHours)
         : durationOptionsFor(requestedDurationHours)
@@ -1523,8 +1468,46 @@ function ConsentEntryDetail({
     entry.is_scope_upgrade && entry.additional_access_summary
       ? ["What changes", entry.additional_access_summary]
       : null,
+    entry.metadata?.upfront_price_reviewed === true &&
+    typeof entry.metadata?.request_price_coins === "number" &&
+    Number.isSafeInteger(entry.metadata.request_price_coins) &&
+    entry.metadata.request_price_coins >= 0
+      ? [
+          isBundleDecision ? "Request total" : "Request value",
+          formatCommerceMoney(
+            isBundleDecision && typeof entry.metadata.bundle_price_coins === "number"
+              ? entry.metadata.bundle_price_coins
+              : entry.metadata.request_price_coins,
+          ),
+        ]
+      : null,
     entry.reason ? ["Reason", entry.reason] : null,
   ].filter((item): item is [string, string] => Boolean(item));
+
+  const activePaidMembers = isPendingDecision
+    ? (isBundleDecision
+        ? bundleMembers.filter((member) => chosenRefs.has(bundleMemberRef(member)))
+        : [entry])
+    : [];
+  const activeNegativeTerms = activePaidMembers
+    .map((member) => {
+      const id = String(member.request_id || member.metadata?.request_id || member.id || "");
+      const terms = id ? negativeNetTermsByRequestId[id] : undefined;
+      return terms ? { id, terms } : null;
+    })
+    .filter((item): item is { id: string; terms: NegativeNetTerms } => Boolean(item));
+  const negativeTermsBindingKey = activeNegativeTerms.map((item) => item.terms.binding).sort().join("|");
+  const negativeTermsConfirmed =
+    activeNegativeTerms.length === 0 || acknowledgedNegativeBindings === negativeTermsBindingKey;
+  const negativeAcknowledgementsMap: Record<string, NegativeNetAcknowledgement> | undefined =
+    activeNegativeTerms.length > 0 && negativeTermsConfirmed
+      ? Object.fromEntries(
+          activeNegativeTerms.map(({ id, terms }) => [
+            id,
+            { version: 1 as const, binding: terms.binding, acknowledged: true as const },
+          ]),
+        )
+      : undefined;
 
   return (
     <div className="space-y-4">
@@ -1643,11 +1626,25 @@ function ConsentEntryDetail({
           className="flex flex-wrap items-center justify-end gap-2 pt-1"
           aria-label="Consent decision"
         >
+          {activeNegativeTerms.length > 0 ? (
+            <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={negativeTermsConfirmed}
+                disabled={requestBusy}
+                onCheckedChange={(checked) =>
+                  setAcknowledgedNegativeBindings(checked === true ? negativeTermsBindingKey : "")
+                }
+              />
+              <span>
+                The estimated processing fee ({formatCommerceMicroUsd(activeNegativeTerms[0]!.terms.processing_fee_micro_usd)}) exceeds this request amount, resulting in {formatCommerceMicroUsd(activeNegativeTerms[0]!.terms.net_earnings_micro_usd)} net earnings settled from future earnings.
+              </span>
+            </label>
+          ) : null}
           {!isConnectionDecision && !isLocationEntry && !isMarketplaceDecision && entry?.scope?.startsWith("attr.") ? (
             <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
               <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
                 onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
-              <span>Allow this recipient’s Agent One and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
+              <span>Let this recipient&rsquo;s Agent One and selected model read these approved details to help with their request. Leave unchecked if only the person should view sensitive details. Never allows further sharing.</span>
             </label>
           ) : null}
           {showDurationChoice ? (
@@ -1686,7 +1683,7 @@ function ConsentEntryDetail({
             effect="fill"
             size="sm"
             className="min-h-11"
-            disabled={requestBusy || (canChooseItems && chosenCount === 0)}
+            disabled={requestBusy || (canChooseItems && chosenCount === 0) || !negativeTermsConfirmed}
             onClick={() => {
               if (partialChoice) {
                 const { allow, decline } = splitBundleChoice(
@@ -1694,11 +1691,11 @@ function ConsentEntryDetail({
                   bundleMemberRef,
                   chosenRefs,
                 );
-                onDecideBundle!(allow, decline, effectiveDurationHours, modelProcessingApproved());
+                onDecideBundle!(allow, decline, effectiveDurationHours, modelProcessingApproved(), negativeAcknowledgementsMap);
                 return;
               }
               return isBundleDecision
-                ? onApproveBundle!(bundleMembers, effectiveDurationHours, modelProcessingApproved())
+                ? onApproveBundle!(bundleMembers, effectiveDurationHours, modelProcessingApproved(), negativeAcknowledgementsMap)
                 : onApprove(
                     entry,
                     isConnectionDecision || isMarketplaceDecision
@@ -1711,6 +1708,7 @@ function ConsentEntryDetail({
                         }
                       : undefined,
                     modelProcessingApproved(),
+                    negativeAcknowledgementsMap?.[String(entry.request_id || entry.metadata?.request_id || entry.id || "")],
                   );
             }}
             data-voice-control-id="consent_approve"
@@ -1776,14 +1774,6 @@ function ConsentEntryDetail({
         </SettingsGroup>
       ) : null}
 
-      {entry.metadata?.commercial_required === true && (entry.request_id || entry.metadata?.request_id) ? (
-        <SettingsGroup embedded title="Paid sharing" description="Review payment and prepare approved encrypted information.">
-          <SettingsRow title="Sharing payment" description="Payment and export preparation have separate statuses." trailing={
-            <Button data-consent-role="compact-action" asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
-          } />
-        </SettingsGroup>
-      ) : null}
-
       {relatedWorkspace ? (
         <SettingsGroup
           embedded
@@ -1811,12 +1801,43 @@ function ConsentEntryDetail({
       ) : null}
 
       {hasGroupedHistory ? (
-        <ConsentHistoryLifecycleDetails
-          entry={entry}
-          onRevokeScope={onRevokeScope}
-          activeAction={activeAction}
-          isScopeBusy={isScopeBusy}
-        />
+        <div className="space-y-3">
+          {String(entry.counterpart_id || "").toLowerCase() === "personal_agent" ||
+          entry.status === "pod_access_allowed" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-black/[0.08] bg-[color:var(--app-secondary-surface)] px-4 py-3 dark:border-white/[0.10]">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Automatic agent check-ins are non-binding diagnostics and can be cleared without affecting your consent records.
+              </p>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const idToken = await authUser?.getIdToken?.();
+                    if (!idToken) return;
+                    await ConsentCenterService.clearSystemLogs({
+                      idToken,
+                      userId: previewUserId,
+                    });
+                    window.location.reload();
+                  } catch {
+                    // Non-blocking cleanup action
+                  }
+                }}
+              >
+                Clear system logs
+              </Button>
+            </div>
+          ) : null}
+          <ConsentHistoryLifecycleDetails
+            entry={entry}
+            onRevokeScope={onRevokeScope}
+            activeAction={activeAction}
+            isScopeBusy={isScopeBusy}
+          />
+        </div>
       ) : null}
 
       {entry.kind === "history" &&
@@ -1828,20 +1849,14 @@ function ConsentEntryDetail({
           title="Recent changes"
           description="The latest changes to this type of access."
         >
-          {entry.consent_chain.slice(0, 6).map((event) => (
-            <SettingsRow
-              key={`${event.request_id || event.id}-${event.action || event.status}`}
-              title={formatStatus(event.status || event.action)}
-              description={
-                [
-                  event.scope ? humanizeConsentScope(event.scope) : null,
-                  formatDate(event.issued_at),
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "Event recorded"
-              }
+          <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+            <ConsentHistoryEventTrail
+              events={buildConsentTrailEventItems(
+                entry.consent_chain.slice(0, 6),
+                entry.id,
+              )}
             />
-          ))}
+          </div>
         </SettingsGroup>
       ) : null}
 
@@ -2124,8 +2139,9 @@ export function ConsentCenterPage() {
   const activePage = tab === "active" ? page : activeLocalPage;
   const previousPage = tab === "history" ? page : previousLocalPage;
   const connectionsPage = tab === "connections" ? page : connectionsLocalPage;
+  const commerceRequestId = /^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? searchParams.get("commerceRequestId") : null;
   const selectedId =
-    searchParams.get("requestId") || searchParams.get("selected");
+    searchParams.get("requestId") || searchParams.get("selected") || commerceRequestId;
   // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
   // without a requestId). Used as a selection fallback below.
   const selectedBundleId = searchParams.get("bundleId");
@@ -2448,6 +2464,7 @@ export function ConsentCenterPage() {
         offeredScopeHandles: string[];
       },
       modelProcessingAllowed = false,
+      negativeNetAcknowledgement?: NegativeNetAcknowledgement,
     ) => {
       // A document request or Drive question is not a PKM grant or a
       // voice-approvable action; only its own card can decide it.
@@ -2486,7 +2503,10 @@ export function ConsentCenterPage() {
         return;
       }
       recordApprovalInFlight(entry, durationHours);
-      void handleApprove(toPendingConsent(entry, durationHours), { modelProcessingAllowed });
+      void handleApprove(toPendingConsent(entry, durationHours), {
+        modelProcessingAllowed,
+        negativeNetAcknowledgement,
+      });
     },
     [
       recordApprovalInFlight,
@@ -2573,7 +2593,12 @@ export function ConsentCenterPage() {
     ],
   );
   const approveBundleEntries = useCallback(
-    (members: ConsentCenterEntry[], durationHours?: number, modelProcessingAllowed = false) => {
+    (
+      members: ConsentCenterEntry[],
+      durationHours?: number,
+      modelProcessingAllowed = false,
+      negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
+    ) => {
       const head = members[0];
       if (!head) return;
       const name = requesterShortName(
@@ -2590,6 +2615,7 @@ export function ConsentCenterPage() {
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
           modelProcessingAllowed,
+          negativeNetAcknowledgements,
           successMessage: `${name} can now see your ${joinInformationLabels(labels)}.`,
         },
       ).catch((error: unknown) => {
@@ -2621,6 +2647,7 @@ export function ConsentCenterPage() {
       decline: ConsentCenterEntry[],
       durationHours?: number,
       modelProcessingAllowed = false,
+      negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>,
     ) => {
       const head = allow[0] ?? decline[0];
       if (!head) return;
@@ -2641,6 +2668,7 @@ export function ConsentCenterPage() {
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
           modelProcessingAllowed,
+          negativeNetAcknowledgements,
           successMessage: `${name} can now see your ${shared}. ${held} ${decline.length === 1 ? "wasn't" : "weren't"} shared.`,
         },
       ).catch((error: unknown) => {
@@ -3645,6 +3673,7 @@ export function ConsentCenterPage() {
         requestId: null,
         selected: null,
         bundleId: null,
+        commerceRequestId: null,
         notificationAction: null,
       });
     });
@@ -3733,8 +3762,117 @@ export function ConsentCenterPage() {
     previousPage,
     setPreviousLocalPage,
   );
+  // React remains the authority for routing, records, and decisions. Native
+  // receives only ephemeral display rows and opaque, per-owner action handles.
+  const presentation = useNativeWorkspacePresentation();
+  const nativeVaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const nativeFrame = useRef<HTMLElement | null>(null);
+  const nativeHandles = useMemo(() => createNativeWorkspaceHandles(String(userId)), [userId]);
+  const [expandedNativeGroups, setExpandedNativeGroups] = useState<Set<string>>(() => new Set());
+  const [nativeChild, setNativeChild] = useState<{ seen: boolean } | null>(null);
+  const nativeSession = useMemo(() => ({ owner: userId, unlocked: isVaultUnlocked }), [userId, isVaultUnlocked]);
+  const { handoff: retireForNativeChild, activationRevision: nativeActivation } = useNativeWorkspaceHandoff(presentation.retireForWeb, nativeSession);
+  const nativeLatest = useRef({ userId, pathname, isVaultUnlocked, items, tab, selectedId, selectedBundleId });
+  useLayoutEffect(() => { nativeLatest.current = { userId, pathname, isVaultUnlocked, items, tab, selectedId, selectedBundleId }; });
+  useLayoutEffect(() => {
+    setNativeChild(null);
+    setExpandedNativeGroups(new Set());
+  }, [userId, isVaultUnlocked]);
+  useEffect(() => {
+    if (!nativeChild) return;
+    if (!nativeChild.seen && (selectedId || selectedBundleId || isPanelOpen)) setNativeChild({ seen: true });
+    else if (nativeChild.seen && !selectedId && !selectedBundleId && !isPanelOpen) setNativeChild(null);
+  }, [nativeChild, selectedId, selectedBundleId, isPanelOpen]);
+  const nativeCurrent = () => {
+    const current = nativeLatest.current;
+    return !!userId && current.userId === userId && current.isVaultUnlocked && isVaultSessionEpochCurrent(nativeVaultEpoch) &&
+      normalizeStaticExportPathname(current.pathname ?? "") === ROUTES.CONSENTS &&
+      nativePrivacyCanInteract(nativePrivacyObservation().state);
+  };
+  const nativeHandoff = async (entry: ConsentCenterEntry) => {
+    const originalItems = items;
+    const originalTab = tab;
+    await retireForNativeChild(nativeCurrent, () => nativeLatest.current.items === originalItems &&
+      nativeLatest.current.tab === originalTab && !nativeLatest.current.selectedId && !nativeLatest.current.selectedBundleId,
+    () => { setNativeChild({ seen: false }); setParam({ requestId: consentSelectionId(entry) }); });
+  };
+  const nativeActions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
+  const nativeRows: NativeDrawerRow[] = [];
+  const actionRow = (key: string, label: string, action: () => void | Promise<unknown>, detail?: string, selected?: boolean) => {
+    const id = nativeHandles(key);
+    nativeActions.set(id, action);
+    nativeRows.push({ id, label, ...(detail ? { detail } : {}), enabled: true, ...(selected ? { selected: true } : {}) });
+  };
+  const nativeEntry = (entry: ConsentCenterEntry, key: string, label?: string, detail?: string) => {
+    const subtitle = entry.counterpart_email || entry.counterpart_secondary_label;
+    const description = entry.kind === "connection" ? (formatDate(entry.issued_at) ? `First connected ${formatDate(entry.issued_at)}` : "Connected") :
+      [entry.scope ? consentEntryInformationLabel(entry) : entrySummary(entry), subtitle].filter(Boolean).join(" · ");
+    actionRow(key, label || resolveCounterpartLabel(entry), () => nativeHandoff(entry), detail || description);
+    if (entry.kind !== "connection" && !label) nativeRows[nativeRows.length - 1]!.trailing = formatStatus(entry.status);
+  };
+  const nativeItems = tab === "requests" ? pendingItems : tab === "active" ? activeSurfaceItems : tab === "history" ? previousItems : connectionsSurfaceItems;
+  const nativeHasInlineDecision = tab === "requests" && !sentDocumentRequests && pendingItems.some(entry => !!rowDecisionFor(entry));
+  if (tab === "requests" && !riaOutgoingCompatibilityRoute) {
+    actionRow("direction:received", "Received", () => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null }), undefined, !sentDocumentRequests);
+    actionRow("direction:sent", "Sent documents", () => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null }), undefined, sentDocumentRequests);
+  }
+  actionRow("refresh", "Refresh consent entries", retryConsentCenter);
+  if (isConsentActionRefreshing) nativeRows[nativeRows.length - 1]!.enabled = false;
+  if (activeListLoading && nativeItems.length === 0) nativeRows.push({ id: nativeHandles("loading"), label: "Loading consent entries", enabled: false, readOnly: true });
+  if (!activeListLoading && nativeItems.length === 0) nativeRows.push({ id: nativeHandles("empty"), label: emptyListMessage, enabled: false, readOnly: true });
+  if (tab === "active") {
+    for (const group of groupActiveConsentEntries(activeSurfaceItems)) {
+      if (group.kind === "single") nativeEntry(group.entry, `entry:${group.entry.kind}:${group.entry.id}`);
+      else {
+        const expanded = expandedNativeGroups.has(group.key);
+        const head = group.members[0]!;
+        actionRow(`group:${group.key}`, resolveCounterpartLabel(head), () => setExpandedNativeGroups(current => {
+          const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next;
+        }), [group.label, head.counterpart_email || head.counterpart_secondary_label].filter(Boolean).join(" · "), expanded);
+        nativeRows[nativeRows.length - 1]!.trailing = formatStatus(head.status);
+        if (expanded) for (const member of group.members) nativeEntry(member, `group-member:${group.key}:${member.kind}:${member.id}`, consentEntryInformationLabel(member), "Shared");
+      }
+    }
+  } else for (const entry of nativeItems) {
+    const opened = entry.bundle_items ? bundleEntryToOpen(entry) : entry;
+    if (opened) nativeEntry(opened, `entry:${entry.kind}:${entry.id}`, undefined, entry.bundle_items ? pendingBundleSummary(entry) : undefined);
+    else nativeRows.push({ id: nativeHandles(`entry:${entry.kind}:${entry.id}`), label: resolveCounterpartLabel(entry), detail: pendingBundleSummary(entry), enabled: false, readOnly: true });
+  }
+  const nativePagination = tab === "requests" ? pendingPagination : tab === "active" ? activePagination : tab === "history" ? previousPagination : null;
+  if (nativePagination && (nativePagination.page > 1 || nativePagination.hasMore || nativePagination.total > nativePagination.limit)) {
+    nativeRows.push({ id: nativeHandles("page-status"), label: `Page ${nativePagination.page} of ${Math.max(1, Math.ceil(nativePagination.total / nativePagination.limit))}`, enabled: false, readOnly: true });
+    if (nativePagination.page > 1) actionRow("previous", "Previous page", nativePagination.onPrevious);
+    if (nativePagination.hasMore) actionRow("next", "Next page", nativePagination.onNext);
+  }
+  const connectionsPageData = tab === "connections" ? centerResource.data?.activeConnections : null;
+  if (connectionsPageData && (connectionsPageData.page > 1 || connectionsPageData.hasMore || connectionsPageData.totalCount > CONSENT_CENTER_PAGE_SIZE)) {
+    nativeRows.push({ id: nativeHandles("page-status"), label: `Page ${connectionsPageData.page} of ${Math.max(1, Math.ceil(connectionsPageData.totalCount / CONSENT_CENTER_PAGE_SIZE))}`, enabled: false, readOnly: true });
+    if (connectionsPageData.page > 1) actionRow("previous", "Previous page", () => setParam({ page: String(Math.max(1, connectionsPage - 1)), requestId: null }));
+    if (connectionsPageData.hasMore) actionRow("next", "Next page", () => setParam({ page: String(connectionsPage + 1), requestId: null }));
+  }
+  const tabOptions = TOP_SHELL_TAB_REGISTRY.consent.tabs.map(option => {
+    const id = nativeHandles(`tab:${option.value}`);
+    nativeActions.set(id, () => commitConsentTab(option.value as ConsentTab));
+    return { id, label: option.label, selected: option.value === tab };
+  });
+  const searchId = nativeHandles("search");
+  nativeActions.set(searchId, choice => { if (typeof choice.text === "string") setSearchValue(choice.text); });
+  const nativeSupported = !nativeHasInlineDecision && !showSessionRecovery && !showCompactRetryState && !showFullRetryState &&
+    !(tab === "connections" && centerResource.data && centerResource.data.activeConnections == null) &&
+    searchValue.length <= 256 && nativeRows.length <= 200 && nativeRows.every(row => row.label.length > 0 && row.label.length <= 4096 && (!row.detail || row.detail.length <= 4096) && (!row.trailing || row.trailing.length <= 32));
+  const nativeActive = customNativePresentationEnabled() && nativeCurrent() && nativeSupported && !nativeChild &&
+    !selectedId && !selectedBundleId && !isPanelOpen && !rowUnlockPrompt.open;
+  const nativeContent: NativeWorkspaceContent = { workspace: "consent", page: "overview", title: "Consent", enabled: nativeActive, backEnabled: false,
+    sections: [{ id: nativeHandles("section"), rows: nativeRows }], tabs: { label: "Consent", options: tabOptions },
+    search: { id: searchId, label: searchPlaceholder, query: searchValue, live: true } };
+  const nativePhase = useNativeWorkspace({ owner: userId || "", content: nativeContent, actions: nativeActions, current: nativeCurrent,
+    back: () => {}, active: nativeActive, presentationOwner: presentation.owner, contentFrame: nativeFrame, activationRevision: nativeActivation });
+  const nativeAnchor = useCallback((node: HTMLDivElement | null) => { nativeFrame.current = node?.closest<HTMLElement>(".app-page-shell") ?? null; }, []);
+
   return (
     <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent data-consent-presentation="workspace">
+      <div ref={nativeAnchor} hidden aria-hidden="true" />
+      {nativePhase === "web" && !presentation.status.held && <>
       <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
@@ -3796,10 +3934,6 @@ export function ConsentCenterPage() {
                 <AccessibilityStatusAnnouncer
                   message={accessibilityStatusMessage}
                 />
-
-                {/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? (
-                  <ScopeCommerceRequestPanel key={`${userId}:${searchParams.get("commerceRequestId")}`} requestId={searchParams.get("commerceRequestId")!} />
-                ) : null}
 
                 {showSessionRecovery ? <SessionExpiryRecovery /> : null}
 
@@ -4041,9 +4175,17 @@ export function ConsentCenterPage() {
                     ? selectedEntry.kind === "connection"
                       ? "Connection details"
                       : selectedEntry.kind === "active_grant"
-                        ? "Active access"
+                        ? selectedEntry.metadata?.commercial_required === true &&
+                          ["awaiting_payment", "approved_awaiting_payment", "reserved", "preparing"].includes(
+                            String(selectedEntry.metadata?.commerce_status || ""),
+                          )
+                          ? scopeCommerceStatusCopy(selectedEntry.metadata?.commerce_status)
+                          : "Active access"
                         : selectedEntry.kind === "history"
-                          ? `${formatStatus(selectedEntry.status)} access`
+                          ? selectedEntry.status === "pod_access_allowed" ||
+                              String(selectedEntry.counterpart_id || "").toLowerCase() === "personal_agent"
+                            ? "Automatic agent check-in"
+                            : formatStatus(selectedEntry.status)
                           : selectedEntry.status === "pending"
                             ? "Request awaiting your decision"
                             : `${formatStatus(selectedEntry.status)} request`
@@ -4181,23 +4323,23 @@ export function ConsentCenterPage() {
               actor={actor}
               entry={selectedEntry}
               bundleMembers={selectedBundleMembers}
-              onApproveBundle={(members, durationHours, modelProcessingAllowed) => {
+              onApproveBundle={(members, durationHours, modelProcessingAllowed, negativeNetAcknowledgements) => {
                 closeDetailPanel();
-                approveBundleEntries(members, durationHours, modelProcessingAllowed);
+                approveBundleEntries(members, durationHours, modelProcessingAllowed, negativeNetAcknowledgements);
               }}
               onDenyBundle={(members) => {
                 closeDetailPanel();
                 denyBundleEntries(members);
               }}
-              onDecideBundle={(allow, decline, durationHours, modelProcessingAllowed) => {
+              onDecideBundle={(allow, decline, durationHours, modelProcessingAllowed, negativeNetAcknowledgements) => {
                 closeDetailPanel();
-                decideBundleEntries(allow, decline, durationHours, modelProcessingAllowed);
+                decideBundleEntries(allow, decline, durationHours, modelProcessingAllowed, negativeNetAcknowledgements);
               }}
-              onApprove={(entry, durationHours, scopeSelection, modelProcessingAllowed) => {
+              onApprove={(entry, durationHours, scopeSelection, modelProcessingAllowed, negativeNetAcknowledgement) => {
                 // Dismiss the panel immediately; the list already optimistically
                 // removes the row and any failure surfaces via toast.
                 closeDetailPanel();
-                approveEntry(entry, durationHours, scopeSelection, modelProcessingAllowed);
+                approveEntry(entry, durationHours, scopeSelection, modelProcessingAllowed, negativeNetAcknowledgement);
               }}
               onDeny={(entry) => {
                 closeDetailPanel();
@@ -4217,6 +4359,7 @@ export function ConsentCenterPage() {
         </SettingsDetailPanel>
         <OwnerConsentUnlockPrompt prompt={rowUnlockPrompt} />
       </SettingsPresentationProvider>
+      </>}
     </AppPageShell>
   );
 }

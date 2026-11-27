@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   FEED_STATE_CHANGED_EVENT,
+  dispatchFeedConnectionRequestsChanged,
   dispatchFeedStateChanged,
 } from "@/lib/feed/feed-events";
 import {
@@ -179,6 +180,20 @@ describe("useFeedLiveRefresh", () => {
 
     setVisibility("visible");
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the affected lane immediately without postponing a broad repair", () => {
+    const refresh = vi.fn();
+    renderHook(() => useFeedLiveRefresh(refresh));
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS / 2);
+    dispatchFeedConnectionRequestsChanged();
+    dispatchConsentStateChanged({ source: "sse_document_feed", reconcile: true });
+    expect(refresh.mock.calls).toEqual([["connections"], ["consent"]]);
+
+    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS / 2 + 100);
+    expect(refresh.mock.calls).toEqual([["connections"], ["consent"], []]);
   });
 
   it("does nothing at all when disabled, and detaches every listener on unmount", () => {

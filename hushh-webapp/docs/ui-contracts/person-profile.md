@@ -269,6 +269,7 @@ Sources: [global typography](../../app/globals.css),
 | --- | --- | --- |
 | Avatar/name/role | Public identity loaded | Display only. Photo fallback uses initials. |
 | Email / phone | Connected, with valid server-returned value; phone must pass E.164-style validation | `mailto:` / `tel:` OS handler. No contact editor here. |
+| **Connections count** | Active connection and the profile owner shares their list | Appears below contact details. Opens the shared Connections dialog with name search, pagination, and viewer-relative relationship actions. Values above 500 display as **500+ connections**. Back returns focus to the count. |
 | **Browse** | Authenticated viewer loaded | Scrolls Available to request. Does not open a dialog or send. |
 | **Share**, accessible “Share profile” | Public profile loaded | Calls clipboard write for the complete current URL, including queries, then immediately toasts “Profile link copied.” No Web Share chooser or clipboard failure recovery is implemented. |
 | **Request files** | Connected + authenticated + unlocked vault + connector overview `drive_document_sharing` enabled | Opens the existing file-request form; details below. |
@@ -332,7 +333,7 @@ Sources: [nested list](../../components/consent/consent-scope-nested-list.tsx),
 | UI / CTA | Current contract |
 | --- | --- |
 | Category row / chevron | Enters that category locally. Root label is “All”; deeper views show ancestor orientation and current heading. Counts come from loaded scopes. |
-| Parent-labelled **Back** | Pops one local tree level. It is not a route change. Page/tree do not register a `useBackLayer`; shell/system Back is not proven to unwind this local path. |
+| Parent-labelled **Back** | Pops one local tree level via shared `useBackLayer` (depth 10) and the inline parent button without changing the route. |
 | **Search categories** | Appears only with more than six loaded scope items. Case-insensitive local matching across loaded items, flattened with breadcrumb context. It does not search unloaded server pages. |
 | **Filter categories** | Same search threshold; radio **All categories** or a loaded domain. Changes filter and resets local path while retaining query and selection. |
 | Individual row / checkbox | Toggles opaque scope reference. Already granted scopes are disabled. Selection alone performs no request. |

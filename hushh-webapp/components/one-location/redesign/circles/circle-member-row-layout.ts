@@ -124,6 +124,10 @@ export const CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME =
 /**
  * A row inside the desktop member-actions menu.
  *
+ * 44px tall, the same target `components/app-ui/action-menu.tsx` uses for its
+ * rows. At 52px a two-action menu (Share location, Remove from Circle) read as
+ * loosely spaced.
+ *
  * The dropdown primitive's generic focus state pairs an accent background
  * with accent-foreground text. This menu replaces only that background with a
  * neutral fill, so leaving the generic text rule in place made the first item
@@ -131,7 +135,7 @@ export const CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME =
  * while preserving destructive red for the remove action.
  */
 export const CIRCLE_MEMBER_MENU_ITEM_CLASSNAME =
-  "flex min-h-[52px] w-full items-center gap-3 rounded-[10px] px-4 py-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
+  "flex min-h-11 w-full items-center gap-3 rounded-[10px] px-4 py-2 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
 
 /**
  * Phones retain one page scroll so touch gestures cannot get trapped inside a

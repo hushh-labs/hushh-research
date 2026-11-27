@@ -65,6 +65,8 @@ _LOCAL_ROOT_ENV = "POD_STORAGE_LOCAL_ROOT"
 _GCS_BUCKET_ENV = "POD_STORAGE_GCS_BUCKET"
 _GCS_PREFIX_ENV = "POD_STORAGE_GCS_PREFIX"
 _AZURE_BLOB_URL_ENV = "POD_STORAGE_AZURE_BLOB_URL"
+_S3_URI_ENV = "POD_STORAGE_S3_URI"
+_PREFIX_TOKEN_URL_ENV = "POD_STORAGE_PREFIX_TOKEN_URL"  # noqa: S105 - env var name
 
 
 @dataclass(frozen=True)
@@ -283,21 +285,38 @@ def resolve_pod_object_store() -> Any:
 
 
 def _object_store() -> Any:
-    """The one object store the rendered topology names: local, GCS or Azure Blob."""
+    """The one object store the rendered topology names across local/GCS/Blob/S3/ACE."""
     from hushh_mcp.services.pod_commit_log import GcsObjectStore, LocalObjectStore
 
     local_root = (os.getenv(_LOCAL_ROOT_ENV) or "").strip()
     bucket = (os.getenv(_GCS_BUCKET_ENV) or "").strip()
     blob_url = (os.getenv(_AZURE_BLOB_URL_ENV) or "").strip()
-    if [bool(local_root), bool(bucket), bool(blob_url)].count(True) != 1:
+    s3_uri = (os.getenv(_S3_URI_ENV) or "").strip()
+    prefix_url = (os.getenv(_PREFIX_TOKEN_URL_ENV) or "").strip()
+    configured = [
+        bool(local_root),
+        bool(bucket),
+        bool(blob_url),
+        bool(s3_uri),
+        bool(prefix_url),
+    ]
+    if configured.count(True) != 1:
         raise RuntimeError(
             f"pod storage 'commit_log' needs exactly one of {_LOCAL_ROOT_ENV}, "
-            f"{_GCS_BUCKET_ENV} or {_AZURE_BLOB_URL_ENV}"
+            f"{_GCS_BUCKET_ENV}, {_AZURE_BLOB_URL_ENV}, {_S3_URI_ENV} or {_PREFIX_TOKEN_URL_ENV}"
         )
     if local_root:
         return LocalObjectStore(local_root)
     if bucket:
         return GcsObjectStore(bucket, (os.getenv(_GCS_PREFIX_ENV) or "").strip())
-    from hushh_mcp.services.pod_azure_blob_store import AzureBlobObjectStore
+    if blob_url:
+        from hushh_mcp.services.pod_azure_blob_store import AzureBlobObjectStore
 
-    return AzureBlobObjectStore(blob_url)
+        return AzureBlobObjectStore(blob_url)
+    if s3_uri:
+        from hushh_mcp.services.pod_s3_object_store import S3ObjectStore
+
+        return S3ObjectStore(s3_uri)
+    from hushh_mcp.services.pod_s3_object_store import PrefixTokenObjectStore
+
+    return PrefixTokenObjectStore(prefix_url)

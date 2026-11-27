@@ -114,6 +114,42 @@ function chatGrantsRefusalMessage(code: string, message: string): string | null 
   return NOT_CONFIRMED;
 }
 
+const SOFTWARE_UPDATE_RECOVERY_MESSAGES = new Set<string>([
+  FIXED_MESSAGES.POD_CHAT_UPDATING!,
+  FIXED_MESSAGES.POD_RECEIPT_UPDATE_REQUIRED!,
+]);
+
+const HOSTING_RECOVERY_MESSAGES = new Set<string>([
+  NOT_READY,
+  NOT_ESTABLISHED,
+  MOVED,
+  NOT_READY_TO_CHAT,
+  FIXED_MESSAGES[POD_WAKE_TIMEOUT]!,
+  FIXED_MESSAGES[POD_NOT_REACHED]!,
+  FIXED_MESSAGES.POD_CHAT_RECOVERY_FAILED!,
+  FIXED_MESSAGES.POD_CHAT_CAPABILITIES_INVALID!,
+  FIXED_MESSAGES.POD_CHAT_CAPABILITIES_UNAVAILABLE!,
+  PLACEMENT_MESSAGES.byoc!,
+  PLACEMENT_MESSAGES.hussh_pods!,
+  PLACEMENT_MESSAGES.unplaced!,
+  PRIVATE_RUNTIME_GENERIC,
+  HOSTING_UNVERIFIED,
+]);
+
+/**
+ * Closed-set Settings destination for a direct-path turn failure that the owner
+ * can inspect or resolve in Profile, or null when no Settings action applies.
+ */
+export function ownerPodTurnRecoveryPanel(
+  message: string | null | undefined,
+): "hosting" | "software-updates" | null {
+  const normalized = typeof message === "string" ? message.trim() : "";
+  if (!normalized) return null;
+  if (SOFTWARE_UPDATE_RECOVERY_MESSAGES.has(normalized)) return "software-updates";
+  if (HOSTING_RECOVERY_MESSAGES.has(normalized)) return "hosting";
+  return null;
+}
+
 /**
  * The owner-safe sentence for a direct-path failure, or null when the failure
  * is not one. The typed code wins; a bare message is matched only exactly.

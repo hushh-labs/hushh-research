@@ -11,6 +11,7 @@ export type OrbitPerson = {
   name: string;
   photoUrl?: string | null;
   verified?: boolean;
+  fromContacts?: boolean;
   publicPersonRef?: string | null;
 };
 
@@ -86,6 +87,7 @@ function OrbitLayout({
               photoUrl={person.photoUrl}
               label={person.name}
               verified={person.verified}
+              fromContacts={person.fromContacts}
             />
           </span>
         );

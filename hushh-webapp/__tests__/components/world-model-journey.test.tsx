@@ -16,6 +16,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PwmClaim, PwmMemory } from "@/lib/services/world-model-decision-service";
 import type { PwmProgress } from "@/lib/services/world-model-research-service";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { AuthService } from "@/lib/services/auth-service";
 
 const nav = vi.hoisted(() => ({
   query: "profile_pane=1&profile_panel=world-model",
@@ -46,6 +48,7 @@ const auth = vi.hoisted(() => ({
   loading: false,
   sessionVerificationRequired: false,
   phoneNumber: "+14155550123",
+  phoneNumberStatus: "verified",
   signOut: async () => undefined,
   startPhoneVerification: async () => undefined,
   confirmPhoneVerification: async () => undefined,
@@ -294,6 +297,10 @@ function renderPane() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionPrincipal({ firebaseUid: auth.user.uid, ownerId: auth.user.uid, accountGeneration: 0 });
+  vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
+    ...auth.user, phoneNumber: auth.phoneNumber,
+  } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
   nav.query = "profile_pane=1&profile_panel=world-model";
   window.history.replaceState(null, "", `/one?${nav.query}`);
   vi.spyOn(VaultService, "checkVault").mockResolvedValue(true);
@@ -301,6 +308,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
   vi.restoreAllMocks();
 });
 
@@ -359,7 +367,7 @@ describe("Personal World Model owner journey", () => {
     expect(email).toHaveTextContent("a•••@example.com");
     expect(email).not.toHaveTextContent("alice.example@");
     const phone = screen.getByTestId("pwm-identity-phone");
-    expect(phone).toHaveTextContent("0123");
+    await waitFor(() => expect(phone).toHaveTextContent("0123"));
     expect(phone).not.toHaveTextContent("5550123");
     expect(screen.queryByText("Invite someone")).toBeNull();
     await waitFor(() => expect(live.controller).not.toBeNull());

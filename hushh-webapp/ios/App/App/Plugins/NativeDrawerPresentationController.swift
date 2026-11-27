@@ -424,6 +424,8 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     let model: NativeDrawerModel
     private(set) var motion = NativeDrawerMotion()
     private(set) var host: UIHostingController<NativeDrawerContent>!
+    // The visible UIKit page owns navigation clearance and accessibility.
+    var feedbackPresenter: UIViewController { model.profileNavigationController?.visibleViewController ?? host }
     private let scrim = UIView()
     private var animator: UIViewPropertyAnimator?
     private var lastSize: CGSize = .zero
@@ -1097,6 +1099,37 @@ struct NativeDrawerContent: View {
                         ForEach(section.rows) { row in
                             profileIdentityHeader(row, photoOptions: false)
                         }
+                    } else if section.id == "net-worth-score-card", let score = section.rows.first {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button { model.choice("row", row: score.id) } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(section.title ?? "Net Worth Score").font(.headline)
+                                        Spacer()
+                                        Image(systemName: "chevron.forward").font(.footnote)
+                                    }
+                                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                        Text(score.label).font(.custom("PlusJakartaSans-Bold", size: 38, relativeTo: .largeTitle))
+                                        Text("/ 1,000").font(.footnote)
+                                    }.monospacedDigit().foregroundStyle(Color(red: 0.94, green: 0.79, blue: 0.36))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!score.enabled || !model.interactionEnabled)
+                            .accessibilityIdentifier("native-profile-open-nws")
+                            if let details = score.detail { Text(details).font(.footnote) }
+                            ForEach(Array(section.rows.dropFirst())) { row in
+                                Button(row.label) { model.choice("row", row: row.id) }
+                                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                                    .disabled(!row.enabled || !model.interactionEnabled)
+                            }
+                        }
+                        .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.89))
+                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(red: 0.06, green: 0.17, blue: 0.14), in: RoundedRectangle(cornerRadius: 16))
+                        .accessibilityIdentifier("native-profile-nws")
                     } else if section.id == "account-portrait", let row = section.rows.first, row.portrait == true {
                         profileIdentityHeader(row, photoOptions: true)
                     } else {
@@ -1286,7 +1319,8 @@ struct NativeSettingsRowLabel: View {
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
                         .frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(true)
                 }
-            }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
+            }.padding(.vertical, row.detail == nil ? 8 : 0)
+                .frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
                 .padding(.horizontal, 16).padding(.vertical, row.detail == nil ? 0 : 8).contentShape(Rectangle())
     }
 }
@@ -1334,9 +1368,10 @@ private struct NativeMemorySearchControl: View {
 }
 
 /// Bounded raster replica; no URLSession, disk cache or provider authority.
-private struct NativeProfilePortraitImage: View {
+struct NativeProfilePortraitImage: View {
     let data: String?
     let initials: String
+    var initialsFont: Font = .title3.weight(.medium)
     @State private var decoded: UIImage?
     @State private var decodedSource: String?
     var body: some View {
@@ -1344,7 +1379,7 @@ private struct NativeProfilePortraitImage: View {
             Circle().fill(Color(uiColor: .tertiarySystemFill))
             if decodedSource == data, let decoded {
                 Image(uiImage: decoded).resizable().scaledToFill()
-            } else { Text(initials).font(.title3.weight(.medium)) }
+            } else { Text(initials).font(initialsFont) }
         }.clipShape(Circle())
             .onAppear(perform: decode)
             .onChange(of: data) { _, _ in decode() }
@@ -1514,15 +1549,19 @@ struct NativeProfileChoiceMenu: UIViewRepresentable {
             return attributes
         }
         if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
+            // Rasterization must use the committed projection, not an ambient
+            // trait collection from the previous theme during reconciliation.
+            let traits = UITraitCollection(userInterfaceStyle: state.appearance == "dark" ? .dark : .light)
+            let ink = (HushhNativeControlAppearance.color(artwork.colorHex) ?? .label).resolvedColor(with: traits)
+            let accent = (HushhNativeControlAppearance.color(artwork.accentColorHex ?? state.accentHex) ?? .label).resolvedColor(with: traits)
             let icon = artwork.base.renderingMode == .alwaysOriginal ? artwork.base :
-                artwork.base.withTintColor(HushhNativeControlAppearance.color(artwork.colorHex) ?? .label, renderingMode: .alwaysOriginal)
+                artwork.base.withTintColor(ink, renderingMode: .alwaysOriginal)
             // Preserve the authored glyph's size inside the shared 32pt well.
             let iconFrame = CGRect(x: (32 - icon.size.width) / 2, y: (32 - icon.size.height) / 2,
                 width: icon.size.width, height: icon.size.height)
             configuration.image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { _ in
                 icon.draw(in: iconFrame)
-                artwork.accent?.withTintColor(HushhNativeControlAppearance.color(artwork.accentColorHex ?? state.accentHex) ?? .label,
-                    renderingMode: .alwaysOriginal).draw(in: iconFrame)
+                artwork.accent?.withTintColor(accent, renderingMode: .alwaysOriginal).draw(in: iconFrame)
             }.withRenderingMode(.alwaysOriginal)
         } else if let symbol = row.symbol { configuration.image = UIImage(systemName: symbol) }
         configuration.preferredSymbolConfigurationForImage = .init(pointSize: 24)

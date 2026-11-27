@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "../redesign/native-location-workspace";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   useCallback,
   useEffect,
@@ -10,6 +13,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import {
   ArrowLeft,
   Briefcase,
@@ -32,9 +36,12 @@ import {
 } from "@/components/one-location/onboarding/location-picker-map";
 import {
   ADDRESS_LABEL_ROW_CLASSNAME,
+  COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME,
   DIALOG_SURFACE_CLASSNAME,
   OPTIONAL_BADGE_CLASSNAME,
   REQUIRED_BADGE_CLASSNAME,
+  SAVE_LOCATION_SURFACE_BORDER_CLASSNAME,
+  SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
@@ -52,7 +59,7 @@ import {
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { SavedLocationDetailFields } from "./saved-location-detail-fields";
-import { OnboardingPlaceScreen } from "./onboarding-place-screen";
+import { ONBOARDING_PLACE_TITLE, OnboardingPlaceScreen } from "./onboarding-place-screen";
 import { OnboardingLiveMap } from "./onboarding-live-map";
 import { isNative } from "@/lib/capacitor/platform";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
@@ -89,7 +96,7 @@ const SheetContent = withLocationTypography(UnscopedSheetContent);
 const touchTargetClassName =
   "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
 
-const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
+const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 /**
  * The same control, laid out instead of absolutely positioned. Written as its
@@ -98,7 +105,7 @@ const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center ju
  * key and `relative` is the only one -- which is exactly the trap documented
  * on `touchTargetClassName`.
  */
-const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
+const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
@@ -387,6 +394,9 @@ export type SaveLocationModalProps = {
   compactOnboarding?: boolean;
   onboardingRouteId?: string;
   onRequestLocation?: () => void;
+  captureRevision?: number;
+  locationAccessBlocked?: boolean;
+  onOpenLocationSettings?: () => void;
   requestingLocation?: boolean;
   locationError?: string | null;
   onboardingPlaceSaved?: boolean;
@@ -552,6 +562,9 @@ export function SaveLocationModal({
   compactOnboarding = false,
   onboardingRouteId,
   onRequestLocation,
+  captureRevision = 0,
+  locationAccessBlocked = false,
+  onOpenLocationSettings,
   requestingLocation = false,
   locationError = null,
   onboardingPlaceSaved = false,
@@ -570,6 +583,9 @@ export function SaveLocationModal({
   onSave,
   onSkip,
 }: SaveLocationModalProps) {
+  const native = useNativeLocationEnabled();
+  const [nativeField, setNativeField] = useState<"address" | "house" | "landmark" | "label" | null>(null);
+  useEffect(() => { if (!open) setNativeField(null); }, [open]);
   // Native Maps draws below the WebView, so the picker surface is transparent.
   // Isolate the entire saving task from persistent chrome, including native
   // controls, and release only this modal's suppression when it closes.
@@ -578,7 +594,9 @@ export function SaveLocationModal({
   const [customLabel, setCustomLabel] = useState("");
   const [editingPlace, setEditingPlace] = useState(false);
   const [flowStep, setFlowStep] = useState<SaveLocationFlowStep>("summary");
-  const [pickedAddress, setPickedAddress] = useState<string | null>(null);
+  const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
+  const pickedLocationRef = useRef<PickedLocation | null>(null);
+  const pickedCaptureRevisionRef = useRef(captureRevision);
   const [addressDetails, setAddressDetails] =
     useState<SavedLocationAddressDetails>(EMPTY_SAVED_LOCATION_ADDRESS_DETAILS);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -681,7 +699,8 @@ export function SaveLocationModal({
       );
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
-      setPickedAddress(null);
+      pickedLocationRef.current = null;
+      setPickedLocation(null);
       setAddressDetails(
         initialDetails
           ? { ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS, ...initialDetails }
@@ -769,7 +788,6 @@ export function SaveLocationModal({
   useEffect(() => {
     if (!open) return;
     const next = (address && address.trim()) || null;
-    if (next) setPickedAddress(next);
     // Spread the detected address across the field it can actually answer. It
     // was previously only mined for a postal code, so a person looking at
     // "B-284/3, Rd Number 1, ..." on screen still had to retype B-284/3 into
@@ -792,8 +810,11 @@ export function SaveLocationModal({
 
   const normalizedAddressDetails =
     normalizeSavedLocationAddressDetails(addressDetails);
-  const detectedAddress =
-    stripPlusCodeSegment(pickedAddress) || resolvedAddress || "";
+  const detectedAddress = (
+    pickedLocation && pickedCaptureRevisionRef.current === captureRevision
+      ? stripPlusCodeSegment(pickedLocation.address)
+      : resolvedAddress
+  ) || "";
   /**
    * The Address line box tracks the detected address until the person types
    * over it -- the same "typed wins" rule as House or flat, just for the line
@@ -997,19 +1018,35 @@ export function SaveLocationModal({
     }
   };
 
+  const startingLatitude = mapInitial?.latitude;
+  const startingLongitude = mapInitial?.longitude;
   const updateUnifiedPickedLocation = useCallback(
     (picked: PickedLocation) => {
+      const lastPick = pickedCaptureRevisionRef.current === captureRevision ? pickedLocationRef.current : null;
+      if (
+        lastPick &&
+        lastPick.latitude === picked.latitude &&
+        lastPick.longitude === picked.longitude &&
+        lastPick.address === picked.address
+      ) return;
+      const latitude = lastPick?.latitude ?? startingLatitude;
+      const longitude = lastPick?.longitude ?? startingLongitude;
+      const moved = latitude !== undefined && longitude !== undefined &&
+        haversineMeters(
+          { lat: latitude, lng: longitude },
+          { lat: picked.latitude, lng: picked.longitude },
+        ) > 1;
       onPickExactLocation?.(picked);
-      setPickedAddress(picked.address);
-      setAddressDetails((current) =>
-        detectedAddressDetails(
-          current,
-          picked.address,
-          houseOrFlatEditedRef.current,
-        ),
-      );
+      pickedCaptureRevisionRef.current = captureRevision;
+      pickedLocationRef.current = picked;
+      setPickedLocation(picked);
+      setAddressDetails((current) => detectedAddressDetails(
+        moved ? { ...current, postalCode: "" } : current,
+        picked.address,
+        houseOrFlatEditedRef.current,
+      ));
     },
-    [onPickExactLocation],
+    [startingLatitude, startingLongitude, onPickExactLocation, captureRevision],
   );
 
   const handleConfirmMapPick = (picked: PickedLocation) => {
@@ -1057,6 +1094,34 @@ export function SaveLocationModal({
     }
   };
 
+  const nativeStage = open && native && flowStep !== "map" && (!startWithMapPicker || flowStep === "details");
+  const closeNativeField = () => { if (nativeField === "address") setAddressTouched(true); setNativeField(null); };
+  useBackLayer(ROUTES.ONE_LOCATION, nativeStage ? nativeField ? 5 : 4 : 0, () => {
+    if (!interactionBusy) { if (nativeField) closeNativeField(); else handleSurfaceOpenChange(false); }
+    return true;
+  });
+  const fields = {
+    address: { label: "Address", placeholder: "Enter the address", maximum: 300, value: effectiveAddressLine, change: setAddressLineValue },
+    house: { label: "House or flat", placeholder: "Optional", maximum: 80, value: addressDetails.houseOrFlat, change: (value: string) => updateAddressDetail("houseOrFlat", value) },
+    landmark: { label: "Landmark", placeholder: "Optional", maximum: 100, value: addressDetails.landmark, change: (value: string) => updateAddressDetail("landmark", value) },
+    label: { label: "Place name", placeholder: "Name this place", maximum: 40, value: customLabel, change: setCustomLabel },
+  };
+  const field = nativeField ? fields[nativeField] : null;
+  const nativeSections = field ? [] : [
+    { key: "place", rows: [{ key: "category", label: "Save as", enabled: !interactionBusy, choices: (["home", "work", "other"] as const).map(value => ({ key: value, label: value === "home" ? "Home" : value === "work" ? "Work" : "Other", selected: category === value, run: () => setCategory(value) })) },
+      ...(category === "other" ? [{ key: "label", label: "Place name", detail: customLabel || "Other", enabled: !interactionBusy, run: () => setNativeField("label") }] : []),
+      { key: "address", label: "Address · Required", detail: effectiveAddressLine || (loadingAddress ? "Finding address…" : "Enter the address"), enabled: !interactionBusy, run: () => setNativeField("address") },
+      ...(collectAddressDetails ? [{ key: "house", label: "House or flat", detail: addressDetails.houseOrFlat || "Optional", enabled: !interactionBusy, run: () => setNativeField("house") }, { key: "landmark", label: "Landmark", detail: addressDetails.landmark || "Optional", enabled: !interactionBusy, run: () => setNativeField("landmark") }] : []),
+      ...(canPickOnMap ? [{ key: "pin", label: "Edit pin on map", enabled: !interactionBusy, web: true, run: () => goToSlide(0) }] : []),
+    ] },
+    { key: "save", rows: [
+      ...(saveBlockedReason ? [{ key: "save-blocked", label: saveBlockedReason }] : []),
+      { key: "save", label: saveLabel, prominent: true, enabled: canSave, pending: interactionBusy, run: handleSave },
+      { key: "cancel", label: "Cancel", enabled: !interactionBusy, run: () => handleSurfaceOpenChange(false) },
+    ] },
+  ];
+  const renderNative = (children: ReactNode) => <NativeLocationLayer overlay nested when={nativeStage} title={field?.label ?? "Address details"} navigationDepth={field ? 6 : 5} viewKey={`saved-location:${nativeField ?? "details"}`} sections={nativeSections}
+    textEditor={field ? { key: `place-${nativeField}`, ...field, busy: interactionBusy, submitLabel: "Done", cancelLabel: "Back", submit: closeNativeField, cancel: closeNativeField } : undefined}>{children}</NativeLocationLayer>;
   // Settings uses the shared sheet/dialog layer and backdrop. Onboarding's
   // portalled surface must additionally clear the full-screen takeover.
   const surfaceOverlayClassName = cn(
@@ -1069,8 +1134,10 @@ export function SaveLocationModal({
 
   // A real edge and a real lift, so the surface reads as a layer above the
   // screen rather than a rectangle pasted onto it.
-  const surfaceEdgeClassName =
-    "border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]";
+  const surfaceEdgeClassName = cn(
+    SAVE_LOCATION_SURFACE_BORDER_CLASSNAME,
+    "bg-[color:var(--app-card-surface-default-solid)]",
+  );
   const surfacePaddingClassName = unifiedOnboarding
     ? "!gap-0 !overflow-hidden !p-0"
     : detailsPaneActive
@@ -1079,12 +1146,6 @@ export function SaveLocationModal({
           SHEET_PLAIN_SHELL_CLASSNAME,
           flowStep === "map" && canPickOnMap && "overflow-y-hidden",
         );
-  // `!` because the arbitrary shadow does not merge away the primitive's own
-  // `shadow-[var(--app-card-shadow-feature)]`: tailwind-merge leaves both
-  // classes on the element and the base one wins on stylesheet order, so the
-  // lift never actually rendered.
-  const surfaceShadowClassName =
-    "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]";
 
   /**
    * One string or the other, never one layered over the other. See
@@ -1136,7 +1197,7 @@ export function SaveLocationModal({
       <style>{CAROUSEL_KEYFRAMES}</style>
       {unifiedOnboarding && compactOnboarding ? (
         <>
-          <DialogTitle className="sr-only">Your place</DialogTitle>
+          <DialogTitle className="sr-only">{ONBOARDING_PLACE_TITLE}</DialogTitle>
           <OnboardingPlaceScreen
             routeId={onboardingRouteId}
             nativeMapShowing={nativeMapShowing}
@@ -1144,12 +1205,14 @@ export function SaveLocationModal({
               <OnboardingLiveMap point={mapInitial ? { lat: mapInitial.latitude, lng: mapInitial.longitude } : null} emptyLabel="Place saved." className="absolute inset-0" />
             ) : canPickOnMap ? (
               <LocationPickerMap
+                key={captureRevision}
                 ref={mapPickerRef}
                 embedded
                 compact
+                onRecapture={onRequestLocation}
                 initialLatitude={mapInitial!.latitude}
                 initialLongitude={mapInitial!.longitude}
-                initialAddress={pickedAddress || resolvedAddress}
+                initialAddress={detectedAddress || null}
                 initialAccuracyM={initialAccuracyM}
                 reverseGeocode={reverseGeocode}
                 onLocateMe={onLocateMe}
@@ -1170,9 +1233,12 @@ export function SaveLocationModal({
             busy={interactionBusy}
             capturing={requestingLocation}
             saved={onboardingPlaceSaved}
-            error={unifiedSaveError || locationError}
+            error={locationError || unifiedSaveError}
+            saveFailed={Boolean(unifiedSaveError)}
+            locationAccessBlocked={Boolean(locationError && locationAccessBlocked)}
+            onOpenLocationSettings={onOpenLocationSettings}
             onBack={onBack ?? onSkip}
-            onRequestLocation={onRequestLocation ?? (() => undefined)}
+            onRequestLocation={onRequestLocation}
             onSave={onboardingPlaceSaved ? (onContinue ?? onSkip) : handleSave}
             onLater={onSkip}
           />
@@ -1201,14 +1267,14 @@ export function SaveLocationModal({
             data-testid="one-location-onboarding-save-place-scroll"
           >
             <div className="mx-auto w-full max-w-[1120px]">
-              <DialogTitle className="sr-only">Save this place</DialogTitle>
+              <DialogTitle className="sr-only">{ONBOARDING_PLACE_TITLE}</DialogTitle>
               <div className="max-w-[660px]">
                 <h1 data-location-type-role="flow-title"
                   ref={mapTitleRef}
                   tabIndex={-1}
                   className="ui-text-agent-title text-[color:var(--app-label)] outline-none"
                 >
-                  Save this place
+                  {ONBOARDING_PLACE_TITLE}
                 </h1>
                 <p data-location-type-role="row-description"
                   id={descriptionId}
@@ -1236,7 +1302,7 @@ export function SaveLocationModal({
                       embedded
                       initialLatitude={mapInitial!.latitude}
                       initialLongitude={mapInitial!.longitude}
-                      initialAddress={pickedAddress || resolvedAddress}
+                      initialAddress={detectedAddress || null}
                       initialAccuracyM={initialAccuracyM}
                       reverseGeocode={reverseGeocode}
                       onLocateMe={onLocateMe}
@@ -1373,7 +1439,7 @@ export function SaveLocationModal({
             ref={mapPickerRef}
             initialLatitude={mapInitial!.latitude}
             initialLongitude={mapInitial!.longitude}
-            initialAddress={pickedAddress || resolvedAddress}
+            initialAddress={detectedAddress || null}
             initialAccuracyM={initialAccuracyM}
             reverseGeocode={reverseGeocode}
             onLocateMe={onLocateMe}
@@ -1965,7 +2031,7 @@ export function SaveLocationModal({
    */
   if (sheetPresentation) {
     return (
-      <Sheet open={open} modal onOpenChange={handleSurfaceOpenChange}>
+      renderNative(<Sheet open={open && !nativeStage} modal onOpenChange={handleSurfaceOpenChange}>
         <SheetContent
           data-location-type-scale={compactOnboarding ? "connect" : undefined}
           data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
@@ -1992,18 +2058,18 @@ export function SaveLocationModal({
             surfaceGeometryClassName,
             surfaceEdgeClassName,
             surfacePaddingClassName,
-            surfaceShadowClassName,
+            SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
             surfaceTakeoverTopClassName,
           )}
         >
           {surfaceChildren}
         </SheetContent>
-      </Sheet>
+      </Sheet>)
     );
   }
 
   return (
-    <Dialog open={open} modal onOpenChange={handleSurfaceOpenChange}>
+    renderNative(<Dialog open={open && !nativeStage} modal onOpenChange={handleSurfaceOpenChange}>
       <DialogContent
         data-location-type-scale={compactOnboarding ? "connect" : undefined}
         data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
@@ -2028,15 +2094,15 @@ export function SaveLocationModal({
           DIALOG_SURFACE_CLASSNAME,
           unifiedOnboarding &&
             (compactOnboarding
-              ? "!h-[min(620px,calc(100dvh-48px))] !max-h-[min(620px,calc(100dvh-48px))] sm:!max-w-[min(1040px,calc(100vw-48px))]"
+              ? COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME
               : "!h-[min(92dvh,860px)] !max-h-[min(92dvh,860px)] sm:!max-w-[min(1120px,calc(100vw-48px))]"),
           surfaceEdgeClassName,
           surfacePaddingClassName,
-          surfaceShadowClassName,
+          SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME,
         )}
       >
         {surfaceChildren}
       </DialogContent>
-    </Dialog>
+    </Dialog>)
   );
 }

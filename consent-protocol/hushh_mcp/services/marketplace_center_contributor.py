@@ -25,6 +25,7 @@ test in isolation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -70,10 +71,30 @@ class MarketplaceCenterContributor:
         if not normalized_user:
             return self._empty()
 
-        owned = await self._safe_list(self._requests.list_requests, owner_user_id=normalized_user)
-        bought = await self._safe_list(
-            self._requests.list_buyer_requests, buyer_user_id=normalized_user
+        use_combined = (
+            isinstance(MarketplaceRequestService, type)
+            and isinstance(self._requests, MarketplaceRequestService)
+            and getattr(self._requests.list_requests, "__func__", None)
+            is MarketplaceRequestService.list_requests
+            and getattr(self._requests.list_buyer_requests, "__func__", None)
+            is MarketplaceRequestService.list_buyer_requests
+            and hasattr(self._requests.db, "execute_raw")
         )
+        if use_combined:
+            try:
+                owned, bought = await self._requests.list_participant_requests(
+                    user_id=normalized_user
+                )
+            except Exception as exc:
+                if self._require_complete:
+                    raise
+                logger.warning("marketplace.consent_center.list_participant_failed error=%s", exc)
+                owned, bought = [], []
+        else:
+            owned, bought = await asyncio.gather(
+                self._safe_list(self._requests.list_requests, owner_user_id=normalized_user),
+                self._safe_list(self._requests.list_buyer_requests, buyer_user_id=normalized_user),
+            )
 
         incoming: list[dict[str, Any]] = []
         active: list[dict[str, Any]] = []

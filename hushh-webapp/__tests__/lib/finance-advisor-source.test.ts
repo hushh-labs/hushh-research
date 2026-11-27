@@ -8,6 +8,7 @@ import type { PortfolioData } from "@/components/kai/types/portfolio";
 import type { FinanceShareContext } from "@/lib/services/finance-sharing-service";
 import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
 import { firstPlatypusSnapshot, FIRST_PLATYPUS, NOW } from "./plaid-vault/fixtures";
+import { ADVISOR_SERVICES, matchAdvisorServices, normalizeAdvisorService } from "@/lib/advisor-review/matching";
 
 const source = { kind: "statement" as const, snapshotId: "selected" };
 const context: FinanceShareContext = { userId: "owner", vaultKey: "key", vaultOwnerToken: "token", getIdToken: async () => "id", isCurrent: () => true };
@@ -15,11 +16,46 @@ const holding = { symbol: "AAPL", name: "Apple", quantity: 1, price: 100, market
 const financial = (portfolio: Record<string, unknown>) => ({ sources: { statement: { active_snapshot_id: "selected", snapshots: [{ id: "selected", canonical_v2: portfolio }] } } });
 beforeEach(() => { vi.resetAllMocks(); vi.stubGlobal("crypto", webcrypto); });
 
+describe("explicit advisor service matching", () => {
+  const candidate = (id: string, servicesOffered: string[], verified = true) => ({ userId: id, personRef: id, servicesOffered, verified });
+  it("requires a declared service, verification and a distinct person; ignores bios and prices", () => {
+    const valid = candidate("actual", ["  Investment   Management  "]);
+    const rows = [candidate("owner", ["Portfolio Management"]), candidate("unverified", ["Portfolio Management"], false),
+      { ...candidate("bio-only", []), bio: "Portfolio Management, capital preservation", price: 0 },
+      candidate("other-service", ["Tax Planning"]), valid, { ...valid }];
+    expect(matchAdvisorServices(rows, "portfolio_management", "owner").map((match) => match.advisor.userId)).toEqual(["actual"]);
+    expect(matchAdvisorServices(rows, "portfolio_management", "owner")[0]?.reason).toBe("Lists Portfolio Management among their services.");
+    expect(normalizeAdvisorService("I'm not sure yet")).toBeNull();
+    expect(ADVISOR_SERVICES).toHaveLength(4);
+  });
+  it("finds late matches in 100, 1000 and 10000 records without padding or inference", () => {
+    for (const size of [100, 1000, 10000]) {
+      const rows = Array.from({ length: size }, (_, i) => candidate(`advisor-${i}`, i >= size - 3 ? ["Retirement Planning"] : ["Financial planning"]));
+      const before = JSON.stringify(rows);
+      const matches = matchAdvisorServices(rows, "retirement_planning", "owner");
+      expect(matches.map((match) => match.advisor.userId)).toEqual([`advisor-${size - 3}`, `advisor-${size - 2}`, `advisor-${size - 1}`]);
+      expect(JSON.stringify(rows)).toBe(before);
+      expect(matchAdvisorServices(rows, "estate_planning", "owner")).toEqual([]);
+    }
+  });
+});
+
 describe("advisor source integrity", () => {
   it("allows the exact selected USD statement when its entries survive normalization", async () => {
     mocks.load.mockResolvedValue(financial({ currency: "USD", holdings: [holding], total_value: 100 }));
     const saved = await readSavedFinance(context, source, true);
     expect(saved.portfolio.holdings).toHaveLength(1);
+  });
+  it.each([
+    { market_value: -100 },
+    { is_short: true },
+    { is_short_position: true },
+    { is_liability_position: true },
+    { position_side: "short" },
+    { position_side: "liability" },
+  ])("refuses a statement with unsupported exposure %j before advisor review", async position => {
+    mocks.load.mockResolvedValue(financial({ holdings: [{ ...holding, ...position }], total_value: 100 }));
+    await expect(readSavedFinance(context, source, true)).rejects.toThrow("cannot be verified accurately");
   });
   it("checks the V7 source before normalization and rejects foreign currency", async () => {
     const v7 = { pkm_contract_version: "7.0.0", financial_core_v7: { active_source: "statement", accounts: { account: { account_id: "account", currency: "USD" } },
@@ -60,6 +96,11 @@ describe("advisor source integrity", () => {
     mocks.load.mockResolvedValue(saved);
     const result = await readSavedFinance(context, { kind: "plaid", snapshotId: null }, true);
     expect(result.portfolio.holdings?.length).toBeGreaterThan(0);
+    const short = structuredClone(saved);
+    Object.assign(Object.values(short.holdings_v1 ?? {})[0]!, { is_short_position: true });
+    mocks.load.mockResolvedValue(short);
+    await expect(readSavedFinance(context, { kind: "plaid", snapshotId: null }, true))
+      .rejects.toThrow("cannot be verified accurately");
     const foreign = structuredClone(saved);
     const first = Object.values(foreign.holdings_v1 ?? {})[0]!;
     first.iso_currency_code = "EUR";

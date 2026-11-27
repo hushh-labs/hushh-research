@@ -63,6 +63,84 @@ it. The existing writer still checks current sharing and revision authority.
 Keep and Forget share equal-width, at least 44px-high targets, including narrow
 WebKit layouts and the loading/confirmation states.
 
+## V1 conversational STM and memory.md
+
+Canonical typed chat uses the complete encrypted ADK transcript until compaction.
+In shipped UAT/production and for `v1_markdown_only` / `dual_read_shadow_compile` owners on `dev`, the model receives the current full `one_memory.markdown` document, the last
+validated STM summary, and the unsummarized conversation without vector search or
+Wiki lookup; once an owner switches `migration_state` to `wiki_primary_with_v1_rollback` or `wiki_primary` on `dev`, turns replace the 96,000-character `one_memory.markdown` attachment with `STATE_WIKI_HOT_DIGEST` (`hot.md <= 8,000` characters) plus bounded Personal Wiki recall tools (`search_wiki`, `read_wiki_page`, `trace_claim`), and `wiki_primary` retires classic `one_memory.markdown` rewrites and Pod Schema-2 `_apply_sink` fact writes. The LTM transport permits 128,000 characters so the
+96,000-character V1 document budget and the existing bounded app context fit without
+silently clipping the document. Specialist Gmail, Calendar, KYC and import writers
+retain their existing contracts in this release.
+
+STM starts background summarization around 75% of the entire request budget:
+system instruction, tool declarations, LTM, previous summary, conversation and
+response allowance. Known model limits are explicit in `one_adk/chat_memory.py`;
+unknown models use a labelled conservative fallback. Preflight counts use an
+estimate calibrated to previous provider usage, with a margin; final provider
+input-token counts reconcile accounting. Estimates are not exact tokenization.
+Four recent user turns remain verbatim. A fixed older prefix and the previous
+summary go to the manifest-owned STM gene. The encrypted session commits the
+summary and its cutoff together only after validation and a source-prefix/CAS
+check. Failure preserves both previous values. Pending work never delays the main
+answer; at the hard budget only the model-facing oldest complete turn groups may
+be omitted temporarily. The stored transcript is never shortened.
+
+Azure chat deployment names resolve through the server-owned
+`managed_runtime_uat.azure` descriptors before the context budget is calculated;
+they are not treated as model names or inferred from a deployment-name prefix.
+GPT-5.4 mini has a 400,000-token context window and 128,000-token maximum output
+allowance. Unknown deployments keep the labelled conservative fallback.
+Background STM resolves the canonical per-invocation model in its own task so
+the Azure owner-authority guard remains attached. Failed or revoked authority
+preserves the prior checkpoint and performs no memory commit.
+
+Personal Cloud Run services named `backend-dev-<handle>` may explicitly select
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` while retaining
+`ENVIRONMENT=development`. The paired `HUSHH_SANDBOX_AZURE_CLIENT_ID` selects the
+dedicated sandbox Entra runtime identity and participates in binding freshness.
+This uses the configured Azure resource, the
+`one_text_root` deployment for chat, and the existing primary text deployment for
+LTM rewrites and ordinary text genes. Readiness probes and the model preference
+response report Azure. It does not activate UAT's automatic information-processing
+approvals, grant provider credentials, or redirect owner/BYOK models. The flag is
+rejected on other services, in UAT/production and in owner pods. Deployment still
+requires approved source/configuration and Entra trust for the dedicated runtime
+identity; local mocked verification is not live Azure acceptance.
+
+The owner-scoped browser LTM runtime accumulates full request **input tokens**
+(including repeated system/tools/memory input) since its last acknowledged rewrite.
+Its initial configurable threshold is 12,000 tokens. Explicit remember/forget,
+new-chat or switch, and five minutes of inactivity also trigger it. There is no
+five-message or guessed end-of-conversation trigger and no new save-status UI.
+Idle work requires an open, unlocked app; process suspension cannot promise a
+wall-clock background run.
+
+Azure `input_tokens` reconciles the same main-call usage record as the initial
+estimate. Cached input is already included and is not added again; reasoning and
+other output tokens do not contribute to the LTM input counter.
+
+The separate `agent_chat_memory_manager` receives only the current document and
+unprocessed role-attributed source messages, in bounded batches. It proposes a
+complete consolidated replacement rather than appending facts. The target is
+16,000 tokens within a generous 24,000-token preparation budget and the hard
+96,000-character storage limit; oversized/empty results fail without truncation.
+The browser's existing authorized encrypted writer atomically commits the document
+and encrypted source/request checkpoints. Only acknowledged request usage is
+retired; new arrivals remain pending. Generation, validation or storage failure
+retains the old document, checkpoint and unacknowledged input count. Pending source
+and accounting survive refresh in the encrypted durable resource cache.
+
+Manual document edits advance an edit generation, withdrawing old pending source
+windows so an older rewrite cannot restore a forgotten fact. Conflicting automatic
+rewrites reprepare against current memory. Source identities are content hashes per
+conversation to survive transient UI versus restored ADK message IDs; identical
+source text is deduplicated. Credentials and consent-derived invocations are
+excluded from durable extraction. Retrieved memory and tools are not independent
+owner evidence. Owner changes, lock and token renewal retire pending plaintext
+operations. Existing domain writers remain the sole storage/encryption boundary;
+no plaintext Markdown file is written to the server filesystem.
+
 ## Conversational capture and context transfers
 
 Chat uses the existing Memory proposal and encrypted writer, not a second memory
@@ -146,3 +224,14 @@ background status, inspectable memory, and explicit approval for consequential
 actions. These are design references, not evidence of Hussh implementation or
 access to Muse's private prompts/configuration. Hussh must retain its own unlocked
 client, encrypted-storage, and consent boundaries.
+
+## Personal Wiki Memory and live ADK boundary (dev pilot)
+
+Shipped UAT and production chat memory remains `one_memory.markdown` (`one.memory.md.v1`, 96,000-character limit) inside encrypted PKM. On `dev`, the encrypted Personal Wiki (`one_wiki` over `<prefix>/wiki/v1/`) operates alongside `one_memory.markdown` as the private agent's cited working store while preserving PKM as the sole external sharing authority:
+
+- **Authority, PKM write-through, and export wall:** Both `one_wiki` and `source_library` carry `shareable: "never"` across server (`domain_contracts.py`) and client (`pkm-scope-policy.ts`) policy registries and are refused on `attr.*` and `pkm.read` exports. Claims synthesized in the Personal Wiki classify through the unified `wiki_claim_projection_v1` preparation contract (`requestPkmMemoryPreparation`), check nested `financial` and `identity` specialist snapshots plus pre-existing non-wiki PKM leaves so existing structured records are never clobbered (`state: "conflicted"`), and stay in `private_candidate` whenever active external grants cover the target scope (`activeRecipientCount > 0`) or the source is an imported archive. Confirmed or conflict-free first-party projections write through `PkmWriteCoordinator.saveMergedDomain` into encrypted PKM domain blobs (recording private `_wiki_projections` provenance) and emit non-broadening `pkm_scope_registry` posture so `DynamicScopeGenerator` never widens `attr.<domain>.*` across unconfirmed sibling branches.
+- **Root personal documents and per-owner cutover:** When wiki mode is active on `dev`, `hot.md` (`<= 8,000` characters) provides a compact orientation index rendered via `STATE_WIKI_HOT_DIGEST` (`wiki_recall_instruction`) strictly outside `STATE_MEMORY_DIGEST`'s `4,000`-character curated cap and delimited as untrusted owner reference context (`instruction_authority="none"`), `identity.md` reflects structured `identity` PKM records without silent overwrite, and `soul.md` stays bound to the closed `identity.communication_preferences` schema (`hushh_mcp/one_adk/owner_style.py`). Owners progress through `v1_markdown_only` -> `dual_read_shadow_compile` -> `wiki_primary_with_v1_rollback` -> `wiki_primary` via `/wiki/migrate`; `wiki_primary_with_v1_rollback` and `wiki_primary` suppress duplicate classic `STATE_MEMORY_DIGEST` and 96,000-character `one_memory.markdown` turn dumps whenever `hot.md` is active, `wiki_primary` retires classic `one_memory.markdown` consolidation/staging and Pod Schema-2 `_apply_sink` writes in favor of direct `WikiKnowledgeWriter` synthesis, and `/wiki/rollback` restores tombstone-scrubbed V1 Markdown losslessly into `one_memory.markdown`.
+- **Live ADK recall and opt-in consolidation across Pod and Shared:** On Private Pods (`pod_mode()` + `POD_FILES_ENABLED`), `build_one_text_agent` attaches fenced server-side recall tools (`search_wiki`, `read_wiki_page`, `trace_claim`, bounded to `<= 6,000` characters per call inside an untrusted-evidence envelope) across both owner-direct and hub-relayed turns. On Shared `/one` chat, `ensureActiveSharedWiki` lazily unwraps initialized owner wiki keys in the browser (`readyIfInitialized`), passes `wikiHotDigest` + `wikiClientReady`, and executes up to three client-proxy rounds of `search_wiki` / `read_wiki_page` / `trace_claim` (`admit_wiki_tool` + `admit_wiki_continuation`) without sending `vaultKey` or `wikiKey` to the hub; sealed ADK session projections redact wiki tool arguments and responses so forgotten text is never retained in durable transcripts. Durable wiki synthesis executes only when explicit `capture_opt_in` is enabled, folding reviewed `one_memory_review` updates (including `propose_pkm_fact` candidates) on pods and unlocked `ownerChatMemory` consolidation / `withdrawConversation` on Shared into cited `wcl_*` claims.
+- **Browser isolation, external imports, and Forget:** One's Browser specialist (`agent_computer_use`) receives neither raw conversational transcripts nor wiki recall tools, relying strictly on exact V2 `ScopedProjectionReader` exports. External archives saved through owner-takeover Browser downloads or local uploads land in encrypted `source_library` and compile into `one_wiki` strictly as untrusted source artifacts (`untrusted_data: true`, `instruction_authority: "none"`). Owner **Forget** records a `wtb_*` tombstone, rotates affected encrypted content keys, suppresses stale Vertex `PodMemoryBank` recalls (`suppressed_stale` to `rebuilt_empty`), and selectively retracts `_wiki_projections`-owned leaves from encrypted PKM domains while preserving pre-existing sibling PKM records.
+
+See [Private Files library](../operations/hosting/private-files-library.md#personal-wiki-storage-and-direct-pod-routes-dev), the [Personal Wiki Memory plan](../roadmap/personal-wiki-memory-plan.md), and the [Browser tasks plan](../roadmap/personal-agent/browser-completion-plan.md#phase-0-alignment-cli-execution-boundary-retained-workspaces-and-external-import).

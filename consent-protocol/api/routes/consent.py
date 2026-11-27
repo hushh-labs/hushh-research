@@ -29,7 +29,6 @@ from api.routes.consent_commerce_support import (
     paid_owner_approval,
 )
 from api.utils.firebase_auth import verify_firebase_bearer
-from db.db_client import get_db
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
     get_connector_crypto_profile,
@@ -45,6 +44,7 @@ from hushh_mcp.consent.export_envelope import (
 )
 from hushh_mcp.consent.pkm_scope_policy import (
     consent_token_scope_value,
+    is_owner_item_grant_scope,
     is_private_pkm_export_scope,
 )
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
@@ -668,7 +668,9 @@ async def approve_consent(
 
     # Issue consent token - map scope to ConsentScope enum using centralized resolver
     requested_scope = pending_request["scope"]
-    if is_private_pkm_export_scope(requested_scope):
+    if is_private_pkm_export_scope(requested_scope) and not is_owner_item_grant_scope(
+        requested_scope
+    ):
         raise HTTPException(
             status_code=410,
             detail={
@@ -687,6 +689,23 @@ async def approve_consent(
 
     raw_metadata = pending_request.get("metadata")
     metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+    owner_item = is_owner_item_grant_scope(requested_scope)
+    if owner_item:
+        from hushh_mcp.services.owner_item_grants import OwnerItemGrantRefused, owner_item_binding
+
+        try:
+            binding = owner_item_binding(metadata, userId, requested_scope)
+            if (
+                pending_request["developer"] != metadata.get("recipient_agent_id", "agent_one")
+                or _body.modelProcessingAllowed
+                or source_content_revision != binding["source_content_revision"]
+                or source_manifest_revision != binding["source_manifest_revision"]
+            ):
+                raise OwnerItemGrantRefused("OWNER_ITEM_AUTHORITY_REFUSED")
+        except OwnerItemGrantRefused:
+            raise HTTPException(
+                403, detail={"error_code": "OWNER_ITEM_AUTHORITY_REFUSED"}
+            ) from None
     metadata["model_processing"] = owner_model_processing(_body.modelProcessingAllowed)
     developer_label = (
         metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
@@ -702,13 +721,17 @@ async def approve_consent(
         is_developer_request=is_developer_request,
     )
 
-    paid_approval = await paid_owner_approval(
-        subject_user_id,
-        requestId,
-        requested_scope,
-        metadata,
-        expiry_hours,
-        model_processing_allowed=_body.modelProcessingAllowed,
+    paid_approval = (
+        None
+        if owner_item
+        else await paid_owner_approval(
+            subject_user_id,
+            requestId,
+            requested_scope,
+            metadata,
+            expiry_hours,
+            model_processing_allowed=_body.modelProcessingAllowed,
+        )
     )
     if paid_approval is not None:
         return paid_approval
@@ -724,6 +747,10 @@ async def approve_consent(
         requested_scope=requested_scope,
         **_identifier_filter_kwargs(userId, owned_identifiers),
     )
+    if owner_item:
+        # A covering token belongs to a different owner-started request/export.
+        # Never reuse that lineage for a newly sealed credential projection.
+        existing_token = None
     if existing_token and is_developer_information_request:
         existing_export = await service.get_consent_export_metadata(
             str(existing_token.get("token_id") or "")
@@ -1118,59 +1145,22 @@ async def approve_consent(
 
     # Notify requester via feed and push notification if this was a person-to-person request
     bundle_id = str(metadata.get("bundle_id") or "").strip() if isinstance(metadata, dict) else ""
-    requester_user_id = None
-    if bundle_id:
-        try:
-            bundle_rows = (
-                get_db()
-                .execute_raw(
-                    "SELECT requester_user_id FROM one_information_request_bundles WHERE bundle_id = CAST(:bundle AS UUID) LIMIT 1",
-                    {"bundle": bundle_id},
-                )
-                .data
-            )
-            if bundle_rows:
-                requester_user_id = str(bundle_rows[0].get("requester_user_id") or "").strip()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("consent.approve.bundle_lookup_failed error=%s", exc)
+    try:
+        from hushh_mcp.services.consent_db import (
+            resolve_approval_requester_notification_target_sync,
+        )
 
-    if (
-        not requester_user_id
-        and isinstance(metadata, dict)
-        and metadata.get("requester_actor_type") == "person"
-    ):
-        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
-        if requester_entity_id:
-            try:
-                requester_rows = (
-                    get_db()
-                    .execute_raw(
-                        "SELECT user_id FROM actor_profiles WHERE public_person_ref = CAST(:ref AS UUID) LIMIT 1",
-                        {"ref": requester_entity_id},
-                    )
-                    .data
-                )
-                if requester_rows:
-                    requester_user_id = str(requester_rows[0].get("user_id") or "").strip()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("consent.approve.requester_lookup_failed error=%s", exc)
-
-    if requester_user_id:
-        try:
-            subject_profile_rows = (
-                get_db()
-                .execute_raw(
-                    "SELECT public_person_ref, display_name, photo_url FROM actor_profiles WHERE user_id = :subject_user_id LIMIT 1",
-                    {"subject_user_id": userId},
-                )
-                .data
-            )
-            subject_row = subject_profile_rows[0] if subject_profile_rows else {}
-            subject_display_name = (
-                str(subject_row.get("display_name") or "Someone").strip() or "Someone"
-            )
-            subject_person_ref = str(subject_row.get("public_person_ref") or "").strip()
-            subject_photo_url = str(subject_row.get("photo_url") or "").strip() or None
+        notification_target = await run_in_threadpool(
+            resolve_approval_requester_notification_target_sync,
+            bundle_id=bundle_id,
+            metadata=metadata,
+            subject_user_id=userId,
+        )
+        if notification_target:
+            requester_user_id = notification_target["requester_user_id"]
+            subject_display_name = notification_target["subject_display_name"]
+            subject_person_ref = notification_target["subject_person_ref"]
+            subject_photo_url = notification_target["subject_photo_url"]
             scope_desc = get_dynamic_scope_description(requested_scope) or requested_scope
 
             from hushh_mcp.services.feed_service import FeedService
@@ -1205,8 +1195,8 @@ async def approve_consent(
                     data={"person_ref": subject_person_ref, "request_id": requestId},
                     show_alert=True,
                 )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("consent.approve.notification_dispatch_failed error=%s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("consent.approve.notification_dispatch_failed error=%s", exc)
 
     return {
         "status": "approved",
@@ -1346,6 +1336,19 @@ async def get_consent_center_list(
     )
 
 
+@router.post("/history/clear-system-logs")
+async def clear_consent_history_system_logs(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Delete legacy routine personal_agent POD_ACCESS_ALLOWED noise from owner history.
+
+    Preserves all real consent grants, denials, revocations, fail-closed denials,
+    and the immutable consent_audit_receipts chain.
+    """
+    result = await ConsentDBService().clear_system_pod_access_logs(firebase_uid)
+    return result
+
+
 @router.get("/requests/outgoing")
 async def get_outgoing_requests(firebase_uid: str = Depends(require_firebase_auth)):
     service = ConsentCenterService()
@@ -1385,6 +1388,29 @@ async def create_generic_consent_request(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.post("/owner-items/requests")
+async def create_owner_item_consent_request(
+    request: Request,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Start an exact owner-reviewed item grant; approval remains separate."""
+    from hushh_mcp.services.owner_item_grants import (
+        OwnerItemGrantRefused,
+        OwnerItemRequest,
+        create_owner_item_request,
+    )
+
+    try:
+        payload = OwnerItemRequest.model_validate(await request.json())
+    except (ValueError, TypeError):
+        # Unexpected fields must not echo an accidentally pasted secret.
+        raise HTTPException(422, detail={"error_code": "OWNER_ITEM_REQUEST_INVALID"}) from None
+    try:
+        return await create_owner_item_request(str(token_data["user_id"]), payload)
+    except OwnerItemGrantRefused:
+        raise HTTPException(409, detail={"error_code": "OWNER_ITEM_REQUEST_REFUSED"}) from None
+
+
 @router.get("/handshake/history")
 async def get_handshake_history(
     counterpart_id: str = Query(..., min_length=1, max_length=128),
@@ -1420,7 +1446,7 @@ async def disconnect_relationship(
 
 
 async def _issue_or_reuse_vault_owner_token(
-    *, user_id: str, agent_id: str = "self", expires_in_ms: int = 24 * 60 * 60 * 1000
+    *, user_id: str, agent_id: str = "self", expires_in_ms: int = 7 * 24 * 60 * 60 * 1000
 ) -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     service = ConsentDBService()
@@ -1510,7 +1536,7 @@ async def issue_trusted_device_vault_owner_token(
     result = await _issue_or_reuse_vault_owner_token(
         user_id=firebase_uid,
         agent_id=f"device:{payload.device_id}",
-        expires_in_ms=15 * 60 * 1000,
+        expires_in_ms=24 * 60 * 60 * 1000,
     )
     still_active = await run_in_threadpool(
         TrustedDeviceService().is_active_device,
@@ -1924,7 +1950,15 @@ async def upload_refreshed_export(
     if str(token_obj.user_id) != request.userId:
         raise HTTPException(status_code=403, detail="Consent token user mismatch")
 
-    existing_export = await service.get_consent_export(consent_token)
+    if is_owner_item_grant_scope(consent_token_scope_value(token_obj)):
+        # The previous source is necessarily stale while a refresh is pending.
+        # Only bounded internal metadata may bypass that freshness check; token,
+        # exact owner-item lineage and current recipient remain mandatory.
+        existing_export = await service.get_consent_export_metadata(
+            consent_token, _include_grant_metadata=True
+        )
+    else:
+        existing_export = await service.get_consent_export(consent_token)
     if not existing_export:
         raise HTTPException(status_code=404, detail="Consent export no longer exists")
     if is_private_pkm_export_scope(str(existing_export.get("scope") or "")):

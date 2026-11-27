@@ -4,6 +4,7 @@ const ROSTER_DISPLAY_ORDER: readonly string[] = [
   "gmail",
   "calendar",
   "finance",
+  "goals",
   "ria",
   "wallet",
   "consent",

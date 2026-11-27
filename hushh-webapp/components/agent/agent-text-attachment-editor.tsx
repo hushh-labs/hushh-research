@@ -31,7 +31,7 @@ import {
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { NativeFeatureBack, NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -734,23 +734,22 @@ export function AgentTextAttachmentEditor({
     }
   };
 
-  const body = <div className="flex min-h-0 flex-1 flex-col">
+  const renderBody = (leadingControl?: ReactNode) => <div className="flex min-h-0 flex-1 flex-col">
     <TextAttachmentEditorBody name={name} initialText={initialText} purpose={purpose} sheet={isMobile && !nativePage}
       textareaRef={textareaRef} findInputRef={findInputRef} confirmingDiscard={confirmingDiscard} committing={committing}
       onCancel={requestClose} onCommit={commit}
       onKeepEditing={() => { setConfirmingDiscard(false); textareaRef.current?.focus({ preventScroll: true }); }} onDiscard={close}
-      leadingControl={nativePage ? <NativeFeatureBack owner={owner?.userId ?? null} context={context} layer="chat-attachment"
-        onBack={() => { if (confirmingDiscard) setConfirmingDiscard(false); else requestClose(); }} /> : undefined} />
+      leadingControl={leadingControl} />
   </div>;
 
   if (nativePage) return <NativeFeaturePage open={open} title={name} owner={owner?.userId ?? null} context={context}
-    layer="chat-attachment" authoredHeader bodyClassName="flex flex-1 flex-col overflow-hidden"
-    data-testid="text-attachment-editor" data-presentation="page" onBack={requestClose}
+    layer="chat-attachment" pane renderBody={renderBody} bodyClassName="flex flex-1 flex-col overflow-hidden"
+    data-testid="text-attachment-editor" data-presentation="page" onBack={() => { if (confirmingDiscard) setConfirmingDiscard(false); else requestClose(); }}
     onCloseAutoFocus={() => { if (!returnFocusRef.current?.closest("[inert]")) returnFocusRef.current?.focus({ preventScroll: true }); }}
     onEscapeKeyDown={event => { if (confirmingDiscard) { event.preventDefault(); setConfirmingDiscard(false); } }}
     onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
       event.preventDefault(); findInputRef.current?.focus(); findInputRef.current?.select();
-    } }}>{body}</NativeFeaturePage>;
+    } }} />;
 
   return (
     <Sheet
@@ -806,7 +805,7 @@ export function AgentTextAttachmentEditor({
           }
         }}
       >
-        {body}
+        {renderBody()}
       </SheetContent>
     </Sheet>
   );

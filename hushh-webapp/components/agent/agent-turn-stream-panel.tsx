@@ -1,11 +1,15 @@
 "use client";
 
+import { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+export { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { OneThinkingIndicator, type OneTurnPendingPhase } from "@/components/agent/one-thinking-indicator";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -19,6 +23,7 @@ import {
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
+import { resolveProductionTurnGoogleNote } from "@/lib/agent/production-visitor-posture";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { Activity, AccountProfileIcon, ConnectedSystemsAgentIcon, ConsentAgentIcon, FinanceAgentIcon, Globe, LocationAgentIcon, MemoryAgentIcon, WalletAgentIcon } from "@/components/icons";
 
@@ -108,7 +113,11 @@ export type AgentVisibleStreamEvent = {
 
 /** Only app-owned tool identities map to a product mark; provider text never does. */
 export function connectorBrandForTool(toolName: unknown, provider?: unknown): ConnectorBrand | null {
-  if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") {
+  if (
+    toolName === "discover_workspace_tools" ||
+    toolName === "read_workspace_tool" ||
+    toolName === "manage_connector"
+  ) {
     return connectorBrandFor(provider);
   }
   if (typeof toolName !== "string") return null;
@@ -120,8 +129,12 @@ export function connectorBrandForTool(toolName: unknown, provider?: unknown): Co
 
 const GMAIL_TOOLS: ReadonlySet<string> = new Set([
   "ask_email_agent",
+  "gmail_search_mail",
+  "gmail_read_thread",
+  "gmail_list_needs_reply",
   "open_gmail_email_draft",
   "open_gmail_information_request_reply",
+  "open_gmail_reply_draft",
   "propose_gmail_mailbox_change",
   "propose_gmail_todo",
 ]);
@@ -145,6 +158,8 @@ const CALENDAR_TOOLS: ReadonlySet<string> = new Set([
   "calendar_event_detail",
   "calendar_availability",
   "calendar_free_slots",
+  "calendar_shared_free_slots",
+  "calendar_opening_detail",
   "propose_calendar_event",
   "propose_calendar_reschedule",
   "propose_calendar_cancellation",
@@ -189,10 +204,16 @@ export function isInformativeActivityEvent(
 }
 
 export type AgentTurnStreamPanelProps = {
+  allowFinancePreviewStart?: boolean;
+  conversationId?: string | null;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   streamEvents: AgentVisibleStreamEvent[];
   responseText: string;
   isStreaming: boolean;
   isError?: boolean;
+  pendingPhase?: OneTurnPendingPhase;
+  pendingLabel?: string | null;
+  pendingTrailingAction?: ReactNode;
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
@@ -207,6 +228,7 @@ export type AgentTurnStreamPanelProps = {
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
+  onMailQuickAction?: (prompt: string) => void;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -367,34 +389,17 @@ export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
   "one.shared_with_me_card.v1",
 ]);
 
-/**
- * One secure card per person in a turn. One may both list and show what a
- * person shared; the reader sees that person's card once, where it last
- * arrived.
- */
-export function onePerPersonSharedCard<T extends { id: string; experience: AgentStructuredExperience }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  const kept: T[] = [];
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]!;
-    if (item.experience.type !== "one.shared_with_me_card.v1") {
-      kept.unshift(item);
-      continue;
-    }
-    const cards = item.experience.cards.filter((card) => !seen.has(card.person.personRef));
-    cards.forEach((card) => seen.add(card.person.personRef));
-    if (!cards.length) continue;
-    kept.unshift(cards.length === item.experience.cards.length
-      ? item : { ...item, experience: { ...item.experience, cards } });
-  }
-  return kept;
-}
-
 export function AgentTurnStreamPanel({
-  streamEvents,
+  allowFinancePreviewStart,
+  conversationId,
+  onConfirmFinanceAnalysis,
+  streamEvents = [],
   responseText,
   isStreaming,
   isError = false,
+  pendingPhase = "thinking",
+  pendingLabel = null,
+  pendingTrailingAction,
   opportunities,
   response,
   className,
@@ -406,6 +411,7 @@ export function AgentTurnStreamPanel({
   onCompileDriveNotes,
   onDownloadDriveNotes,
   driveCompilation,
+  onMailQuickAction,
 }: AgentTurnStreamPanelProps) {
   const turnStartedAt = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
@@ -431,7 +437,11 @@ export function AgentTurnStreamPanel({
     return () => window.clearInterval(timer);
   }, [isStreaming, timingPhase]);
   const visibleEvents = useMemo(
-    () => streamEvents.filter((event) => isInformativeActivityEvent(event, clockMs)),
+    () => streamEvents.filter((event) =>
+      // Successful Mail reads are evidence for the answer, not an Activity log.
+      // Keep blocked/error/review steps visible and retain all diagnostics in telemetry.
+      !(event.brand === "gmail" && (event.status === "running" || event.status === "done")) &&
+      isInformativeActivityEvent(event, clockMs)),
     [streamEvents, clockMs],
   );
   const progressItems = useMemo<AppStreamProgressItem[]>(
@@ -447,7 +457,12 @@ export function AgentTurnStreamPanel({
       })),
     [visibleEvents]
   );
-  const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
+  const specialistItems = useMemo(
+    () => normalizeSpecialistSources(sources.filter((source) => source.agentId !== "agent_email")),
+    [sources],
+  );
+  const checkingMail = isStreaming && streamEvents.some((event) =>
+    event.brand === "gmail" && event.status === "running");
   const currentBatchProgress = [...streamEvents].reverse().find((event) =>
     event.status === "running" && event.batchProgress,
   )?.batchProgress;
@@ -493,8 +508,10 @@ export function AgentTurnStreamPanel({
       // A running turn shows its elapsed time. A finished turn shows none:
       // its timing is never stored, so a reopened chat could not repeat it,
       // and a completed answer must look the same live and restored.
-      statusMessage={isStreaming && timingPhase === "running" && elapsedMs !== null
-        ? `Working for ${Math.floor(elapsedMs / 1000)}s`
+      statusMessage={checkingMail
+        ? "Checking your email…"
+        : isStreaming && timingPhase === "running" && elapsedMs !== null && (progressItems.length > 0 || specialistItems.length > 0 || responseText.trim().length > 0)
+          ? `Working for ${Math.floor(elapsedMs / 1000)}s`
         : undefined}
       responseText={responseText}
       response={response}
@@ -510,25 +527,44 @@ export function AgentTurnStreamPanel({
               return <AgentStructuredExperienceView
                 key={id}
                 experience={experience}
+                conversationId={conversationId}
+                  allowPortfolioChanges={!isStreaming && !isError}
+                allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
+                onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}
                 onInformationRequestSubmitted={onInformationRequestSubmitted
                   ? (receipt) => onInformationRequestSubmitted(id, receipt) : undefined}
                 onCompileDriveNotes={onCompileDriveNotes}
                 onDownloadDriveNotes={scopedCompilation ? onDownloadDriveNotes : undefined}
                 driveCompilation={scopedCompilation}
+                onMailQuickAction={onMailQuickAction}
               />;
             })}
           </div>
         ) : null
       }
       responsePendingLabel={
-        preparingPrivateMemory || currentBatchProgress
-          ? undefined
-          : "One is preparing your response."
+        checkingMail || preparingPrivateMemory || currentBatchProgress
+          ? pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-end">
+                  {pendingTrailingAction}
+                </div>
+              )
+            : undefined
+          : pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-between gap-2">
+                  <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+                  {pendingTrailingAction}
+                </div>
+              )
+            : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
       }
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}
+      footerNote={resolveProductionTurnGoogleNote({ isStreaming, streamEvents, sources, experienceItems, responseText, isError })}
       className={className}
     />
   );

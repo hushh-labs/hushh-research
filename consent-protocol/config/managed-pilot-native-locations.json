@@ -1,9 +1,9 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sourceUrl": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations",
-  "sourceLastUpdated": "2026-10-26",
-  "retrievedAt": "2026-10-27T10:18:30.433011+00:00",
-  "qualificationExpiresAt": "2026-10-31T00:00:00Z",
+  "sourceLastUpdated": "2026-10-30",
+  "retrievedAt": "2026-11-02T10:13:01Z",
+  "qualificationExpiresAt": "2026-11-09T00:00:00Z",
   "snapshot": {
     "regions": [
       "us-east1",
@@ -18,29 +18,65 @@
       "europe-west8",
       "europe-southwest1",
       "asia-east1",
-      "asia-east2\u2020",
+      "asia-east2",
       "asia-northeast1",
-      "asia-northeast3\u2020",
+      "asia-northeast3",
       "asia-south1",
       "asia-southeast1",
-      "asia-southeast2*\u2020",
-      "australia-southeast2*",
-      "me-west1",
-      "northamerica-northeast1",
-      "northamerica-northeast2*",
-      "southamerica-east1"
-    ],
-    "multiRegions": [
-      "us",
-      "eu"
-    ],
-    "globalMemoryAndSessions": true,
-    "memoryUnsupportedRegions": [
       "asia-southeast2",
       "australia-southeast2",
-      "northamerica-northeast2"
-    ]
+      "me-west1",
+      "northamerica-northeast1",
+      "northamerica-northeast2",
+      "southamerica-east1"
+    ],
+    "apiVersions": {
+      "ga": [
+        "v1"
+      ],
+      "preview": [
+        "v1beta1"
+      ]
+    },
+    "unsupportedFeatures": {
+      "memoryBank": [
+        "asia-southeast2",
+        "australia-southeast2",
+        "northamerica-northeast2"
+      ],
+      "agentGateway": [
+        "asia-east2",
+        "asia-northeast3",
+        "asia-southeast2"
+      ]
+    },
+    "multiRegions": {
+      "runtime": [
+        "us",
+        "eu"
+      ],
+      "sessions": [
+        "us",
+        "eu"
+      ],
+      "memoryBank": [
+        "us",
+        "eu"
+      ]
+    },
+    "globalFeatures": [
+      "sessions",
+      "memoryBank"
+    ],
+    "cmekUnsupportedGlobalFeatures": [
+      "sessions",
+      "memoryBank"
+    ],
+    "dataResidency": {
+      "atRest": "Selected location",
+      "modelProcessing": "Configured model location or endpoint"
+    }
   },
-  "snapshotSha256": "040fd2ca7235d6b70df2531b15c18753ec1c3f8fd0c7571290de2ff9aca7b193",
-  "scope": "Two newly created managed dev pilot projects only. Older, adopted and BYOC projects are excluded. ca is not an Engine namespace under this provider contract; no failed response is an empty listing."
+  "snapshotSha256": "fd515e3e2663485fbf0d97017227d88a69e8572a092cf48e975a39cc292b9ab7",
+  "scope": "Two newly created managed dev pilot projects only. Older, adopted and BYOC projects are excluded. ca is not an Engine namespace under this provider contract; no failed response is an empty listing. Project creation must be on or after this exact provider source update."
 }

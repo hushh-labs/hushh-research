@@ -36,15 +36,21 @@ const LEGAL_ENTITY: SharedWithYouItemView = {
   data: { fein: "00-0000000", trade_name_dba: "Acme Coffee", entity_type: "C_CORP" },
 };
 
-const STATES: Array<{ state: string; status: SharedWithYouCardStatus; items: SharedWithYouItemView[]; variant?: "chat" | "profile" }> = [
-  { state: "decrypted", status: "ready", items: [TAX, FOOD] },
+const STATES: Array<{
+  state: string;
+  status: SharedWithYouCardStatus;
+  items: SharedWithYouItemView[];
+  variant?: "chat" | "profile";
+  presentation?: "inline" | "modal";
+}> = [
+  { state: "decrypted", status: "ready", items: [TAX, FOOD], presentation: "inline" },
   { state: "loading", status: "loading", items: [{ ...TAX, state: "loading", data: null }] },
   { state: "locked", status: "locked", items: [{ ...TAX, state: "locked", data: null }, { ...FOOD, state: "locked", data: null }] },
   { state: "ended", status: "ready", items: [{ ...TAX, state: "ended", endedReason: "revoked", data: null }] },
   { state: "error", status: "error", items: [TAX] },
   { state: "unopenable", status: "ready", items: [{ ...TAX, label: "Tax record information", state: "unopenable", data: null }] },
   { state: "profile", status: "ready", items: [TAX, FOOD], variant: "profile" },
-  { state: "legal", status: "ready", items: [LEGAL_ENTITY] },
+  { state: "legal", status: "ready", items: [LEGAL_ENTITY], presentation: "inline" },
 ];
 
 const LEGAL: RequestablePersonScope[] = [
@@ -82,9 +88,9 @@ function Fixture() {
           <p className="mb-3 text-[15px] leading-6 text-foreground">Here’s what Manish shared with you:</p>
           <SharedWithYouCardView person={PERSON} status="ready" items={[TAX]} />
         </section>
-        {STATES.map(({ state, status, items, variant }) => (
+        {STATES.map(({ state, status, items, variant, presentation }) => (
           <section key={state} data-state={state} aria-label={state}>
-            <SharedWithYouCardView person={PERSON} status={status} items={items} variant={variant}
+            <SharedWithYouCardView person={PERSON} status={status} items={items} variant={variant} presentation={presentation}
               onUnlock={() => undefined} onRetry={() => undefined} />
           </section>
         ))}

@@ -46,6 +46,7 @@ import { retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
 import { answerStageTiming } from "@/lib/answers/answer-stage-timing";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { AnswerPreparationError } from "./answer-preparation-error";
 
 function setPath(payload: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split(".");
@@ -93,7 +94,7 @@ export interface AnswerPayload {
   version: 1;
   question: string;
   /**
-   * Every successful delivery is Gemini composed. 'projection' with a null
+   * Every successful delivery is model composed. 'projection' with a null
    * answer is an internal retry/confirmed-missing result and is never sold.
    */
   answerMode: "agent" | "projection";
@@ -106,7 +107,7 @@ export interface AnswerPayload {
   approvedInformation: Record<string, unknown>;
   /**
    * The person's own memory document, sliced to exactly the approved scopes
-   * and dates. Gemini receives only these approved facts and source metadata.
+   * and dates. The selected model receives only these approved facts and source metadata.
    */
   memory: string;
   /** False when a section of that memory could not be read or was truncated. */
@@ -221,7 +222,10 @@ export async function buildAnswerPayload(
         values: composerValues,
         sourceFreshness: retrieved.sourceFreshness,
       },
-    ).catch(() => ({ answerMode: "projection" as const, answer: null }));
+    ).catch(error => {
+      if (error instanceof AnswerPreparationError) throw error;
+      return { answerMode: "projection" as const, answer: null };
+    });
     assertActive();
     answerStageTiming(work.requestId, "gemini_compose", composeStarted);
   }
@@ -348,7 +352,8 @@ async function runAnswerDeliverySweepNow(
       dispatchConsentStateChanged({ userId: params.userId, requestId: `answer_request:${work.requestId}` });
       if (hasContent) result.delivered += 1;
       else result.empty += 1;
-    } catch {
+    } catch (error) {
+      if (error instanceof AnswerPreparationError) throw error;
       // Leave it queued. The backend's deadline sweep refunds if it never
       // succeeds, so a stuck answer costs the requester nothing.
       result.skipped += 1;
@@ -375,7 +380,7 @@ export function runAnswerDeliverySweep(params: AnswerSweepParams, epoch = snapsh
   const operation = runAnswerDeliverySweepNow(params, epoch, assertActive);
   const bounded = Promise.race([operation, timeout]).finally(() => { clearTimeout(timer); });
   // Retain the join while the underlying operation unwinds; a timeout must
-  // not start a competing writer or Gemini request.
+  // not start a competing writer or model request.
   preparations.set(key, bounded);
   void operation.finally(() => { if (preparations.get(key) === bounded) preparations.delete(key); }).catch(() => {});
   return bounded;

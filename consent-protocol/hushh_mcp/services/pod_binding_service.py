@@ -140,6 +140,16 @@ class PodBindingService:
 
     async def _owner_row(self, user_id: str, *, request_id: str) -> dict:
         try:
+            from hushh_mcp.services.pooled_sandbox_cutover import (  # noqa: PLC0415
+                ensure_pooled_sandbox_placement,
+                sandbox_pool_cutover_enabled,
+            )
+
+            if sandbox_pool_cutover_enabled():
+                await ensure_pooled_sandbox_placement(user_id=user_id, registry=self._registry)
+        except Exception as exc:  # noqa: BLE001 - fall through to normal owner authorization
+            logger.warning("pod_binding.pooled_cutover_skipped err=%s", type(exc).__name__)
+        try:
             await self._audit.authorize_owner_read(
                 user_id=user_id,
                 agent_id=PERSONAL_AGENT_ID,

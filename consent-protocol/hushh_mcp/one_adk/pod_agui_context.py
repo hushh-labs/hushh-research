@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from contextlib import contextmanager, nullcontext
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -16,15 +18,21 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
 
 _projection: PodAdkSessionProjection | None = None
+_TERMINAL_MANAGERS: dict[tuple[str, str, str], Any] = {}
 
 
 class PodChatContext:
     async def _finish_snapshot(self, _input: Any) -> None:
         await self.require_access()
-        await self.projection.snapshot(force_save=True)
+        # Catch up the in-memory session projection before RUN_FINISHED; the
+        # durable checkpoint upload runs in detached post-turn settlement so the
+        # SSE stream closes immediately without delaying the next turn.
+        await self.projection.snapshot(force_save=False)
         await self.require_access()
 
     async def _finish_post_turn(self, memory: Any, input: Any) -> None:
+        await self.require_access()
+        await self.projection.snapshot(force_save=True)
         wrote = False
         if memory is not None:
             wrote = bool(await memory.commit(input))
@@ -55,7 +63,15 @@ class PodChatContext:
         if not self.owner or not self.hushh_id or self.hushh_id != os.environ.get("HUSSH_ID"):
             raise HTTPException(403, detail={"code": "POD_CHAT_OWNER_MISMATCH"})
         global _projection
-        self.log = _projection.log if _projection is not None else _resolve_log()
+        authority_log = getattr(getattr(self.authority, "_store", None), "_log", None)
+        if _projection is not None:
+            self.log = _projection.log
+        elif (
+            authority_log is not None and getattr(authority_log, "_owner_id", None) == self.hushh_id
+        ):
+            self.log = authority_log
+        else:
+            self.log = _resolve_log()
         if self.log is None or self.log._owner_id != self.hushh_id:
             raise HTTPException(503, detail={"code": "POD_CHAT_RECOVERY_UNAVAILABLE"})
         bind_request_chat_key_owner(self.owner)
@@ -115,7 +131,7 @@ class PodChatContext:
             if (
                 authority is not self.authority
                 or claims != self.claims
-                or authority.environment not in {"dev", "development"}
+                or authority.environment not in {"dev", "development", "uat"}
                 or pod_incarnation() != self._browser_incarnation
             ):
                 raise BrowserRefused("BROWSER_OWNER_REFUSED")
@@ -132,7 +148,7 @@ class PodChatContext:
             runtime is None
             or not runtime.capability().available
             or SCOPE_BROWSER_INVOKE not in set(self.claims.get("scopes") or [])
-            or self.authority.environment not in {"dev", "development"}
+            or self.authority.environment not in {"dev", "development", "uat"}
         ):
             return nullcontext()
         owner = BrowserOwnerAccess(
@@ -141,8 +157,52 @@ class PodChatContext:
             incarnation=self._browser_incarnation,
             expires_at=int(self.claims["exp"]),
             check=self._browser_access,
+            environment="uat" if self.authority.environment == "uat" else "development",
         )
         return browser_task_invocation(runtime, owner)
+
+    def _terminal_scope(self):
+        from hushh_mcp.one_adk.terminal_tools import (
+            TerminalOwnerAccess,
+            terminal_session_invocation,
+        )
+        from hushh_mcp.services.agent_sandbox.process_session_manager import (
+            SandboxProcessSessionManager,
+        )
+        from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
+        from hushh_mcp.services.pod_session_authority import SCOPE_POD_ACT
+
+        scopes = set(getattr(self, "claims", {}).get("scopes") or [])
+        terminal_enabled = hosted_ace_runtime() or os.getenv(
+            "HUSSH_SANDBOX_TERMINAL_ENABLED", ""
+        ).strip().lower() in {"1", "true"}
+        if not terminal_enabled or SCOPE_POD_ACT not in scopes:
+            return nullcontext()
+        owner = str(getattr(self, "owner", "") or "").strip()
+        hushh_id = str(getattr(self, "hushh_id", "") or "").strip()
+        if not owner or not hushh_id:
+            return nullcontext()
+        lease_id = (os.getenv("HUSSH_LEASE_ID") or "lease_active").strip() or "lease_active"
+        key = (owner, hushh_id, lease_id)
+        manager = _TERMINAL_MANAGERS.get(key)
+        if manager is None:
+            workspace_root = Path("/workspace")
+            if not (workspace_root.is_dir() and os.access(workspace_root, os.W_OK)):
+                workspace_root = Path(tempfile.gettempdir()) / f"hussh-workspace-{hushh_id}"
+                workspace_root.mkdir(parents=True, exist_ok=True)
+            egress_proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
+            manager = SandboxProcessSessionManager(
+                workspace_root,
+                egress_proxy_url=egress_proxy or None,
+            )
+            _TERMINAL_MANAGERS[key] = manager
+        access = TerminalOwnerAccess(
+            owner_id=owner,
+            lease_id=lease_id,
+            workspace_id=f"ws_{hushh_id[:16]}",
+            credential_approval_verified=False,
+        )
+        return terminal_session_invocation(manager, access)
 
     async def _require_session_access(self) -> None:
         """Revalidate this request's authority; the repository owns its log fence."""
@@ -208,6 +268,7 @@ class PodChatContext:
             private_pending_call_scope(self.mcp_pending),
             files_access(self._files_access, manage=self._files_manage),
             self._browser_scope(),
+            self._terminal_scope(),
         ):
             yield
 
@@ -273,7 +334,7 @@ class PodChatContext:
 
         from hushh_mcp.services.pod_consent_read import PodConsentReadPort
 
-        with self._browser_scope():
+        with self._browser_scope(), self._terminal_scope():
             head = build_one_text_agent(
                 model=owner_model,
                 allow_workspace_tools=False,

@@ -7,6 +7,7 @@ import copy
 import json
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 import asyncpg
@@ -174,6 +175,48 @@ def _begin_cleanup(pg, owner, reservation, execution):
     return pg.execute(
         "SELECT begin_azure_erasure_worker(%s,%s,%s)", (owner, reservation["attemptId"], execution)
     )[0][0]
+
+
+@pytest.mark.parametrize("cleanup_pg", ["unreserved_predeployment"], indirect=True)
+async def test_failed_setup_review_accepts_native_rows_but_preserves_snapshot_authority(cleanup_pg):
+    from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from tests.test_byoc_setup_job_azure_admission_postgres import _Client
+
+    pg, owner, _reservation, _context = cleanup_pg
+    client = _Client(pg)
+    try:
+        store = AzureTeardownStore(PersonalAgentRegistryRepo(client=client))
+        row = await store.registry.get(owner)
+        assert isinstance(row["created_at"], datetime)
+        assert await store.can_offer_failed_setup_cleanup(owner, row) is True
+        assert await store.never_deployed(owner, row) is True
+        # A write to a column the SQL contract treats as volatile is not a change.
+        pg.execute(
+            "UPDATE personal_agent_registry SET updated_at=updated_at+interval '1 second' "
+            "WHERE user_id=%s",
+            (owner,),
+        )
+        assert await store.never_deployed(owner, row) is True
+        for changed in (
+            {**row, "user_id": "another-owner"},
+            {**row, "hushh_id": "another-agent"},
+            {**row, "unexpected": "not-a-registry-column"},
+            {key: value for key, value in row.items() if key != "created_at"},
+        ):
+            assert await store.never_deployed(owner, changed) is False
+
+        digest = await store.candidate_digest(owner, row)
+        reservation = await store.reserve(owner, digest)
+        saved = reservation["registrySnapshot"]
+        assert await store.never_deployed(owner, saved) is True
+        assert (
+            await store.can_offer_failed_setup_cleanup(owner, await store.registry.get(owner))
+            is True
+        )
+        assert await store.never_deployed(owner, {**saved, "hushh_id": "another-agent"}) is False
+    finally:
+        client._engine.dispose()
 
 
 def test_durable_cleanup_requires_exact_plan_owner_approval_and_live_worker(cleanup_state):

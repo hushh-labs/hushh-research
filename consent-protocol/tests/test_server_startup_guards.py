@@ -263,10 +263,17 @@ def test_required_runtime_tables_are_live_in_migrations():
         for path in (db_dir / "offline_schema.sql", db_dir / "legacy" / "init_legacy_schema.sql")
         if path.exists()
     ]
-    migrations = [
-        (int(path.name[:3]), path.read_text(encoding="utf-8", errors="ignore"))
-        for path in sorted((db_dir / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
-    ]
+    migrations = sorted(
+        (
+            (
+                int(path.name.split("_", 1)[0]),
+                path.read_text(encoding="utf-8", errors="ignore"),
+            )
+            for path in (db_dir / "migrations").glob("*.sql")
+            if re.match(r"^[0-9]{3,}_", path.name)
+        ),
+        key=lambda item: item[0],
+    )
     assert migrations, "no migrations found; this test cannot verify the guard"
 
     problems: list[str] = []

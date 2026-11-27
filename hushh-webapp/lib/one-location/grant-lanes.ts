@@ -125,6 +125,7 @@ export function groupGrantsByCounterpart(
  * the internal `sos` identifier; the UI says Save My Soul.
  */
 export function grantLaneLabel(grant: OneLocationGrant): string {
+  if (grant.shareKind === "pin") return "Current location pin";
   return isSmsTriggeredGrant(grant) ? "Save My Soul" : "Location share";
 }
 

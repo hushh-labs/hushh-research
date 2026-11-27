@@ -170,6 +170,7 @@ async def vm_upgrade_worker(pg, owner, installation, *, receipt=None):
 
     pg.apply_file(PARKED / "968_azure_vm_image_update_admission.sql")
     pg.apply_file(PARKED / "968_azure_vm_image_update_admission.sql")
+    pg.apply_file(PARKED / "980_personal_agent_upgrade_host_binding.sql")
     repo = ByocSetupJobRepo(client=_Client(pg))
     row = pg.execute(
         "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=%s", (owner,)
@@ -177,13 +178,12 @@ async def vm_upgrade_worker(pg, owner, installation, *, receipt=None):
     target = installation.resource_id.split("/providers/", 1)[0]
     assert await repo.start(user_id=owner, job_id="vm-upgrade-1", project_id=target)
     source = "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod/pod@sha256:" + "d" * 64
-    lease, operation = "synthetic-lease", "vm-update-1"
+    operation = "vm-update-1"
     metadata = row["backend_metadata"]
     metadata.update(
         image_digest=installation.image_digest,
         vmConfigurationSha256="c" * 64,
         vmUpdateModuleSha256=hashlib.sha256((_SOURCE / "update.py").read_bytes()).hexdigest(),
-        upgradeLease=lease,
         upgradeApproval={
             "version": 1,
             "ownerId": owner,
@@ -213,7 +213,8 @@ async def vm_upgrade_worker(pg, owner, installation, *, receipt=None):
         "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
         (json.dumps(metadata), owner),
     )
-    row["backend_metadata"] = metadata
+    lease, row = await _claim_vm_upgrade_lease(pg, owner, source)
+    metadata = row["backend_metadata"]
     spec = PodSpec(
         hushh_id=row["hushh_id"],
         phone_e164_hash="synthetic",
@@ -229,6 +230,28 @@ async def vm_upgrade_worker(pg, owner, installation, *, receipt=None):
         row, spec, idle_record=metadata["upgradeApproval"]["handoffIdleRecord"]
     )
     return plan, plan.intent(job="vm-upgrade-1"), row, spec
+
+
+async def _claim_vm_upgrade_lease(pg, owner, target_image):
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    row = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=%s", (owner,)
+    )[0][0]
+    client = _Client(pg)
+    try:
+        lease = await PersonalAgentRegistryRepo(client=client).claim_image_upgrade(
+            user_id=owner,
+            target_image=target_image,
+            observed=row,
+        )
+    finally:
+        client._engine.dispose()
+    assert lease
+    row = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=%s", (owner,)
+    )[0][0]
+    return lease, row
 
 
 def retain_vm_ack(server, owner, spec, receipt):

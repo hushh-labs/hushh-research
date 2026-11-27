@@ -104,12 +104,25 @@ WITH held AS (
     FROM gmail_owner_send_actions
     WHERE send_at IS NOT NULL
       AND state IN ('sent', 'failed', 'outcome_unknown', 'expired', 'cancelled')
-      AND (payload_sealed IS NOT NULL OR subject IS NOT NULL)
+      AND (
+          payload_sealed IS NOT NULL
+          OR subject IS NOT NULL
+          OR (
+              recipient_display IS NOT NULL
+              AND (state IN ('expired', 'cancelled') OR notified_at IS NOT NULL)
+          )
+      )
     LIMIT $1
     FOR UPDATE SKIP LOCKED
 )
 UPDATE gmail_owner_send_actions AS action
-SET payload_sealed = NULL, subject = NULL
+SET payload_sealed = NULL,
+    subject = NULL,
+    recipient_display = CASE
+        WHEN action.state IN ('expired', 'cancelled') OR action.notified_at IS NOT NULL
+            THEN NULL
+        ELSE action.recipient_display
+    END
 FROM held
 WHERE action.action_id = held.action_id
   AND action.state IN ('sent', 'failed', 'outcome_unknown', 'expired', 'cancelled')
@@ -150,7 +163,14 @@ FOR UPDATE SKIP LOCKED
 
 _SETTLE_UNSENT_SQL = """
 UPDATE gmail_owner_send_actions
-SET state = $3, safe_error_code = $4, payload_sealed = NULL, subject = NULL,
+SET state = $3,
+    safe_error_code = $4,
+    payload_sealed = NULL,
+    subject = NULL,
+    recipient_display = CASE
+        WHEN $3 IN ('expired', 'cancelled') THEN NULL
+        ELSE recipient_display
+    END,
     updated_at = NOW()
 WHERE action_id = $1 AND user_id = $2
   AND state IN ('scheduled', 'prepared') AND sending_at IS NULL
@@ -201,10 +221,17 @@ WHERE action_id = $1 AND user_id = $2
 """
 
 _CLAIM_NOTIFICATION_SQL = """
-UPDATE gmail_owner_send_actions
-SET notified_at = NOW()
-WHERE action_id = $1 AND user_id = $2 AND state = $3 AND notified_at IS NULL
-RETURNING recipient_display
+WITH target AS (
+    SELECT action_id, recipient_display
+    FROM gmail_owner_send_actions
+    WHERE action_id = $1 AND user_id = $2 AND state = $3 AND notified_at IS NULL
+    FOR UPDATE
+)
+UPDATE gmail_owner_send_actions AS action
+SET notified_at = NOW(), recipient_display = NULL
+FROM target
+WHERE action.action_id = target.action_id
+RETURNING target.recipient_display
 """
 
 # execute() refusals that happen before it moves the row to ``sending``.

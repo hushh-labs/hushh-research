@@ -10,8 +10,9 @@
  *    - Tier A (private raw records): connections, accounts, holdings,
  *      securities, transactions.
  *    - Tier B (private derived facts): `derived_v1`, recomputed from Tier A.
- *    - Tier C (shareable summary): `summary`, bands, percentages and counts
- *      only.
+ *    - Tier C (shareable live mirrors): `summary` (bands, percentages, counts),
+ *      `accounts` (current depository balances), `liabilities` (credit & loans),
+ *      and `cashflow` (current cash flow & recurring bills — zero raw history).
  *    - Readable view (private): `linked_accounts`, the same records organised
  *      by kind of account, institution and account for a person to browse.
  */
@@ -20,182 +21,8 @@
 // Wire contract
 // ---------------------------------------------------------------------------
 
-export type PlaidVaultPlatform = "web" | "ios" | "android";
-
-export interface PlaidVaultLinkTokenRequest {
-  platform: PlaidVaultPlatform;
-  redirect_uri?: string | null;
-  /** Local native proof only; never selects a provider environment. */
-  sandbox_proof?: boolean;
-  /** Update mode (relink): the sealed token of the Item being repaired. */
-  access_token?: string | null;
-}
-
-export interface PlaidVaultLinkTokenResponse {
-  link_token: string;
-  expiration: string;
-}
-
-export interface PlaidVaultInstitution {
-  id: string;
-  name: string;
-}
-
-export interface PlaidVaultExchangeResponse {
-  access_token: string;
-  item_id: string;
-  institution: PlaidVaultInstitution | null;
-  products: string[];
-  consented_products?: string[];
-}
-
-export interface PlaidBalances {
-  available?: number | null;
-  current?: number | null;
-  limit?: number | null;
-  iso_currency_code?: string | null;
-  unofficial_currency_code?: string | null;
-}
-
-export interface PlaidAccount {
-  account_id: string;
-  persistent_account_id?: string | null;
-  name: string;
-  official_name?: string | null;
-  mask?: string | null;
-  type: string;
-  subtype?: string | null;
-  balances: PlaidBalances;
-}
-
-export interface PlaidHolding {
-  account_id: string;
-  security_id: string;
-  quantity: number;
-  institution_price?: number | null;
-  institution_price_as_of?: string | null;
-  institution_value?: number | null;
-  cost_basis?: number | null;
-  iso_currency_code?: string | null;
-}
-
-export interface PlaidSecurity {
-  security_id: string;
-  ticker_symbol?: string | null;
-  name?: string | null;
-  type?: string | null;
-  subtype?: string | null;
-  cusip?: string | null;
-  isin?: string | null;
-  close_price?: number | null;
-  close_price_as_of?: string | null;
-  is_cash_equivalent?: boolean | null;
-  sector?: string | null;
-  industry?: string | null;
-}
-
-export interface PlaidPersonalFinanceCategory {
-  primary: string;
-  detailed?: string | null;
-  confidence_level?: string | null;
-}
-
-export interface PlaidLocation {
-  address?: string | null;
-  city?: string | null;
-  region?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  lat?: number | null;
-  lon?: number | null;
-  store_number?: string | null;
-}
-
-export interface PlaidCounterparty {
-  name?: string | null;
-  type?: string | null;
-  entity_id?: string | null;
-  website?: string | null;
-  logo_url?: string | null;
-}
-
-export interface PlaidTx {
-  transaction_id: string;
-  account_id: string;
-  amount: number;
-  iso_currency_code?: string | null;
-  date: string;
-  authorized_date?: string | null;
-  name?: string | null;
-  merchant_name?: string | null;
-  merchant_entity_id?: string | null;
-  pending?: boolean;
-  pending_transaction_id?: string | null;
-  payment_channel?: string | null;
-  personal_finance_category?: PlaidPersonalFinanceCategory | null;
-  category?: string[] | null;
-  location?: PlaidLocation | null;
-  counterparties?: PlaidCounterparty[] | null;
-  logo_url?: string | null;
-  website?: string | null;
-}
-
-export interface PlaidUnavailable {
-  unavailable: string;
-}
-
-export interface PlaidInvestmentsSnapshot {
-  holdings: PlaidHolding[];
-  securities: PlaidSecurity[];
-}
-
-export interface PlaidTransactionsSnapshot {
-  added: PlaidTx[];
-  modified: PlaidTx[];
-  removed: { transaction_id: string }[];
-  next_cursor: string;
-  /** More pages remain after this snapshot's page cap; follow with next_cursor. */
-  has_more?: boolean;
-  pages: number;
-}
-
-export interface PlaidItemError {
-  code: string;
-  message: string;
-}
-
-export interface PlaidSnapshotItem {
-  /** Null when Plaid refused the sealed token before naming the Item. */
-  item_id: string | null;
-  institution_id: string | null;
-  products: string[];
-  consented_products: string[];
-  error: PlaidItemError | null;
-}
-
-export interface PlaidVaultSnapshotRequest {
-  access_token: string;
-  transactions_cursor?: string | null;
-}
-
-export interface PlaidVaultSnapshot {
-  item: PlaidSnapshotItem;
-  accounts: PlaidAccount[];
-  investments: PlaidInvestmentsSnapshot | PlaidUnavailable;
-  transactions: PlaidTransactionsSnapshot | PlaidUnavailable;
-}
-
-export interface PlaidVaultRemoveResponse {
-  removed: true;
-}
-
-export function isUnavailable(value: unknown): value is PlaidUnavailable {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      typeof (value as PlaidUnavailable).unavailable === "string"
-  );
-}
+export * from "./vault-wire-types";
+import type { PlaidVaultInstitution } from "./vault-wire-types";
 
 // ---------------------------------------------------------------------------
 // Memory records (financial domain)
@@ -206,6 +33,7 @@ export type ConnectionStatus = "active" | "needs_relink";
 /** Tier A: `financial.connections_v1[item_id]`. Holds the sealed access token. */
 export interface ConnectionRecord {
   access_token: string;
+  country_on_file?: string | null;
   institution_id: string | null;
   institution_name: string | null;
   products: string[];
@@ -213,6 +41,12 @@ export interface ConnectionRecord {
   transactions_cursor: string | null;
   last_refreshed_at: string | null;
   status: ConnectionStatus;
+  nws_holdings_complete?: boolean;
+  nws_history_complete?: boolean;
+  nws_credit_apr?: Record<string, number>;
+  nws_consent?: string[];
+  nws_debt_details_available?: boolean;
+  nws_investments_available?: boolean;
 }
 
 export interface AccountBalancesRecord {
@@ -220,11 +54,13 @@ export interface AccountBalancesRecord {
   current: number | null;
   limit: number | null;
   iso_currency_code: string | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Tier A: `financial.accounts_v1[`${item_id}:${account_id}`]`. */
 export interface AccountRecord {
   account_id: string;
+  holder_category?: string | null;
   persistent_account_id: string | null;
   item_id: string;
   institution_id: string | null;
@@ -249,6 +85,8 @@ export interface HoldingRecord {
   institution_value: number;
   cost_basis: number | null;
   iso_currency_code: string | null;
+  nws_value?: number | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Tier A: `financial.securities_v1[security_id]`. CUSIP stays private here. */
@@ -297,6 +135,8 @@ export interface TransactionRecord {
   counterparties: TransactionCounterpartyRecord[] | null;
   /** True once the 90-day retention rule replaced merchant detail with the category. */
   reduced: boolean;
+  nws_amount?: number | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Every Tier B fact carries where it came from and when. */
@@ -332,6 +172,21 @@ export interface IncomeStability {
 
 export type CashFlowTrend = "positive" | "flat" | "negative";
 
+export interface LinkedNetWorthScore {
+  /** Oldest refresh among the linked balances used for this score. */
+  balances_refreshed_at?: string;
+  linked_net_worth_usd: number | null;
+  country_on_file: string | null;
+  score: number | null;
+  unavailable_reason:
+    | "connection_unavailable"
+    | "no_eligible_accounts"
+    | "balance_unavailable"
+    | "unsupported_account_or_currency"
+    | "country_unavailable"
+    | null;
+}
+
 /** Tier B: `financial.derived_v1`. Private. */
 export interface DerivedFactsV1 {
   schema: "plaid-derived-v1";
@@ -340,6 +195,8 @@ export interface DerivedFactsV1 {
   total_liabilities: DerivedFact<number>;
   net_worth: DerivedFact<number>;
   net_worth_band: DerivedFact<string>;
+  /** Private Finance NWS. Absent in records written before the Finance score. */
+  nws?: DerivedFact<LinkedNetWorthScore>;
   liquid_cash: DerivedFact<number>;
   investable_assets: DerivedFact<number>;
   allocation_pct: DerivedFact<Record<string, number>>;
@@ -368,6 +225,80 @@ export interface ShareableSummaryV1 {
   needs_relink_count: number;
   recurring_bill_count: number;
   last_updated: string;
+}
+
+/** Tier C: `financial.accounts`. Shareable live depository accounts (no IDs or masks). */
+export interface ShareableBankAccountItem {
+  institution_name: string;
+  account_name: string;
+  account_type: string;
+  current_balance: number;
+  available_balance: number | null;
+  currency: string;
+}
+
+export interface ShareableBankAccountsV1 {
+  schema: "plaid-accounts-v1";
+  cash_in_bank: number;
+  total_depository_balance: number;
+  account_count: number;
+  institution_count: number;
+  as_of: string;
+  items: ShareableBankAccountItem[];
+}
+
+/** Tier C: `financial.liabilities`. Shareable live credit cards & loans (no IDs or masks). */
+export interface ShareableLiabilityItem {
+  institution_name: string;
+  account_name: string;
+  category: "Credit card" | "Loan";
+  account_type: string;
+  balance_owed: number;
+  credit_limit: number | null;
+  available_credit: number | null;
+  utilization_pct: number | null;
+  currency: string;
+}
+
+export interface ShareableLiabilitiesV1 {
+  schema: "plaid-liabilities-v1";
+  total_owed: number;
+  credit_card_owed: number;
+  credit_limit_total: number;
+  credit_utilization_pct: number | null;
+  loan_owed: number;
+  account_count: number;
+  institution_count: number;
+  as_of: string;
+  items: ShareableLiabilityItem[];
+}
+
+/** Tier C: `financial.cashflow`. Current cash flow & active recurring bills (zero history dump). */
+export interface ShareableRecurringBillItem {
+  label: string;
+  category: string | null;
+  cadence: RecurringCadence;
+  typical_amount: number;
+  last_date: string;
+}
+
+export interface ShareableCashFlowV1 {
+  schema: "plaid-cashflow-v1";
+  net_worth: number;
+  total_assets: number;
+  total_liabilities: number;
+  liquid_cash: number;
+  investable_assets: number;
+  debt_to_asset_pct: number | null;
+  cash_flow_trend: CashFlowTrend;
+  income_stability: IncomeStability["label"];
+  current_month: string | null;
+  current_monthly_income: number;
+  current_monthly_spend: number;
+  current_monthly_net: number;
+  recurring_bill_count: number;
+  as_of: string;
+  recurring_bills: ShareableRecurringBillItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +330,9 @@ export const LINKED_ACCOUNTS_BRANCH = "linked_accounts";
 export const PLAID_VAULT_SOURCE_MANAGED_BRANCHES = [
   ...PLAID_VAULT_RECORD_BRANCHES,
   "summary",
+  "accounts",
+  "liabilities",
+  "cashflow",
   LINKED_ACCOUNTS_BRANCH,
 ] as const;
 export const LINKED_ACCOUNTS_SCHEMA_VERSION = 1;
@@ -479,6 +413,9 @@ export interface PlaidVaultMemory {
   transactions_v1?: Record<string, TransactionRecord>;
   derived_v1?: DerivedFactsV1;
   summary?: ShareableSummaryV1;
+  accounts?: ShareableBankAccountsV1;
+  liabilities?: ShareableLiabilitiesV1;
+  cashflow?: ShareableCashFlowV1;
   linked_accounts?: LinkedAccountsViewV1;
 }
 

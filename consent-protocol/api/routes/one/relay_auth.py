@@ -258,25 +258,6 @@ async def _register_nonce_shared(nonce: str, expires_at: int) -> bool:
     single use on another instance. The existing Postgres seam can later use
     Redis SETNX with expiry without changing the consume contract.
     """
-    try:
-        from db.connection import get_pool
+    from hushh_mcp.services.relay_nonce_store import register_relay_ticket_nonce
 
-        pool = await get_pool()
-        now_epoch = int(datetime.now(tz=timezone.utc).timestamp())
-        async with pool.acquire() as conn:
-            result = str(
-                await conn.execute(
-                    "INSERT INTO relay_ticket_nonces (nonce, expires_at) "
-                    "VALUES ($1, $2) ON CONFLICT (nonce) DO NOTHING",
-                    nonce,
-                    expires_at,
-                )
-            )
-            # Opportunistic prune keeps the table tiny (60s ticket TTL).
-            await conn.execute(
-                "DELETE FROM relay_ticket_nonces WHERE expires_at <= $1",
-                now_epoch,
-            )
-        return result.endswith("1")
-    except Exception:  # noqa: BLE001 - unavailable authority never admits a ticket
-        return False
+    return await register_relay_ticket_nonce(nonce, expires_at)

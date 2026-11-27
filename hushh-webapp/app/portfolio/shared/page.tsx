@@ -344,8 +344,12 @@ function SharedPortfolioPageContent() {
 
 export default function SharedPortfolioPage() {
   return (
-    <Suspense fallback={null}>
-      <SharedPortfolioPageContent />
-    </Suspense>
+    <div className="flex h-full min-h-0 flex-col bg-background pt-[var(--app-safe-area-top-effective)] pb-[var(--app-safe-area-bottom-effective)]">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-slate-950">
+        <Suspense fallback={null}>
+          <SharedPortfolioPageContent />
+        </Suspense>
+      </div>
+    </div>
   );
 }

@@ -436,4 +436,47 @@ describe("consent SSE stops retrying a permanent refusal", () => {
       },
     );
   });
+
+  it("keeps the active SSE connection alive across prioritized route changes without re-probing capabilities", async () => {
+    mocks.navigation.pathname = "/";
+    let streamSignal: AbortSignal | undefined;
+    mocks.apiFetchStream.mockImplementation((_url: string, init?: RequestInit) => {
+      streamSignal = init?.signal ?? undefined;
+      return new Promise(() => {
+        // Keep the stream open across route transitions.
+      });
+    });
+
+    const view = render(
+      <ConsentNotificationProvider>
+        <div>Chat</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+    expect(streamSignal?.aborted).toBe(false);
+
+    mocks.navigation.pathname = "/one/pkm";
+    view.rerender(
+      <ConsentNotificationProvider>
+        <div>Memory</div>
+      </ConsentNotificationProvider>,
+    );
+    mocks.navigation.pathname = "/one/connect";
+    view.rerender(
+      <ConsentNotificationProvider>
+        <div>Connect</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(streamSignal?.aborted).toBe(false);
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+  });
 });

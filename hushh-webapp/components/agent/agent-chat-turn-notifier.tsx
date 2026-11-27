@@ -20,7 +20,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { useAuth } from "@/hooks/use-auth";
 import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
@@ -105,10 +105,11 @@ export function AgentChatTurnNotifier(): null {
         return;
       }
       if (notice !== "toast") return;
-      toast(ONE_REPLY_NOTICE_TITLE, {
+      toast.noticeText(ONE_REPLY_NOTICE_TITLE, {
         id: `one-reply-${turn.conversationId}`,
         description: ONE_REPLY_NOTICE_DESCRIPTION,
         action: {
+          token: "open-conversation",
           label: "Open",
           onClick: () => openConversation(turn.ownerId, turn.conversationId),
         },

@@ -12,56 +12,27 @@ import {
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
-import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
-
-function runtimeState(
-  overrides: Partial<AppRuntimeState> = {},
-): AppRuntimeState {
-  return {
-    auth: {
-      signed_in: true,
-      user_id: "user_1",
-    },
-    vault: {
-      unlocked: true,
-      token_available: true,
-      token_valid: true,
-    },
-    route: {
-      pathname: ROUTES.HOME,
-      screen: "chat",
-      subview: null,
-    },
-    runtime: {
-      analysis_active: false,
-      analysis_ticker: null,
-      analysis_run_id: null,
-      import_active: false,
-      import_run_id: null,
-      busy_operations: [],
-    },
-    portfolio: {
-      has_portfolio_data: true,
-    },
-    persona: {
-      active: "investor",
-      primary_nav: "investor",
-      available: ["investor"],
-      transition_target: null,
-      ria_switch_available: false,
-      ria_setup_available: false,
-    },
-    voice: {
-      available: true,
-      tts_playing: false,
-      last_tool_name: null,
-      last_ticker: null,
-    },
-    ...overrides,
-  };
-}
+import { locationReviewActionForLegacyDirective, locationReviewForLegacyAction } from "@/lib/agent/main-chat-location-contract";
+import { listKaiActions } from "@/lib/kai/actions/kai-action-gateway";
+import { runtimeState } from "./agent-action-runtime-fixture";
 
 describe("executeAgentGatewayAction", () => {
+  it.each([[true, "profile_account", "started"], [false, "profile_account", "blocked"], [true, "chat", "blocked"]] as const)("uses the mounted name-review seam: mounted=%s screen=%s", async (mounted, screen, expected) => {
+    const actionId = "profile.update_display_name";
+    const handler = vi.fn(async () => ({ status: "started" as const, summary: "Review the proposed name and Save. Your name has not changed yet." }));
+    if (mounted) registerLocalOnboardingHandler(actionId, handler);
+    try {
+      const result = await executeAgentGatewayAction({
+        actionId, slots: { display_name: "Mira Iyer" }, allowedActionIds: screen === "profile_account" ? [actionId] : [], userId: "user_1", router: { push: vi.fn() },
+        appRuntimeState: runtimeState({ route: { pathname: "/one/profile", screen } }),
+        hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+      });
+      expect(result.status).toBe(expected);
+      if (expected === "started") expect(handler).toHaveBeenCalledExactlyOnceWith({ display_name: "Mira Iyer" }, undefined);
+      else expect(handler).not.toHaveBeenCalled();
+    } finally { if (mounted) unregisterLocalOnboardingHandler(actionId, handler); }
+  });
+
   it.each([
     ["ria.picks.open_category_avoid", "/ria/picks?source=my&category=top-picks&search=1&share=private", "avoid", "my"],
     ["ria.picks.open_source_kai", "/ria/picks?source=my&category=avoid&search=1&share=private", "avoid", "kai"],
@@ -134,6 +105,161 @@ describe("executeAgentGatewayAction", () => {
       actionId: "route.one_location",
       routeAfter: ROUTES.ONE_LOCATION,
     });
+  });
+
+  it.each([
+    ["location.open_share", "share_options", "share"],
+    ["location.open_ask", "ask", "ask"],
+    ["location.open_sos", "sos_review", "sos"],
+    ["location.open_ratings", "manage_ratings", "ratings"],
+    ["location.open_invite", "manage_contacts", "invite"],
+    ["location.review_notifications", "manage_settings", "settings"],
+  ])("shows legacy Main Chat %s as an inline review and preserves legacy surface navigation", async (actionId, action, routeQuery) => {
+    const router = { push: vi.fn() };
+    const openMainChatLocationReview = vi.fn(() => true);
+    const input = {
+      actionId, allowedActionIds: [], userId: "user_1", router,
+      slots: { confirmed: true, recipientUserId: "invented-id" },
+      appRuntimeState: runtimeState(), hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+    };
+    const result = await executeAgentGatewayAction({ ...input, openMainChatLocationReview });
+    expect(result).toMatchObject({ status: "started", resultSummary: "Review the Location action here in Chat." });
+    expect(result.routeAfter).toBeUndefined();
+    expect(openMainChatLocationReview).toHaveBeenCalledExactlyOnceWith({ action, id: expect.any(String) });
+    expect(router.push).not.toHaveBeenCalled();
+
+    const other = await executeAgentGatewayAction(input);
+    expect(other.status).toBe("started");
+    expect(new URL(router.push.mock.calls[0]![0], window.location.origin).searchParams.get("action")).toBe(routeQuery);
+  });
+
+  it.each([
+    ["location.select_share_recipient", "share_private"],
+    ["location.select_ask_recipient", "ask"],
+  ])("maps legacy %s selection hints without opening the Location route", async (actionId, action) => {
+    const router = { push: vi.fn() };
+    const openMainChatLocationReview = vi.fn(() => true);
+    const input = {
+      actionId, slots: { person: "Neelesh and Maya", circle: "Family", resolvedRecipientId: "a private id" },
+      userId: "user_1", router, openMainChatLocationReview, appRuntimeState: runtimeState(),
+      surfaceMetadata: { screenId: "chat", actions: [{ id: "route.profile", label: "Profile" }] },
+      hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+    };
+    const result = await executeAgentGatewayAction(input);
+    expect(result.status).toBe("started");
+    expect(openMainChatLocationReview).toHaveBeenCalledExactlyOnceWith({
+      id: expect.any(String), action, people: ["Neelesh", "Maya"], circles: ["Family"],
+    });
+    expect(router.push).not.toHaveBeenCalled();
+
+    openMainChatLocationReview.mockClear();
+    const denied = await executeAgentGatewayAction({ ...input, allowedActionIds: [] });
+    expect(denied).toMatchObject({ status: "blocked", reason: "action_not_in_active_inventory" });
+    expect(openMainChatLocationReview).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it("prepares a new review for a legacy request and leaves claimed operations with their existing handler", async () => {
+    const actionId = "location.send_request";
+    const router = { push: vi.fn() };
+    const openMainChatLocationReview = vi.fn(() => true);
+    const handler = vi.fn(async () => ({ status: "succeeded" as const, summary: "Request sent." }));
+    registerLocalOnboardingHandler(actionId, handler);
+    try {
+      const input = {
+        actionId, allowedActionIds: [actionId], slots: { person: "Neelesh", duration_hours: "0.5", confirmed: true },
+        userId: "user_1", router, openMainChatLocationReview, appRuntimeState: runtimeState(),
+        hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+      };
+      const review = await executeAgentGatewayAction(input);
+      expect(review.status).toBe("started");
+      expect(openMainChatLocationReview).toHaveBeenCalledExactlyOnceWith({
+        id: expect.any(String), action: "ask", people: ["Neelesh"], durationHours: 0.5,
+      });
+      expect(handler).not.toHaveBeenCalled();
+      expect(router.push).not.toHaveBeenCalled();
+
+      openMainChatLocationReview.mockClear();
+      const claimed = await executeAgentGatewayAction({ ...input, executionContext: { operationId: "claimed-operation" } });
+      expect(claimed.status).toBe("succeeded");
+      expect(handler).toHaveBeenCalledExactlyOnceWith(input.slots, { operationId: "claimed-operation" });
+      expect(openMainChatLocationReview).not.toHaveBeenCalled();
+    } finally {
+      unregisterLocalOnboardingHandler(actionId, handler);
+    }
+  });
+
+  it("keeps a mapped Location review blocked by an active overlay or mismatched owner", async () => {
+    const actionId = "location.open_sos";
+    const router = { push: vi.fn() };
+    const openMainChatLocationReview = vi.fn(() => true);
+    const input = {
+      actionId, allowedActionIds: [actionId], userId: "user_1", router, openMainChatLocationReview,
+      appRuntimeState: runtimeState(), hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+    };
+    const modal = await executeAgentGatewayAction({
+      ...input,
+      surfaceMetadata: { interactionLayer: {
+        schemaVersion: "voice_interaction_layer.v1", id: "active-review", kind: "vault",
+        modality: "blocking", lifecycle: "open", blocksUnderlyingActions: true,
+        visibleActionIds: [], visibleControlIds: [], options: [], dismissible: false, agentContinuity: "suppressed",
+      } },
+    });
+    expect(modal).toMatchObject({ status: "blocked", reason: "action_not_in_active_inventory" });
+    const wrongOwner = await executeAgentGatewayAction({ ...input, userId: "other-owner" });
+    expect(wrongOwner).toMatchObject({ status: "blocked", reason: "main_chat_review_unavailable" });
+    expect(openMainChatLocationReview).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it("recognizes legacy save-my-soul and permission as review-only Location specialist actions", () => {
+    const location = (type: string, delegateAgentId = "agent_location") => ({
+      delegateAgentId, directive: { kind: "action", payload: { type } },
+    });
+    expect(locationReviewActionForLegacyDirective(location("sos_panic"))).toBe("sos_review");
+    expect(locationReviewActionForLegacyDirective(location("request_device_location_permission"))).toBe("enable_device_location");
+    expect(locationReviewActionForLegacyDirective(location("sos_panic", "agent_calendar"))).toBeNull();
+    expect(locationReviewActionForLegacyDirective(location("publish_share"))).toBeNull();
+  });
+
+  it("keeps every wired legacy Location workspace local command on its inline review before a claim", async () => {
+    const commands = listKaiActions().filter((action) =>
+      action.surface_id === "one_location" && action.command?.domain === "location" &&
+      action.execution_target.status === "wired" && action.execution_target.path === "local_handler",
+    );
+    expect(commands.map((action) => action.action_id)).toContain("location.trigger_sos");
+    const router = { push: vi.fn() };
+    const openMainChatLocationReview = vi.fn(() => true);
+    const input = {
+      userId: "user_1", router, openMainChatLocationReview, appRuntimeState: runtimeState(),
+      hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+    };
+    for (const command of commands) {
+      const actionId = command.action_id;
+      const result = await executeAgentGatewayAction({ ...input, actionId, allowedActionIds: [actionId] });
+      expect(result, actionId).toMatchObject({ status: "started", resultSummary: "Review the Location action here in Chat." });
+      expect(result.routeAfter).toBeUndefined();
+    }
+    expect(openMainChatLocationReview).toHaveBeenCalledTimes(commands.length);
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it("preserves Circle hints and never imports old SOS audiences or delivery claims", () => {
+    expect(locationReviewForLegacyAction("location.create_circle", "local_handler", { name: "Family" })?.draft)
+      .toEqual({ action: "manage_circles", circles: ["Family"] });
+    expect(locationReviewForLegacyAction("location.add_to_circle", "local_handler", { person: "Maya", circle: "Family" })?.draft)
+      .toEqual({ action: "manage_circles", people: ["Maya"], circles: ["Family"] });
+    expect(locationReviewForLegacyAction("location.trigger_sos", "local_handler", {
+      person: "Maya", confirmed: true, note: "Example alert",
+    })?.draft).toEqual({ action: "sos_review" });
+    expect(locationReviewForLegacyAction("location.add_emergency_contact", "local_handler", { person: "Maya" })?.draft)
+      .toEqual({ action: "sms_contacts" });
+    expect(locationReviewForLegacyAction("location.setup.start", "route")?.draft).toEqual({ action: "setup_location" });
+    expect(locationReviewForLegacyAction("location.open_now", "route")).toBeNull();
+    expect(locationReviewForLegacyAction("location.set_auto_share", "local_handler", { enabled: "on", circle: "Family" })?.draft)
+      .toEqual({ action: "enable_auto_approve", circles: ["Family"] });
+    expect(locationReviewForLegacyAction("location.set_auto_share", "local_handler", { enabled: "off" })?.draft)
+      .toEqual({ action: "disable_auto_approve" });
   });
 
   it("refuses a route template it cannot fill instead of pushing it literally", async () => {

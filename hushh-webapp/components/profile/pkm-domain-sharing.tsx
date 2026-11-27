@@ -16,17 +16,26 @@ import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 export type PkmSharingChange = { domain: string; manifest: DomainManifest; scopeHandles: string[]; enabled: boolean };
 
 /** Domain and chat use the same listing controls and exact catalogued tariffs. */
-export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange, proposal, heading = "Sharing and price", onPaymentsNavigate }: {
+export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange, proposal, heading = "Sharing and price", onPaymentsNavigate, sectionCounts, onOpenSection }: {
   userId: string; title: string; manifest: DomainManifest; pendingKey: string | null;
   onChange: (change: PkmSharingChange) => Promise<void>; proposal?: SharingPriceReviewRequest;
   heading?: string;
   onPaymentsNavigate?: () => boolean;
+  sectionCounts?: ReadonlyMap<string, number>;
+  onOpenSection?: (segment: string) => void;
 }) {
   const { userId: ownerId } = useAuth();
   const { capture } = useCommerceSession(`domain-sharing:${userId}:${manifest.domain}:${manifest.manifest_version}`);
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [catalog, setCatalog] = useState<ReadonlyArray<Record<string, unknown>>>([]);
-  const [checking, setChecking] = useState(true);
+  const valid = Boolean(ownerId === userId && isVaultUnlocked && vaultOwnerToken &&
+    (!manifest.user_id || manifest.user_id === userId) && Number.isSafeInteger(manifest.manifest_version) && manifest.manifest_version > 0);
+  const warmScopes = valid && typeof PersonalKnowledgeModelService.peekAvailableScopes === "function"
+    ? PersonalKnowledgeModelService.peekAvailableScopes(userId)
+    : null;
+  const [catalog, setCatalog] = useState<ReadonlyArray<Record<string, unknown>>>(() =>
+    warmScopes && warmScopes.userId === userId ? (warmScopes.scopeEntries ?? []) : [],
+  );
+  const [checking, setChecking] = useState(() => !(warmScopes && warmScopes.userId === userId));
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const bundles = buildPkmShareBundles(manifest);
@@ -35,20 +44,29 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
     target.machineScope === `attr.${manifest.domain}.${bundle.topLevelScopePath}.*`));
   const handles = sections.map(section => section.scopeHandle!);
   const whole = targets.find(target => target.machineScope === `attr.${manifest.domain}.*`);
+  const showWholeBundlePrice = Boolean(whole && !failed && (sections.length > 1 || Boolean(proposal)));
   const available = sections.length > 0 && sections.every(section => section.enabled);
-  const valid = Boolean(ownerId === userId && isVaultUnlocked && vaultOwnerToken &&
-    (!manifest.user_id || manifest.user_id === userId) && Number.isSafeInteger(manifest.manifest_version) && manifest.manifest_version > 0);
 
   useEffect(() => {
     let active = true;
     const current = capture();
-    setCatalog([]); setChecking(true); setFailed(false);
+    const cached = valid && typeof PersonalKnowledgeModelService.peekAvailableScopes === "function"
+      ? PersonalKnowledgeModelService.peekAvailableScopes(userId)
+      : null;
+    if (cached && cached.userId === userId) {
+      setCatalog(cached.scopeEntries ?? []);
+      setChecking(false);
+    } else {
+      setCatalog([]);
+      setChecking(true);
+    }
+    setFailed(false);
     if (!valid || !vaultOwnerToken) { setChecking(false); return; }
     void PersonalKnowledgeModelService.getAvailableScopes(userId, vaultOwnerToken).then(result => {
       if (!active || !current()) return;
       if (result.userId !== userId) throw new Error("Owner changed.");
       setCatalog(result.scopeEntries ?? []);
-    }).catch(() => { if (active && current()) setFailed(true); })
+    }).catch(() => { if (active && current() && !cached) setFailed(true); })
       .finally(() => { if (active && current()) setChecking(false); });
     return () => { active = false; };
   }, [userId, vaultOwnerToken, valid, manifest.domain, manifest.manifest_version, capture, retry]);
@@ -61,20 +79,37 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
       {sections.length > 1 ? <SettingsRow title={`${title} bundle`} description={available ? "All sections available to request" : "Some sections are private"}
         trailingInteractive stackTrailingOnMobile trailing={<Switch checked={available} disabled={Boolean(pendingKey)}
           aria-label={`Make ${title} bundle available to request`} onCheckedChange={enabled => void onChange({ domain: manifest.domain, manifest, scopeHandles: handles, enabled })} />} /> : null}
-      {checking ? <SettingsRow title="Checking bundle price…" /> : whole && !failed ? <SettingsRow title="Whole bundle price" description="Applies only when someone requests the whole bundle. Section prices stay separate."
+      {checking ? <SettingsRow title="Checking bundle price…" /> : showWholeBundlePrice && whole ? <SettingsRow title="Whole bundle price" description="Applies only when someone requests the whole bundle. Section prices stay separate."
         trailingInteractive stackTrailingOnMobile trailing={<ScopeTariffEditor key={`${userId}:${manifest.manifest_version}:${whole.scopeHandle}`} scopeHandle={whole.scopeHandle}
           machineScope={whole.machineScope} label={`${title} bundle`} showSavedPrice reviewRequest={proposal} onPaymentsNavigate={onPaymentsNavigate} />} /> : null}
       {sections.map(section => {
         const target = targets.find(item => item.scopeHandle === section.scopeHandle && item.machineScope === `attr.${manifest.domain}.${section.topLevelScopePath}.*`)!;
-        return <SettingsRow key={target.machineScope} title={section.label} description={section.enabled ? "Available to request · Ask first" : "Private · Allow requests before changing its price"}
-          trailingInteractive stackTrailingOnMobile trailing={<div className="flex flex-wrap items-center justify-end gap-2">
+        const count = sectionCounts?.get(section.topLevelScopePath) ?? 0;
+        const canDrill = Boolean(onOpenSection && count > 0);
+        const description = count > 0
+          ? `${count} ${count === 1 ? "item" : "items"} · ${section.enabled ? "Ask first" : "Private"}`
+          : section.enabled
+            ? "Available to request · Ask first"
+            : "Private · Allow requests before changing its price";
+        return <SettingsRow
+          key={target.machineScope}
+          title={section.label}
+          description={description}
+          testId={canDrill ? `memory-group-${section.topLevelScopePath}` : undefined}
+          ariaLabel={canDrill ? `Open ${section.label}` : undefined}
+          onClick={canDrill ? () => onOpenSection?.(section.topLevelScopePath) : undefined}
+          chevron={canDrill}
+          trailingInteractive
+          stackTrailingOnMobile
+          trailing={<div className="flex flex-wrap items-center justify-end gap-2">
             <ScopeTariffEditor key={`${userId}:${target.scopeHandle}:${target.machineScope}`} scopeHandle={target.scopeHandle} machineScope={target.machineScope} label={`${title} · ${section.label}`} showSavedPrice onPaymentsNavigate={onPaymentsNavigate} />
             <Switch checked={section.enabled} disabled={Boolean(pendingKey)} aria-label={`${section.enabled ? "Make private" : "Ask before sharing"} ${section.label}`}
               onCheckedChange={enabled => void onChange({ domain: manifest.domain, manifest, scopeHandles: [target.scopeHandle], enabled })} />
-          </div>} />;
+          </div>}
+        />;
       })}
     </SettingsGroup>
-    {failed ? <div role="status" className="text-sm text-muted-foreground">Whole-bundle availability could not be checked. <Button data-pkm-utility="true" variant="link" onClick={() => setRetry(value => value + 1)}>Retry bundle availability</Button></div> : !checking && !whole ?
-      <p data-pkm-helper="true" className="text-xs text-muted-foreground">Set section prices above. A whole-bundle price appears when that bundle is available to request.</p> : null}
+    {failed ? <div role="status" className="text-sm text-muted-foreground">Whole-bundle availability could not be checked. <Button data-pkm-utility="true" variant="link" onClick={() => setRetry(value => value + 1)}>Retry bundle availability</Button></div> : !checking && !showWholeBundlePrice ?
+      <p data-pkm-helper="true" className="text-xs text-muted-foreground">Set per-section pricing above. Controls apply only after you approve a request.</p> : null}
   </section>;
 }

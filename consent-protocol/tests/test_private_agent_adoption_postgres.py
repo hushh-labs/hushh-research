@@ -33,6 +33,7 @@ from tests.helpers.private_agent_adoption import (
     LEGACY_PREDECESSOR_SCHEMA,
     LEGACY_TRIGGERS,
     RECEIPT_PREDECESSORS,
+    assert_notification_successor_survives_420_replay,
     assert_pending_ledger_receipt,
     authorization_state,
     canonical_database,
@@ -51,6 +52,121 @@ MIGRATIONS = ROOT / "db/migrations"
 FOUNDATION = "420_private_agent_lifecycle_foundation.sql"
 IMMUTABLE_SHA256 = "78981e14e2dc4ef0d40a6275f785a5015367ea08d00ab7b4ef352538cb612f2d"
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_isolated_firebase_erasure_survives_complete_foundation_adoption(replay_pg, monkeypatch):
+    from db.firebase_erasure_adoption import qualification_sql
+
+    connection, _database = canonical_database(replay_pg, monkeypatch)
+    with closing(connection), connection.cursor() as cursor:
+        # The canonical fixture includes the current437 history successor.
+        [firebase] = build_manifest_entries(
+            MIGRATIONS / "parked", ["987_account_firebase_erasure.sql"]
+        )
+        [foundation] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+        cursor.execute(execution_sql(foundation))
+        cursor.execute((MIGRATIONS / "423_account_shared_provider_authority.sql").read_text())
+        cursor.execute((MIGRATIONS / "437_account_legacy_generation_settlement.sql").read_text())
+        for signature in (
+            "guard_account_firebase_erasure()",
+            "account_firebase_erasure_contract_version(integer)",
+        ):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(
+                    f"CREATE FUNCTION public.{signature} RETURNS integer LANGUAGE sql AS 'SELECT 1'"
+                )
+                with pytest.raises(psycopg2.errors.RaiseException):
+                    cursor.execute(execution_sql(firebase))
+            finally:
+                cursor.execute("ROLLBACK")
+        cursor.execute(execution_sql(firebase))
+        cursor.execute(execution_sql(foundation))
+        cursor.execute(execution_sql(foundation))
+        cursor.execute(qualification_sql(required=True))
+        for mutation in (
+            "ALTER FUNCTION public.account_firebase_erasure_contract_version() STABLE",
+            "GRANT EXECUTE ON FUNCTION public.account_firebase_erasure_contract_version() TO PUBLIC",
+            "ALTER TABLE public.account_deletion_tombstones DISABLE TRIGGER account_firebase_erasure",
+            "CREATE FUNCTION public.account_firebase_erasure_contract_version(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+        ):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(mutation)
+                with pytest.raises(psycopg2.errors.RaiseException):
+                    cursor.execute(execution_sql(foundation))
+            finally:
+                cursor.execute("ROLLBACK")
+        cursor.execute(qualification_sql(required=True))
+
+
+def test_cloud_retirement_survives_full_replay_and_refuses_contract_drift(replay_pg, monkeypatch):
+    from db.private_agent_adoption_successors import PINS, qualification_sql
+
+    connection, _database = canonical_database(replay_pg, monkeypatch)
+    with closing(connection), connection.cursor() as cursor:
+        core = build_manifest_entries(
+            MIGRATIONS,
+            [
+                FOUNDATION,
+                "421_cloud_removal_recovery.sql",
+                "423_account_shared_provider_authority.sql",
+                "437_account_legacy_generation_settlement.sql",
+            ],
+        )
+        cloud = build_manifest_entries(
+            MIGRATIONS / "parked",
+            [
+                "985_legacy_cloud_removal_recovery.sql",
+                "986_legacy_cloud_removal_resume.sql",
+                "987_account_firebase_erasure.sql",
+                "988_account_cloud_retirement.sql",
+            ],
+        )
+        for entry in [*core, *cloud]:
+            cursor.execute(execution_sql(entry))
+        before = {}
+        for signature in PINS:
+            cursor.execute("SELECT pg_get_functiondef(%s::regprocedure)", (signature,))
+            before[signature] = cursor.fetchone()[0]
+        [generations] = build_manifest_entries(MIGRATIONS, ["419_account_generations.sql"])
+        for entry in [generations, *core, *cloud]:
+            try:
+                cursor.execute(execution_sql(entry))
+            except psycopg2.Error as exc:
+                raise AssertionError(
+                    f"Replay {entry.filename}: {exc.diag.message_primary}"
+                ) from exc
+        cursor.execute(qualification_sql(required=True))
+        for signature, body in before.items():
+            cursor.execute("SELECT pg_get_functiondef(%s::regprocedure)", (signature,))
+            assert cursor.fetchone()[0] == body
+        for mutation in (
+            "ALTER FUNCTION account_cloud_retirement_ready(text,text) VOLATILE",
+            "GRANT EXECUTE ON FUNCTION account_cloud_retirement_contract_version() TO PUBLIC",
+        ):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(mutation)
+                try:
+                    cursor.execute(execution_sql(core[0]))
+                except psycopg2.errors.RaiseException as refused:
+                    assert "Cloud retirement" in refused.diag.message_primary
+                else:
+                    pytest.fail(f"Cloud retirement did not refuse: {mutation}")
+            finally:
+                cursor.execute("ROLLBACK")
+        # The complete419 DDL policy immediately reinstalls a disabled guard.
+        # Verify that protection instead of claiming the tamper persisted.
+        cursor.execute(
+            "ALTER TABLE personal_agent_cloud_removals DISABLE TRIGGER account_retired_generation_update"
+        )
+        cursor.execute(
+            "SELECT tgenabled FROM pg_trigger WHERE tgrelid='personal_agent_cloud_removals'::regclass AND tgname='account_retired_generation_update'"
+        )
+        assert cursor.fetchone()[0] == "O"
+        cursor.execute(qualification_sql(required=True))
 
 
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
@@ -137,6 +253,8 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         assert guard_catalog(connection) == before
         reject_guard_drift(connection, entry)
         assert_pending_ledger_receipt(replay_pg, database, connection, entry)
+        # Preserve the corrected validator, its ACL and its refusal boundary.
+        assert_notification_successor_survives_420_replay(connection, replay_pg, database, entry)
         # The next release must preserve423's installed admission guard while
         # replaying immutable420, rather than rejecting or removing it.
         successor = (MIGRATIONS / "423_account_shared_provider_authority.sql").read_text()
@@ -484,3 +602,95 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
             ({**row, "ledger": "consent"}, ctid) for row, ctid in receipts
         ]
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
+
+
+def test_managed_same_host_recovery_is_status_only_and_fenced_by_real_database(
+    replay_pg, monkeypatch
+):
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
+    from sqlalchemy import text
+
+    from hushh_mcp.services.hosted_pod_adoption import restore_retained_host
+    from tests.test_personal_agent_adopt import _managed_recovery_row
+
+    connection, database = canonical_database(replay_pg, monkeypatch)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    engine = create_engine(
+        "postgresql+psycopg2://",
+        creator=lambda: psycopg2.connect(
+            host=replay_pg.dir, port=replay_pg.port, user="hushh", dbname=database
+        ),
+    )
+    try:
+        with connection.cursor() as cursor:
+            [foundation] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+            cursor.execute(execution_sql(foundation))
+            row = _managed_recovery_row()
+            # Seed a historical wrong-status snapshot; re-enable all native guards
+            # before exercising the new application transaction and competing sessions.
+            cursor.execute("ALTER TABLE personal_agent_registry DISABLE TRIGGER USER")
+            from psycopg2 import sql
+
+            columns = sql.SQL(",").join(sql.Identifier(key) for key in row)
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO personal_agent_registry ({columns}) SELECT {columns} "
+                    "FROM jsonb_populate_record(NULL::personal_agent_registry,%s::jsonb)"
+                ).format(columns=columns),
+                (json.dumps(row),),
+            )
+            cursor.execute("ALTER TABLE personal_agent_registry ENABLE TRIGGER USER")
+
+        def snapshot():
+            with engine.connect() as conn:
+                return conn.execute(
+                    text("SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=:owner"),
+                    {"owner": row["user_id"]},
+                ).scalar_one()
+
+        db = SimpleNamespace(engine=engine)
+        before = snapshot()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(
+                pool.map(
+                    lambda _: restore_retained_host(db, owner=row["user_id"], observed=before),
+                    range(2),
+                )
+            )
+        assert sorted(results) == [False, True]
+        after = snapshot()
+        assert after["status"] == "provisioned"
+        assert {k: v for k, v in after.items() if k not in {"status", "updated_at"}} == {
+            k: v for k, v in before.items() if k not in {"status", "updated_at"}
+        }
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET status='needs_reinit' WHERE user_id=:owner"
+                ),
+                {"owner": row["user_id"]},
+            )
+        original = snapshot()
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE personal_agent_registry SET placement_epoch=placement_epoch+1 WHERE user_id=:owner"
+                ),
+                {"owner": row["user_id"]},
+            )
+        assert restore_retained_host(db, owner=row["user_id"], observed=original) is False
+        current = snapshot()
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO personal_agent_deletion_tombstones(hushh_id) VALUES(:hushh)"),
+                {"hushh": row["hushh_id"]},
+            )
+        assert restore_retained_host(db, owner=row["user_id"], observed=current) is False
+        assert snapshot() == current
+    finally:
+        engine.dispose()
+        connection.close()

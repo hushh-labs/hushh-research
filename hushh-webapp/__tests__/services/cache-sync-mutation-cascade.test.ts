@@ -34,12 +34,13 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
-import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
+import { CONNECTION_GRAPH_CHANGED_EVENT, subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { ONE_LOCATION_STATE_CHANGED_EVENT } from "@/lib/one-location/one-location-state-events";
 import { CONSENT_READ_AFTER_WRITE_WINDOW_MS } from "@/lib/cache/consent-read-after-write";
 import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { ApiService } from "@/lib/services/api-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { PersonProfileService } from "@/lib/services/person-profile-service";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -180,6 +181,54 @@ describe("CacheSyncService mutation cascades", () => {
     const invalidatedKeys = spyInvalidate.mock.calls.map((call) => call[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
     expect(readLocationWorkspaceMemory(userId).myLocationPoint).toBeNull();
+  });
+
+  it("evicts stale Connection and Directory pages and public profiles on a graph change", () => {
+    const keys = [
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "ria"),
+      CACHE_KEYS.CONNECT_DIRECTORY_FIRST_PAGE(userId, "all"),
+      CACHE_KEYS.CONNECT_DIRECTORY_FIRST_PAGE(userId, "ria"),
+      "person_public_retired-ref",
+    ];
+    for (const key of keys) cache.set(key, { items: ["retired"] });
+    const otherOwnerKey = CACHE_KEYS.CONNECTIONS_FIRST_PAGE("other-owner", "all");
+    cache.set(otherOwnerKey, { items: ["other-person"] });
+
+    CacheSyncService.onConnectionGraphMutated(userId, { broadcast: false });
+
+    for (const key of keys) expect(cache.peek(key)).toBeNull();
+    expect(cache.peek(otherOwnerKey)?.data).toEqual({ items: ["other-person"] });
+  });
+
+  it("does not deduplicate a confirmed mutation behind a same-tick reconciliation hint", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+    const listener = vi.fn();
+    const stop = subscribeToConnectionGraphChanges(listener);
+    try {
+      CacheSyncService.onConnectionGraphMutated(userId, { broadcast: false, reason: "reconcile" });
+      CacheSyncService.onConnectionGraphMutated(userId, { broadcast: false });
+      clock.mockReturnValue(101);
+      window.dispatchEvent(new CustomEvent(CONNECTION_GRAPH_CHANGED_EVENT, {
+        detail: { userId, changedAt: 101, reason: "unknown" },
+      }));
+      expect(listener.mock.calls.map(([detail]) => detail.reason)).toEqual(["reconcile", undefined, undefined]);
+    } finally {
+      stop();
+      clock.mockRestore();
+    }
+  });
+
+  it("does not recache a profile from before the connection graph changed", async () => {
+    let complete!: (response: Response) => void;
+    vi.mocked(ApiService.apiFetch).mockImplementationOnce(
+      () => new Promise(resolve => { complete = resolve; }),
+    );
+    const pending = PersonProfileService.getPublic("retired-ref");
+    CacheSyncService.onConnectionGraphMutated(userId, { broadcast: false });
+    complete(Response.json({ personRef: "retired-ref", displayName: "Old Person" }));
+    await pending;
+    expect(PersonProfileService.peekPublic("retired-ref")).toBeNull();
   });
 
   it("onConnectionGraphMutated announces the owner whose live consumers are stale", () => {

@@ -104,4 +104,22 @@ describe("CacheService", () => {
 
     expect(cache.peek(key)).toBeNull();
   });
+
+  it("clears one user's Mail Overview with the rest of their session, and leaves Memory and other people alone as before", () => {
+    const cache = CacheService.getInstance();
+    const mine = "mail-cache-owner";
+    const other = "mail-cache-other";
+    cache.set(`mail_overview_${mine}_account-1_recent`, { messages: [] }, CACHE_TTL.SHORT);
+    cache.set(`mail_overview_${other}_account-1_recent`, { messages: [] }, CACHE_TTL.SHORT);
+    // Memory's own cached domains for the same user were cleared by this call before Mail existed here, and still are.
+    cache.set(`pkm_domain_resource_${mine}_identity`, { facts: 1 }, CACHE_TTL.SHORT);
+    cache.set(`pkm_domain_resource_${other}_identity`, { facts: 1 }, CACHE_TTL.SHORT);
+
+    cache.invalidateUser(mine);
+
+    expect(cache.peek(`mail_overview_${mine}_account-1_recent`)).toBeNull();
+    expect(cache.peek(`pkm_domain_resource_${mine}_identity`)).toBeNull();
+    expect(cache.peek(`mail_overview_${other}_account-1_recent`)).not.toBeNull();
+    expect(cache.peek(`pkm_domain_resource_${other}_identity`)).not.toBeNull();
+  });
 });

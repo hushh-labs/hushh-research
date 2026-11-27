@@ -24,9 +24,9 @@ function erasing(cleanup: AccountCleanupOperation | null): AccountDeletionStep {
     return { ...step, label: "Cleanup needs attention", message: "Provider access needs review before we can finish.", status: "blocked" };
   }
   // "delayed" is the backend's stall signal, never a client guess from elapsed time.
-  if (cleanup?.delayed) return { ...step, message: "Taking longer than usual. It finishes without you.", status: "running" };
+  if (cleanup?.delayed) return { ...step, message: "Taking longer than usual. Check back for updates.", status: "running" };
   if (cleanup?.state === "waiting_for_provider") {
-    return { ...step, message: "A connected service is confirming its access was removed.", status: "running" };
+    return { ...step, message: "Cleanup with a connected service is pending.", status: "running" };
   }
   return { ...step, message: "Removing your information from One.", status: "running" };
 }

@@ -19,8 +19,9 @@ function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useC
   type Hint = { user: typeof user; current: () => boolean; query?: string };
   const [returnedRefresh, setReturnedRefresh] = useState<Hint | null>(null);
   const [queryRefresh, setQueryRefresh] = useState<Hint | null>(null);
-  const query = searchParams.toString();
-  const refreshQuery = !parseCommerceReturn(`${pathname}?${query}`)?.source && commerceReturnAction(`${pathname}?${query}`) === "onboarding_refresh" ? query : "";
+  const query = searchParams?.toString() ?? "";
+  const currentPath = pathname ?? "";
+  const refreshQuery = !parseCommerceReturn(`${currentPath}?${query}`)?.source && commerceReturnAction(`${currentPath}?${query}`) === "onboarding_refresh" ? query : "";
   useEffect(() => {
     setQueryRefresh(previous => !refreshQuery ? null : previous?.query === refreshQuery ? previous :
       user ? { user, current: capture(), query: refreshQuery } : null);
@@ -42,16 +43,54 @@ function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useC
   return Boolean([queryRefresh, returnedRefresh].some(hint => hint && hint.user === user && hint.current()));
 }
 
-export function useScopeCommerceAccount({ active = true }: { active?: boolean } = {}) {
+function resolveSuggestedFundingAmount(
+  suggestedCents: number | null | undefined,
+  sandboxRemainingCents: number | null | undefined,
+): string {
+  const baseline =
+    typeof suggestedCents === "number" && Number.isFinite(suggestedCents) && suggestedCents > 0
+      ? Math.max(50, Math.round(suggestedCents))
+      : 200;
+  const clamped =
+    typeof sandboxRemainingCents === "number" &&
+    Number.isFinite(sandboxRemainingCents) &&
+    sandboxRemainingCents >= 50
+      ? Math.min(baseline, sandboxRemainingCents)
+      : baseline;
+  return (clamped / 100).toFixed(2);
+}
+
+export function useScopeCommerceAccount({
+  active = true,
+  suggestedCents,
+}: { active?: boolean; suggestedCents?: number | null } = {}) {
+  const reconcileNextRef = useRef(false);
+  const [postCheckoutPollUntil, setPostCheckoutPollUntil] = useState(0);
+  const preCheckoutBalanceRef = useRef<number | null>(null);
   const load = useCallback(async (token: string) => {
-    const account = await ScopeCommerceService.account(token);
-    const [readiness, sandboxVerified] = await Promise.all([
+    const shouldReconcile = reconcileNextRef.current;
+    reconcileNextRef.current = false;
+    const account = shouldReconcile
+      ? await ScopeCommerceService.account(token, { reconcile: true })
+      : await ScopeCommerceService.account(token);
+    const sandboxPromise = ScopeCommerceService.sandboxStatus
+      ? ScopeCommerceService.sandboxStatus(token).catch(() => undefined)
+      : ScopeCommerceService.sandboxVerified(token)
+          .then((verified) => ({ verified, remainingFundingCents: null }))
+          .catch(() => undefined);
+    const [readiness, sandbox] = await Promise.all([
       account.readiness || ScopeCommerceService.readiness(token).catch(() => undefined),
-      ScopeCommerceService.sandboxVerified(token).catch(() => undefined),
+      sandboxPromise,
     ]);
-    return { ...account, readiness, sandboxVerified };
+    return {
+      ...account,
+      readiness,
+      sandboxVerified: sandbox?.verified,
+      sandboxRemainingCents: sandbox?.remainingFundingCents ?? null,
+    };
   }, []);
   const resource = useCommerceRead("account", load, (value: CommerceAccount) => Boolean(
+    postCheckoutPollUntil > Date.now() ||
     value.balance?.reserved_cents || value.balance?.frozen_cents || value.earnings?.pending_cents || value.earnings?.withdrawing_cents ||
     value.recent_withdrawals?.some(item => ["queued", "pending", "processing", "transferred", "unknown"].includes(item.status)),
   ), active);
@@ -61,28 +100,70 @@ export function useScopeCommerceAccount({ active = true }: { active?: boolean } 
   const actions = useCommerceAction(resource, "account");
   const { busy, message, setMessage, run } = actions;
   const managePayoutAccount = useCommerceManagement(resource, actions, ScopeCommerceService.managePayoutAccount);
-  const [amount, setAmount] = useState("10.00");
+  const [amount, setAmount] = useState(() =>
+    resolveSuggestedFundingAmount(suggestedCents, account?.sandboxRemainingCents),
+  );
   const [country, setCountry] = useState("US");
   const [review, setReview] = useState<TransferReview | null>(null);
   const fundingKey = useRef<string | null>(null);
   const fundingValue = useRef(amount);
+  const userEditedAmount = useRef(false);
   const onboardingRefresh = useOnboardingRefresh(resource);
-  useEffect(() => { setReview(null); fundingKey.current = null; }, [user]);
+  useEffect(() => {
+    setReview(null);
+    fundingKey.current = null;
+    userEditedAmount.current = false;
+  }, [user]);
+  useEffect(() => {
+    if (userEditedAmount.current) return;
+    const next = resolveSuggestedFundingAmount(suggestedCents, account?.sandboxRemainingCents);
+    if (fundingValue.current === next) return;
+    fundingValue.current = next;
+    setAmount(next);
+    fundingKey.current = null;
+  }, [suggestedCents, account?.sandboxRemainingCents]);
   const changeAmount = (value: string) => {
+    userEditedAmount.current = true;
     if (fundingValue.current === value) return;
     fundingValue.current = value; setAmount(value); fundingKey.current = null;
   };
   const hosted = useCommerceHostedFlow(resource, actions, async (token, purpose) => {
     if (purpose === "checkout") {
+      preCheckoutBalanceRef.current = account?.balance?.available_cents ?? 0;
       const cents = parseCommerceDollarInput(amount, 50);
       fundingKey.current ??= crypto.randomUUID();
       return ScopeCommerceService.checkout(token, cents, fundingKey.current);
     }
     return ScopeCommerceService.onboarding(token, account?.seller.country || country, crypto.randomUUID());
   }, async purpose => {
-    if (purpose === "checkout") fundingKey.current = null;
+    if (purpose === "checkout") {
+      fundingKey.current = null;
+      reconcileNextRef.current = true;
+      setPostCheckoutPollUntil(Date.now() + 25_000);
+    }
     await refresh();
   });
+  useEffect(() => {
+    if (postCheckoutPollUntil <= Date.now()) return;
+    if (
+      preCheckoutBalanceRef.current !== null &&
+      typeof account?.balance?.available_cents === "number" &&
+      account.balance.available_cents > preCheckoutBalanceRef.current
+    ) {
+      preCheckoutBalanceRef.current = null;
+      setPostCheckoutPollUntil(0);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (Date.now() >= postCheckoutPollUntil) {
+        setPostCheckoutPollUntil(0);
+        return;
+      }
+      reconcileNextRef.current = true;
+      void refresh();
+    }, 2_500);
+    return () => window.clearTimeout(timer);
+  }, [account?.balance?.available_cents, postCheckoutPollUntil, refresh]);
   const checkout = () => hosted.startHosted("checkout");
   const onboarding = () => hosted.startHosted("onboarding");
   const withdrawal = () => run(async (token, current) => {

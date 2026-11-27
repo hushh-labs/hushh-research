@@ -2,9 +2,9 @@
 
 import { RadioGroup as RadioPrimitive } from "radix-ui";
 import {
+  CaretDownIcon,
   CheckCircleIcon as CheckCircle2,
   SpinnerGapIcon as Loader2,
-  TrashIcon as Trash2,
 } from "@/components/icons";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -18,10 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
-import type {
-  GeminiRuntimeTransport,
-  RuntimeCredentialMode,
-} from "@/lib/services/personal-knowledge-model-service";
+import type { GeminiRuntimeTransport } from "@/lib/services/personal-knowledge-model-service";
 
 export type CredentialValidationState =
   | { status: "idle" }
@@ -31,24 +28,28 @@ export type CredentialValidationState =
 
 /** Key-entry presentation; validation and owner authority remain in Settings. */
 export function GeminiKeyChoice({
+  expanded,
+  disabled = false,
   isSaving,
   isRemoving,
   privateCloud,
   placement,
-  requiresExplicitSelection,
+  requiresExplicitSelection = false,
+  useRadioItem,
   selectedOption,
-  mode,
-  hasExplicitSelection,
-  otherProvider,
+  hasActiveGemini,
   hasSavedKey,
   needsVaultCreation,
   needsUnlock,
+  draftLabel,
   transport,
   vertexProject,
   vertexLocation,
   draftKey,
   credentialValidation,
-  selectByok,
+  onToggleExpand,
+  onCancel,
+  setDraftLabel,
   setTransport,
   setVertexProject,
   setVertexLocation,
@@ -56,26 +57,29 @@ export function GeminiKeyChoice({
   invalidateCredentialValidation,
   saveByok,
   validateByok,
-  removeByok,
 }: {
+  expanded: boolean;
+  disabled?: boolean;
   isSaving: boolean;
   isRemoving: boolean;
   privateCloud: boolean;
   placement: string;
-  requiresExplicitSelection: boolean;
+  requiresExplicitSelection?: boolean;
+  useRadioItem: boolean;
   selectedOption: string;
-  mode: RuntimeCredentialMode;
-  hasExplicitSelection: boolean;
-  otherProvider: boolean;
+  hasActiveGemini: boolean;
   hasSavedKey: boolean;
   needsVaultCreation: boolean;
   needsUnlock: boolean;
+  draftLabel: string;
   transport: GeminiRuntimeTransport;
   vertexProject: string;
   vertexLocation: string;
   draftKey: string;
   credentialValidation: CredentialValidationState;
-  selectByok: () => Promise<void>;
+  onToggleExpand: () => void;
+  onCancel?: () => void;
+  setDraftLabel: (value: string) => void;
   setTransport: (value: GeminiRuntimeTransport) => void;
   setVertexProject: (value: string) => void;
   setVertexLocation: (value: string) => void;
@@ -83,51 +87,62 @@ export function GeminiKeyChoice({
   invalidateCredentialValidation: () => void;
   saveByok: () => Promise<void>;
   validateByok: () => Promise<void>;
-  removeByok: () => Promise<void>;
 }) {
+  const rowDisabled =
+    disabled || isSaving || isRemoving || (!privateCloud && placement !== "shared");
   return (
     <>
       <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
         title="Gemini"
-        disabled={
-          isSaving || isRemoving || (!privateCloud && placement !== "shared")
-        }
+        disabled={rowDisabled}
         description={
-          "Use your own key."
+          hasSavedKey
+            ? "Add another Gemini configuration."
+            : "Use your own key."
         }
         trailing={
-          requiresExplicitSelection ? (
+          useRadioItem ? (
             <span
               aria-hidden
               className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground"
             >
-              {selectedOption === "byok" && !otherProvider ? (
+              {selectedOption === "byok" && (hasActiveGemini || expanded) ? (
                 <span className="size-3 rounded-full bg-primary" />
               ) : null}
             </span>
-          ) : mode === "byok" && hasExplicitSelection && !otherProvider ? (
-            <Badge variant="secondary">Selected</Badge>
-          ) : null
+          ) : (
+            <span className="inline-flex items-center gap-2">
+              {hasActiveGemini ? <Badge variant="secondary">Active</Badge> : null}
+              <CaretDownIcon
+                aria-hidden
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  expanded ? "rotate-180" : "",
+                )}
+              />
+            </span>
+          )
         }
         testId="profile-byok-runtime"
       >
-        {requiresExplicitSelection ? (
-          <RadioPrimitive.Item value="byok" />
+        {useRadioItem ? (
+          <RadioPrimitive.Item value="byok" disabled={rowDisabled} />
         ) : (
           <button
             type="button"
-            onClick={() => void selectByok()}
-            aria-pressed={mode === "byok" && !otherProvider}
+            disabled={rowDisabled}
+            onClick={onToggleExpand}
+            aria-expanded={expanded}
           />
         )}
       </SettingsRow>
 
-      {mode === "byok" && !otherProvider ? (
+      {expanded ? (
         <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
           <div className="flex items-center justify-between gap-3">
-            <CardTitle as="p">Gemini connection</CardTitle>
+            <CardTitle as="p">Gemini configuration</CardTitle>
             <Badge variant={hasSavedKey ? "secondary" : "outline"}>
               {needsVaultCreation
                 ? "Vault needed"
@@ -135,9 +150,18 @@ export function GeminiKeyChoice({
                   ? "Locked"
                   : hasSavedKey
                     ? "Saved"
-                    : "Not set"}
+                    : "New"}
             </Badge>
           </div>
+          <Input
+            type="text"
+            autoComplete="off"
+            value={draftLabel}
+            onChange={(event) => setDraftLabel(event.target.value)}
+            placeholder="Configuration name (optional, e.g. Work Gemini)"
+            disabled={isSaving || isRemoving}
+            aria-label="Gemini configuration name"
+          />
           <FormLabel className="block space-y-1">
             API endpoint
             <select
@@ -239,9 +263,7 @@ export function GeminiKeyChoice({
             role={credentialValidation.status === "error" ? "alert" : "status"}
             aria-live="polite"
           >
-            {requiresExplicitSelection && hasExplicitSelection ? (
-              "Your key is validated. Continue to finish setup."
-            ) : credentialValidation.status === "checking" ? (
+            {credentialValidation.status === "checking" ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                 Checking key access and available quota…
@@ -262,13 +284,7 @@ export function GeminiKeyChoice({
             )}
           </HelperText>
           <div className="flex flex-wrap gap-2">
-            {requiresExplicitSelection &&
-            hasExplicitSelection ? null : credentialValidation.status ===
-              "ready" ? (
-              // In first-run the footer "Finish AI access setup" is the screen's one
-              // primary; this in-panel step demotes to solid blue so the gradient
-              // footer reads as primary (Restraint Charter: one primary action). In
-              // the settings context there is no footer, so it stays the primary.
+            {credentialValidation.status === "ready" ? (
               <Button
                 type="button"
                 variant={requiresExplicitSelection ? "blue" : "blue-gradient"}
@@ -297,20 +313,15 @@ export function GeminiKeyChoice({
                 {privateCloud ? "Check and use" : "Validate key"}
               </Button>
             )}
-            {hasSavedKey ? (
+            {onCancel ? (
               <Button
                 type="button"
                 variant="none"
                 effect="fade"
-                onClick={() => void removeByok()}
+                onClick={onCancel}
                 disabled={isSaving || isRemoving}
               >
-                {isRemoving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-                )}
-                Remove key
+                Cancel
               </Button>
             ) : null}
           </div>

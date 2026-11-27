@@ -1,9 +1,12 @@
 """Real chat provider switching preserves history, authority and client ownership."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from ag_ui.core import Tool
+from ag_ui_adk.client_proxy_toolset import ClientProxyToolset
 from google.adk.agents import LlmAgent
 from google.adk.apps import App
 from google.adk.events import Event
@@ -12,6 +15,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES, receipt_tool_declaration
 from hushh_mcp.runtime_providers import lifecycle
 from hushh_mcp.runtime_providers import managed_text as managed
 from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
@@ -82,6 +86,59 @@ async def test_drive_vertex_never_acquires_or_falls_back_to_azure(monkeypatch):
             agent.generate_content_config.thinking_config.thinking_level == types.ThinkingLevel.LOW
         )
     forbidden.assert_not_called()
+
+
+async def test_vertex_chat_preserves_live_receipt_proxies_and_isolates_attempt_payload(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    event_queue = asyncio.Queue()
+    toolset = ClientProxyToolset(
+        [Tool(**receipt_tool_declaration(name)) for name in sorted(RECEIPT_TOOL_NAMES)],
+        event_queue,
+    )
+    proxies = await toolset.get_tools()
+    original = request()
+    original.append_tools(proxies)
+    original_payload = original.model_dump()
+
+    async def generate(attempt, stream=False):
+        assert stream
+        assert attempt.tools_dict is not original.tools_dict
+        for proxy in proxies:
+            assert attempt.tools_dict[proxy.name] is proxy
+            assert proxy.event_queue is event_queue
+        assert {fn.name for tool in attempt.config.tools for fn in tool.function_declarations} == (
+            RECEIPT_TOOL_NAMES
+        )
+        # The provider can update its own payload and tool registration.
+        attempt.tools_dict.clear()
+        attempt.contents[0].parts[0].text = "Provider-local content"
+        attempt.config.tools[0].function_declarations.clear()
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="Vertex answered")]),
+            turn_complete=True,
+        )
+
+    native = SimpleNamespace(
+        model=managed.load_scoped_text_policy("one_text_chat")["model"],
+        generate_content_async=generate,
+    )
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", lambda *a, **k: native)
+    vertex = managed.build_managed_text_model(scope="one_text_chat", require_current=AsyncMock())
+    # The open SSE stream is already waiting on the same queue when the model runs.
+    reader = asyncio.create_task(event_queue.get())
+    try:
+        await asyncio.sleep(0)
+        answers = [r async for r in vertex.generate_content_async(original, stream=True)]
+        assert [r.content.parts[0].text for r in answers] == ["Vertex answered"]
+        assert original.model_dump() == original_payload
+        assert original.tools_dict == {proxy.name: proxy for proxy in proxies}
+        assert not reader.done()
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
 
 
 def _completed_azure_history():
@@ -299,6 +356,63 @@ async def test_vertex_chat_rechecks_each_delta_and_closes_only_its_owned_model(
         cleanup.assert_awaited_once_with(native)
     else:
         cleanup.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "outcome", ["recovers", "exhausted", "after_output", "during_authority", "slow_authority"]
+)
+async def test_one_vertex_root_retries_a_timeout_only_before_receiving_a_response(
+    monkeypatch, caplog, outcome, advance_model_clock
+):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    calls = []
+    provider_yielded = False
+
+    async def current():
+        if provider_yielded and outcome == "during_authority":
+            raise TimeoutError("owner revalidation stalled")
+        if provider_yielded and outcome == "slow_authority":
+            await advance_model_clock(0.15)
+
+    async def generate(req, stream=False):
+        nonlocal provider_yielded
+        calls.append(req)
+        if outcome == "exhausted" or (outcome == "recovers" and len(calls) == 1):
+            await asyncio.Event().wait()
+        if outcome in {"after_output", "during_authority"}:
+            provider_yielded = True
+            yield LlmResponse(
+                content=types.Content(parts=[types.Part(text="partial")]), partial=True
+            )
+            raise TimeoutError("stream stalled")
+        if outcome == "slow_authority":
+            await advance_model_clock(0.20)
+            provider_yielded = True
+        yield LlmResponse(content=types.Content(parts=[types.Part(text="ready")]))
+
+    native = SimpleNamespace(model="gemini-3.8-flash", generate_content_async=generate)
+    monkeypatch.setattr(ManagedGeminiRuntimeBinding, "build_adk_model", Mock(return_value=native))
+    monkeypatch.setattr(lifecycle, "close_owned_adk_model", AsyncMock())
+    model = managed.build_managed_text_model(scope="one_text_chat", require_current=current)
+    assert not model.retry_vertex_timeout
+    root = managed.one_chat_root_model(model).model_copy(update={"primary_seconds": 0.5})
+    source = root.generate_content_async(request(), stream=True)
+    with caplog.at_level("INFO", logger=managed.__name__):
+        if outcome in {"recovers", "slow_authority"}:
+            assert [response.content.parts[0].text async for response in source] == ["ready"]
+        else:
+            if outcome == "after_output":
+                assert (await anext(source)).content.parts[0].text == "partial"
+            with pytest.raises(TimeoutError):
+                await anext(source)
+
+    retries = int(outcome in {"recovers", "exhausted"})
+    assert len(calls) == 1 + retries
+    assert caplog.text.count("managed_text.retry ") == retries
+    assert all(call.model == "gemini-3.8-flash" for call in calls)
+    if retries:
+        assert calls[0] is not calls[1]
+        assert calls[0].contents == calls[1].contents
 
 
 @pytest.mark.parametrize("scope", ["drive_document_requests", "one_text_chat"])

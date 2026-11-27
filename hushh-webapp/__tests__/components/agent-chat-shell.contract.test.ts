@@ -11,6 +11,14 @@ function read(relativePath: string) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
+function readAgentWorkspaceSources() {
+  return [
+    read("components/agent/agent-chat-workspace.tsx"),
+    read("components/agent/workspace/agent-bubble.tsx"),
+    read("components/agent/workspace/agent-message-transforms.ts"),
+  ].join("\n");
+}
+
 describe("private-agent chat shell contract", () => {
   it("keeps recent Drive searches out of the chat workspace", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
@@ -30,7 +38,7 @@ describe("private-agent chat shell contract", () => {
   });
 
   it("uses shared Morphy shell controls and motion in the conversation workspace", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = readAgentWorkspaceSources();
     const history = read("components/agent/agent-history-sidebar.tsx");
 
     expect(workspace).toContain("ShellActionSurface");
@@ -141,7 +149,7 @@ describe("private-agent chat shell contract", () => {
     expect(chip).toContain('aria-label="Remove text attachment"');
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
-    expect(workspace).toContain("await submitComposerText()");
+    expect(workspace).toContain("await submitComposerText(undefined, { trustedComposer: event.nativeEvent.isTrusted })");
     expect(workspace).toContain("keepSecretsFromTurn");
     expect(workspace).toContain("const [submittedText");
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
@@ -166,7 +174,7 @@ describe("private-agent chat shell contract", () => {
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = readAgentWorkspaceSources();
 
     expect(workspace).toContain("const hasStreamContent =");
     expect(workspace).toContain("streamEvents.length > 0");
@@ -177,7 +185,7 @@ describe("private-agent chat shell contract", () => {
   });
 
   it("keeps the header profile control, drops per-message avatars, and removes idle status chrome", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const workspace = readAgentWorkspaceSources();
 
     // The top-right profile control stays, with the canonical avatar source.
     expect(workspace).toContain("useEffectiveAvatarUrl");
@@ -193,7 +201,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("computeChatTimeSeparators(timelineItems)");
     expect(workspace).toContain("<ChatTimeSeparatorRow separator=");
     expect(workspace).not.toContain("<span>{message.timestamp}</span>");
-    expect(workspace).not.toContain('return "Ready";');
+    // Unified presence indicator uses "Ready" (matching /one) instead of stale "Idle".
+    expect(workspace).toContain('return "Ready";');
+    expect(workspace).not.toContain('return "Idle";');
     // Live status belongs below One, not beside the profile avatar. Idle One
     // has no tagline; active status crossfades without moving the controls.
     expect(workspace).toContain('IDLE_AGENT_SUBTITLE = ""');
@@ -262,6 +272,8 @@ describe("private-agent chat shell contract", () => {
 
     expect(workspace).not.toContain("{isPuppySurface ? <PuppyOneSurface /> : null}");
     expect(workspace).toContain("{puppyEverOpened ? (");
+    expect(workspace).toContain("puppyLiveOnBuild ? (");
+    expect(workspace).toContain('data-testid="puppy-coming-soon-surface"');
     expect(workspace).toContain("active={isPuppySurface}");
     // Lazily, so a workspace that never opens Puppy costs the loopback
     // gateway and the trusted-device list nothing.

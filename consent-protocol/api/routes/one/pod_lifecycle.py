@@ -55,21 +55,6 @@ HEARTBEAT_SECONDS = 15.0
 #: dozen rows; 200 bounds a pathological log without truncating a real one.
 BATCH_LIMIT = 200
 
-_EVENTS_SQL = """
-SELECT seq, event, stage, registry_status, progress_pct, substrate_step,
-       step_ok, terminal, reason, occurred_at
-FROM pod_lifecycle_events
-WHERE user_id = :user_id AND seq > :cursor
-ORDER BY seq
-LIMIT :limit
-"""
-
-_HEAD_SQL = """
-SELECT COALESCE(MAX(seq), 0) AS head
-FROM pod_lifecycle_events
-WHERE user_id = :user_id
-"""
-
 
 def _read_events_sync(user_id: str, cursor: int, limit: int = BATCH_LIMIT) -> list[dict]:
     """Blocking read, always called through to_thread. Absent table -> empty.
@@ -77,27 +62,15 @@ def _read_events_sync(user_id: str, cursor: int, limit: int = BATCH_LIMIT) -> li
     The table is a parked dev-only migration, so this surface must degrade to
     snapshot-only (not 500) anywhere the migration has not run.
     """
-    try:
-        from db.db_client import get_db  # noqa: PLC0415
+    from hushh_mcp.services.pod_lifecycle_log import read_events_sync  # noqa: PLC0415
 
-        result = get_db().execute_raw(
-            _EVENTS_SQL, {"user_id": user_id, "cursor": cursor, "limit": limit}
-        )
-        return list(result.data or [])
-    except Exception as exc:  # noqa: BLE001 - narrative read failure degrades, never breaks
-        logger.warning("pod_lifecycle.events_read_failed err=%s", type(exc).__name__)
-        return []
+    return read_events_sync(user_id, cursor, limit)
 
 
 def _read_head_sync(user_id: str) -> int:
-    try:
-        from db.db_client import get_db  # noqa: PLC0415
+    from hushh_mcp.services.pod_lifecycle_log import read_head_sync  # noqa: PLC0415
 
-        result = get_db().execute_raw(_HEAD_SQL, {"user_id": user_id})
-        rows = result.data or []
-        return int(rows[0].get("head") or 0) if rows else 0
-    except Exception:  # noqa: BLE001
-        return 0
+    return read_head_sync(user_id)
 
 
 async def _snapshot_payload(user_id: str, cursor: int) -> dict[str, Any]:

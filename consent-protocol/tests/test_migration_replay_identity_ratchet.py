@@ -63,7 +63,7 @@ def test_replayed_identity_backfills_skip_tombstoned_owners() -> None:
     unfiltered = sorted(
         name
         for name in names
-        if name[:3] not in enrolled | _UNFILTERED_IDENTITY_BACKFILLS
+        if name.split("_", 1)[0] not in enrolled | _UNFILTERED_IDENTITY_BACKFILLS
         and _replays_identity_backfill((MIGRATIONS_DIR / name).read_text(encoding="utf-8"))
     )
     assert not unfiltered, (

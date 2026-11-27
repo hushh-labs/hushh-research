@@ -20,6 +20,8 @@ import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 let css: string;
 let script: string;
+let fixtureOutputDir: string | undefined;
+test.afterAll(() => { if (fixtureOutputDir) fs.rmSync(fixtureOutputDir, { recursive: true, force: true }); });
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -28,6 +30,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "contact-invite-"));
+  fixtureOutputDir = outDir;
   await build({
     configFile: false,
     logLevel: "error",
@@ -36,7 +39,7 @@ test.beforeAll(async () => {
         name: "contact-invitation-boundaries",
         load(id) {
           if (id === "\0fixture-invitations-service")
-            return `export const ContactInvitationsService = { isNative: () => true, canComposeBatchSms: async () => true, composeBatch: async () => "opened", share: async () => "web-share", copy: async () => "copied" };
+            return `export const ContactInvitationsService = { isNative: () => document.documentElement.dataset.platform !== "web", canComposeBatchSms: async () => true, composeBatch: async () => "opened", share: async () => "web-share", copy: async () => "copied" };
             export function invitationBody(share) { return share.text + "\\n" + share.url; }
             export function assertInvitationShare() {}`;
         },
@@ -115,9 +118,9 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
-async function mount(page: Page, keyboardPx: number) {
+async function mount(page: Page, keyboardPx: number, platform = "native") {
   await page.setContent(
-    `<html style="--kb-height:${keyboardPx}px"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    `<html data-platform="${platform}" style="--kb-height:${keyboardPx}px"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
   );
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -133,6 +136,37 @@ async function mount(page: Page, keyboardPx: number) {
   );
   expect(errors).toEqual([]);
 }
+
+test("coherent native sheets clear retained chrome and keyboard; flag-off keeps the web frame", async ({ page }) => {
+  const { transform } = await import("lightningcss");
+  await page.setViewportSize({ width: 402, height: 874 });
+  await mount(page, 0);
+  // Exercise shipped CSS optimization, not just the authored declarations.
+  await page.locator("head style").first().evaluate((node, optimized) => { node.textContent = optimized; },
+    transform({ filename: "app.css", code: Buffer.from(css), minify: true }).code.toString());
+  const webBottom = (await measure(page)).sheetBottom;
+  expect(webBottom).toBeGreaterThan(706);
+  await page.evaluate(() => {
+    const seat = document.createElement("div");
+    seat.dataset.nativeWorkspaceSeat = "true";
+    document.body.appendChild(seat);
+    document.documentElement.style.setProperty("--app-top-content-offset", "162px");
+    document.documentElement.style.setProperty("--bottom-chrome-stack-height", "168px");
+  });
+  const native = await measure(page);
+  expect(native.sheetTop).toBeGreaterThanOrEqual(161.5);
+  expect(native.sheetBottom).toBeCloseTo(706, 0);
+  expect(native.listHeight).toBeGreaterThan(56);
+  await page.evaluate(() => { document.documentElement.style.setProperty("--kb-height", "336px"); });
+  const keyboard = await measure(page);
+  expect(keyboard.sheetBottom).toBeCloseTo(538, 0);
+  expect(keyboard.sheetTop).toBeGreaterThanOrEqual(161.5);
+  await page.evaluate(() => {
+    document.querySelector("[data-native-workspace-seat]")!.remove();
+    document.documentElement.style.setProperty("--kb-height", "0px");
+  });
+  expect((await measure(page)).sheetBottom).toBeCloseTo(webBottom, 0);
+});
 
 function measure(page: Page) {
   return page.evaluate(() => {
@@ -165,6 +199,38 @@ function measure(page: Page) {
   });
 }
 
+for (const [width, height] of [[320, 568], [568, 320], [1440, 900]]) {
+  test("contact sync results keep a compact header and one invite action at " + width + "px", async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.setContent(
+      '<html data-sync-notification="true"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>' +
+      css + '</style></head><body><div id="root"></div></body></html>',
+    );
+    await page.addScriptTag({ content: script });
+    const results = page.getByRole("dialog", { name: "Contact sync results" });
+    const invite = results.getByRole("button", { name: "Invite contacts" });
+    const readCount = results.getByText("Read 76 saved Google contacts.", { exact: true });
+    await expect(invite).toBeEnabled();
+    await expect(readCount).toBeVisible();
+    await expect(results.getByText("27 contacts had no usable phone number.")).toBeVisible();
+    await expect(results.getByText("Contact details stay on your device.")).toHaveCount(0);
+    await expect(results.getByRole("link")).toHaveCount(0);
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    const titleBox = (await results.getByRole("heading", { name: "Contact sync results" }).boundingBox())!;
+    const readBox = (await readCount.boundingBox())!;
+    const inviteBox = (await invite.boundingBox())!;
+    const sheetBox = (await results.boundingBox())!;
+    expect(readBox.y - titleBox.y - titleBox.height).toBeLessThanOrEqual(12);
+    expect(inviteBox.height).toBeGreaterThanOrEqual(44);
+    expect(inviteBox.y + inviteBox.height).toBeLessThanOrEqual(height);
+    expect(Math.abs(inviteBox.x + inviteBox.width / 2 - sheetBox.x - sheetBox.width / 2)).toBeLessThanOrEqual(1);
+    expect(sheetBox.x).toBeGreaterThanOrEqual(0);
+    expect(sheetBox.x + sheetBox.width).toBeLessThanOrEqual(width + 1);
+    await invite.click();
+    await expect(page.getByRole("dialog", { name: "Invite your contacts" })).toBeVisible();
+  });
+}
+
 // Phone widths the app ships to, a keyboard-sized inset, and desktop.
 const CASES = [
   { name: "iPhone SE", width: 320, height: 568, keyboard: 0 },
@@ -174,6 +240,26 @@ const CASES = [
   { name: "iPhone 15, keyboard up", width: 393, height: 852, keyboard: 336 },
   { name: "desktop", width: 1440, height: 900, keyboard: 0 },
 ] as const;
+
+for (const { width, height } of [CASES[0], CASES[5]]) {
+  test(`web invite actions stay visible with only phone contacts at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mount(page, 0, "web");
+    const dialog = page.getByRole("dialog", { name: "Invite your contacts" });
+    const description = dialog.getByText(/No contacts with an email address/);
+    const share = dialog.getByRole("button", { name: "Share link" });
+    const copy = dialog.getByRole("button", { name: "Copy invitation" });
+    await expect(description).toBeInViewport();
+    await expect(share).toBeInViewport({ ratio: 1 });
+    await expect(copy).toBeInViewport({ ratio: 1 });
+    const text = (await description.boundingBox())!;
+    const action = (await share.boundingBox())!;
+    expect(action.y - text.y - text.height).toBeLessThanOrEqual(16);
+    expect(action.height).toBeGreaterThanOrEqual(44);
+    await copy.click();
+    await expect(dialog.getByRole("status")).toHaveText(/Invitation copied/);
+  });
+}
 
 for (const viewport of CASES) {
   test(`contact list stays readable and scrollable: ${viewport.name}`, async ({

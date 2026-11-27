@@ -22,6 +22,7 @@ export type RequestablePersonScope = {
   label: string | null;
   description: string | null;
   domain: string | null;
+  iconName?: string | null;
   sensitivity: string | null;
   wildcard: boolean;
   pathSegments?: string[];
@@ -32,6 +33,7 @@ export type PersonGrant = {
   scopeRef: string | null;
   label: string;
   domain: string | null;
+  iconName?: string | null;
   requestId: string | null;
   issuedAt: number | null;
   expiresAt: number | null;
@@ -113,6 +115,19 @@ export type PersonRequestHistoryPage = {
   nextCursor: string | null;
 };
 
+export type InformationRequestPrice = {
+  version: 1;
+  personRef: string;
+  durationSeconds: number;
+  currency: "USD";
+  coinsPerDollar: 100;
+  items: Array<{ scopeRef: string; label: string; amountCoins: number }>;
+  totalCoins: number;
+  availableCoins: number;
+  shortfallCoins: number;
+  binding: string;
+};
+
 export type InformationRequestBundle = {
   personRef: string;
   bundleId: string;
@@ -154,6 +169,8 @@ export type SharedWithMeEntry = {
   sensitivity?: string | null;
   /** C7 per field, names only; untrusted until parsed by `parseSharedFieldSensitivities`. */
   fields?: unknown;
+  /** Current encrypted export revision for continuous shares; never contains export contents. */
+  exportRevision?: number | null;
 };
 
 export type PersonScopeCatalogPage = {
@@ -186,10 +203,12 @@ export function parseScopeCatalogPage(payload: Record<string, unknown>, requeste
     if (!entry || !scopeRef || !label || seen.has(scopeRef)) return [];
     seen.add(scopeRef);
     const pathSegments = catalogPathSegments(entry.pathSegments ?? entry.path_segments);
+    const iconName = catalogText(entry.iconName ?? entry.icon_name, 64);
     return [{
       scopeRef, label,
       description: catalogText(entry.description, 280),
       domain: catalogText(entry.domain, 80),
+      ...(iconName ? { iconName } : {}),
       sensitivity: catalogText(entry.sensitivity, 32),
       wildcard: entry.wildcard === true,
       // Kept so a search hit can nest under the broad item that covers it.
@@ -221,7 +240,26 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
   return payload;
 }
 
+export class PersonProfileNotFoundError extends Error {}
+
 export class PersonProfileService {
+  private static readonly publicReads = new Map<string, object>();
+
+  private static requirePerson(personRef: string, response: Response): Response {
+    if (response.status === 404 || response.status === 410) {
+      const key = `person_public_${personRef}`;
+      this.publicReads.delete(key);
+      CacheService.getInstance().invalidate(key);
+      throw new PersonProfileNotFoundError("This profile is unavailable.");
+    }
+    return response;
+  }
+
+  static invalidatePublicProfiles(): void {
+    this.publicReads.clear();
+    CacheService.getInstance().invalidatePattern("person_public_");
+  }
+
   static peekPublic(personRef: string): PublicPersonProfile | null {
     return CacheService.getInstance().peek<PublicPersonProfile>(`person_public_${personRef}`)?.data ?? null;
   }
@@ -230,7 +268,7 @@ export class PersonProfileService {
     const response = await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/relationship`, {
       method: "GET", cache: "no-store", headers: { Authorization: `Bearer ${idToken}` },
     });
-    const result = await jsonOrThrow<{ personRef: string; relationship: PersonRelationship }>(response);
+    const result = await jsonOrThrow<{ personRef: string; relationship: PersonRelationship }>(this.requirePerson(personRef, response));
     return result.relationship;
   }
   static async getRequestHistory(input: {
@@ -303,13 +341,20 @@ export class PersonProfileService {
   }
 
   static async getPublic(personRef: string): Promise<PublicPersonProfile> {
-    const profile = await jsonOrThrow<PublicPersonProfile>(
-      await ApiService.apiFetch(`/api/public/people/${encodeURIComponent(personRef)}`, {
+    const cache = CacheService.getInstance();
+    const key = `person_public_${personRef}`;
+    const read = {};
+    this.publicReads.set(key, read);
+    try {
+      const response = await ApiService.apiFetch(`/api/public/people/${encodeURIComponent(personRef)}`, {
         cache: "no-store",
-      }),
-    );
-    CacheService.getInstance().set(`person_public_${personRef}`, profile, CACHE_TTL.MEDIUM);
-    return profile;
+      });
+      const profile = await jsonOrThrow<PublicPersonProfile>(this.requirePerson(personRef, response));
+      if (this.publicReads.get(key) === read) cache.set(key, profile, CACHE_TTL.MEDIUM);
+      return profile;
+    } finally {
+      if (this.publicReads.get(key) === read) this.publicReads.delete(key);
+    }
   }
 
   static async getViewer(
@@ -322,12 +367,11 @@ export class PersonProfileService {
     if (catalog?.revision) query.set("catalog_revision", catalog.revision);
     if (catalog?.query) query.set("catalog_query", catalog.query);
     if (catalog?.domain) query.set("catalog_domain", catalog.domain);
-    const result = await jsonOrThrow<ViewerPersonProfile>(
-      await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}${query.size ? `?${query}` : ""}`, {
+    const response = await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}${query.size ? `?${query}` : ""}`, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${idToken}` },
-      }),
-    );
+      });
+    const result = await jsonOrThrow<ViewerPersonProfile>(this.requirePerson(personRef, response));
     if (result.personRef !== personRef) throw new Error("The selected person could not be verified.");
     return result;
   }
@@ -354,6 +398,32 @@ export class PersonProfileService {
     return parseScopeCatalogPage(payload, input.page ?? 1);
   }
 
+  static async informationRequestPrice(input: {
+    personRef: string; scopeRefs: string[]; durationSeconds: number;
+    vaultOwnerToken: string; signal?: AbortSignal;
+  }): Promise<InformationRequestPrice> {
+    const price = await jsonOrThrow<InformationRequestPrice>(await ApiService.apiFetch(
+      "/api/one/information-requests/price-preview", {
+        method: "POST", signal: input.signal,
+        headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+        body: JSON.stringify({ person_ref: input.personRef, scope_refs: input.scopeRefs, duration_seconds: input.durationSeconds }),
+      },
+    ));
+    const coins = (value: number) => Number.isSafeInteger(value) && value >= 0;
+    const refs = new Set(input.scopeRefs);
+    if (price.version !== 1 || price.personRef !== input.personRef || price.durationSeconds !== input.durationSeconds
+      || price.currency !== "USD" || price.coinsPerDollar !== 100 || !/^[a-f0-9]{64}$/.test(price.binding)
+      || !Array.isArray(price.items) || price.items.length !== refs.size
+      || new Set(price.items.map(item => item.scopeRef)).size !== refs.size
+      || price.items.some(item => !refs.has(item.scopeRef) || !coins(item.amountCoins))
+      || !coins(price.totalCoins) || !coins(price.availableCoins) || !coins(price.shortfallCoins)
+      || price.totalCoins !== price.items.reduce((sum, item) => sum + item.amountCoins, 0)
+      || price.shortfallCoins !== Math.max(0, price.totalCoins - price.availableCoins)) {
+      throw new Error("The price could not be verified. Check again.");
+    }
+    return price;
+  }
+
   static async createInformationRequest(input: {
     personRef: string;
     scopeRefs: string[];
@@ -362,6 +432,7 @@ export class PersonProfileService {
     connectorKeyId: string;
     idempotencyKey: string;
     vaultOwnerToken: string;
+    priceBinding?: string;
     signal?: AbortSignal;
   }): Promise<InformationRequestBundle> {
     const result = await jsonOrThrow<InformationRequestBundle>(
@@ -376,6 +447,7 @@ export class PersonProfileService {
           duration_seconds: input.durationSeconds,
           connector_key_id: input.connectorKeyId,
           idempotency_key: input.idempotencyKey,
+          ...(input.priceBinding ? { price_binding: input.priceBinding } : {}),
         }),
       }),
     );

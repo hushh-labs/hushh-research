@@ -58,7 +58,7 @@ def payments_enabled(monkeypatch):
     clear_runtime_settings_caches()
 
 
-async def _approved(engine, amount=1000, *, prepared=False):
+async def _approved(engine, amount=1000, *, prepared=False, processing_runtime=None):
     service, request_id = await _ask(engine, StubResolver(["attr.travel.trips"]))
     approved = await service.approve(
         owner_user_id=OWNER,
@@ -66,6 +66,7 @@ async def _approved(engine, amount=1000, *, prepared=False):
         scopes=["attr.travel.trips"],
         amount_cents=amount,
         model_processing_consent=True,
+        processing_runtime=processing_runtime,
     )
     if prepared:
         await _deliver_composed(

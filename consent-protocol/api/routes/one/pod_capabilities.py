@@ -58,8 +58,8 @@ def vertex_model_configured() -> bool:
 
 
 def voice_hosting_allowed() -> bool:
-    """Azure voice stays disabled; credentials cannot change hosting policy."""
-    return bool(workload_platform() != "azure")
+    """Non-Google-Cloud owner hosts disable managed Gemini voice; credentials cannot override policy."""
+    return bool(workload_platform() not in {"azure", "aws"})
 
 
 def voice_capability() -> dict[str, Any]:
@@ -92,9 +92,8 @@ def _files_organization() -> dict[str, Any]:
         return _capability("files_disabled")
     platform = workload_platform()
     if platform == "ace":
-        from hushh_mcp.services.pod_s3_object_store import PREFIX_TOKEN_URL_ENV
-
         from hushh_mcp.services.pod_files.model_binding import organization_model_status
+        from hushh_mcp.services.pod_s3_object_store import PREFIX_TOKEN_URL_ENV
 
         if not _env(PREFIX_TOKEN_URL_ENV) and not _env("POD_STORAGE_GCS_BUCKET"):
             return _capability("requires_google_cloud_storage")

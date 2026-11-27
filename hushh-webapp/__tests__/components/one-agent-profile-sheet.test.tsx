@@ -1,11 +1,10 @@
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { reduceChatOnboarding, type ChatOnboardingState } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import type { ChatOnboardingChipId } from "@/lib/agent/chat-onboarding/chat-onboarding-script";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorClaim, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import {
   applyLiveMirrorReadTime,
@@ -27,11 +26,14 @@ const mocks = vi.hoisted(() => ({
   uid: "viewer",
   epoch: 0,
   unlocked: true,
+  vaultKey: "fixture-key",
+  vaultToken: "fixture-token",
   identityOwner: "viewer",
   preferredName: "Love",
   native: false,
   identityReady: true,
   rereading: false,
+  identityError: null as string | null,
   revision: 0,
   refresh: vi.fn(),
   list: vi.fn(),
@@ -59,12 +61,13 @@ vi.mock("@/lib/vault/session-epoch", async (original) => ({
   snapshotVaultSessionEpoch: () => mocks.epoch,
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? "fixture-key" : null, vaultOwnerToken: mocks.unlocked ? "fixture-token" : null }),
+  useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? mocks.vaultKey : null, vaultOwnerToken: mocks.unlocked ? mocks.vaultToken : null }),
 }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   usePkmDomainResource: () => ({
     refresh: mocks.refresh,
     invalidated: mocks.rereading,
+    error: mocks.identityError,
     data: mocks.identityReady ? { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } : null,
   }),
 }));
@@ -190,11 +193,14 @@ describe("One agent profile feed preview", () => {
     mocks.revision = 0;
     mocks.refresh.mockResolvedValue(null);
     mocks.unlocked = true;
+    mocks.vaultKey = "fixture-key";
+    mocks.vaultToken = "fixture-token";
     mocks.identityOwner = "viewer";
     mocks.preferredName = "Love";
     mocks.native = false;
     mocks.identityReady = true;
     mocks.rereading = false;
+    mocks.identityError = null;
     useChatOnboardingSession.getState().reset(null);
     window.localStorage.clear();
     CacheService.getInstance().clear();
@@ -205,7 +211,7 @@ describe("One agent profile feed preview", () => {
     mocks.list.mockResolvedValue({
       items: [
         item("1", "calendar_connected"),
-        item("2", "mail_connected"),
+        item("2", "mail_message_sent"),
         item("3", "connected_systems_connected"),
       ],
       next_cursor: null,
@@ -268,6 +274,100 @@ describe("One agent profile feed preview", () => {
     expect(result.current).toBe("Roopmann");
   });
 
+  it("keeps only a confirmed saved name through a failed refresh until memory confirms a change", () => {
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    expect(result.current).toBe("Love");
+    mocks.identityReady = false;
+    mocks.rereading = true;
+    rerender();
+    expect(result.current).toBe("Love");
+    mocks.rereading = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("Love");
+
+    mocks.identityReady = true;
+    mocks.identityError = null;
+    mocks.preferredName = "Roopmann";
+    rerender();
+    expect(result.current).toBe("Roopmann");
+    mocks.preferredName = "";
+    rerender();
+    expect(result.current).toBe("One");
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("One");
+  });
+
+  it("drops a retained saved name on lock, owner change or a disabled surface", () => {
+    const { result, rerender } = renderHook(({ enabled }) => useOneDisplayName(enabled), { initialProps: { enabled: true } });
+    expect(result.current).toBe("Love");
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender({ enabled: true });
+    expect(result.current).toBe("Love");
+    mocks.unlocked = false;
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+    mocks.unlocked = true;
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+
+    mocks.identityReady = true;
+    mocks.identityError = null;
+    rerender({ enabled: true });
+    expect(result.current).toBe("Love");
+    mocks.uid = "other-viewer";
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+    mocks.uid = "viewer";
+    rerender({ enabled: false });
+    expect(result.current).toBe("One");
+    rerender({ enabled: true });
+    expect(result.current).toBe("One");
+  });
+
+  it("does not retain a declined onboarding draft after a failed memory refresh", () => {
+    mocks.preferredName = "";
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    act(() => {
+      session().reset("viewer");
+      session().patch({ machine: onboardingAfter(...PICKED) });
+    });
+    expect(result.current).toBe("Kay");
+    act(() => session().patch({ machine: onboardingAfter(...PICKED, "dont_save") }));
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("One");
+  });
+
+  it("retains through token renewal but clears on a different key or settled missing identity", () => {
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    mocks.identityReady = false;
+    mocks.identityError = "Temporary memory read failure";
+    mocks.vaultToken = "renewed-fixture-token";
+    rerender();
+    expect(result.current).toBe("Love");
+    mocks.vaultKey = "different-fixture-key";
+    rerender();
+    expect(result.current).toBe("One");
+
+    mocks.identityReady = true;
+    mocks.identityError = null;
+    rerender();
+    expect(result.current).toBe("Love");
+    mocks.identityReady = false;
+    rerender();
+    expect(result.current).toBe("One");
+    mocks.identityError = "Temporary memory read failure";
+    rerender();
+    expect(result.current).toBe("One");
+  });
+
   it("never keeps a declined or unsaved pick, and shows one only to its unlocked owner", () => {
     mocks.preferredName = "";
     const { result, rerender } = renderHook(() => useOneDisplayName());
@@ -308,62 +408,52 @@ describe("One agent profile feed preview", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
-  it("fetches the viewer's feed only when visible and preserves its clear/read boundaries", async () => {
-    window.localStorage.setItem("hushh:feed-cleared-through-id:viewer", "1");
+  it("renders the live Activity workspace (Action logs) only when visible, without manual terminal bloat, and keeps Feed separate", async () => {
     const view = render(
-      <OneAgentProfileSheet open={false} onOpenChange={mocks.close} />,
+      <OneAgentProfileSheet
+        open={false}
+        onOpenChange={mocks.close}
+        sessionActions={[
+          {
+            id: "act-1",
+            label: "Memory",
+            message: "Updated 2026 cashflow goals",
+            status: "done",
+            icon: "memory",
+            createdAtMs: Date.now() - 1200,
+            durationMs: 420,
+          },
+        ]}
+      />,
     );
-    expect(mocks.list).not.toHaveBeenCalled();
-    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    await screen.findByText("Mail connected");
-    expect(mocks.list).toHaveBeenCalledWith(
-      expect.objectContaining({
-        idToken: "viewer-token",
-        userId: "viewer",
-        limit: 20,
-      }),
+    expect(screen.queryByTestId("one-activity-workspace")).toBeNull();
+    view.rerender(
+      <OneAgentProfileSheet
+        open
+        onOpenChange={mocks.close}
+        sessionActions={[
+          {
+            id: "act-1",
+            label: "Memory",
+            message: "Updated 2026 cashflow goals",
+            status: "done",
+            icon: "memory",
+            createdAtMs: Date.now() - 1200,
+            durationMs: 420,
+          },
+        ]}
+      />,
     );
-    expect(screen.queryByText("Calendar connected")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("feed-row")).toHaveLength(1);
-    expect(mocks.markRead).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("one-activity-workspace")).toBeInTheDocument();
+    expect(screen.getByText("Updated 2026 cashflow goals")).toBeInTheDocument();
+    expect(screen.getByText("420ms")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-terminal-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sandbox terminal/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Feed" })).toBeNull();
 
     openProfileTab();
     const memory = await screen.findByRole("link", { name: "Open Memory" });
     expect(memory).toHaveAttribute("href", "/one/pkm");
-    const calls = mocks.list.mock.calls.length;
-    fireEvent.focus(window);
-    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls));
-    expect(mocks.markRead).not.toHaveBeenCalled();
-  });
-
-  it("does not reintroduce cleared consent entries through a newer bundle row", async () => {
-    window.localStorage.setItem("hushh:feed-cleared-through-id:viewer", "3");
-    mocks.list.mockResolvedValue({
-      items: [
-        {
-          ...item("5", "consent_granted"),
-          source_domain: "consent",
-          metadata: {
-            bundle_id: "same-request",
-            scope_description: "Recent detail",
-          },
-        },
-        {
-          ...item("1", "consent_granted"),
-          source_domain: "consent",
-          metadata: {
-            bundle_id: "same-request",
-            scope_description: "Cleared detail",
-          },
-        },
-      ],
-      next_cursor: null,
-      unread_count: 2,
-    });
-    render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    await screen.findByText(/Recent detail/);
-    expect(screen.queryByText(/Cleared detail/)).not.toBeInTheDocument();
-    expect(mocks.markRead).not.toHaveBeenCalled();
   });
 
   it("keeps native One on the shared hero and tabs without replacing the pane or leaking another owner's name", async () => {
@@ -372,9 +462,9 @@ describe("One agent profile feed preview", () => {
     const pane = screen.getByTestId("native-one-pane");
     const binding = pane.dataset.context;
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
-    await screen.findByText("Mail connected");
+    expect(screen.getByRole("tab", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Activity", "Tasks", "Profile"]);
+    expect(await screen.findByTestId("one-activity-workspace")).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByRole("heading", { name: "Live memory" })).toBeInTheDocument();
@@ -389,6 +479,21 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).toHaveBeenCalledWith(false);
   });
 
+  it.each([false, true])("unwinds task detail before closing the profile (native: %s)", async native => {
+    mocks.native = native;
+    mocks.loadTasks.mockResolvedValue({ tasks: [buildTodo({ title: "A private task" })] });
+    render(<OneAgentProfileSheet open nativeReady onOpenChange={mocks.close} />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("button", { name: "A private task", exact: true }));
+    const back = () => native ? fireEvent.click(screen.getByRole("button", { name: "Back to Chat" })) : fireEvent.keyDown(document, { key: "Escape" });
+    back();
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your tasks" })).toBeVisible();
+    expect(mocks.close).not.toHaveBeenCalled();
+    back();
+    expect(mocks.close).toHaveBeenCalledWith(false);
+  });
+
   it("shows the shared live memory preview instead of static file cards, and closes before navigating", async () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid));
     render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
@@ -397,12 +502,11 @@ describe("One agent profile feed preview", () => {
     expect(await screen.findByRole("heading", { name: "Live memory" })).toBeInTheDocument();
     expect(mirrorStatus().getByRole("status")).toHaveTextContent("Up to date");
     expect(mirrorStatus().getByText("Checked just now")).toBeInTheDocument();
-    expect(screen.getByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeNull();
     expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
     expect(within(factRow("Email")).getByText("a@example.test")).toBeInTheDocument();
     const seeAll = screen.getByRole("link", { name: "See all" });
-    expect(seeAll).toHaveAttribute("href", buildProfileRoute({ panel: "my-data" }));
-    expect(seeAll).toHaveAttribute("href", "/one/profile/my-data");
+    expect(seeAll).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
     expect(screen.queryByLabelText("soul.md preview")).toBeNull();
     expect(screen.queryByText("Soul preview")).toBeNull();
@@ -583,13 +687,13 @@ describe("One agent profile feed preview", () => {
     expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
     expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
-  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
+  it("loads the shared Tasks preview only when selected without a duplicate workspace link", async () => {
     const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Activity", "Tasks", "Profile"]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
     expect(await screen.findByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
     expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });

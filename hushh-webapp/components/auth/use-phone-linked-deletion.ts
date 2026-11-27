@@ -48,7 +48,7 @@ export function usePhoneLinkedDeletion(p: Params) {
     inFlight.current = true; setBusy(true); setError(null); guard.pending = true;
     let committed = false;
     try {
-      const user = await confirm({ operationId: prepared.operation_id, phoneNumber: phone, testCode });
+      const user = await confirm({ operationId: prepared.operation_id, phoneNumber: phone, testCode, recheck: unconfirmed });
       if (!current()) return;
       committed = true; guard.pending = false; setPrepared(null);
       await onDeleted(user);
@@ -62,7 +62,7 @@ export function usePhoneLinkedDeletion(p: Params) {
       setFreshProof(linkedDeletionNeedsFreshProof(code));
       setError(linkedDeletionMessage(code));
     } finally { inFlight.current = false; if (current()) setBusy(false); }
-  }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError]);
+  }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError, unconfirmed]);
 
   /** Leave the review; false only while a confirmation request is in flight. */
   const leave = useCallback(() => {

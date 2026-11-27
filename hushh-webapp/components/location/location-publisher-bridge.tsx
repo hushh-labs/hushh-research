@@ -3,15 +3,13 @@
 /**
  * App-level Location publisher for the voice-first area.
  *
- * Mounted ONCE (AgentOwnerGate) while Live is on, so publishing survives
+ * Mounted by AgentOwnerGate, so publishing survives
  * navigation. It owns three things:
  *
- *  1. The continuous watch -> coarsen -> encrypt -> storeEnvelope loop for
- *     every active owner grant, gated by `effective === "sharing"` (server
- *     `sharing_state === "on"` AND OS granted AND not paused). The moment
- *     app sharing turns off — a `turn_sharing_off` tool result, a resolved
- *     tap confirmation, or the settings resource changing — the watch is
- *     cleared and native background sharing is stopped.
+ *  1. The continuous watch -> coarsen -> encrypt -> storeEnvelope loop.
+ *     Ordinary grants require effective sharing. Active Save My Soul grants
+ *     use the owner's separate emergency consent and still require device
+ *     Location access and unpaused updates.
  *  2. The `publish_location_envelopes` / `register_recipient_key` /
  *     `report_os_permission` client steps the relay asks the device to run.
  *  3. The `request_os_permission` directive, which is REFUSED unless the
@@ -21,9 +19,13 @@
  * (a stored envelope, a registered key, the OS's own answer).
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
 
+import {
+  flushLocationStops, hasQueuedLocationStop, locationStopQueueRevision, subscribeLocationStopQueue,
+} from "@/lib/location/pending-stops";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
   LocationAccountSettingsResource,
@@ -31,6 +33,7 @@ import {
   type LocationOsPermissionReported,
 } from "@/lib/location/account-settings";
 import {
+  coarsenPoint,
   resolvePublishPrecision,
   type LocationPublishPrecision,
 } from "@/lib/location/coarsen";
@@ -60,8 +63,12 @@ import {
 import { resolveLocationRecoveryGuide } from "@/lib/one-location/location-permission-recovery";
 import { isLocationPermissionDeniedError } from "@/lib/one-location/location-readiness";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
+import { isFixedLocationGrant, isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";
+import { LIVE_LOCATION_UPDATE_INTERVAL_MS, liveHeartbeatPoint } from "@/lib/one-location/live-heartbeat";
+import { ROUTES } from "@/lib/navigation/routes";
+import { apiErrorCode } from "@/lib/services/api-client";
 import {
   clearSosIncident,
   loadSosIncident,
@@ -236,7 +243,7 @@ function grantsKey(grants: readonly OneLocationGrant[]): string {
     .join(",");
 }
 
-export function LocationPublisherBridge() {
+export function LocationPublisherBridge({ pathname }: { pathname?: string | null } = {}) {
   const { userId } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
   const uid = userId ?? null;
@@ -257,7 +264,24 @@ export function LocationPublisherBridge() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const grants = useMemo(() => activeOwnerGrants(state), [state]);
+  useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
+  const grants = activeOwnerGrants(state).filter((grant) =>
+    !isFixedLocationGrant(grant) && !hasQueuedLocationStop(uid, grant.id) &&
+    (isSmsTriggeredGrant(grant)
+      ? sharing.os === "granted" && !sharing.paused
+      : sharing.effective === "sharing"));
+  useEffect(() => {
+    if (!uid || !vaultOwnerToken) return;
+    const retry = () => {
+      void flushLocationStops(uid, vaultOwnerToken).then((changed) => {
+        if (changed) CacheSyncService.onOneLocationStateMutated(uid, ["workspace"]);
+      }).catch(() => undefined);
+    };
+    retry();
+    window.addEventListener("online", retry);
+    const interval = window.setInterval(retry, 5_000);
+    return () => { window.clearInterval(interval); window.removeEventListener("online", retry); };
+  }, [uid, vaultOwnerToken]);
   const recipientsByUserId = useMemo(
     () => indexRecipientsByUserId(state?.recipients),
     [state],
@@ -268,10 +292,7 @@ export function LocationPublisherBridge() {
   const recipientsRef = useRef(recipientsByUserId);
   recipientsRef.current = recipientsByUserId;
 
-  const publishing =
-    sharing.effective === "sharing" &&
-    Boolean(vaultOwnerToken) &&
-    grants.length > 0;
+  const publishing = Boolean(uid && vaultOwnerToken && grants.length);
   const appSharing = sharing.appSharing;
   const precision = sharing.precision;
 
@@ -289,6 +310,52 @@ export function LocationPublisherBridge() {
     OneLocationStateResource.invalidate(owner);
   }, []);
 
+  // The Location workspace maintains its own public link while it is open.
+  // In Chat an active link needs updates even when there are no private grants.
+  const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing"
+    ? state?.publicInvites?.find((invite) => invite.ownerUserId === uid && invite.status === "active" &&
+      invite.expiresAt && Date.parse(invite.expiresAt) > Date.now()) : undefined;
+  const publicId = publicLink?.id;
+  const publicEnd = publicLink?.expiresAt;
+  const publicLinkRef = useRef(publicLink);
+  publicLinkRef.current = publicLink;
+  useEffect(() => {
+    if (!uid || !vaultOwnerToken || !publicId || !publicEnd) return;
+    const ownerToken = vaultOwnerToken;
+    const inviteId = publicId;
+    const expiresAt = Date.parse(publicEnd);
+    let closed = false;
+    let pending = false;
+    const current = () => !closed && uidRef.current === uid && tokenRef.current === ownerToken &&
+      publicLinkRef.current?.id === inviteId && publicLinkRef.current.expiresAt === publicEnd &&
+      document.visibilityState === "visible" && expiresAt > Date.now();
+    async function publishPublicPosition() {
+      if (pending || !current()) return;
+      pending = true;
+      try {
+        const point = await liveHeartbeatPoint();
+        if (!point || !current()) return;
+        const allowsPrecise = () => sharingRef.current.precision === "precise" && sharingRef.current.osPrecise !== false;
+        const precise = allowsPrecise() && (point.accuracyM ?? 0) < 1000;
+        await OneLocationService.refreshPublicInviteLocation({
+          vaultOwnerToken: ownerToken, inviteId,
+          locationSnapshot: coarsenPoint(point, precise ? "precise" : "approximate"),
+          isEffectCurrent: () => current() && (!precise || allowsPrecise()),
+        });
+      } catch (error) {
+        if (current() && apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
+          closed = true;
+          invalidateState();
+        }
+      } finally {
+        pending = false;
+      }
+    }
+    void publishPublicPosition();
+    const interval = window.setInterval(publishPublicPosition, LIVE_LOCATION_UPDATE_INTERVAL_MS);
+    return () => { closed = true; window.clearInterval(interval); };
+  }, [invalidateState, publicEnd, publicId, uid, vaultOwnerToken]);
+
   // ---------------------------------------------------------------------
   // 1. Continuous publish loop
   // ---------------------------------------------------------------------
@@ -301,8 +368,8 @@ export function LocationPublisherBridge() {
     const publishMovement = async (point: PlainLocationPoint) => {
       if (cancelled) return;
       const token = tokenRef.current;
-      if (!token) return;
-      if (sharingRef.current.effective !== "sharing") return;
+      const owner = uidRef.current;
+      if (!token || !owner || !grantsRef.current.length) return;
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
@@ -326,24 +393,38 @@ export function LocationPublisherBridge() {
 
       inFlightRef.current = true;
       try {
-        const result = await publishPointToGrants({
-          point,
-          grants: grantsRef.current,
-          recipientsByUserId: recipientsRef.current,
-          precision: sharingRef.current.precision,
-          vaultOwnerToken: token,
-          encrypt: encryptLocationForRecipient,
-          store: (params) => OneLocationService.storeEnvelope(params),
-        });
+        const active = grantsRef.current;
+        const results = await Promise.all([false, true].map((sos) => {
+          const eligible = active.filter((grant) => isSmsTriggeredGrant(grant) === sos);
+          if (!eligible.length) return null;
+          return publishPointToGrants({
+            point,
+            grants: eligible,
+            recipientsByUserId: recipientsRef.current,
+            precision: sharingRef.current.precision,
+            sos,
+            vaultOwnerToken: token,
+            encrypt: encryptLocationForRecipient,
+            store: (params) => {
+              const canPublish = () => !cancelled && uidRef.current === owner &&
+                !hasQueuedLocationStop(owner, params.grantId) &&
+                grantsRef.current.some((grant) => grant.id === params.grantId);
+              return canPublish()
+                ? OneLocationService.storeEnvelope({ ...params, isEffectCurrent: canPublish })
+                : Promise.reject(new Error("This share has stopped on this device."));
+            },
+          });
+        }));
         if (cancelled) return;
-        if (result.published.length > 0) {
+        if (results.some((result) => result?.published.length)) {
           lastPublishedRef.current = point;
           lastPublishedAtRef.current = Date.now();
         }
-        const refused = result.failures.some(
+        const failures = results.flatMap((result) => result?.failures ?? []);
+        const refused = failures.some(
           (failure) => failure.code === "permission_denied",
         );
-        const grantGone = result.failures.some((failure) =>
+        const grantGone = failures.some((failure) =>
           GRANT_GONE_REASONS.has(String(failure.reason ?? "")),
         );
         if (refused || grantGone) {
@@ -414,12 +495,12 @@ export function LocationPublisherBridge() {
   useEffect(() => {
     const was = wasAppSharingRef.current;
     wasAppSharingRef.current = appSharing;
-    if (was && !appSharing) {
+    if (was && !appSharing && !publishing) {
       // The watch effect above has already been torn down by `publishing`
       // flipping; native needs an explicit stop.
       void OneLocationService.stopBackgroundShare().catch(() => undefined);
     }
-  }, [appSharing]);
+  }, [appSharing, publishing]);
 
   // ---------------------------------------------------------------------
   // 1c. Native background share follows the current grants
@@ -439,7 +520,7 @@ export function LocationPublisherBridge() {
     void syncBackgroundShare({ enabled: publishing, session }).catch(
       () => undefined,
     );
-  }, [publishing, grantsSignature, vaultOwnerToken]);
+  }, [publishing, grantsSignature, vaultOwnerToken, pathname]);
 
   useEffect(
     () => () => {
@@ -674,6 +755,7 @@ export function LocationPublisherBridge() {
         const held = payload.point_policy === "held_ok";
         point = await OneLocationService.captureCurrentPosition({
           maxAgeMs: held ? HELD_OK_MAX_AGE_MS : 0,
+          ...(payload.sos ? { fastNetworkFallback: true } : {}),
         });
       } catch (error) {
         const denied = isLocationPermissionDeniedError(error);

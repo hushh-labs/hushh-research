@@ -4,9 +4,48 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentCalendarProposalCard } from "@/components/agent/agent-calendar-proposal-card";
 
 describe("AgentCalendarProposalCard", () => {
+  it("keeps an all-day civil date unchanged in a negative UTC offset", () => {
+    render(<AgentCalendarProposalCard accountId="default" action="create" title="Day off"
+      startAt="2026-11-01" endAt="2026-11-02" timeZone="America/Los_Angeles"
+      attendees={[]} location={null} sendUpdates={false} conflicts={[]}
+      confirmLabel="Schedule" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText(/Nov 1, 2026 · All day/)).toBeTruthy();
+    expect(screen.queryByText(/Oct 31/)).toBeNull();
+    expect(screen.queryByText(/1500 min/)).toBeNull();
+  });
+
+  it("shows weekly limits, added guests and effective reminders before confirmation", () => {
+    const confirm = vi.fn();
+    render(<AgentCalendarProposalCard accountId="default" action="create" title="Planning"
+      startAt="2026-03-01T17:00:00Z" endAt="2026-03-01T17:30:00Z"
+      timeZone="America/Los_Angeles" attendees={["a@example.com", "b@example.com"]}
+      attendeesAdded={["b@example.com"]} location={null} sendUpdates conflicts={[]}
+      weeklyRecurrence={{ count: 3, lastDate: "2026-03-15", conflictCoverage: "all_occurrences" }}
+      reminders={{ useDefault: false, overrides: [{ method: "popup", minutes: 10 }, { method: "email", minutes: 60 }] }}
+      remindersReplacesDefaults confirmLabel="Schedule" onConfirm={confirm} onCancel={vi.fn()} />);
+    expect(screen.getByText(/Weekly · 3 occurrences/)).toBeTruthy();
+    expect(screen.getByText(/Conflicts checked for all 3 occurrences/)).toBeTruthy();
+    expect(screen.getByText("Guests to add: b@example.com")).toBeTruthy();
+    expect(screen.getByText("Popup: 10 minutes before")).toBeTruthy();
+    expect(screen.getByText("Email: 60 minutes before")).toBeTruthy();
+    expect(screen.getByText(/Calendar defaults become the custom reminders/)).toBeTruthy();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("cannot confirm an incomplete review", () => {
+    const onConfirm = vi.fn();
+    render(<AgentCalendarProposalCard action="create" title={null} startAt={null} endAt={null}
+      attendees={[]} location={null} sendUpdates={false} conflicts={[]} confirmLabel="Schedule"
+      onConfirm={onConfirm} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("agent-calendar-proposal-confirm"));
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("incomplete");
+  });
+
   it("renders a create proposal with title, time range, and notify copy", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="Planning"
         startAt="2026-08-11T10:00:00+05:30"
@@ -39,6 +78,7 @@ describe("AgentCalendarProposalCard", () => {
   it("shows the no-notify copy when sendUpdates is false", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="reschedule"
         title="Client call"
         startAt="2026-08-11T10:00:00Z"
@@ -59,6 +99,7 @@ describe("AgentCalendarProposalCard", () => {
   it("shows every reviewed attendee without truncating the invitation list", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="All hands"
         startAt="2026-08-11T10:00:00Z"
@@ -79,10 +120,12 @@ describe("AgentCalendarProposalCard", () => {
   it("renders a conflicts callout when conflicts are present", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="Client call"
         startAt="2026-08-11T10:00:00Z"
         endAt="2026-08-11T10:30:00Z"
+        timeZone="America/Los_Angeles"
         attendees={[]}
         location={null}
         sendUpdates
@@ -97,6 +140,7 @@ describe("AgentCalendarProposalCard", () => {
 
     expect(screen.getByText(/Conflicts with an existing event/)).toBeTruthy();
     expect(screen.getByText(/Design review/)).toBeTruthy();
+    expect(screen.getByText(/Design review/).textContent).toMatch(/3:00\s*AM/);
     expect(screen.getByText("Schedule anyway")).toBeTruthy();
   });
 
@@ -105,6 +149,7 @@ describe("AgentCalendarProposalCard", () => {
     const onCancel = vi.fn();
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="cancel"
         title="Design review"
         startAt="2026-08-11T10:00:00Z"
@@ -131,6 +176,7 @@ describe("AgentCalendarProposalCard", () => {
   it("falls back to 'Untitled event' when title is missing", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="cancel"
         title={null}
         startAt={null}
@@ -151,6 +197,7 @@ describe("AgentCalendarProposalCard", () => {
   it("shows busy state on the confirm button", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="Planning"
         startAt="2026-08-11T10:00:00Z"

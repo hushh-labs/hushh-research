@@ -55,6 +55,7 @@ from hushh_mcp.one_adk.action_retrieval import (
     retrieval_error,
     search_actions,
 )
+from hushh_mcp.one_adk.location_chat_proposal import legacy_location_chat_action
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
@@ -67,6 +68,8 @@ from hushh_mcp.one_adk.voice_domain_policy import (
     voice_domain_label,
 )
 from hushh_mcp.operons.location.policy import (
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
     normalize_duration_hours,
@@ -1295,6 +1298,7 @@ async def _execute_backend_direct_mutation(
         duration_hours = _parse_positive_hours(slots.get("duration_hours"), default=1.0)
         asked_names: list[str] = []
         failed_names = []
+        unavailable_count = 0
         for target in resolution.resolved:
             target_name = str(target.get("displayName") or "them")
             try:
@@ -1303,13 +1307,24 @@ async def _execute_backend_direct_mutation(
                     owner_user_id=str(target.get("userId") or ""),
                     requested_duration_hours=duration_hours,
                     requested_duration_mode="timed",
+                    enforce_peer_eligibility=True,
                 )
-            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+            except Exception as exc:  # noqa: BLE001 - preserve the rest of the batch
+                if isinstance(exc, OneLocationAgentError) and exc.code in {
+                    LOCATION_PEER_UNAVAILABLE,
+                    "LOCATION_RECIPIENT_NOT_CONNECTED",
+                }:
+                    unavailable_count += 1
+                else:
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                 failed_names.append(target_name)
                 continue
             asked_names.append(target_name)
         if not asked_names:
+            if unavailable_count and unavailable_count == len(failed_names):
+                raise OneLocationAgentError(
+                    LOCATION_PEER_UNAVAILABLE, LOCATION_PEER_UNAVAILABLE_MESSAGE, status_code=409
+                )
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_SEND_FAILED",
                 f"Could not ask {join_names_for_speech(failed_names)} for their location. "
@@ -1688,6 +1703,42 @@ async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dic
     return user_id, None
 
 
+async def _information_read_user_id(
+    tool_context: ToolContext,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Admit catalogue metadata, never consent writes or granted values.
+
+    Private chat uses its live owner-bound turn and the existing metadata
+    broker. Backend-direct mutations retain their separate confirmation gate.
+    """
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if not pod_mode():
+        return await _read_tool_user_id(tool_context)
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+    from hushh_mcp.services.pod_session_authority import PodSessionRefused
+
+    try:
+        scope = current_mcp_turn()
+        admitted = (
+            scope.vault_only
+            and tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+            and await scope.owner_is_admitted(tool_context)
+        )
+    except (ExternalMcpError, HTTPException, PodSessionRefused):
+        admitted = False
+    if not admitted:
+        return None, {
+            "status": "blocked",
+            "message": "Unlock your private agent, then try again.",
+        }
+    return tool_context.user_id, None
+
+
 def _publish_tool_trace(
     tool_context: ToolContext, tool_name: str, *, kind: str, payload: dict[str, Any]
 ) -> None:
@@ -1749,20 +1800,49 @@ def _publish_list_trace(
     )
 
 
+async def _pod_location_state(user_id: str) -> dict[str, Any] | None:
+    """Read signed location projection from the hub owner feed when running inside a pod."""
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if not pod_mode():
+        return None
+    from hushh_mcp.services.pod_owner_feed_client import OwnerFeedUnavailable, owner_feed_client
+
+    client = owner_feed_client()
+    if client is None:
+        raise OwnerFeedUnavailable("location metadata authority unavailable")
+    return await asyncio.to_thread(client.read, "location", user_id)
+
+
 async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
     """List the person's own Location circles: name, kind, and role in each.
 
     Reads live from the backend, not from whatever the current screen has
     published -- safe to call from anywhere, any time.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "your circles", "circles", lambda: OneLocationCircleService().list_circles(user_id=user_id)
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    pod_loc = None
+    try:
+        pod_loc = await _pod_location_state(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_my_location_circles pod_feed_failed")
+        return {
+            "status": "failed",
+            "message": "Could not check your circles right now. Try again in a moment.",
+        }
+    if pod_loc is not None:
+        circles = list(pod_loc.get("circles") or [])
+        result: dict[str, Any] = {"status": "ok", "circles": circles, "count": len(circles)}
+    else:
+        result = await _read_tool_result(
+            "your circles",
+            "circles",
+            lambda: OneLocationCircleService().list_circles(user_id=user_id),
+        )
     if result.get("status") == "ok":
 
         def _circle_detail(row: dict[str, Any]) -> str:
@@ -1786,16 +1866,28 @@ async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
 
 async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
     """List who the person is currently sharing their live location with."""
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "your location shares",
-        "shares",
-        lambda: OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id),
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    try:
+        pod_loc = await _pod_location_state(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_my_location_shares pod_feed_failed")
+        return {
+            "status": "failed",
+            "message": "Could not check your location shares right now. Try again in a moment.",
+        }
+    if pod_loc is not None:
+        shares = [g for g in (pod_loc.get("ownerGrants") or []) if g.get("status") == "active"]
+        result: dict[str, Any] = {"status": "ok", "shares": shares, "count": len(shares)}
+    else:
+        result = await _read_tool_result(
+            "your location shares",
+            "shares",
+            lambda: OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id),
+        )
     if result.get("status") == "ok":
         items = _trace_list_rows(
             result.get("shares") or [],
@@ -1816,16 +1908,30 @@ async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
 
 async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
     """List who is currently sharing their live location with this person."""
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "who's sharing with you",
-        "shares",
-        lambda: OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id),
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    try:
+        pod_loc = await _pod_location_state(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_location_shared_with_me pod_feed_failed")
+        return {
+            "status": "failed",
+            "message": "Could not check who's sharing with you right now. Try again in a moment.",
+        }
+    if pod_loc is not None:
+        shares = [g for g in (pod_loc.get("receivedGrants") or []) if g.get("status") == "active"]
+        result: dict[str, Any] = {"status": "ok", "shares": shares, "count": len(shares)}
+    else:
+        result = await _read_tool_result(
+            "who's sharing with you",
+            "shares",
+            lambda: OneLocationAgentService().list_active_recipient_grants(
+                recipient_user_id=user_id
+            ),
+        )
     if result.get("status") == "ok":
         items = _trace_list_rows(
             result.get("shares") or [],
@@ -1846,16 +1952,32 @@ async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, A
 
 async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
     """List location access requests waiting on this person's approve/decline."""
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "your pending location requests",
-        "requests",
-        lambda: OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id),
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    try:
+        pod_loc = await _pod_location_state(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_pending_location_requests pod_feed_failed")
+        return {
+            "status": "failed",
+            "message": "Could not check your pending location requests right now. Try again in a moment.",
+        }
+    if pod_loc is not None:
+        reqs = [
+            q
+            for q in (pod_loc.get("requests") or [])
+            if q.get("status") == "pending" and q.get("ownerUserId") == user_id
+        ]
+        result: dict[str, Any] = {"status": "ok", "requests": reqs, "count": len(reqs)}
+    else:
+        result = await _read_tool_result(
+            "your pending location requests",
+            "requests",
+            lambda: OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id),
+        )
     if result.get("status") == "ok":
         items = _trace_list_rows(
             result.get("requests") or [],
@@ -1884,7 +2006,9 @@ def _connections_trace_people(connections: list[dict[str, Any]]) -> list[dict[st
         email = row.get("email")
         people.append(
             {
-                "id": str(row.get("connectionId") or row.get("userId") or ""),
+                "id": str(
+                    row.get("connectionId") or row.get("userId") or row.get("publicPersonRef") or ""
+                ),
                 "name": str(row.get("displayName") or "").strip() or "Hussh member",
                 "detail": mask_email(str(email)) if email else None,
                 "photoUrl": row.get("photoUrl") or None,
@@ -1895,16 +2019,33 @@ def _connections_trace_people(connections: list[dict[str, Any]]) -> list[dict[st
 
 async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
     """List the person's Connect connections."""
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "your connections",
-        "connections",
-        lambda: ConnectionsService().list_connections(user_id=user_id),
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        discovery = private_information_discovery(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_my_connections discovery_unavailable")
+        return {
+            "status": "failed",
+            "message": "Could not check your connections right now. Try again in a moment.",
+        }
+    if discovery is not None:
+        result = await _read_tool_result(
+            "your connections",
+            "connections",
+            lambda: discovery.list_connections(user_id=user_id),
+        )
+    else:
+        result = await _read_tool_result(
+            "your connections",
+            "connections",
+            lambda: ConnectionsService().list_connections(user_id=user_id),
+        )
     if result.get("status") == "ok":
         people = _connections_trace_people(result.get("connections") or [])
         _publish_list_trace(
@@ -1923,7 +2064,7 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
 # X" that should ever resolve to it. Kept separate from the general domain
 # registry rather than filtered ad hoc, so a new sensitive domain has one
 # obvious place to be added.
-_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets"})
+_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets", "credentials"})
 
 _PKM_READABLE_DOMAIN_KEYS = tuple(
     entry.domain_key
@@ -2028,32 +2169,48 @@ async def discover_person_information(
     reads a granted value. Requests use the existing proposal and explicit
     browser confirmation, in Chat or Profile.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
 
     try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        private_discovery = private_information_discovery(user_id)
         try:
             person_ref, resolved_name = await asyncio.to_thread(
                 _resolve_person_for_information,
-                ConnectionsService(),
+                private_discovery or ConnectionsService(),
                 user_id,
                 person,
                 tool_context,
                 selection_handle,
+                True,
             )
         except ConsentLifecycleError as exc:
+            if private_discovery:
+                _, blocked = await _information_read_user_id(tool_context)
+                if blocked is not None:
+                    return blocked
             return _information_person_error(exc, tool_context, user_id)
         connection = {"displayName": resolved_name}
-        profile = await PersonProfileService().get_viewer_profile(
-            viewer_user_id=user_id,
-            public_person_ref=person_ref,
-            catalog_page=page,
-            catalog_revision=catalog_revision,
-            catalog_domain=domain.strip(),
+        profile = (
+            await asyncio.to_thread(private_discovery.catalog, person_ref)
+            if private_discovery
+            else await PersonProfileService().get_viewer_profile(
+                viewer_user_id=user_id,
+                public_person_ref=person_ref,
+                catalog_page=page,
+                catalog_revision=catalog_revision,
+                catalog_domain=domain.strip(),
+            )
         )
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         if profile.get("personRef") != person_ref:
             return {
                 "status": "failed",
@@ -2061,20 +2218,46 @@ async def discover_person_information(
             }
         requested_domain = normalize_spoken_name(domain)
         scopes = []
+        paid_items = []
         for item in profile.get("requestableScopes") or []:
             item_domain = str(item.get("domain") or "").strip()
             if requested_domain and requested_domain not in normalize_spoken_name(item_domain):
                 continue
-            scopes.append(
-                {
-                    "scopeRef": item.get("scopeRef"),
-                    "label": item.get("label") or "Information",
-                    "description": item.get("description"),
-                    "domain": item_domain or "Other",
-                    "sensitivity": item.get("sensitivity") or "sensitive",
-                    "pathSegments": item.get("pathSegments") or [],
-                }
+            raw_price = item.get("priceCents")
+            price_cents = (
+                int(raw_price)
+                if isinstance(raw_price, int) and not isinstance(raw_price, bool) and raw_price > 0
+                else None
             )
+            raw_base_hours = item.get("baseDurationHours")
+            base_hours = (
+                int(raw_base_hours)
+                if isinstance(raw_base_hours, int)
+                and not isinstance(raw_base_hours, bool)
+                and raw_base_hours > 0
+                else None
+            )
+            scope_entry: dict[str, Any] = {
+                "scopeRef": item.get("scopeRef"),
+                "label": item.get("label") or "Information",
+                "description": item.get("description"),
+                "domain": item_domain or "Other",
+                "sensitivity": item.get("sensitivity") or "sensitive",
+                "pathSegments": item.get("pathSegments") or [],
+            }
+            if price_cents is not None:
+                scope_entry["priceCents"] = price_cents
+                if base_hours is not None:
+                    scope_entry["baseDurationHours"] = base_hours
+                paid_items.append(
+                    {
+                        "label": scope_entry["label"],
+                        "domain": scope_entry["domain"],
+                        "priceCents": price_cents,
+                        "baseDurationHours": base_hours or 168,
+                    }
+                )
+            scopes.append(scope_entry)
         active_grants = profile.get("grants") or []
         shared_with_you = [
             {
@@ -2088,7 +2271,7 @@ async def discover_person_information(
             }
             for g in active_grants
         ]
-        return {
+        result = {
             "status": "ok",
             "person": {
                 "displayName": profile.get("displayName")
@@ -2103,15 +2286,28 @@ async def discover_person_information(
             "sharedCount": len(shared_with_you),
             "requestableScopes": scopes,
             "scopeCount": len(scopes),
+            "paidCount": len(paid_items),
+            **({"paidItems": paid_items} if paid_items else {}),
             "scopeCatalog": profile.get("scopeCatalog"),
             "nextStep": (
                 "scopeCount is the current page; scopeCatalog.totalCount describes all matching fields. "
                 "Use scopeCatalog.nextPage and catalogRevision only when more fields are requested. "
+                "If paidItems is present, clearly mention which items are paid and their coin/dollar price. "
                 "If they have shared information with you (sharedWithYou), tell the user what has been granted. "
                 "For new requests, let the card present the fields and ask for the purpose and duration. "
                 "Keep the selected person for the proposal; open their profile only if requested."
             ),
         }
+        if private_discovery:
+            # The broker publishes requestable metadata, not grant evidence.
+            for key in ("sharedWithYou", "sharedCount", "scopeCatalog"):
+                result.pop(key)
+            result["nextStep"] = (
+                "If paidItems is present, clearly mention which items are paid and their coin/dollar price. "
+                "Let the card present the available fields and ask for the purpose and duration. "
+                "Keep the selected person for the proposal. Nothing has been requested yet."
+            )
+        return result
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
         return {"status": "failed", "message": str(exc)}
     except Exception:  # noqa: BLE001 - consumer-safe boundary
@@ -2135,13 +2331,16 @@ async def list_information_shared_with_me(
     field names and dates only, never a value. Reply in one short line such as
     "Here's what Manish shared with you:" and let the card show the rest.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
 
     try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        private_discovery = private_information_discovery(user_id)
         selected_person_ref: str | None = None
         selected_person_name: str | None = None
         if (
@@ -2151,15 +2350,27 @@ async def list_information_shared_with_me(
         ):
             selected_person_ref, selected_person_name = await asyncio.to_thread(
                 _resolve_person_for_information,
-                ConnectionsService(),
+                private_discovery or ConnectionsService(),
                 user_id,
                 str(person or ""),
                 tool_context,
             )
-        shares = await InformationRequestService().list_granted_shares(
-            requester_user_id=user_id,
-            person_ref=selected_person_ref,
+            if private_discovery:
+                _, blocked = await _information_read_user_id(tool_context)
+                if blocked is not None:
+                    return blocked
+        shares = (
+            await asyncio.to_thread(private_discovery.granted_shares, selected_person_ref or "")
+            if private_discovery
+            else await InformationRequestService().list_granted_shares(
+                requester_user_id=user_id,
+                person_ref=selected_person_ref,
+            )
         )
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         # Contract C6: one card per person, no values. The chat renders it
         # from this result; the model reads the same labels and field names.
         cards = build_shared_with_me_cards(shares)
@@ -2277,6 +2488,7 @@ def _resolve_person_for_information(
     spoken: str,
     tool_context: ToolContext | None = None,
     selection_handle: str = "",
+    allow_read_only_switch: bool = False,
 ) -> tuple[str, str]:
     """Resolve one named person to ``(public_person_ref, display_name)``.
 
@@ -2463,7 +2675,7 @@ def _resolve_person_for_information(
         raise ConsentLifecycleError(
             "PERSON_PROFILE_NOT_READY", "That person's request profile is not ready yet."
         )
-    if confirm_changed_person:
+    if confirm_changed_person and not (allow_read_only_switch and not resolution.unresolved):
         raise InformationPersonAmbiguous([person])
     return _remember_information_person(
         tool_context,
@@ -2727,39 +2939,78 @@ def _already_pending_result(
     }
 
 
-async def list_pending_information_requests(tool_context: ToolContext) -> dict[str, Any]:
-    """List the information requests waiting on the owner's decision: who asks, for what, until when.
+async def list_pending_information_requests(
+    tool_context: ToolContext,
+    requester_query: str = "",
+    staged_duration_hours: int | None = None,
+) -> dict[str, Any]:
+    """List the information requests waiting on the owner's decision, and optionally pre-stage terms on the live card.
 
     Labels only, never a raw scope or an internal id. Approval is not a tool:
-    the browser shows each request as a card and the owner's tap approves it,
-    because the export is encrypted in their unlocked browser. To decline one,
-    run consent.deny with its requestId; the app shows the confirmation.
+    the browser shows each request as an interactive AG-UI card and the owner's
+    tap approves and seals it, because the export is encrypted in their unlocked
+    browser. When the owner replies in natural language to adjust the duration or
+    prepare a specific requester's card (for example, "allow KT's request for 3 days"
+    or "stage Kushal's request for 24 hours"), pass ``requester_query`` and
+    ``staged_duration_hours`` (such as 24, 72, 168, or 720) so the card updates in
+    place ready for one-tap confirmation. To decline one, run consent.deny with its
+    requestId; the app shows the confirmation.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
     try:
-        pending = await ConsentLifecycleService().list_pending_incoming(user_id)
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        discovery = private_information_discovery(user_id)
+        if discovery is not None:
+            pending = await asyncio.to_thread(discovery.list_pending_incoming, limit=20)
+        else:
+            pending = await ConsentLifecycleService().list_pending_incoming(user_id)
     except Exception:  # noqa: BLE001 - consumer-safe boundary
         logger.exception("list_pending_information_requests failed")
         return {
             "status": "failed",
             "message": "Your pending requests are temporarily unavailable. Please try again.",
         }
+    clean_query = str(requester_query or "").strip().lower()
+    filtered_pending = pending
+    if clean_query and pending:
+        matched_pending = [
+            item
+            for item in pending
+            if clean_query
+            in f"{item.get('requesterLabel', '')} {item.get('requester', '')} {item.get('label', '')} {' '.join(str(x) for x in (item.get('labels') or []))}".lower()
+        ]
+        if matched_pending:
+            filtered_pending = matched_pending
+
     # The ids the app turns into the owner's pending cards (one per waiting
     # item). A request with none cannot be shown as a card from here.
     request_ids: list[str] = []
-    for item in pending:
+    for item in filtered_pending:
         ids = item.get("requestIds")
         for request_id in ids if isinstance(ids, list) else [item.get("requestId")]:
             text = str(request_id or "").strip()
             if text and text not in request_ids:
                 request_ids.append(text)
     request_ids = request_ids[:20]
+    valid_staged_hours = (
+        int(staged_duration_hours)
+        if isinstance(staged_duration_hours, int)
+        and not isinstance(staged_duration_hours, bool)
+        and 1 <= staged_duration_hours <= 2160
+        else None
+    )
     if not pending:
         next_step = "Nothing is waiting on them right now."
+    elif request_ids and valid_staged_hours is not None:
+        next_step = (
+            f"Confirm in one short line that the request card is pre-staged for {valid_staged_hours} hours "
+            "below your reply and ready for their Allow tap to seal and send."
+        )
     elif request_ids:
         next_step = (
             "Say who is asking and for what in one short line. The app shows each waiting "
@@ -2772,14 +3023,20 @@ async def list_pending_information_requests(tool_context: ToolContext) -> dict[s
             "Say who is asking and for what. No card can be shown for these here, so do not "
             "say a card is on screen; they can decide in the Consent Center."
         )
-    return {
+    result: dict[str, Any] = {
         "status": "ok",
-        "pendingRequests": pending,
-        "count": len(pending),
+        "pendingRequests": filtered_pending,
+        "count": len(filtered_pending),
         "pendingRequestIds": request_ids,
         "cardsShown": bool(request_ids),
         "nextStep": next_step,
     }
+    if valid_staged_hours is not None and request_ids:
+        result["stagedConsentDecision"] = {
+            "requestIds": request_ids,
+            "expiryHours": valid_staged_hours,
+        }
+    return result
 
 
 async def list_active_grants(tool_context: ToolContext) -> dict[str, Any]:
@@ -2789,13 +3046,19 @@ async def list_active_grants(tool_context: ToolContext) -> dict[str, Any]:
     Names each thing in plain words and hands back an opaque grant id; pass
     that id to consent.revoke to end one. Never says a scope or a token.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
     try:
-        grants = await ConsentLifecycleService().list_active_grants(user_id)
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        discovery = private_information_discovery(user_id)
+        if discovery is not None:
+            grants = await asyncio.to_thread(discovery.list_active_grants, limit=20)
+        else:
+            grants = await ConsentLifecycleService().list_active_grants(user_id)
     except Exception:  # noqa: BLE001 - consumer-safe boundary
         logger.exception("list_active_grants failed")
         return {
@@ -2850,8 +3113,16 @@ async def _list_outgoing_information_requests_only(
 ) -> dict[str, Any]:
     """Keep cancellable information bundles separate from Drive requests."""
     try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        discovery = private_information_discovery(user_id)
         # One extra row distinguishes a complete list from the newest page.
-        sent = await InformationRequestService().list_outgoing(requester_user_id=user_id, limit=11)
+        if discovery is not None:
+            sent = await asyncio.to_thread(discovery.list_outgoing_requests, limit=11)
+        else:
+            sent = await InformationRequestService().list_outgoing(
+                requester_user_id=user_id, limit=11
+            )
     except Exception:  # noqa: BLE001 - consumer-safe boundary
         logger.exception("list_my_outgoing_information_requests failed")
         return {
@@ -2904,33 +3175,39 @@ async def list_my_outgoing_information_requests(tool_context: ToolContext) -> di
     rows are read from their own requester-scoped projection and remain status
     only; they cannot become targets of ``consent.cancel_request``.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
 
     information = await _list_outgoing_information_requests_only(tool_context, user_id=user_id)
-    try:
-        drive = await DriveSharingProjectionStore().list_outgoing_for_chat(user_id=user_id)
-    except Exception:  # noqa: BLE001 - never turn a failed Drive read into zero requests
-        logger.exception("list_my_outgoing_information_requests drive_status_failed")
-        if information["status"] != "ok":
+    from hushh_mcp.runtime_settings import pod_mode
+
+    drive: dict[str, Any]
+    if pod_mode():
+        drive = {"items": [], "hasMore": False}
+    else:
+        try:
+            drive = await DriveSharingProjectionStore().list_outgoing_for_chat(user_id=user_id)
+        except Exception:  # noqa: BLE001 - never turn a failed Drive read into zero requests
+            logger.exception("list_my_outgoing_information_requests drive_status_failed")
+            if information["status"] != "ok":
+                return {
+                    "status": "failed",
+                    "message": "Your sent request statuses are temporarily unavailable. Please try again.",
+                }
             return {
-                "status": "failed",
-                "message": "Your sent request statuses are temporarily unavailable. Please try again.",
+                "status": "partial",
+                "requests": information["requests"],
+                "informationRequestsHasMore": information["hasMore"],
+                "informationRequestsHaveUnknownPeople": information["hasUnknownPeople"],
+                "documentRequests": [],
+                "documentRequestsHasMore": False,
+                "documentRequestsHaveUnknownPeople": False,
+                "message": "Information requests were checked, but Drive document request status is temporarily unavailable.",
+                "nextStep": "Report the information requests shown, and say Drive request status could not be checked. If informationRequestsHasMore is true, these are only the newest information requests. A row without a person label may be the named person's request. Do not claim a named person has no request from a partial list.",
             }
-        return {
-            "status": "partial",
-            "requests": information["requests"],
-            "informationRequestsHasMore": information["hasMore"],
-            "informationRequestsHaveUnknownPeople": information["hasUnknownPeople"],
-            "documentRequests": [],
-            "documentRequestsHasMore": False,
-            "documentRequestsHaveUnknownPeople": False,
-            "message": "Information requests were checked, but Drive document request status is temporarily unavailable.",
-            "nextStep": "Report the information requests shown, and say Drive request status could not be checked. If informationRequestsHasMore is true, these are only the newest information requests. A row without a person label may be the named person's request. Do not claim a named person has no request from a partial list.",
-        }
 
     document_requests = drive["items"]
     document_requests_has_more = bool(drive["hasMore"])
@@ -3003,7 +3280,7 @@ async def propose_information_request(
     secure key is not ready and nothing can be asked for yet; tell them to
     unlock their private agent and try again.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
@@ -3029,6 +3306,10 @@ async def propose_information_request(
                 public_person_ref=person_ref,
             )
         )
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         if profile.get("personRef") != person_ref:
             return {
                 "status": "failed",
@@ -3095,10 +3376,65 @@ async def propose_information_request(
                     "domain or name the exact fields you want. Nothing has been sent."
                 ),
             }
+        # Filter out scopes already actively shared so multi-turn requests (e.g.
+        # already holding finance.accounts while asking for finance.liabilities)
+        # never re-select already-granted items.
+        existing_shares: list[dict[str, Any]] = []
+        try:
+            granted_fn = getattr(private_discovery, "granted_shares", None)
+            if callable(granted_fn):
+                existing_shares = await asyncio.to_thread(granted_fn, person_ref)
+            elif private_discovery is None:
+                existing_shares = await InformationRequestService().list_granted_shares(
+                    requester_user_id=user_id,
+                    person_ref=person_ref,
+                )
+        except Exception:  # noqa: BLE001 - a failed check must not block a new request
+            logger.warning("one.proposal_granted_check_unavailable")
+        if existing_shares:
+            granted_refs = {
+                str(share.get("scopeRef")) for share in existing_shares if share.get("scopeRef")
+            }
+            granted_labels = {
+                str(share.get("label") or "").strip().lower()
+                for share in existing_shares
+                if share.get("label")
+            }
+
+            def _is_already_granted(entry: dict[str, Any]) -> bool:
+                sref = str(entry.get("scopeRef") or "")
+                if sref and sref in granted_refs:
+                    return True
+                lbl = str(entry.get("label") or "").strip().lower()
+                return bool(lbl and lbl in granted_labels)
+
+            if all(_is_already_granted(item) for item in matched):
+                cards = build_shared_with_me_cards(existing_shares)
+                return {
+                    "status": "already_shared",
+                    "person": {
+                        "displayName": display_name,
+                        "personRef": person_ref,
+                        "profilePath": profile_path,
+                    },
+                    "kind": SHARED_WITH_ME_CARD_KIND,
+                    "cards": cards,
+                    **({"card": cards[0]} if len(cards) == 1 else {}),
+                    "message": (
+                        f"{display_name} is already sharing that with you. "
+                        "Reply in one short line and let the card show it; do not send a duplicate request."
+                    ),
+                }
+            matched = [item for item in matched if not _is_already_granted(item)]
+
         # A5 (localhost run 4): asked again while the same request waits on
         # the same person, One said "tap Send" on a fresh card. What is
         # already waiting is reported as waiting, with its living card.
         waiting = await _already_pending(user_id, person_ref, matched, read_port=private_discovery)
+        if private_discovery:
+            _, blocked = await _information_read_user_id(tool_context)
+            if blocked is not None:
+                return blocked
         if waiting is not None:
             pending_refs = set(waiting["scopeRefs"])
             if all(str(item.get("scopeRef")) in pending_refs for item in matched):
@@ -3167,6 +3503,23 @@ async def propose_information_request(
         # stayed after Send and could send a second request (2026-09-28). A
         # model that still calls run_app_action("consent.request") with this
         # proposal id gets the confirmation from that tool, as before.
+        paid_matched = [
+            {
+                "label": str(item.get("label") or "Information"),
+                "priceCents": int(item["priceCents"]),
+                "baseDurationHours": int(item.get("baseDurationHours") or 168),
+            }
+            for item in matched
+            if isinstance(item.get("priceCents"), int)
+            and not isinstance(item.get("priceCents"), bool)
+            and int(item["priceCents"]) > 0
+        ]
+        paid_note = (
+            " This request includes paid information; mention briefly that the exact coin price "
+            "and balance appear on the card and are reserved on Send (refunded if declined)."
+            if paid_matched
+            else ""
+        )
         result = {
             "status": "proposal_ready",
             "proposalId": proposal_id,
@@ -3179,6 +3532,7 @@ async def propose_information_request(
             "unmatchedFields": unmatched,
             "purpose": cleaned_purpose,
             "durationHours": hours,
+            **({"paidItems": paid_matched} if paid_matched else {}),
             # Contract C4 shape. ``scope`` is the opaque per-person reference
             # (the same one the catalog search returns), never a raw scope.
             "proposed": [
@@ -3197,7 +3551,7 @@ async def propose_information_request(
                 "Send and Change, so do not repeat it, do not offer to prepare a card, and do "
                 "not say they have not shared anything with you. Never say grant, scope, "
                 "domain or PKM. Do not ask for a spoken yes or call another consent action: "
-                "their tap on Send is what authorizes it, and nothing is sent until then."
+                f"their tap on Send is what authorizes it, and nothing is sent until then.{paid_note}"
                 if connector_ready
                 else "The owner's secure key is not ready yet, so nothing can be asked for. "
                 "Say exactly that in plain words, tell them to unlock their private agent and try "
@@ -3206,6 +3560,9 @@ async def propose_information_request(
         }
         return result
     except ConsentLifecycleError as exc:
+        _, blocked = await _information_read_user_id(tool_context)
+        if blocked is not None:
+            return blocked
         return _information_person_error(exc, tool_context, user_id)
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
         return {"status": "failed", "message": str(exc)}
@@ -3702,16 +4059,33 @@ async def list_pending_connection_requests(
 ) -> dict[str, Any]:
     """List pending Connect requests. "incoming" = waiting on this person to accept;
     "outgoing" = this person's own asks still waiting on someone else."""
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "your pending connection requests",
-        "requests",
-        lambda: ConnectionsService().list_requests(user_id=user_id, direction=direction),
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        discovery = private_information_discovery(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_pending_connection_requests discovery_unavailable")
+        return {
+            "status": "failed",
+            "message": "Could not check your pending connection requests right now. Try again in a moment.",
+        }
+    if discovery is not None:
+        result = await _read_tool_result(
+            "your pending connection requests",
+            "requests",
+            lambda: discovery.list_connection_requests(direction=direction),
+        )
+    else:
+        result = await _read_tool_result(
+            "your pending connection requests",
+            "requests",
+            lambda: ConnectionsService().list_requests(user_id=user_id, direction=direction),
+        )
     if result.get("status") == "ok":
         # No photo/masked-contact field on a connection-request row (see
         # ConnectionsService.list_requests) -- name only, same as any other
@@ -3740,18 +4114,34 @@ async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[
     """List this person's own asks for someone else's location still waiting
     on that person's approve/decline -- the mirror of
     list_pending_location_requests, which is the incoming direction."""
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    result = await _read_tool_result(
-        "your outgoing location requests",
-        "requests",
-        lambda: OneLocationAgentService().list_pending_requester_requests(
-            requester_user_id=user_id
-        ),
-    )
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
+    try:
+        pod_loc = await _pod_location_state(user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("list_my_outgoing_location_requests pod_feed_failed")
+        return {
+            "status": "failed",
+            "message": "Could not check your outgoing location requests right now. Try again in a moment.",
+        }
+    if pod_loc is not None:
+        reqs = [
+            q
+            for q in (pod_loc.get("requests") or [])
+            if q.get("status") == "pending" and q.get("requesterUserId") == user_id
+        ]
+        result: dict[str, Any] = {"status": "ok", "requests": reqs, "count": len(reqs)}
+    else:
+        result = await _read_tool_result(
+            "your outgoing location requests",
+            "requests",
+            lambda: OneLocationAgentService().list_pending_requester_requests(
+                requester_user_id=user_id
+            ),
+        )
     if result.get("status") == "ok":
         items = _trace_list_rows(
             result.get("requests") or [],
@@ -3946,6 +4336,8 @@ async def run_app_action(
     beyond this tool's status.
     """
     clean_id = str(action_id or "").strip()
+    if redirected := legacy_location_chat_action(tool_context.state, clean_id):
+        return redirected
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_action_gateway_action(clean_id)
     if entry is not None and (
@@ -4778,6 +5170,8 @@ async def start_app_goal(
     introduced here.
     """
     clean_id = str(action_id or "").strip()
+    if redirected := legacy_location_chat_action(tool_context.state, clean_id):
+        return redirected
     entry = get_action_gateway_action(clean_id)
     # Checked here, before either journey branch below, because both bypass
     # run_app_action entirely -- a settled journey never reaches it, and a
@@ -4970,6 +5364,12 @@ async def _continue_settled_journey(
 async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     """Continue an authored goal only after fresh route context has settled."""
     run = tool_context.state.get(_STATE_GOAL_RUN)
+    if isinstance(run, dict) and (
+        redirected := legacy_location_chat_action(
+            tool_context.state, str(run.get("action_id") or "").strip()
+        )
+    ):
+        return redirected
     if isinstance(run, dict) and run.get("schema_version") == "one.settled_action_journey.v1":
         return await _continue_settled_journey(run, tool_context)
     # Every outcome below is logged with a distinct reason. A stalled journey
@@ -5382,6 +5782,21 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         action_entry = all_entries.get(ra.action_id)
         if action_entry is None:
             continue
+        # Keep the authored action as a search match, but advertise the executor
+        # that this conversation actually admits. The gateway's journey or
+        # open-first route would send the owner out of the conversation.
+        if review := legacy_location_chat_action(tool_context.state, ra.action_id):
+            results.append(
+                {
+                    "action_id": ra.action_id,
+                    "label": str(action_entry.get("label") or ""),
+                    "meaning": review["message"],
+                    "policy": review["status"],
+                    "availability": "in_chat",
+                    "use_tool": review["next_tool"],
+                }
+            )
+            continue
 
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(
             str(action_entry.get("delegate_agent_id") or "")
@@ -5439,6 +5854,10 @@ async def propose_app_action(
     clean_id = str(action_id or "").strip()
     if not clean_id:
         return {"status": "blocked", "message": "An action id is required."}
+    if tool_context is not None and (
+        redirected := legacy_location_chat_action(tool_context.state, clean_id)
+    ):
+        return redirected
 
     entry = get_action_gateway_action(clean_id)
     if entry is None:
@@ -5552,7 +5971,7 @@ async def list_available_models(tool_context: ToolContext) -> dict[str, Any]:
     The catalog is server-side, so the choices are whatever the deployment can actually
     serve rather than anything the model believes exists.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
@@ -5617,16 +6036,16 @@ async def add_to_pkm(
     tool_context: ToolContext,
     whole_message: bool = False,
 ) -> dict[str, Any]:
-    """Hand information the person asked you to save to their device, which saves it to their private memory.
+    """Hand information the person asked you to save to their device, which saves it to their private memory and Personal Wiki.
 
     Use only when the person explicitly asks to save, remember, store, or add information to
-    their memory. Set whole_message=true when they pasted a document or a long passage and
+    their memory or Personal Wiki. Set whole_message=true when they pasted a document or a long passage and
     asked to save it: their device reads their own message, so pass a one-line summary as
     memory_text instead of copying the text. For one detail stated in conversation, pass that
     detail as memory_text.
 
     This call saves nothing by itself. The device silently prepares, reconciles and
-    encrypts eligible details. Continue the conversation without narrating that work.
+    encrypts eligible details into private memory and Personal Wiki. Continue the conversation without narrating that work.
     """
     clean_text = str(memory_text or "").strip()
     if not clean_text and not whole_message:

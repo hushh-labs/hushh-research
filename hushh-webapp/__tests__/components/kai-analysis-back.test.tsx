@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Children, type ReactNode } from "react";
+import { Children, useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
@@ -16,7 +16,8 @@ const state = vi.hoisted(() => {
     router: { push: navigate, replace: navigate },
     tasks: [] as { runId: string; ticker: string; userId: string; status: string; startedAt: string }[],
     taskListeners: new Set<(value: { tasks: unknown[] }) => void>(),
-    cancel: vi.fn(), setAnalysisParams: vi.fn(), setBusy: vi.fn(), context: vi.fn(), actions: new Map<string, () => unknown>(),
+    cancel: vi.fn(), setAnalysisParams: vi.fn(), setBusy: vi.fn(), context: vi.fn(), controllerMounts: 0, actions: new Map<string, () => unknown>(),
+    loadPreview: vi.fn(),
     analysisParams: null as Record<string, unknown> | null, analysisParamsUpdatedAt: 0,
     entry: { ticker: "TEST", timestamp: "2026-10-20T14:00:00Z", final_statement: "Saved result", raw_card: { debate_run_id: "run-1" } },
   };
@@ -33,7 +34,15 @@ vi.mock("next/navigation", async () => {
     },
   };
 });
-vi.mock("@/components/icons", () => ({ ArrowLeft: () => null, X: () => null, MessageCircle: () => null, Laptop: () => null, LayoutDashboard: () => null }));
+vi.mock("@/components/icons", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/components/icons")>(),
+  ArrowLeft: () => null,
+  X: () => null,
+  ChevronDown: () => null,
+  MessageCircle: () => null,
+  Laptop: () => null,
+  LayoutDashboard: () => null,
+}));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { dismiss: vi.fn(), success: vi.fn(), loading: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button onClick={onClick} disabled={disabled}>{children}</button> }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" }, userId: "synthetic-owner" }) }));
@@ -49,11 +58,12 @@ vi.mock("@/lib/services/kai-history-service", () => ({
   getAnalysisHistoryEntryRouteId: () => "run:run-1",
 }));
 vi.mock("@/lib/kai/market-snapshot", () => ({
+  extractTickerMarketSnapshotFromKaiHome: () => null,
   getLatestMarketSnapshotFromCache: () => null, marketSnapshotForTicker: () => null,
   pickPreferredMarketSnapshot: () => null, fetchLatestMarketSnapshot: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/lib/services/cache-service", () => ({ CacheService: { getInstance: () => ({ subscribe: () => () => undefined }) } }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { getKaiStockPreview: vi.fn().mockResolvedValue({ symbol: "TEST" }) } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { getKaiStockPreview: state.loadPreview } }));
 vi.mock("@/lib/services/kai-service", () => ({ getStockContext: state.context }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn(), useVoiceSurfaceControlTracking: () => ({}) }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: (id: string, handler: () => unknown) => { state.actions.set(id, handler); } }));
@@ -76,10 +86,13 @@ vi.mock("@/components/kai/views/kai-analysis-preview-view", () => ({ KaiAnalysis
 vi.mock("@/components/kai/views/history-detail-view", () => ({ HistoryDetailView: () => <p>Saved detail</p> }));
 vi.mock("@/components/kai/views/analysis-summary-view", () => ({ AnalysisSummaryView: () => <p>Saved summary</p> }));
 vi.mock("@/components/kai/views/analysis-history-dashboard", () => ({ AnalysisHistoryDashboard: () => <p>History entries</p> }));
-vi.mock("@/components/kai/views/kai-stocks-view", () => ({ KaiStocksView: ({ browseStocks, historyRequested }: { browseStocks: boolean; historyRequested: boolean }) => <>{browseStocks ? <p>Stock browser</p> : null}{historyRequested ? <p>Stock history</p> : null}</> }));
+vi.mock("@/components/kai/views/kai-stocks-view", () => ({ KaiStocksView: ({ browseStocks, historyRequested, onAnalyze }: { browseStocks: boolean; historyRequested: boolean; onAnalyze: (ticker: string, source: string) => void }) => <>{browseStocks ? <><p>Stock browser</p><button onClick={() => onAnalyze("TEST", "default")}>Analyze TEST</button></> : null}{historyRequested ? <p>Stock history</p> : null}</> }));
 vi.mock("@/components/kai/cards/stock-comparison-preview", () => ({ StockComparisonPreview: () => <p>Preview details</p> }));
-vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, children, footer, onOpenChange }: { open: boolean; children: ReactNode; footer: ReactNode; onOpenChange: (open: boolean) => void }) => open ? <div role="dialog" data-state="open" onKeyDown={event => { if (event.key === "Escape") onOpenChange(false); }}>{children}{footer}</div> : null }));
-vi.mock("@/components/kai/debate-stream-view", () => ({ DebateStreamView: ({ onDecisionReady }: { onDecisionReady: (entry: unknown, meta: unknown) => void }) => <button onClick={() => onDecisionReady(state.entry, { runId: "run-1" })}>Finish synthetic analysis</button> }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }));
+vi.mock("@/components/kai/debate-stream-view", () => ({ DebateStreamView: ({ onDecisionReady }: { onDecisionReady: (entry: unknown, meta: unknown) => void }) => {
+  useEffect(() => { state.controllerMounts += 1; }, []);
+  return <button onClick={() => onDecisionReady(state.entry, { runId: "run-1" })}>Finish synthetic analysis</button>;
+} }));
 
 function back() {
   act(() => {
@@ -100,11 +113,39 @@ beforeEach(() => {
     state.analysisParamsUpdatedAt = value ? Date.now() : 0;
   });
   state.context.mockReset();
+  state.loadPreview.mockReset().mockResolvedValue({ symbol: "TEST" });
+  state.controllerMounts = 0;
   state.actions.clear();
   state.navigate("/one/kai?tab=analysis");
 });
 
 describe("Finance shared Back with the mounted analysis page", () => {
+  it("starts from a stock click without a second preview and ignores repeated pending clicks", async () => {
+    let finish!: (value: { user_risk_profile: string }) => void;
+    state.context.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    render(<KaiAnalysisPageContent />);
+    const analyze = await screen.findByRole("button", { name: "Analyze TEST" });
+    fireEvent.click(analyze);
+    fireEvent.click(analyze);
+    expect(state.context).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => { finish({ user_risk_profile: "balanced" }); });
+    await waitFor(() => expect(state.setAnalysisParams).toHaveBeenCalledWith(expect.objectContaining({ ticker: "TEST", launchConfirmed: true, pickSource: "default" })));
+    expect(new URL(state.getHref(), "https://app.test").searchParams.get("view")).toBe("summary");
+  });
+
+  it("keeps the active analysis controller mounted while opening and closing the detailed record", async () => {
+    state.tasks = [{ runId: "run-1", ticker: "TEST", userId: "synthetic-owner", status: "running", startedAt: "2026-10-20T14:00:00Z" }];
+    state.navigate("/one/kai?tab=analysis&focus=active&run_id=run-1");
+    render(<KaiAnalysisPageContent />);
+    await screen.findByRole("button", { name: "Finish synthetic analysis" });
+    const mounts = state.controllerMounts;
+    fireEvent.click(screen.getByRole("button", { name: "Detailed record and sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    expect(state.controllerMounts).toBe(mounts);
+    expect(screen.getByRole("button", { name: "Finish synthetic analysis" })).toBeVisible();
+    expect(state.cancel).not.toHaveBeenCalled();
+  });
   it("still commits a confirmed preview launch while its screen remains selected", async () => {
     state.context.mockResolvedValue({ user_risk_profile: "balanced" });
     state.navigate("/one/kai?tab=analysis&ticker=TEST");
@@ -114,6 +155,37 @@ describe("Finance shared Back with the mounted analysis page", () => {
     fireEvent.click(start);
     await waitFor(() => expect(state.setAnalysisParams).toHaveBeenCalledWith(expect.objectContaining({ ticker: "TEST", launchConfirmed: true })));
     expect(new URL(state.getHref(), "https://app.test").searchParams.get("focus")).toBe("active");
+  });
+
+  it("closes the mobile stock preview and returns to the stock browser", async () => {
+    state.navigate("/one/kai?tab=analysis&ticker=TEST");
+    render(<KaiAnalysisPageContent />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close", exact: true }));
+
+    expect(state.getHref()).toBe("/one/kai?tab=analysis");
+    expect(screen.getByText("Stock browser")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(state.context).not.toHaveBeenCalled();
+  });
+
+  it("blocks confirmation while the current preview loads, even if an earlier request finishes", async () => {
+    let finishOld!: (value: { symbol: string }) => void;
+    let finishCurrent!: (value: { symbol: string }) => void;
+    state.loadPreview
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+      .mockReturnValueOnce(new Promise(resolve => { finishCurrent = resolve; }));
+    state.navigate("/one/kai?tab=analysis&ticker=TEST");
+    render(<KaiAnalysisPageContent />);
+    const start = await screen.findByRole("button", { name: "Start analysis debate" });
+    act(() => state.navigate("/one/kai?tab=analysis&ticker=NEXT"));
+    expect(state.loadPreview.mock.calls[0][0].signal.aborted).toBe(true);
+    await act(async () => { finishOld({ symbol: "TEST" }); });
+    expect(start).toBeDisabled();
+    expect(state.actions.get("analysis.confirm_preview")?.()).toMatchObject({ status: "blocked" });
+    expect(state.context).not.toHaveBeenCalled();
+    await act(async () => { finishCurrent({ symbol: "NEXT" }); });
+    expect(start).toBeEnabled();
   });
 
   it.each(["back", "tab"])("ignores a pending preview launch after leaving by %s", async (leave) => {

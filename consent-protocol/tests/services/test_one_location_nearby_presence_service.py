@@ -55,6 +55,7 @@ def _anchor_row(
         "status": "active",
         "audience": "all_opted_in",
         "allow_connection_requests": allows_requests,
+        "can_request_connection": allows_requests,
         "consent_version": NEARBY_PRESENCE_CONSENT_VERSION,
         "radius_meters": NEARBY_PRESENCE_RADIUS_METERS,
         "checked_in_at": NOW,
@@ -706,15 +707,23 @@ def test_check_in_rejects_unsafe_or_invalid_inputs(overrides, expected_code):
     assert store.upsert_args is None
 
 
-def test_phone_verification_is_eligibility_not_consent():
+@pytest.mark.parametrize("profile", [None, {"user_id": "viewer", "phone_verified": False}])
+def test_phone_is_optional_for_check_in_and_required_for_nearby_connect(profile):
     store = FakeStore()
-    store.profile = {"user_id": "viewer", "phone_verified": False}
-    service, _ = _service(store)
+    store.profile = profile
+    service, connections = _service(store)
+
+    assert service.get_state(user_id="viewer") == {"presence": None, "attendees": []}
+    checked_in = _check_in(service, consent_accepted=True, allow_connection_requests=True)
+    assert checked_in["presence"]["status"] == "active"
+    assert checked_in["presence"]["allowConnectionRequests"] is False
 
     with pytest.raises(NearbyPresenceError) as exc:
-        _check_in(service, consent_accepted=True)
+        service.request_connection(user_id="viewer", participant_alias=TARGET_ALIAS)
 
     assert exc.value.code == "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED"
+    assert not connections.calls
+    assert service.checkout(user_id="viewer")["presence"] is None
 
 
 def test_alias_connection_rechecks_exact_radius_and_binds_presence_versions():

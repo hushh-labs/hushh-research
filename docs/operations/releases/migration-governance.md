@@ -117,6 +117,37 @@ while preserving compatible review history. The 971 SQL down path refuses while
 private reviews remain; never delete history to force it. Restoring its earlier
 schema requires the separately reviewed forward qualification before re-enablement.
 
+## GCP notification account-ID admission
+
+Canonical 449 and parked 976 correct the notification checkpoint validator's
+service-account local-part boundary to six through thirty characters, with a
+letter first and an alphanumeric character last. The previous expression refused
+the existing renderer's thirty-character runtime identity. Exact owner/project
+binding and the four/five-resource custody alternatives remain unchanged.
+
+The Dev Stage B reconciliation retains Calendar relevance migration 445 and
+registers the notification source at 449, leaving Main/UAT's Finance 446/447
+outside this Dev change. A target-bound Dev inspection at
+2026-11-05T19:32:59Z used a repeatable-read, read-only transaction and rollback:
+there were no accepted canonical receipts for 445–449 or baseline markers;
+parked 976 retained its applied receipt and exact SHA-256
+`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`.
+Receipt absence does not prove a replay-mode body never executed. This is
+source registration of the unaccepted canonical identity, preserving the SQL
+and rollback bytes and the accepted 976 history; no shared ledger is rewritten.
+The retained earlier candidate's proposed notification 447 is not reused because
+current Main/UAT assigns that ID to advisor handshake. Recheck lineage and
+recovery at any separately authorized deployment; this source PR executes no
+shared migration.
+
+Both forward entries are necessary: canonical replay precedes pending-only Dev
+migrations. The checksum-pinned 420 adoption adapter preserves only the exact
+reviewed successor definition, callable metadata and execution grants. Unknown
+definitions or changed grants still refuse replay. Accepted migration bodies and
+checksums are unchanged. Repeated canonical-plus-Dev replay must retain the
+corrected validator; ledger presence alone is insufficient. SQL rollback refuses
+to restore the invalid boundary; application rollback retains these guards.
+
 ## Phone and WorkOS mutation receipt replay
 
 Migration 427 extends the Firebase mutation-purpose check with SSO receipts.
@@ -252,7 +283,11 @@ to avoid that refusal.
   migration bodies.
 - `ledger` requires a verified baseline marker and executes only pending
   migrations. It fails closed when the baseline is absent or an accepted
-  checksum changes.
+  checksum changes. For transactional entries (`transactional=true`),
+  `migration_sql_envelope.py` strips a symmetric outer `BEGIN; ... COMMIT;`
+  envelope in memory after adaptation so `conn.transaction()` commits DDL and
+  the `schema_migrations` receipt atomically without altering on-disk SQL or
+  SHA-256 checksums.
 
 UAT mode is controlled independently from production. Turning on `ledger` is
 not a normal deploy flag change: it requires the zero-loss baseline procedure
@@ -263,6 +298,11 @@ the ledger transaction wrapper. Use this only for a single statement that requir
 top-level execution, such as `CREATE INDEX CONCURRENTLY`; include no `BEGIN` or
 `COMMIT`. The header is part of the immutable checksum. Replay already runs each
 file without an explicit wrapper, and observe still executes no migration bodies.
+Canonical migrations `>= 459` omit outer `BEGIN;` / `COMMIT;` wrappers and
+anchor application actor foreign keys to `actor_profiles` rather than expanding
+`vault_keys`. Meanwhile `db/migrations/parked/` and `dev_migration_manifest.json`
+are frozen to the existing 82-entry burn-down set (`900`–`989`): parked entries
+may only graduate out, never grow.
 Concurrent builds may leave an invalid index after interruption, so dependent
 migrations must check index validity and document explicit rebuild instructions.
 The Feed 203–204 sequence and its recovery are documented in

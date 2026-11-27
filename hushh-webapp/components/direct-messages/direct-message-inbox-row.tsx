@@ -21,6 +21,7 @@ export function DirectMessageInboxRow({ label, active, disabled, onOpen, onDelet
   return <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
     <div className={styles.conversationItem} role="group" aria-label={`${label} chat`}>
       <PersonSelectionSurface type="button" className={styles.conversationRow} aria-label={label} data-active={active ? "true" : undefined}
+        aria-current={active ? "true" : undefined}
         disabled={disabled}
         onPointerDown={(event) => {
           held.current = false;

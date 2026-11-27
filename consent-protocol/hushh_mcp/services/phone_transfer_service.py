@@ -13,6 +13,7 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from starlette.concurrency import run_in_threadpool
 
@@ -34,11 +35,96 @@ assert_claim_available = authority.assert_claim_available
 logger = logging.getLogger(__name__)
 
 
+async def _bound_prepared_intents(conn: Any, user_id: str) -> None:
+    await conn.execute(
+        "DELETE FROM account_phone_transfers WHERE (state='prepared' AND expires_at < NOW() AND created_at < NOW()-INTERVAL '5 minutes') OR (state='completed' AND notice_status='settled' AND completed_at < NOW()-INTERVAL '7 days')"
+    )
+    # Bound outstanding intents per claimant; proof verification precedes this write.
+    count = await conn.fetchval(
+        "SELECT count(*) FROM account_phone_transfers WHERE user_id=$1 AND state='prepared' AND created_at>NOW()-INTERVAL '5 minutes'",
+        user_id,
+    )
+    if count >= 5:
+        raise refuse("PHONE_TRANSFER_STALE", 429)
+
+
 async def prepare(
     user_id: str, phone: str, token: str, proof_uid: str, app: Any, *, proof_valid_until: float
 ) -> dict[str, Any]:
-    """Compatibility endpoint: an occupied number stays with its email account."""
-    raise refuse("PHONE_ALREADY_VERIFIED")
+    from api.middlewares.auth_reliability_trace import request_feature_enabled, request_trace_span
+
+    if not request_feature_enabled("AUTH_PHONE_RECOVERY_ENABLED"):
+        raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        old = await conn.fetchrow(
+            "SELECT user_id,phone_binding_revision FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
+            phone,
+        )
+    if not old or old["user_id"] == user_id:
+        raise refuse("PHONE_TRANSFER_STALE")
+    with request_trace_span("provider"):
+        independent_signin = await run_in_threadpool(check_provider, app, phone, proof_uid)
+    if proof_valid_until <= time.time():
+        raise refuse("PHONE_TRANSFER_STALE", 401)
+    operation_id = str(uuid4())
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await _bound_prepared_intents(conn, user_id)
+            from hushh_mcp.services.account_deletion_lifecycle_service import (
+                AccountDeletionLifecycleService,
+                account_deletion_user_hash,
+            )
+            from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+            proof_identity = await conn.fetchrow(
+                "SELECT owner_id,generation FROM account_generations WHERE identity_hash=$1 ORDER BY generation DESC LIMIT 1",
+                account_deletion_user_hash(proof_uid),
+            )
+            proof_owner = proof_identity["owner_id"] if proof_identity else proof_uid
+            generation = proof_identity["generation"] if proof_identity else 0
+            owners = {user_id, old["user_id"], proof_owner}
+            if (
+                await AccountDeletionLifecycleService.active_projection_user_ids(
+                    conn, user_ids=owners
+                )
+                != owners
+            ):
+                raise refuse("PHONE_TRANSFER_STALE")
+            await ActorIdentityService._ensure_actor_spine(conn, user_id)
+            revision = (
+                await conn.fetchval(
+                    "SELECT phone_binding_revision FROM actor_identity_cache WHERE user_id=$1",
+                    user_id,
+                )
+                or 0
+            )
+            if not await conn.fetchval(
+                "SELECT clock_timestamp() < to_timestamp($1)", proof_valid_until
+            ):
+                raise refuse("PHONE_TRANSFER_STALE", 401)
+            row = await conn.fetchrow(
+                """INSERT INTO account_phone_transfers
+                (operation_id,user_id,previous_user_id,previous_revision,phone_digest,proof_digest,expires_at,requester_revision,proof_identity_uid,proof_generation,authority_project,proof_owner_id,unlink_required)
+                VALUES($1::uuid,$2,$3,$4,$5,$6,LEAST(NOW()+INTERVAL '5 minutes',to_timestamp($13)),$7,$8,$9,$10,$11,$12)
+                ON CONFLICT(proof_digest) DO NOTHING RETURNING expires_at""",
+                operation_id,
+                user_id,
+                old["user_id"],
+                old["phone_binding_revision"],
+                account_deletion_phone_digest(phone),
+                proof_digest(token),
+                revision,
+                proof_uid,
+                generation,
+                app.project_id,
+                proof_owner,
+                proof_owner != user_id and independent_signin,
+                proof_valid_until,
+            )
+            if not row:
+                raise refuse("PHONE_TRANSFER_STALE")
+    return {"transfer_id": operation_id, "expires_at": row["expires_at"].isoformat()}
 
 
 @dataclass
@@ -167,8 +253,48 @@ def assert_phone_admission(owner_id: str, claims: Any) -> None:
 async def confirm(
     user_id: str, phone: str, token: str, proof_uid: str, operation_id: str, app: Any
 ) -> dict[str, Any]:
-    """Compatibility endpoint: an occupied number stays with its email account."""
-    raise refuse("PHONE_ALREADY_VERIFIED")
+    from api.middlewares.auth_reliability_trace import request_feature_enabled, request_trace_span
+
+    if not request_feature_enabled("AUTH_PHONE_RECOVERY_ENABLED"):
+        raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM account_phone_transfers WHERE operation_id=$1::uuid AND user_id=$2",
+            operation_id,
+            user_id,
+        )
+    if not row or not hmac.compare_digest(row["proof_digest"], proof_digest(token)):
+        raise refuse("PHONE_TRANSFER_STALE")
+    if row["state"] != "prepared":
+        raise refuse("PHONE_TRANSFER_STALE")
+    if row["proof_identity_uid"] != proof_uid or row["authority_project"] != app.project_id:
+        raise refuse("PHONE_TRANSFER_STALE")
+    with request_trace_span("provider"):
+        independent_signin = await run_in_threadpool(check_provider, app, phone, proof_uid)
+    if row["unlink_required"] and not independent_signin:
+        raise refuse("PHONE_TRANSFER_RECOVERY_REQUIRED", 403)
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+    transfer = ConfirmedTransfer(
+        operation_id,
+        proof_digest(token),
+        row["previous_user_id"],
+        proof_uid,
+        row["proof_generation"],
+        app.project_id,
+        row["proof_owner_id"],
+        row["unlink_required"],
+    )
+    with request_trace_span("persist"):
+        identity = await ActorIdentityService().claim_verified_phone(
+            user_id=user_id, phone_number=phone, transfer=transfer
+        )
+    if not identity:
+        raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
+    with request_trace_span("provider"):
+        state = await dispatch(operation_id, app)
+    return {"success": True, "identity": identity, "phone_verified": True, "transfer_status": state}
 
 
 async def dispatch(operation_id: str, app: Any) -> str:

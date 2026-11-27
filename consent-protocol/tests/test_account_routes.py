@@ -581,6 +581,37 @@ def test_account_deletion_cleanup_drain_is_bounded_and_no_store(monkeypatch, pau
     assert reported == ([paused_reason] if paused_reason else [])
 
 
+@pytest.mark.parametrize("phone_verified", [True, False, None])
+def test_read_account_identity_uses_only_the_admitted_owner_without_sync(
+    monkeypatch, phone_verified
+):
+    owner_id = "acct_" + "a" * 32
+    identity = (
+        {"user_id": owner_id, "phone_verified": phone_verified, "phone_number": "+12025550101"}
+        if phone_verified is not None
+        else None
+    )
+
+    async def read(self, user_ids):
+        assert user_ids == [owner_id]
+        return {owner_id: identity} if identity else {}
+
+    async def refuse_write(*_args, **_kwargs):
+        pytest.fail("Identity GET must not refresh or write the provider shadow")
+
+    monkeypatch.setattr(ActorIdentityService, "get_many", read)
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", refuse_write)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", refuse_write)
+    app = _build_app()
+    client = TestClient(app)
+    assert client.get("/api/account/identity").status_code == 401
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: owner_id
+    response = client.get("/api/account/identity?user_id=another-owner&force=true")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json() == {"success": True, "user_id": owner_id, "identity": identity}
+
+
 def test_refresh_account_identity_returns_synced_identity(monkeypatch):
     async def _mock_sync(self, firebase_uid: str, force: bool = False):
         assert firebase_uid == "firebase_uid_123"
@@ -926,67 +957,40 @@ def test_phone_session_cleanup_intent_binds_the_exact_verified_uid(monkeypatch):
     ]
 
 
-def test_claim_account_phone_persists_verified_phone(monkeypatch):
-    events = []
+@pytest.mark.parametrize("cleanup", ["not_phone_only", "pending"])
+def test_claim_account_phone_rejects_different_firebase_uid(monkeypatch, cleanup):
+    from unittest.mock import AsyncMock
 
-    async def _mock_verify(raw_claim: str):
-        assert raw_claim == "phone-claim-sample"
-        return "+16505550101", "phone-session-uid"
-
-    async def _mock_claim(self, *, user_id: str, phone_number: str):
-        events.append("claim")
-        assert user_id == "firebase_uid_123"
-        assert phone_number == "+16505550101"
-        return {
-            "user_id": user_id,
-            "phone_number": phone_number,
-            "phone_verified": True,
-            "source": "firebase_phone_claim",
-        }
-
-    async def _mock_prepare(
-        *, uid: str | None, phone_number: str | None, protected_uid: str | None = None
-    ):
-        events.append(("intent", uid, phone_number, protected_uid))
-        return "pending"
-
-    async def _mock_cleanup(
-        uid: str,
-        *,
-        intent_kind: str,
-        expected_phone_digest: str,
-    ):
-        events.append(("delete", uid, intent_kind, expected_phone_digest))
-        return "deleted"
-
+    monkeypatch.setattr(
+        account,
+        "_verify_phone_claim_id_token",
+        AsyncMock(return_value=("+16505550101", "other-firebase")),
+    )
+    monkeypatch.setattr(
+        account, "_prepare_safe_phone_session_cleanup_intent", AsyncMock(return_value=cleanup)
+    )
+    finalize = AsyncMock()
+    monkeypatch.setattr(ActorIdentityService, "finalize_verified_phone_from_firebase", finalize)
+    delete = AsyncMock(return_value="deleted")
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", delete)
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
-    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
-    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
-    monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", _mock_prepare)
-    monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_cleanup)
 
-    client = TestClient(app)
-    response = client.post(
+    response = TestClient(app).post(
         "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["phone_verified"] is True
-    assert payload["identity"]["phone_number"] == "+16505550101"
-    assert payload["phone_session_cleanup"] == "deleted"
-    assert events == [
-        ("intent", "phone-session-uid", "+16505550101", "firebase_uid_123"),
-        "claim",
-        (
-            "delete",
-            "phone-session-uid",
-            "phone_orphan",
-            account.account_deletion_phone_digest("+16505550101"),
-        ),
-    ]
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PHONE_VERIFICATION_CHANGED"
+    finalize.assert_not_awaited()
+    if cleanup == "pending":
+        delete.assert_awaited_once_with(
+            "other-firebase",
+            intent_kind="phone_orphan",
+            expected_phone_digest=account.account_deletion_phone_digest("+16505550101"),
+        )
+    else:
+        delete.assert_not_awaited()
 
 
 def test_claim_account_phone_fails_closed_when_cleanup_intent_cannot_persist(monkeypatch):
@@ -1095,19 +1099,17 @@ def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatc
 
 def test_claim_account_phone_maps_persistence_failure(monkeypatch):
     async def _mock_verify(raw_claim: str):
-        return "+16505550101", "phone-session-uid"
+        return "+16505550101", "firebase_uid_123"
 
-    async def _mock_claim(self, *, user_id: str, phone_number: str):
+    async def _mock_finalize(self, user_id: str, phone_number: str):
         return None
-
-    async def _mock_prepare(**_kwargs):
-        return "pending"
 
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
     monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
-    monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", _mock_prepare)
-    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+    monkeypatch.setattr(
+        ActorIdentityService, "finalize_verified_phone_from_firebase", _mock_finalize
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1135,7 +1137,7 @@ def test_start_uat_test_phone_verification_returns_challenge_for_allowlisted_num
     monkeypatch,
 ):
     monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101,+918080469407")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101,+12025550100")
     monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
     monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
 
@@ -1191,7 +1193,7 @@ def test_start_uat_test_phone_verification_does_not_use_uat_secrets_in_prod(monk
 def test_start_uat_test_phone_verification_returns_challenge_in_enabled_prod(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_ENABLED", "true")
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+19898989879,+19898989918")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+12025550100,+12025550101")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CODE", "000000")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET", "prod-challenge-secret")
 
@@ -1200,7 +1202,7 @@ def test_start_uat_test_phone_verification_returns_challenge_in_enabled_prod(mon
 
     client = TestClient(app)
     response = client.post(
-        "/api/account/phone/uat-test/start", json={"phone_number": "+1 989 898 9879"}
+        "/api/account/phone/uat-test/start", json={"phone_number": "+1 202 555 0100"}
     )
 
     assert response.status_code == 200
@@ -1213,7 +1215,7 @@ def test_start_uat_test_phone_verification_requires_prod_challenge_secret(monkey
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("APP_SIGNING_KEY", "app-signing-key-fallback")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_ENABLED", "true")
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+19898989879")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+12025550100")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CODE", "000000")
     monkeypatch.delenv("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET", raising=False)
 
@@ -1222,7 +1224,7 @@ def test_start_uat_test_phone_verification_requires_prod_challenge_secret(monkey
 
     client = TestClient(app)
     response = client.post(
-        "/api/account/phone/uat-test/start", json={"phone_number": "+19898989879"}
+        "/api/account/phone/uat-test/start", json={"phone_number": "+12025550100"}
     )
 
     assert response.status_code == 200
@@ -1346,13 +1348,13 @@ def test_confirm_uat_test_phone_verification_persists_verified_phone_in_enabled_
 ):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_ENABLED", "true")
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+19898989918")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+12025550101")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CODE", "000000")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET", "prod-challenge-secret")
 
     async def _mock_claim(self, *, user_id: str, phone_number: str, source: str):
         assert user_id == "firebase_uid_123"
-        assert phone_number == "+19898989918"
+        assert phone_number == "+12025550101"
         assert source == "uat_test_phone_claim"
         return {
             "user_id": user_id,
@@ -1367,13 +1369,13 @@ def test_confirm_uat_test_phone_verification_persists_verified_phone_in_enabled_
 
     client = TestClient(app)
     start_response = client.post(
-        "/api/account/phone/uat-test/start", json={"phone_number": "+19898989918"}
+        "/api/account/phone/uat-test/start", json={"phone_number": "+12025550101"}
     )
     verification_id = start_response.json()["verification_id"]
     response = client.post(
         "/api/account/phone/uat-test/confirm",
         json={
-            "phone_number": "+19898989918",
+            "phone_number": "+12025550101",
             "verification_code": "000000",
             "verification_id": verification_id,
         },
@@ -1389,7 +1391,7 @@ def test_confirm_uat_test_phone_verification_rejects_cross_environment_challenge
     monkeypatch,
 ):
     monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989918")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+12025550101")
     monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
     monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "uat-challenge-secret")
 
@@ -1398,20 +1400,20 @@ def test_confirm_uat_test_phone_verification_rejects_cross_environment_challenge
 
     client = TestClient(app)
     start_response = client.post(
-        "/api/account/phone/uat-test/start", json={"phone_number": "+19898989918"}
+        "/api/account/phone/uat-test/start", json={"phone_number": "+12025550101"}
     )
     uat_env_verification_id = start_response.json()["verification_id"]
 
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_ENABLED", "true")
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+19898989918")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+12025550101")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CODE", "000000")
     monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET", "prod-challenge-secret")
 
     response = client.post(
         "/api/account/phone/uat-test/confirm",
         json={
-            "phone_number": "+19898989918",
+            "phone_number": "+12025550101",
             "verification_code": "000000",
             "verification_id": uat_env_verification_id,
         },
@@ -2265,10 +2267,12 @@ async def test_replacement_phone_claim_never_treats_its_retained_identity_as_an_
     monkeypatch.setattr(
         account, "_verify_phone_claim_id_token", AsyncMock(return_value=("+16505550101", identity))
     )
-    prepare = AsyncMock(return_value="skipped")
+    prepare = AsyncMock(return_value="protected_primary_uid")
     monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", prepare)
     claim = AsyncMock(return_value={"user_id": owner, "phone_verified": True})
-    monkeypatch.setattr(account.ActorIdentityService, "claim_verified_phone", claim)
+    monkeypatch.setattr(
+        account.ActorIdentityService, "finalize_verified_phone_from_firebase", claim
+    )
     result = await account.claim_account_phone(
         account.PhoneClaimRequest(phone_id_token="synthetic-phone-proof", expected_user_id=owner),  # noqa: S106 - synthetic proof; provider verification is mocked
         owner,
@@ -2277,4 +2281,4 @@ async def test_replacement_phone_claim_never_treats_its_retained_identity_as_an_
     prepare.assert_awaited_once_with(
         uid=identity, phone_number="+16505550101", protected_uid=identity
     )
-    claim.assert_awaited_once_with(user_id=owner, phone_number="+16505550101")
+    claim.assert_awaited_once_with(owner, "+16505550101")

@@ -461,9 +461,12 @@ class DriveSharingStore(DriveDocumentStore):
         )
 
     @staticmethod
-    def _notify_setup_changed(connection, row) -> None:
+    def _notify_setup_changed(connection, row, *, only_user_id: str | None = None) -> None:
         event_id = str(uuid4())
-        for participant in {row["user_id"], row["recipient_user_id"]}:
+        participants = {row["user_id"], row["recipient_user_id"]}
+        if only_user_id is not None:
+            participants.intersection_update({only_user_id})
+        for participant in participants:
             connection.execute(
                 text("SELECT pg_notify('one_user_state_changed', :payload)"),
                 {
@@ -2655,6 +2658,8 @@ class DriveSharingStore(DriveDocumentStore):
                 )
             if rule:
                 self._event(connection, updated, user_id, "document_share_decided")
+            elif not notify_owner:
+                self._notify_setup_changed(connection, updated, only_user_id=user_id)
             return {**self._summary(updated), "reviewDigest": digest}
 
         return cast(dict, await self._transaction(operation))
@@ -2840,6 +2845,7 @@ class DriveSharingStore(DriveDocumentStore):
 
                 DriveRequestPaymentStore.ensure_order_for_approved_request(connection, updated)
             self._event(connection, updated, request["recipient_user_id"], "document_share_decided")
+            self._notify_setup_changed(connection, updated, only_user_id=user_id)
             return {
                 **self._summary(updated),
                 "sharingStatus": "pending",
@@ -3728,6 +3734,7 @@ class DriveSharingStore(DriveDocumentStore):
             # recipient, so its closing is not news to them either.
             if notify_recipient:
                 self._event(connection, updated, row["recipient_user_id"], "document_share_decided")
+            self._notify_setup_changed(connection, updated, only_user_id=user_id)
             return self._summary(updated)
 
         return cast(dict, await self._transaction(operation))

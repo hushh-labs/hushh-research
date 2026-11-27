@@ -407,3 +407,76 @@ def test_equal_field_names_in_separate_family_objects_remain_valid(tmp_path):
     expected = {"table_families": [{"id": "first"}, {"id": "second"}]}
     path.write_text(json.dumps(expected))
     assert data_model_audit._load_json(path) == expected
+
+
+def test_repo_contract_and_migration_459_pass_control_plane_audit():
+    report, code = data_model_audit.build_report()
+    assert code == 0, report["failures"]
+    assert report["unclassified_tables"] == []
+    assert report["failures"] == []
+    assert "one_kyc_workflows" not in report["growth_watch_tables"]
+    contract = data_model_audit._load_json(data_model_audit.CONTRACT_PATH)
+    by_id = {item["id"]: item for item in contract["table_families"]}
+    assert by_id["one_email_kyc_workflow"]["lifecycle_status"] == "legacy_migration"
+    assert by_id["one_kyc_client_connector_registry"]["lifecycle_status"] == "current"
+    assert by_id["one_kyc_client_connector_registry"]["exact_tables"] == [
+        "one_kyc_client_connectors"
+    ]
+
+
+def test_provider_cache_admission_freezes_existing_tables_and_rejects_globs():
+    contract = data_model_audit._load_json(data_model_audit.CONTRACT_PATH)
+    assert data_model_audit._validate_contract(contract) == []
+
+    unapproved = json.loads(json.dumps(contract))
+    target = next(
+        fam for fam in unapproved["table_families"] if fam["data_class"] == "provider_cache"
+    )
+    target["exact_tables"].append("new_unapproved_provider_mirror")
+    target["glob_tables"] = ["provider_mirror_*"]
+    errors = data_model_audit._validate_contract(unapproved)
+    assert (
+        f"{target['id']}:unapproved_provider_cache_table:new_unapproved_provider_mirror" in errors
+    )
+    assert f"{target['id']}:provider_cache_glob_forbidden" in errors
+
+
+def test_enforced_retention_and_growth_watch_contracts_fail_closed():
+    contract = data_model_audit._load_json(data_model_audit.CONTRACT_PATH)
+    valid = json.loads(json.dumps(contract))
+    valid["retention_registry"][0]["mode"] = "enforced"
+    valid["retention_registry"][0]["retention_days"] = 30
+    valid["retention_registry"][0]["handler"] = "scripts/ops/data_model_audit.py"
+    assert data_model_audit._validate_contract(valid) == []
+
+    invalid = json.loads(json.dumps(contract))
+    fam_id = invalid["retention_registry"][0]["family_id"]
+    invalid["retention_registry"][0]["mode"] = "enforced"
+    invalid["retention_registry"][0]["retention_days"] = 0
+    invalid["retention_registry"][0]["handler"] = "scripts/ops/does_not_exist.py"
+    errors = data_model_audit._validate_contract(invalid)
+    assert f"retention_registry:invalid_retention_days:{fam_id}" in errors
+    assert f"retention_registry:missing_enforced_handler:{fam_id}" in errors
+
+    tables = data_model_audit._migration_tables()
+    classified, _ = data_model_audit._table_classification(tables, contract)
+    bad_watch = {"growth_watch_tables": ["one_kyc_workflows", "nonexistent_table_xyz"]}
+    watch_errors = data_model_audit._validate_growth_watch_tables(bad_watch, tables, classified)
+    assert "growth_watch_tables:legacy_table:one_kyc_workflows" in watch_errors
+    assert "growth_watch_tables:unknown_table:nonexistent_table_xyz" in watch_errors
+
+
+def test_identity_column_leading_index_ratchet_blocks_unindexed_additions(tmp_path, monkeypatch):
+    (tmp_path / "460_calls.sql").write_text(
+        """
+        CREATE TABLE public.indexed_actor_records (
+          id UUID PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          peer_user_id TEXT NOT NULL
+        );
+        CREATE INDEX idx_indexed_actor_records_user ON public.indexed_actor_records (user_id);
+        """
+    )
+    monkeypatch.setattr(data_model_audit, "MIGRATIONS_DIR", tmp_path)
+    monkeypatch.setattr(data_model_audit, "FROZEN_UNINDEXED_IDENTITY_COLUMNS", frozenset())
+    assert data_model_audit._unindexed_identity_columns() == ["indexed_actor_records.peer_user_id"]

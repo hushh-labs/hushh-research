@@ -69,6 +69,9 @@ export function usePkmDomainResource() {
 export function vaultConnections() {
   return {};
 }
+export async function connectVaultPlaid() {
+  throw new Error("No Plaid mutation in the layout fixture");
+}
 export async function disconnectVaultPlaid() {
   throw new Error("No Plaid mutation in the layout fixture");
 }

@@ -74,6 +74,8 @@ export function ConsentCounterpartAvatar({
         userId={["person", "investor", "ria"].includes(entry.counterpart_type) ? entry.counterpart_id : undefined}
         label={label}
         photoUrl={photoUrl}
+        verified={entry.counterpart_is_ria === true}
+        fromContacts={entry.counterpart_connected_from_contacts === true}
         size="list"
         className="bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
         testId="consent-counterpart-avatar"

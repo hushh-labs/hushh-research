@@ -2,9 +2,20 @@ import type { SupportMessageKind } from "@/lib/services/support-service";
 
 import { ROUTES, buildOneSetupCloudRoute } from "@/lib/navigation/routes";
 
-/** Management preserves its parent for both shell and native Back. */
-export function profileHostingSetupHref(): string {
-  return `${buildOneSetupCloudRoute(ROUTES.PROFILE_HOSTING)}&${new URLSearchParams({ from: ROUTES.PROFILE_HOSTING })}`;
+/** Management preserves its parent (Profile pane or direct route) for Back. */
+export function profileHostingSetupHref(
+  originHref?: string | null,
+  options?: { intent?: "own" },
+): string {
+  const normalizedOrigin =
+    typeof originHref === "string" &&
+    originHref.startsWith("/") &&
+    !originHref.startsWith("//")
+      ? originHref
+      : ROUTES.PROFILE_HOSTING;
+  const params = new URLSearchParams({ from: normalizedOrigin });
+  if (options?.intent) params.set("intent", options.intent);
+  return `${buildOneSetupCloudRoute(normalizedOrigin)}&${params}`;
 }
 
 export type ProfilePanel =
@@ -13,6 +24,7 @@ export type ProfilePanel =
   | "software-updates"
   | "my-data"
   | "payouts"
+  | "net-worth-score"
   | "world-model"
   | "request-pricing"
   | "connected-systems"
@@ -30,6 +42,9 @@ export type ProfileDetail =
   | `connector:${string}`
   | "sharing"
   | "phone"
+  | "hosting-details"
+  | "hosting-own-cloud"
+  | "update-details"
   | "kai-preferences"
   | "gemini"
   | "device"
@@ -77,6 +92,7 @@ export function normalizeProfilePanel(
     value === "account" ||
     value === "my-data" ||
     value === "payouts" ||
+    value === "net-worth-score" ||
     value === "world-model" ||
     value === "request-pricing" ||
     value === "connected-systems" ||
@@ -108,8 +124,11 @@ export function normalizeConnectorDetailId(value: string | null): string | null 
 const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
   gmail: "Gmail",
   google_drive: "Google Drive",
+  drive: "Google Drive",
   calendar: "Calendar",
+  contacts: "Google Contacts",
   plaid: "Plaid",
+  stripe: "Stripe",
   instagram: "Instagram",
   linkedin: "LinkedIn",
 };
@@ -162,6 +181,12 @@ export function normalizeProfileDetail(
     return id ? `connector:${id}` : null;
   }
   if (panel === "account" && detail === "phone") {
+    return detail;
+  }
+  if (panel === "hosting" && (detail === "hosting-details" || detail === "hosting-own-cloud")) {
+    return detail;
+  }
+  if (panel === "software-updates" && detail === "update-details") {
     return detail;
   }
   if (
@@ -277,7 +302,11 @@ export function buildProfileRoute(params?: {
   }
 
   if (panel === "hosting" || panel === "software-updates") {
-    return appendQuery(panel === "hosting" ? ROUTES.PROFILE_HOSTING : ROUTES.PROFILE_SOFTWARE_UPDATES, {}, params?.searchParams);
+    return appendQuery(
+      panel === "hosting" ? ROUTES.PROFILE_HOSTING : ROUTES.PROFILE_SOFTWARE_UPDATES,
+      detail ? { detail } : {},
+      params?.searchParams,
+    );
   }
   if (panel === "payouts" || panel === "request-pricing") {
     return appendQuery(
@@ -400,6 +429,10 @@ export function buildProfileRoute(params?: {
   // Legal has no section route of its own. The Profile address carries it,
   // and that address opens the Profile pane on the document. The public
   // /terms and /privacy pages stay the signed-out and store-listing addresses.
+  if (panel === "net-worth-score") {
+    return appendQuery(ROUTES.PROFILE, { panel }, params?.searchParams);
+  }
+
   if (panel === "legal") {
     return appendQuery(
       ROUTES.PROFILE,
@@ -451,8 +484,15 @@ export function resolveProfileRouteState(
       ? new URLSearchParams(rawQuery)
       : toSearchParams(searchParams);
   const normalizedPath = normalizePathname(rawPathname);
-  if (normalizedPath === ROUTES.PROFILE_HOSTING) return { panel: "hosting", detail: null };
-  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) return { panel: "software-updates", detail: null };
+  if (normalizedPath === ROUTES.PROFILE_HOSTING) {
+    return { panel: "hosting", detail: normalizeProfileDetail("hosting", query.get("detail")) };
+  }
+  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) {
+    return {
+      panel: "software-updates",
+      detail: normalizeProfileDetail("software-updates", query.get("detail")),
+    };
+  }
 
   if (normalizedPath === ROUTES.PROFILE) {
     return resolveProfileRouteStateFromSearchParams(query);

@@ -242,11 +242,16 @@ GET /api/one/connections/{counterpart_user_id}/context
 GET /api/one/connections/{counterpart_user_id}/information-scopes
 GET /api/one/connections/{counterpart_user_id}/scope-catalog
 GET /api/one/feed
+GET /api/one/feed/live
+POST /api/one/feed/search
+POST /api/one/feed/funding-history
+GET /api/one/feed/{item_id}/activity
 GET /api/one/feed/events
 POST /api/one/feed/read
 POST /api/one/feed/sos-cards/clear
 GET /api/one/feed/unread-count
 POST /api/one/information-requests
+POST /api/one/information-requests/price-preview
 GET /api/one/information-requests/shared-with-me
 GET /api/one/information-requests/{bundle_id}
 POST /api/one/information-requests/{bundle_id}/cancel
@@ -256,6 +261,10 @@ POST /api/one/location/circle-codes/join
 POST /api/one/location/circle-codes/preview
 POST /api/one/location/circle-codes/public-preview
 POST /api/one/location/circle-codes/resolve
+GET /api/one/location/chat-plans/origin/{origin_id}
+POST /api/one/location/chat-plans/prepare
+GET /api/one/location/chat-plans/{plan_id}
+POST /api/one/location/chat-plans/{plan_id}/execute
 POST /api/one/location/circle-invites
 DELETE /api/one/location/circle-invites/{invite_id}
 GET /api/one/location/circle-invites/{public_token}
@@ -306,6 +315,7 @@ POST /api/one/location/requests/{request_id}/approve
 POST /api/one/location/requests/{request_id}/deny
 POST /api/one/location/requests/{request_id}/withdraw
 POST /api/one/location/retention/purge
+GET /api/one/location/sms-alerts/recent
 GET,POST /api/one/location/sms-contacts
 DELETE /api/one/location/sms-contacts/{recipient_user_id}
 POST /api/one/location/sos-email-recipients
@@ -323,6 +333,8 @@ POST /api/one/marketplace/requests/{request_id}/approve
 POST /api/one/marketplace/requests/{request_id}/deny
 GET /api/one/marketplace/requests/{request_id}/recipient-key
 POST /api/one/marketplace/requests/{request_id}/revoke
+GET /api/one/messages/calls/capabilities
+POST /api/one/messages/calls/{operation}
 POST /api/one/messages
 POST /api/one/messages/route-token
 DELETE,POST /api/one/messages/blocks

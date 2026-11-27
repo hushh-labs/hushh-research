@@ -1,11 +1,13 @@
 """Bounded final graph qualification; each statement has one authority snapshot."""
 
 from hushh_mcp.services.connection_mutuals import (
-    MUTUAL_CONNECTIONS_SQL,
     MUTUAL_DIRECTORY_FILTER_SQL,
+    PAGE_MUTUAL_CONNECTIONS_SQL,
 )
 from hushh_mcp.services.directory_candidate_statement import DIRECTORY_PROFILE_ELIGIBILITY_SQL
 
+# A new eligible mutual outside the observed frontier requires a retry.
+# Checking the full graph here avoids depending on the two displayed portraits.
 QUALIFIED_DEGREES_SQL = f"""
 WITH admitted AS MATERIALIZED (
     SELECT profile.user_id FROM actor_profiles profile
@@ -59,24 +61,7 @@ WHERE distance.degree < 3 OR NOT EXISTS (
 )
 UNION ALL
 SELECT NULL, NULL, TRUE WHERE (SELECT COUNT(*) FROM edges) >= :edge_limit
-"""  # nosec B608 — only module-owned SQL fragments; request values remain bound.
-
-# Only static, module-owned SQL fragments are composed here; values remain bound parameters.
-QUALIFIED_SUMMARY_SQL = f"""
-WITH qualified AS ({QUALIFIED_DEGREES_SQL}), mutual AS ({MUTUAL_CONNECTIONS_SQL})
-SELECT (SELECT degree FROM qualified WHERE user_id = :target) AS degree,
-       EXISTS (SELECT 1 FROM qualified WHERE overflow) AS overflow,
-       COALESCE(m.mutual_count, 0) AS mutual_count, m.preview_user_id,
-       EXISTS (SELECT 1 FROM actor_profiles peer WHERE peer.user_id = :preview
-                 AND peer.public_profile_status = 'active') AS preview_active
-FROM actor_profiles p LEFT JOIN mutual m ON m.candidate_id = p.user_id
-WHERE p.user_id = :target AND p.public_profile_status = 'active'
-  AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL.replace("profile.", "p.")})
-  AND NOT EXISTS (SELECT 1 FROM connection_requests b
-      WHERE b.status = 'rejected' AND b.metadata ->> 'blocked_by' IS NOT NULL
-        AND ((b.requester_user_id = :viewer AND b.addressee_user_id = :target)
-          OR (b.addressee_user_id = :viewer AND b.requester_user_id = :target)))
-"""  # nosec B608
+"""  # nosec B608 -- module-owned SQL only; request values remain bound.
 
 QUALIFIED_TARGET_ROWS_SQL = f"""
 SELECT peer.user_id,
@@ -86,7 +71,7 @@ SELECT peer.user_id,
       THEN 1 ELSE 2 END AS degree
 FROM actor_profiles target CROSS JOIN actor_profiles peer
 WHERE target.user_id = :target AND target.public_profile_status = 'active'
-  AND peer.user_id = ANY(CAST(:candidates AS TEXT[])) AND peer.public_profile_status = 'active'
+  AND peer.user_id = ANY(CAST(:target_peer_ids AS TEXT[])) AND peer.public_profile_status = 'active'
   AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL.replace("profile.", "peer.")})
   AND EXISTS (SELECT 1 FROM connections direct WHERE direct.status = 'active'
       AND ((direct.user_a_id = :viewer AND direct.user_b_id = :target)
@@ -98,4 +83,27 @@ WHERE target.user_id = :target AND target.public_profile_status = 'active'
       WHERE b.status = 'rejected' AND b.metadata ->> 'blocked_by' IS NOT NULL
         AND b.requester_user_id = ANY(ARRAY[:viewer, :target, peer.user_id])
         AND b.addressee_user_id = ANY(ARRAY[:viewer, :target, peer.user_id]))
-"""  # nosec B608 — only module-owned SQL fragments; request values remain bound.
+"""  # nosec B608 -- module-owned SQL only; request values remain bound.
+
+# Only static, module-owned SQL fragments are composed here; values remain bound parameters.
+QUALIFIED_SUMMARY_SQL = f"""
+WITH qualified AS ({QUALIFIED_DEGREES_SQL}), mutual AS ({PAGE_MUTUAL_CONNECTIONS_SQL})
+SELECT (SELECT degree FROM qualified WHERE user_id = :target) AS degree,
+       EXISTS (SELECT 1 FROM qualified WHERE overflow) AS overflow,
+       COALESCE(m.mutual_count, 0) AS mutual_count, m.preview_user_ids,
+       (SELECT COUNT(*) FROM actor_profiles peer WHERE peer.user_id = ANY(CAST(:previews AS TEXT[]))
+                 AND peer.public_profile_status = 'active') AS previews_active,
+       CASE WHEN CAST(:target_peer_ids AS TEXT[]) IS NOT NULL THEN (
+           SELECT LEAST(COUNT(*), :connection_count_limit)
+           FROM ({QUALIFIED_TARGET_ROWS_SQL}) shared
+           JOIN actor_profiles profile ON profile.user_id = shared.user_id
+           WHERE profile.public_person_ref IS NOT NULL AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL})
+       ) END AS visible_connection_count
+FROM actor_profiles p LEFT JOIN mutual m ON m.candidate_id = p.user_id
+WHERE p.user_id = :target AND p.public_profile_status = 'active'
+  AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL.replace("profile.", "p.")})
+  AND NOT EXISTS (SELECT 1 FROM connection_requests b
+      WHERE b.status = 'rejected' AND b.metadata ->> 'blocked_by' IS NOT NULL
+        AND ((b.requester_user_id = :viewer AND b.addressee_user_id = :target)
+          OR (b.addressee_user_id = :viewer AND b.requester_user_id = :target)))
+"""  # nosec B608

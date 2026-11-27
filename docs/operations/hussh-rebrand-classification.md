@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](./README.md). Use that map for the top-down operations view; this page classifies repo naming surfaces for the current non-breaking rebrand phase.
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page classifies repo naming surfaces for the current non-breaking rebrand phase.
 
 ## Purpose
 

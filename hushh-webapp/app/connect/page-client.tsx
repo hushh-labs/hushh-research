@@ -1,14 +1,19 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { NativeConnectWorkspace, type NativeConnectPerson } from "@/components/connect/native-connect-workspace";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import {
   ContactsBookIcon,
   Check,
   ChevronDown,
+  ChevronRight,
   Loader2,
   RefreshCw,
   MoreHorizontal,
@@ -29,6 +34,8 @@ import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { MutualConnectionsList } from "@/components/connect/mutual-connections-list";
 import { openPersonProfilePreview, PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { preloadNetworkDiscovery } from "@/lib/connect/network-page-cache";
+import { loadNetworkPreviewList } from "@/components/connect/network-preview-list-loader";
 import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -44,7 +51,8 @@ import {
   DirectoryMutualLine,
 } from "@/components/connect/connect-person-row";
 import { ProfilePaneMessageIcon } from "@/components/profile/profile-pane-icons";
-import { LivingConnections } from "@/components/connect/living-connections";
+import { useLivingConnections } from "@/components/connect/living-connections";
+import { CircleDiscoveryCardBody, useCircleDiscoveryCardModel } from "@/components/connect/circle-discovery-card";
 import {
   EMPTY_CIRCLES_SNAPSHOT,
   type ConnectCirclesSnapshot,
@@ -103,6 +111,7 @@ import {
 } from "@/lib/navigation/routes";
 import {
   CONNECT_CONNECTION_VIEW_PARAM,
+  CONNECT_DIRECTORY_PARAM,
   CONNECT_MUTUALS_PARAM,
   connectDirectoryReturnHref,
   connectMutualsHref,
@@ -133,6 +142,7 @@ import {
 } from "@/lib/services/cache-service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
@@ -149,7 +159,7 @@ import {
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { connectPersonName } from "@/lib/connections/person-label";
-import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
+import { connectViewTabs, TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import {
@@ -158,6 +168,7 @@ import {
 } from "@/lib/kai/actions/voice-action-card";
 import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import {
   CONNECT_DIRECTORY_CONTENT_CLASSNAME,
   CONNECT_PAGER_BUTTON_CLASSNAME,
@@ -173,7 +184,7 @@ import {
 import { cn } from "@/lib/utils";
 import styles from "@/components/connect/connect-workspace.module.css";
 import { useConnectionSearch } from "@/components/connect/use-connection-search";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   CONNECT_PAGE_CONTENT_CLASSNAME,
   CONNECT_SECTION_HEADING_CLASSNAME,
@@ -373,12 +384,8 @@ const CONNECT_ROW_ACTION_CLASSNAME =
   "!h-11 !min-h-11 min-w-[72px] !border-0 !bg-transparent !p-0 !text-[color:var(--app-accent)] disabled:opacity-60";
 const CONNECT_ROW_ACTION_PILL_CLASSNAME =
   "inline-flex h-11 min-w-[88px] items-center justify-center rounded-full border px-[15px]";
-/** An icon-only action: a 44px target around a 22px glyph. */
-const CONNECT_ROW_ICON_ACTION_CLASSNAME = "!size-11 !min-w-11 !bg-transparent !p-0";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
-const CONNECT_REMOVE_BUTTON_CLASSNAME =
-  "text-destructive hover:bg-destructive/10 hover:text-destructive";
 const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = styles.utilityLabel;
 
 /** Maximum number of connection requests the People bulk action can send. */
@@ -573,7 +580,6 @@ export default function ConnectPageClient() {
 
   const searchParams = useSearchParams();
   const [directoryMemory] = useState(() => readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory"));
-  const restoreDirectoryReadRef = useRef(Boolean(directoryMemory));
   const commandReviewPerson = searchParams.get(CONNECT_REVIEW_PERSON_PARAM);
   const openedCommandReview = useRef<string | null>(null);
   const connectOwnerRef = useRef(userId);
@@ -597,35 +603,33 @@ export default function ConnectPageClient() {
    * somebody who mistyped a link, and the default is not written to the URL on
    * mount -- that would eat one `router.back()` step for every arrival.
    */
-  const surface: ConnectSurface = readConnectSurface(
+  const routeSurface: ConnectSurface = readConnectSurface(
     searchParams.get(CONNECT_SURFACE_PARAM),
   );
+  const [surface, setSurface] = useState<ConnectSurface>(routeSurface);
+  const requestedSurfaceRef = useRef<ConnectSurface | null>(null);
+  useEffect(() => { setSurface(routeSurface); requestedSurfaceRef.current = null; }, [routeSurface]);
   const mutualPersonRef = surface === "all" ? searchParams.get(CONNECT_MUTUALS_PARAM)?.trim() || null : null;
-  // A settled swipe between Connections and Circles commits the same route
-  // the tab pill pushes, so swiping and tapping stay one navigation.
-  const commitSurface = useCallback(
-    (value: string) => {
-      const target = CONNECT_SURFACE_TAB_DEFINITION.tabs.find(
-        (tab) => tab.value === value,
-      );
-      // A swipe can reverse a pending tab tap before its query arrives. Even
-      // when the URL still names this value, supersede the older navigation.
-      if (target) beginRouteTransition(
-        target.href,
-        () => router.push(target.href, { scroll: false }),
-        "programmatic",
-        "contextual",
-      );
-    },
-    [router],
-  );
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
   const circleFlowAction = readConnectCircleAction(
     searchParams.get(CONNECT_CIRCLE_ACTION_PARAM),
   );
   const [createCircleDialogOpen, setCreateCircleDialogOpen] = useState(false);
-  const connectionEntryView = searchParams.get(CONNECT_CONNECTION_VIEW_PARAM) === "connections" ? "connections" : "discover";
+  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
+    .trim()
+    .slice(0, 160);
+  const explicitViewParam = searchParams.get(CONNECT_CONNECTION_VIEW_PARAM);
+  const connectionEntryView =
+    explicitViewParam === "discover" ||
+    (explicitViewParam !== "connections" &&
+      Boolean(
+        searchParams.get(CONNECT_DIRECTORY_PARAM) ||
+          searchParams.get(CONNECT_MUTUALS_PARAM) ||
+          searchQueryParam,
+      ))
+      ? "discover"
+      : "connections";
   const [connectionView, setConnectionView] = useState(connectionEntryView);
   const [circleSearchActive, setCircleSearchActive] = useState(false);
   const circleFlowId = searchParams.get(CONNECT_CIRCLE_ID_PARAM) ?? "";
@@ -634,6 +638,19 @@ export default function ConnectPageClient() {
     circleFlowAction,
     circleFlowId,
   );
+  useEffect(() => {
+    if (
+      user &&
+      userId &&
+      connectionView === "discover" &&
+      !isFocusedCircleTask &&
+      !mutualPersonRef &&
+      isNetworkOnline()
+    ) {
+      void loadNetworkPreviewList().catch(() => {});
+      preloadNetworkDiscovery(userId, () => user.getIdToken());
+    }
+  }, [user, userId, connectionView, isFocusedCircleTask, mutualPersonRef]);
 
   // Every navigation on this page passes `scroll: false`, because the surface
   // strip and the Circle flows are query-only states that must not jump the
@@ -646,16 +663,19 @@ export default function ConnectPageClient() {
     behavior: "auto",
   });
 
-  const [tab, setTab] = useState<ConnectTab>(directoryMemory?.tab ?? "people");
-  const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: userId, query: "" });
+  const directoryEntry = searchParams.get(CONNECT_DIRECTORY_PARAM);
+  const entryDirectory: ConnectTab = directoryEntry === "advisors" || directoryEntry === "nearby" ? directoryEntry : "people";
+  const [tab, setTab] = useState<ConnectTab>(directoryEntry ? entryDirectory : directoryMemory?.tab ?? "people");
+  useEffect(() => { if (directoryEntry) setTab(entryDirectory); }, [directoryEntry, entryDirectory]);
+  const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: userId, query: connectionEntryView === "connections" ? searchQueryParam : "" });
   const connectionsQuery = connectionsSearchDraft.ownerId === userId ? connectionsSearchDraft.query : "";
   const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: userId, query: value }), [userId]);
   const debouncedConnectionsDraft = useDebouncedValue(connectionsSearchDraft, 300);
   const debouncedConnectionsQuery = debouncedConnectionsDraft.ownerId === userId ? debouncedConnectionsDraft.query : "";
   useEffect(() => {
     setConnectionView(connectionEntryView);
-    setConnectionsQuery("");
-  }, [connectionEntryView, setConnectionsQuery, userId]);
+    setConnectionsQuery(connectionEntryView === "connections" ? searchQueryParam : "");
+  }, [connectionEntryView, searchQueryParam, setConnectionsQuery, userId]);
   /**
    * What the Circles tab is doing, reported up.
    *
@@ -672,24 +692,23 @@ export default function ConnectPageClient() {
     EMPTY_CIRCLES_SNAPSHOT,
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeConnectFrame = useRef<HTMLDivElement | null>(null);
   const connectStackRef = useRef<HTMLDivElement | null>(null);
-  const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
+  const [stickyHeader, setStickyHeader] = useState<HTMLDivElement | null>(null);
+  const [viewTabsNode, setViewTabsNode] = useState<HTMLDivElement | null>(null);
   const directoryMenuRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
   const useWebDirectoryPopover = !isNative();
-  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
-    .trim()
-    .slice(0, 160);
   const [query, setQuery] = useState<string>(
-    () => directoryMemory && directoryMemory.query.trim().slice(0, 160) === searchQueryParam
+    () => connectionEntryView === "connections" ? readStoredConnectSearchQuery() : directoryMemory && directoryMemory.query.trim().slice(0, 160) === searchQueryParam
       ? directoryMemory.query : searchQueryParam || directoryMemory?.query || readStoredConnectSearchQuery(),
   );
   const appliedSearchQueryParamRef = useRef(searchQueryParam || null);
   useEffect(() => { mutualResolutionRef.current++; }, [query]);
   useEffect(() => {
     if (
-      searchQueryParam &&
+      connectionEntryView !== "connections" && searchQueryParam &&
       !mutualPersonRef &&
       appliedSearchQueryParamRef.current !== searchQueryParam
     ) {
@@ -697,21 +716,32 @@ export default function ConnectPageClient() {
       setConnectionView("discover");
       setQuery((current) => current.trim().slice(0, 160) === searchQueryParam ? current : searchQueryParam);
     }
-  }, [searchQueryParam, mutualPersonRef]);
+  }, [searchQueryParam, connectionEntryView, mutualPersonRef]);
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
   }, [query]);
-  const debouncedQuery = useDebouncedValue(query, 300);
+  const draftDirectoryQuery = query.trim();
+  const [trimmedQuery, setDirectoryQuery] = useState(draftDirectoryQuery);
+  const directoryQueryPending = draftDirectoryQuery !== trimmedQuery;
+  useEffect(() => {
+    if (!directoryQueryPending) return;
+    const timer = window.setTimeout(() => setDirectoryQuery(draftDirectoryQuery), 300);
+    return () => window.clearTimeout(timer);
+  }, [draftDirectoryQuery, directoryQueryPending]);
 
   // The last People list this session showed, painted at once and replaced by
   // the refresh below. It also stays on screen when that refresh is refused, so
   // people already known are never swapped for an error. Browse only: a typed
   // search is a different result set.
-  const [people, setPeople] = useState<DirectoryPerson[]>(() =>
-    directoryMemory?.query === query ? directoryMemory.people : query.trim()
-      ? []
-      : (readSavedDirectoryFirstPage(userId, "all")?.items ?? []),
-  );
+  const [initialDirectory] = useState(() => {
+    if (directoryMemory?.tab === tab && directoryMemory.query === trimmedQuery) return directoryMemory;
+    if (trimmedQuery || tab === "nearby") return null;
+    const saved = readSavedDirectoryFirstPage(userId, CONNECT_TAB_AUDIENCE[tab]);
+    return saved ? { people: saved.items, page: saved.page, hasMore: saved.hasMore } : null;
+  });
+  const restoreDirectoryReadRef = useRef((initialDirectory?.page ?? 1) > 1);
+  const [directoryResolved, setDirectoryResolved] = useState(Boolean(initialDirectory));
+  const [people, setPeople] = useState<DirectoryPerson[]>(initialDirectory?.people ?? []);
   const peopleCountRef = useRef(people.length);
   peopleCountRef.current = people.length;
   // When the directory was last read, for any reason. Passive triggers (focus,
@@ -725,10 +755,11 @@ export default function ConnectPageClient() {
   const [initialFirstPage] = useState<ConnectionPage | null>(() =>
     userId
       ? CacheService.getInstance().get<ConnectionPage>(
-          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
+          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, tab === "advisors" ? "ria" : "all"),
         )
       : null,
   );
+  const verifiedConnectionsFirstPage = useRef(initialFirstPage);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>(
     () => initialFirstPage?.items ?? [],
   );
@@ -746,7 +777,7 @@ export default function ConnectPageClient() {
   );
   // Whose rows are on screen, as "uid:audience"; null when there are none.
   const connectionsListOwnerRef = useRef<string | null>(
-    initialFirstPage && userId ? `${userId}:all` : null,
+    initialFirstPage && userId ? `${userId}:${tab === "advisors" ? "ria" : "all"}` : null,
   );
   // Open by default: My connections is the first thing a person opens
   // Connect to see, and a collapsed panel hid the list (and its only retry
@@ -758,6 +789,7 @@ export default function ConnectPageClient() {
   const connectionsFirstPageRequestRef = useRef<number | null>(null);
   const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
   const connectionReconcileQueuedRef = useRef(false);
+  const connectionVerificationQueuedRef = useRef(false);
   const directoryReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const suppressNextLocalGraphEventRef = useRef(false);
@@ -765,8 +797,10 @@ export default function ConnectPageClient() {
     Record<string, string>
   >({});
   const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(directoryMemory?.hasMore ?? false);
-  const [currentPage, setCurrentPage] = useState(directoryMemory?.page ?? 1);
+  const [hasMore, setHasMore] = useState(initialDirectory?.hasMore ?? false);
+  const [currentPage, setCurrentPage] = useState(initialDirectory?.page ?? 1);
+  const directoryAppending = loading && currentPage > 1 && !restoreDirectoryReadRef.current;
+  const directoryLoading = directoryQueryPending || loading && !directoryResolved;
   useEffect(() => {
     if (mutualPersonRef) return;
     const saved = readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory");
@@ -777,6 +811,7 @@ export default function ConnectPageClient() {
   }, [mutualPersonRef, userId]);
   const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestPendingRef = useRef(false);
+  const directoryReadGenerationRef = useRef(0);
   const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
   const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
@@ -800,20 +835,22 @@ export default function ConnectPageClient() {
    * to the search row and to nothing else, and leaves with the page.
    */
   useEffect(() => {
-    const header = stickyHeaderRef.current;
+    const header = stickyHeader;
     const stack = connectStackRef.current;
     if (!header || !stack) return;
+    const toolbar = stack.querySelector<HTMLElement>(`[data-testid="${connectionView === "connections" ? "connect-my-connections-group" : "connect-directory-group"}"] > div:first-child`);
     const publish = () => {
-      stack.style.setProperty(
-        "--connect-sticky-header-height",
-        `${Math.ceil(header.getBoundingClientRect().height)}px`,
-      );
+      for (const [name, node] of [["--connect-sticky-header-height", header], ["--connect-view-tabs-height", viewTabsNode],
+        ["--connect-list-toolbar-height", toolbar]] as const) {
+        stack.style.setProperty(name, `${Math.ceil(node?.getBoundingClientRect().height ?? 0)}px`);
+      }
     };
     publish();
     const observer = new ResizeObserver(publish);
-    observer.observe(header);
+    for (const node of [header, viewTabsNode, toolbar]) if (node) observer.observe(node);
     return () => observer.disconnect();
-  }, [surface]);
+  }, [stickyHeader, viewTabsNode, surface, connectionView, tab]);
+
   useEffect(() => {
     if (useWebDirectoryPopover) return;
     if (!directoryMenuOpen) return;
@@ -911,6 +948,7 @@ export default function ConnectPageClient() {
       page: number,
       audience: ConnectionAudience,
       query = "",
+      accountCheck?: "observe" | "reconcile",
     ): Promise<ConnectionPage | null> => {
       if (!user) return null;
       try {
@@ -921,6 +959,7 @@ export default function ConnectPageClient() {
           limit: CONNECTION_PAGE_SIZE,
           query,
           audience,
+          ...(accountCheck ? { accountCheck } : {}),
         });
       } catch {
         // Non-fatal: the directory below remains available.
@@ -955,34 +994,55 @@ export default function ConnectPageClient() {
       audience,
       clearBeforeLoad = false,
       removedConnection = false,
+      background = false,
+      quiet = false,
+      accountCheck = background ? "observe" : undefined,
     }: {
       audience: ConnectionAudience;
       clearBeforeLoad?: boolean;
       removedConnection?: boolean;
+      background?: boolean;
+      quiet?: boolean;
+      accountCheck?: "observe" | "reconcile";
     }) => {
-      const requestId = ++connectionsRequestRef.current;
-      connectionsFirstPageRequestRef.current = requestId;
-      // A first-page refresh supersedes every append in flight. Clear its
-      // affordance synchronously so a page-2 response cannot leave the screen
-      // saying "Loading…" while this new generation owns the list.
-      setConnectionsLoadingMore(false);
-      setConnectionsRefreshingFirstPage(true);
-      if (clearBeforeLoad) {
-        setConnections([]);
-        setConnectionsTotalCount(0);
-        setConnectionsPage(1);
-        setConnectionsHasMore(false);
-        setConnectionsLoaded(false);
+      const requestId = background
+        ? connectionsRequestRef.current
+        : ++connectionsRequestRef.current;
+      if (!background) {
+        connectionsFirstPageRequestRef.current = requestId;
+        // A first-page refresh supersedes any append already in flight.
+        setConnectionsLoadingMore(false);
+        setConnectionsRefreshingFirstPage(!quiet);
       }
       const cacheKey = userId
         ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, audience)
         : null;
+      if (clearBeforeLoad) {
+        const saved = cacheKey ? CacheService.getInstance().get<ConnectionPage>(cacheKey) : null;
+        verifiedConnectionsFirstPage.current = saved;
+        setConnections(saved?.items ?? []);
+        setConnectionsTotalCount(saved?.totalCount ?? 0);
+        setConnectionsPage(saved?.page ?? 1);
+        setConnectionsHasMore(saved?.hasMore ?? false);
+        setConnectionsLoaded(Boolean(saved));
+      }
 
       try {
-        const result = await loadConnectionsPage(1, audience);
+        const result = await loadConnectionsPage(1, audience, "", accountCheck);
         if (requestId !== connectionsRequestRef.current) return false;
+        if (background) {
+          if (!result) return false;
+          if (JSON.stringify(result) === JSON.stringify(verifiedConnectionsFirstPage.current)) {
+            setConnectionsRefreshError(false);
+            return true;
+          }
+          ++connectionsRequestRef.current;
+          setConnectionsLoadingMore(false);
+          setDirectoryRefreshNonce((nonce) => nonce + 1);
+        }
 
         if (result) {
+          verifiedConnectionsFirstPage.current = result;
           setConnectionsRefreshError(false);
           setConnections(result.items);
           setConnectionsPage(result.page);
@@ -992,6 +1052,7 @@ export default function ConnectPageClient() {
             CacheService.getInstance().set(cacheKey, result, CACHE_TTL.MEDIUM);
           }
         } else if (removedConnection) {
+          verifiedConnectionsFirstPage.current = null;
           // The cached page still holds the removed row.
           if (cacheKey) CacheService.getInstance().invalidate(cacheKey);
           // Do not keep a page-2 cursor over a shifted server list: the next
@@ -1009,7 +1070,7 @@ export default function ConnectPageClient() {
         }
         return true;
       } finally {
-        if (connectionsFirstPageRequestRef.current === requestId) {
+        if (!background && connectionsFirstPageRequestRef.current === requestId) {
           connectionsFirstPageRequestRef.current = null;
           setConnectionsRefreshingFirstPage(false);
           // Answered, even if the answer was an error: the retry row shows.
@@ -1024,11 +1085,14 @@ export default function ConnectPageClient() {
     ({
       ensureAfterCurrent = false,
       refreshDirectory = true,
+      verifyAccounts = false,
     }: {
       ensureAfterCurrent?: boolean;
       refreshDirectory?: boolean;
+      verifyAccounts?: boolean;
     } = {}) => {
       if (!user) return Promise.resolve();
+      if (verifyAccounts) connectionVerificationQueuedRef.current = true;
       if (refreshDirectory) directoryReconcileQueuedRef.current = true;
       const active = connectionReconcileInFlightRef.current;
       if (active) {
@@ -1039,9 +1103,12 @@ export default function ConnectPageClient() {
       const run = async () => {
         do {
           connectionReconcileQueuedRef.current = false;
+          const verifyAccounts = connectionVerificationQueuedRef.current;
+          connectionVerificationQueuedRef.current = false;
           await Promise.allSettled([
             refreshConnectionsFirstPage({
               audience: connectionAudienceRef.current,
+              accountCheck: verifyAccounts ? "reconcile" : undefined,
             }),
             loadOutgoingRequestIds(),
           ]);
@@ -1061,6 +1128,19 @@ export default function ConnectPageClient() {
       return task;
     },
     [loadOutgoingRequestIds, refreshConnectionsFirstPage, user],
+  );
+
+  // Provider-only changes have no app deletion transaction. Reconcile an
+  // open Connect tab even when a live event was missed or has not been emitted.
+  usePeriodicTask(
+    `connect-account-availability:${userId ?? ""}`,
+    30_000,
+    async () => {
+      if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      if (connectionsLoadingMore || connectionsFirstPageRequestRef.current !== null) return;
+      await refreshConnectionsFirstPage({ audience: connectionAudience, background: true });
+    },
+    { enabled: Boolean(userId && surface === "all" && !mutualPersonRef) },
   );
 
   // The same contact sync the One Location agent offers, on the screen whose
@@ -1118,6 +1198,7 @@ export default function ConnectPageClient() {
     void refreshConnectionsFirstPage({
       audience: connectionAudience,
       clearBeforeLoad,
+      quiet: true,
     });
     return () => {
       connectionsRequestRef.current += 1;
@@ -1157,7 +1238,14 @@ export default function ConnectPageClient() {
         suppressNextLocalGraphEventRef.current = false;
         return;
       }
-      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+      // A prior read can still be in flight against a worker with a warm
+      // account-status cache. Reject it and recheck provider authority.
+      ++connectionsRequestRef.current;
+      ++directoryReadGenerationRef.current;
+      // Directory reads must be fenced immediately too: roster or outgoing
+      // reconciliation can be slow while an older directory page completes.
+      setDirectoryRefreshNonce((nonce) => nonce + 1);
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true, verifyAccounts: true, refreshDirectory: false });
     });
     const directoryIsDueForPassiveRefresh = () =>
       Date.now() - lastDirectoryReadAtRef.current >=
@@ -1263,7 +1351,6 @@ export default function ConnectPageClient() {
 
   // Both browsing and search load the directory in bounded server batches.
   // Scrolling appends the next batch without replacing people already visible.
-  const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
 
   // A new query, or a new page size, is a new result set: go back to page one
@@ -1285,7 +1372,7 @@ export default function ConnectPageClient() {
   // No count until the list has answered: "(0)" is a claim, not a placeholder.
   const connectionsHeadingLabel = isAdvisorTab ? "My RIAs" : "My connections";
   const handleRefreshConnections = useCallback(() => {
-    if (connectionsRefreshingFirstPage) return;
+    if (connectionsRefreshingFirstPage || connectionsFirstPageRequestRef.current !== null) return;
     void refreshConnectionsFirstPage({ audience: connectionAudience });
   }, [
     connectionAudience,
@@ -1320,7 +1407,7 @@ export default function ConnectPageClient() {
       // Only the clipboard fallback needs saying out loud. The native sheet and
       // Web Share both show the person their own send, so a toast on top of
       // that reports something they just watched happen.
-      if (delivery === "copied") toast.success("Invite link copied.");
+      if (delivery === "copied") toast.success("Invite link copied.", { className: connectTypography.toast });
     } catch (error) {
       // Dismissing the sheet is a decision, not a failure.
       if (isShareCancellationError(error)) return;
@@ -1332,7 +1419,7 @@ export default function ConnectPageClient() {
             "This browser cannot share links."
           : // The channel exists and something went wrong inside it, so the
             // copy stays neutral about which rung failed.
-            "Could not share the invite.",
+            "Could not share the invite.", { className: connectTypography.toast },
       );
     } finally {
       invitingRef.current = false;
@@ -1340,6 +1427,13 @@ export default function ConnectPageClient() {
   }, [inviteToOneShare]);
 
   const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
+  usePeriodicTask(`connect-directory-availability:${userId ?? ""}`, 30_000, () => {
+    if (!isNetworkOnline() || directoryRequestPendingRef.current) return;
+    if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+    if (Date.now() - lastDirectoryReadAtRef.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
+    ++directoryReadGenerationRef.current;
+    setDirectoryRefreshNonce((nonce) => nonce + 1);
+  }, { enabled: Boolean(userId && surface === "all" && connectionView === "discover" && !mutualPersonRef && tab !== "nearby") });
   const directoryScopeKey = `${userId ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const resultSetKey = `${directoryScopeKey}:${directoryRefreshNonce}`;
   const [renderedDirectoryScopeKey, setRenderedDirectoryScopeKey] =
@@ -1355,16 +1449,18 @@ export default function ConnectPageClient() {
     // arrive. A different owner, audience, or search must clear stale results.
     if (renderedDirectoryScopeKey !== directoryScopeKey) {
       setRenderedDirectoryScopeKey(directoryScopeKey);
+      restoreDirectoryReadRef.current = false;
       // The saved list for the new audience, when there is one; otherwise
       // empty, so rows from the old audience never sit under the new heading.
+      const saved = trimmedQuery ? null : readSavedDirectoryFirstPage(userId, directoryAudience);
       setPeople(
-        trimmedQuery
-          ? []
-          : (readSavedDirectoryFirstPage(userId, directoryAudience)?.items ??
-              []),
+        (saved?.items ?? []).filter(
+          (person) => person.relationship !== "connected",
+        ),
       );
+      setDirectoryResolved(Boolean(saved));
+      setHasMore(saved?.hasMore ?? false);
     }
-    setHasMore(false);
     setError(null);
     setErrorRateLimited(false);
     setLoading(true);
@@ -1372,29 +1468,42 @@ export default function ConnectPageClient() {
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++directoryReadGenerationRef.current;
+    const isCurrent = () => !cancelled && generation === directoryReadGenerationRef.current;
     async function run() {
-      if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
+      if (!user || !userId || isFocusedCircleTask || tab === "nearby" || mutualPersonRef) return;
       try {
         directoryRequestPendingRef.current = true;
-        if (currentPage <= 1) setHasMore(false);
         setLoading(true);
         setError(null);
         setErrorRateLimited(false);
         setDirectoryRefused(false);
         lastDirectoryReadAtRef.current = Date.now();
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
         const firstPage = restoreDirectoryReadRef.current ? 1 : currentPage;
         const restoredPeople: DirectoryPerson[] = [];
         let page;
         for (let index = firstPage; index <= currentPage; index++) {
           page = await ConnectionsService.searchDirectory({ idToken, query: trimmedQuery,
-            page: index, limit: pageSize, audience: directoryAudience });
-          restoredPeople.push(...page.items);
-          if (!page.hasMore || cancelled) break;
+            page: index, limit: pageSize, audience: directoryAudience,
+            excludeConnected: true,
+            ...(trimmedQuery ? { typedSearch: true } : {}),
+          });
+          restoredPeople.push(
+            ...page.items.filter(
+              (person) => person.relationship !== "connected",
+            ),
+          );
+          if (!page.hasMore || !isCurrent()) break;
         }
         if (!page) return;
-        if (!cancelled) {
+        const pageUnconnectedItems = page.items.filter(
+          (person) => person.relationship !== "connected",
+        );
+        if (isCurrent()) {
           restoreDirectoryReadRef.current = false;
+          setDirectoryResolved(true);
           // Keep server order and a single row per user when an offset page
           // overlaps after a directory update. Page one replaces the generation.
           setPeople((previous) =>
@@ -1402,7 +1511,7 @@ export default function ConnectPageClient() {
               ? [...new Map(restoredPeople.map((person) => [person.userId, person])).values()]
               : [
                   ...new Map(
-                    [...previous, ...page.items].map((person) => [
+                    [...previous, ...pageUnconnectedItems].map((person) => [
                       person.userId,
                       person,
                     ]),
@@ -1426,7 +1535,7 @@ export default function ConnectPageClient() {
           // before anything is sent, so nothing is promised unseen.
         }
       } catch (loadError) {
-        if (!cancelled) {
+        if (isCurrent()) {
           // A refused or failed refresh of a list that is already on screen
           // changes nothing the person can see: the people they were shown are
           // still the best answer, and an error row (or a retry button to
@@ -1451,7 +1560,7 @@ export default function ConnectPageClient() {
           }
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent()) {
           directoryRequestPendingRef.current = false;
           setLoading(false);
         }
@@ -1475,7 +1584,7 @@ export default function ConnectPageClient() {
     // refused. Bumping the nonce starts a fresh first-page generation.
     directoryRefreshNonce,
     directoryRetryNonce,
-    surface,
+    isFocusedCircleTask,
     tab,
     mutualPersonRef,
   ]);
@@ -1497,7 +1606,9 @@ export default function ConnectPageClient() {
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
-      if (next === surface) return;
+      if (next === (requestedSurfaceRef.current ?? surface)) return;
+      requestedSurfaceRef.current = next;
+      setSurface(next);
       const params = new URLSearchParams(searchParams.toString());
       // The default is written out explicitly. The App Router refuses a
       // navigation whose only change is that the whole query string
@@ -1521,7 +1632,8 @@ export default function ConnectPageClient() {
         setShowLimitBanner(false);
         setPendingRemoveTarget(null);
       }
-      router.push(`${ROUTES.CONNECT}?${params.toString()}`, { scroll: false });
+      const href = `${ROUTES.CONNECT}?${params.toString()}`;
+      beginRouteTransition(href, () => router.push(href, { scroll: false }), "programmatic", "contextual");
     },
     [router, searchParams, surface],
   );
@@ -1617,7 +1729,7 @@ export default function ConnectPageClient() {
         toast.success(
           outgoing
             ? "Connection request sent"
-            : "This person already asked to connect. Review their request.",
+            : "This person already asked to connect. Review their request.", { className: connectTypography.toast },
         );
         if (!outgoing)
           router.push(
@@ -1629,7 +1741,7 @@ export default function ConnectPageClient() {
         toast.error(
           sendError instanceof Error
             ? sendError.message
-            : "Failed to send request",
+            : "Failed to send request", { className: connectTypography.toast },
         );
         return false;
       } finally {
@@ -1708,13 +1820,13 @@ export default function ConnectPageClient() {
             p.userId === connection.userId ? { ...p, relationship: "none" } : p,
           ),
         );
-        toast.success("Connection removed");
+        toast.success("Connection removed", { className: connectTypography.toast });
       } catch (removeError) {
         if (!isCurrent()) return;
         toast.error(
           removeError instanceof Error
             ? removeError.message
-            : "Failed to remove connection",
+            : "Failed to remove connection", { className: connectTypography.toast },
         );
       } finally {
         if (isCurrent()) { setBusyId(null); setPendingRemoveTarget(null); }
@@ -1911,13 +2023,13 @@ export default function ConnectPageClient() {
           toast.info(
             result.person.relationship === "connected"
               ? "This connection is active. Continue your Location task to check its requirements."
-              : "Your connection request is still pending. Nothing has been sent again.",
+              : "Your connection request is still pending. Nothing has been sent again.", { className: connectTypography.toast },
           );
         }
       } catch {
         if (!cancelled)
           toast.error(
-            "This connection could not be checked. Refresh Connect or cancel the task.",
+            "This connection could not be checked. Refresh Connect or cancel the task.", { className: connectTypography.toast },
           );
       }
     })();
@@ -1979,7 +2091,7 @@ export default function ConnectPageClient() {
     // changed outside the row controls.
     if (draftPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
       toast.error(
-        `Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
+        `Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`, { className: connectTypography.toast },
       );
       return;
     }
@@ -2071,7 +2183,7 @@ export default function ConnectPageClient() {
             failedCount ? `${failedCount} couldn't be sent.` : "",
           ]
             .filter(Boolean)
-            .join(" "),
+            .join(" "), { className: connectTypography.toast },
         );
         if (incoming.size === 1 && sendable.length === 1) {
           const response = results.find(
@@ -2085,9 +2197,9 @@ export default function ConnectPageClient() {
             );
         }
       } else if (sendable.length === 0) {
-        toast.error("Already asked.");
+        toast.error("Already asked.", { className: connectTypography.toast });
       } else {
-        toast.error("Couldn't send. Try again.");
+        toast.error("Couldn't send. Try again.", { className: connectTypography.toast });
       }
 
       // Only the people who were actually sent leave the selection. Anyone who
@@ -2119,7 +2231,7 @@ export default function ConnectPageClient() {
         );
       }
     } catch {
-      if (isCurrent()) toast.error("Couldn't send. Try again.");
+      if (isCurrent()) toast.error("Couldn't send. Try again.", { className: connectTypography.toast });
     } finally {
       if (isCurrent()) {
         batchSendingRef.current = false;
@@ -2149,12 +2261,12 @@ export default function ConnectPageClient() {
         });
         CacheSyncService.onConnectionCapabilityMutated(userId);
         setCircleRefreshToken((token) => token + 1);
-        toast.success("Connection request cancelled");
+        toast.success("Connection request cancelled", { className: connectTypography.toast });
       } catch (cancelError) {
         toast.error(
           cancelError instanceof Error
             ? cancelError.message
-            : "Failed to cancel connection request",
+            : "Failed to cancel connection request", { className: connectTypography.toast },
         );
       } finally {
         setBusyId(null);
@@ -2207,6 +2319,24 @@ export default function ConnectPageClient() {
   const connectionSearch = useConnectionSearch({ ownerId: userId, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
   const sortedConnections = connectionSearch.active ? connectionSearch.items : connections;
   const pendingRemoveConnection = pendingRemoveTarget?.ownerId === userId && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
+  const circleIdeas = useCircleDiscoveryCardModel(useLivingConnections({
+    currentUserId: userId, circlesState, ownerName: connectPersonName({ displayName: user?.displayName }), ownerPhotoUrl: user?.photoURL,
+    connections: sortedConnections, totalCount: connectionsTotalCount,
+    loading: !connectionsRefreshError && (!connectionsLoaded || connectionsRefreshingFirstPage) && sortedConnections.length === 0,
+    error: Boolean(connectionsRefreshError), onFindPeople: () => { setConnectionView("discover"); setTab("people"); commitSurface("all"); },
+    onCreateCircle: () => setCreateCircleDialogOpen(true), onRetry: handleRefreshConnections, onRetryCircles: () => setCircleRefreshToken(value => value + 1),
+  }));
+
+
+  const commitSurface = useCallback((value: string) => {
+    if (value === "all" || value === "circles") selectSurface(value);
+  }, [selectSurface]);
+  // Profile Back returns to the authored local view, directory and search.
+  const connectReturnParams = new URLSearchParams({ [CONNECT_SURFACE_PARAM]: "all",
+    [CONNECT_CONNECTION_VIEW_PARAM]: connectionView, [CONNECT_DIRECTORY_PARAM]: tab });
+  const returnQuery = connectionView === "connections" ? connectionsQuery : query;
+  if (returnQuery.trim()) connectReturnParams.set(CONNECT_SEARCH_QUERY_PARAM, returnQuery.trim());
+  const connectReturnHref = `${ROUTES.CONNECT}?${connectReturnParams.toString()}`;
 
   // Voice surface for Connect. Until this existed the route derived the
   // generic "app" screen, so One knew a person was somewhere in the app and
@@ -3114,14 +3244,62 @@ export default function ConnectPageClient() {
     </div>
   );
 
+  const exploreNetworkAction = (
+    <div className="flex justify-start sm:justify-end">
+      <Button
+        type="button"
+        variant="plain"
+        size="compact"
+        aria-haspopup="dialog"
+        data-voice-control-id="connect-explore-network"
+        className={cn(
+          CONNECT_INLINE_BUTTON_CLASSNAME,
+          CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+          "!text-[color:var(--app-accent)]",
+        )}
+        onClick={(event) => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}
+      >
+        Explore your network
+        <ChevronRight aria-hidden="true" className="ml-1 size-4 shrink-0" />
+      </Button>
+    </div>
+  );
+
   if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
 
-  const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
-    query, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
+  const rememberDirectory = () => directoryResolved && !directoryQueryPending && saveConnectListMemory(userId, "directory", {
+    query: trimmedQuery, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
   } satisfies DirectoryNavigationSnapshot);
 
-  return (
+  const openDirectoryMutual = async (person: DirectoryPerson) => {
+    if (!person.publicPersonRef || !user || isSelectionMode) return;
+  const request = ++mutualResolutionRef.current;
+  rememberDirectory();
+  if (person.mutualConnectionCount === 1 && !person.mutualConnectionPreview?.publicPersonRef && user) {
+    const generation = getAuthSessionGeneration();
+    try {
+      const result = await ConnectionsService.listMutualConnections({ idToken: await user.getIdToken(), personRef: person.publicPersonRef!, page: 1 });
+      if (request !== mutualResolutionRef.current || connectOwnerRef.current !== userId || generation !== getAuthSessionGeneration()) return;
+      if (result.totalCount > 1) router.push(connectMutualsHref(person.publicPersonRef!, searchParams, query, tab), { scroll: false });
+      else if (result.items[0]) openPersonProfilePreview({ personRef: result.items[0].publicPersonRef, presentation: "connect" });
+      else toast.info("This mutual connection’s profile is unavailable.", { className: connectTypography.toast });
+    } catch { if (request === mutualResolutionRef.current && connectOwnerRef.current === userId && generation === getAuthSessionGeneration()) toast.error("Could not open this mutual connection. Please try again.", { className: connectTypography.toast }); }
+    return;
+  }
+  router.push((person.mutualConnectionCount ?? 0) > 1
+    ? connectMutualsHref(person.publicPersonRef!, searchParams, query, tab)
+    :
+    buildPersonProfileRoute(
+      person.mutualConnectionPreview!.publicPersonRef!,
+        { from: connectDirectoryReturnHref(searchParams, query, tab) },
+    ),
+    { scroll: false },
+  );
+  };
+
+  const fallback = (
     <AppPageShell
+      ref={nativeConnectFrame}
       as="main"
       data-connect-page=""
       // Connect owns its role scale; Profile typography stays scoped to Profile.
@@ -3150,7 +3328,7 @@ export default function ConnectPageClient() {
                   : sortedConnections.length ? "loaded" : "empty-valid"
               : error
               ? "unavailable-valid"
-              : loading
+              : directoryLoading
                 ? "loading"
                 : people.length === 0
                   ? "empty-valid"
@@ -3169,10 +3347,14 @@ export default function ConnectPageClient() {
       }}
     >
       <SettingsPresentationProvider density="compact">
-        {isFocusedCircleTask ? (
+        {isFocusedCircleTask || (surface === "circles" && customNativePresentationEnabled()) ? (
           <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
             <div className={cn("mx-auto w-full", circleFlowAction !== "circle-detail" && "max-w-[560px]")}>
               <ConnectCirclesTab
+                nativePresentation={{ frameRef: nativeConnectFrame, selectSurface, ideas: circleIdeas,
+                  fallbackTabs: !isFocusedCircleTask ? <TopShellTabs tabSet={{ ...CONNECT_SURFACE_TAB_DEFINITION, activeValue: surface }} onValueChange={commitSurface} /> : undefined,
+                  includeIdeas: !isFocusedCircleTask,
+                }}
                 onStateChange={setCirclesState}
                 currentUserId={userId}
                 isActive={surface === "circles"}
@@ -3193,7 +3375,7 @@ export default function ConnectPageClient() {
                   className="relative space-y-3 sm:space-y-4"
                 >
                   <div
-                    ref={stickyHeaderRef}
+                    ref={setStickyHeader}
                     data-testid="connect-sticky-header"
                     data-top-chrome-collapse-consumer=""
                     className={CONNECT_STICKY_HEADER_CLASSNAME}
@@ -3203,7 +3385,7 @@ export default function ConnectPageClient() {
                         ...CONNECT_SURFACE_TAB_DEFINITION,
                         activeValue: surface,
                       }}
-                      navigationMode="push"
+                      onValueChange={commitSurface}
                     />
                   </div>
 
@@ -3225,15 +3407,12 @@ export default function ConnectPageClient() {
                       className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}
                     >
                       <Tabs value={connectionView} onValueChange={setConnectionView} className={styles.connectionViews}>
-                        <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
-                          <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
-                            <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
-                          </TabsTrigger>
-                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
-                        </TabsList>
-                        <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
-                          <button type="button" data-voice-control-id="connect-explore-network" className="mb-3 min-h-11 rounded-full border px-4 text-sm font-medium" onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}>Explore your network</button>
-                          {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
+                        <div ref={setViewTabsNode} className={styles.viewTabs}>
+                          <TopShellTabs tabSet={connectViewTabs(connectionView, `${connectionsHeadingLabel}${connectionsLoaded ? ` ${connectionsTotalCount}` : ""}`)}
+                            onValueChange={value => setConnectionView(value as typeof connectionView)} />
+                        </div>
+                        <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} className="motion-step-enter" id="top-shell-connect-views-panel-discover" aria-labelledby="top-shell-connect-views-tab-discover" aria-label="Find people">
+                          {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div>{exploreNetworkAction}<NearbyDirectories getIdToken={getIdToken} /></div> : (
                             <SettingsGroup
                               testId="connect-directory-group"
                               headingClassName={cn(
@@ -3257,8 +3436,7 @@ export default function ConnectPageClient() {
                                 !isAdvisorTab && contactSync.available ? (
                                   <Button
                                     type="button"
-                                    variant="none"
-                                    effect="fade"
+                                    variant="plain"
                                     size="compact"
                                     aria-label="Sync contacts"
                                     aria-busy={contactSync.syncing}
@@ -3334,8 +3512,9 @@ export default function ConnectPageClient() {
                                         // iOS soft-keyboard "return" must dismiss the keyboard;
                                         // blurring the field is what actually closes it in the
                                         // Capacitor webview (there is no form submit here).
-                                        if (event.key === "Enter") {
+                                        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                                           event.preventDefault();
+                                          setDirectoryQuery(event.currentTarget.value.trim());
                                           event.currentTarget.blur();
                                         }
                                       }}
@@ -3392,7 +3571,8 @@ export default function ConnectPageClient() {
                                 </div>
                               }
                             >
-                              {loading && people.length === 0 ? (
+                              {exploreNetworkAction}
+                              {directoryLoading ? (
                                 <SettingsRow
                                   title="Finding people…"
                                   density="compact"
@@ -3414,8 +3594,7 @@ export default function ConnectPageClient() {
                                     errorRateLimited ? undefined : (
                                       <Button
                                         type="button"
-                                        variant="none"
-                                        effect="fade"
+                                        variant="plain"
                                         size="compact"
                                         className={
                                           CONNECT_INLINE_BUTTON_CLASSNAME
@@ -3496,10 +3675,6 @@ export default function ConnectPageClient() {
                                       key={person.userId}
                                       person={person}
                                       testId="directory-person-row"
-                                      // Verified is a state, and green is what this design
-                                      // system already spends on a verified one. It is on the
-                                      // row rather than on the tab so the mark still means
-                                      // something in a search that spans both.
                                       leading={
                                         <ConnectionPersonAvatar
                                           size="compact"
@@ -3507,7 +3682,6 @@ export default function ConnectPageClient() {
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
-                                          verified={Boolean(person.isRia)}
                                         />
                                       }
                                       openLabel={`Open ${title}'s profile`}
@@ -3520,7 +3694,7 @@ export default function ConnectPageClient() {
                                               router.push(
                                                 buildPersonProfileRoute(
                                                   person.publicPersonRef!,
-                                                  { from: connectDirectoryReturnHref(searchParams, query) },
+                                                    { from: connectDirectoryReturnHref(searchParams, query, tab) },
                                                 ),
                                               ); }
                                           : undefined
@@ -3531,29 +3705,7 @@ export default function ConnectPageClient() {
                                           onOpenMutual={
                                             !isSelectionMode &&
                                             (person.mutualConnectionCount ?? 0) > 0 && person.publicPersonRef
-                                              ? async () => {
-                                                  const request = ++mutualResolutionRef.current;
-                                                  rememberDirectory();
-                                                  if (person.mutualConnectionCount === 1 && !person.mutualConnectionPreview?.publicPersonRef && user) {
-                                                    const generation = getAuthSessionGeneration();
-                                                    try {
-                                                      const result = await ConnectionsService.listMutualConnections({ idToken: await user.getIdToken(), personRef: person.publicPersonRef!, page: 1 });
-                                                      if (request !== mutualResolutionRef.current || connectOwnerRef.current !== userId || generation !== getAuthSessionGeneration()) return;
-                                                      if (result.totalCount > 1) router.push(connectMutualsHref(person.publicPersonRef!, searchParams, query), { scroll: false });
-                                                      else if (result.items[0]) openPersonProfilePreview({ personRef: result.items[0].publicPersonRef });
-                                                      else toast.info("This mutual connection’s profile is unavailable.");
-                                                    } catch { if (request === mutualResolutionRef.current && connectOwnerRef.current === userId && generation === getAuthSessionGeneration()) toast.error("Could not open this mutual connection. Please try again."); }
-                                                    return;
-                                                  }
-                                                  router.push((person.mutualConnectionCount ?? 0) > 1
-                                                    ? connectMutualsHref(person.publicPersonRef!, searchParams, query)
-                                                    :
-                                                    buildPersonProfileRoute(
-                                                      person.mutualConnectionPreview!.publicPersonRef!,
-                                                      { from: connectDirectoryReturnHref(searchParams, query) },
-                                                    ),
-                                                    { scroll: false },
-                                                  ); }
+                                              ? () => openDirectoryMutual(person)
                                               : undefined
                                           }
                                         />
@@ -3604,7 +3756,7 @@ export default function ConnectPageClient() {
                                                     MAX_BULK_CONNECTION_REQUESTS
                                                 ) {
                                                   toast.error(
-                                                    `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`,
+                                                    `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`, { className: connectTypography.toast },
                                                   );
                                                   setShowLimitBanner(true);
                                                   return;
@@ -3638,8 +3790,7 @@ export default function ConnectPageClient() {
                                           "pending_outgoing" ? (
                                           <Button
                                             type="button"
-                                            variant="none"
-                                            effect="fade"
+                                            variant="plain"
                                             size="compact"
                                             // One word at the width of every other action in
                                             // this column. "Cancel request" plus a 100px
@@ -3678,8 +3829,7 @@ export default function ConnectPageClient() {
                                         ) : (
                                           <Button
                                             type="button"
-                                            variant="none"
-                                            effect="fade"
+                                            variant="plain"
                                             size="compact"
                                             data-profile-role="action"
                                             data-relationship={person.relationship}
@@ -3705,14 +3855,14 @@ export default function ConnectPageClient() {
                                   );
                                 })
                               )}
-                              {people.length > 0 &&
-                              (hasMore || loading || error) ? (
+                              {!directoryQueryPending && people.length > 0 &&
+                              (hasMore || directoryAppending || error) ? (
                                 <div
                                   ref={directoryLoadMoreRef}
                                   className="flex min-h-14 items-center justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
                                   data-testid="connect-load-more-row"
                                 >
-                                  {loading ? (
+                                  {directoryAppending ? (
                                     <span
                                       role="status"
                                       className="inline-flex items-center gap-2"
@@ -3728,10 +3878,10 @@ export default function ConnectPageClient() {
                                   ) : (
                                     <Button
                                       type="button"
-                                      variant="none"
-                                      effect="fade"
+                                      variant="plain"
                                       size="compact"
                                       className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                      disabled={loading}
                                       onClick={loadNextDirectoryBatch}
                                     >
                                       {error
@@ -3740,7 +3890,7 @@ export default function ConnectPageClient() {
                                     </Button>
                                   )}
                                 </div>
-                              ) : people.length > 0 ? (
+                              ) : !directoryQueryPending && people.length > 0 ? (
                                 <span className="sr-only" role="status">
                                   All people loaded
                                 </span>
@@ -3772,16 +3922,16 @@ export default function ConnectPageClient() {
                             </SettingsGroup>
                           )}
                         </TabsContent>
-                        <TabsContent forceMount value="connections" hidden={connectionView !== "connections"} aria-label={connectionsHeadingLabel}>
+                        <TabsContent forceMount value="connections" hidden={connectionView !== "connections"} className="motion-step-enter" id="top-shell-connect-views-panel-connections" aria-labelledby="top-shell-connect-views-tab-connections" aria-label={connectionsHeadingLabel}>
                           <SettingsGroup
                             className="bg-transparent"
                             titleControl={<span className={styles.listMeta}>{connectionsLoaded ? `${connectionsTotalCount} ${isAdvisorTab ? connectionsTotalCount === 1 ? "RIA" : "RIAs" : connectionsTotalCount === 1 ? "connection" : "connections"}` : "Connections"}</span>}
                             titleAction={
-                              <Button type="button" variant="none" effect="fade" size="compact"
+                              <Button type="button" variant="plain" size="compact"
                                 aria-label="Refresh contacts" aria-busy={connectionsRefreshingFirstPage}
                                 disabled={connectionsRefreshingFirstPage} onClick={handleRefreshConnections}
                                 className={styles.utilityAction}>
-                                <RefreshCw aria-hidden="true" className={cn("size-4", connectionsRefreshingFirstPage && "animate-spin")} />
+                                <RefreshCw aria-hidden="true" className={cn("mr-1.5 size-4 shrink-0", connectionsRefreshingFirstPage && "animate-spin")} />
                                 {connectionsRefreshingFirstPage ? "Refreshing…" : "Refresh"}
                               </Button>
                             }
@@ -3792,7 +3942,7 @@ export default function ConnectPageClient() {
                                 onChange={event => setConnectionsQuery(event.target.value)} />
                             </div>}
                             separatorInset={false}
-                            headingClassName="!mt-0 !mb-1 !px-0"
+                            headingClassName="items-center !mt-0 !mb-1 !px-0"
                             contentId="connect-my-connections-panel"
                             shellClassName={cn(
                               // Visible, not clipped: the 44px action targets reach 11px past
@@ -3856,10 +4006,12 @@ export default function ConnectPageClient() {
                                         fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                         photoUrl={connection.photoUrl ?? null}
                                         label={connectionName}
-                                        verified={Boolean(connection.isRia)}
+                                        verified={connection.isRia === true}
                                         fromContacts={connection.connectedFromContacts === true}
+                                        showBadgeDetails
                                       />
                                     }
+                                    leadingInteractive={connection.isRia === true || connection.connectedFromContacts === true}
                                     title={connectionName}
                                     description={
                                       connection.createdAt &&
@@ -3877,7 +4029,7 @@ export default function ConnectPageClient() {
                                             router.push(
                                               buildPersonProfileRoute(
                                                 connection.publicPersonRef!,
-                                                { from: ROUTES.CONNECT },
+                                                { from: connectReturnHref },
                                               ),
                                             )
                                         : undefined
@@ -3887,11 +4039,9 @@ export default function ConnectPageClient() {
                                         {connection.publicPersonRef ? (
                                           <Button
                                             type="button"
-                                            variant="none"
-                                            effect="fade"
-                                            size="compact"
+                                            variant="plain"
+                                            size="icon-touch"
                                             aria-label={`Message ${connectionName}`}
-                                            className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                             onClick={() => {
                                               void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                             }}
@@ -3901,12 +4051,10 @@ export default function ConnectPageClient() {
                                         ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                         <Button
                                           type="button"
-                                          variant="none"
-                                          effect="fade"
-                                          size="compact"
+                                          variant="plain"
+                                          size="icon-touch"
                                           aria-label={`Options for ${connectionName}`}
                                           aria-haspopup="dialog"
-                                          className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
                                           onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
                                         >
                                           <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
@@ -3923,8 +4071,7 @@ export default function ConnectPageClient() {
                             <div className="flex justify-center">
                               <Button
                                 type="button"
-                                variant="none"
-                                effect="fill"
+                                variant="plain"
                                 size="compact"
                                 className={CONNECT_PAGER_BUTTON_CLASSNAME}
                                 disabled={
@@ -3950,6 +4097,7 @@ export default function ConnectPageClient() {
                     >
 
                       <ConnectCirclesTab
+                nativePresentation={{ frameRef: nativeConnectFrame, selectSurface, ideas: circleIdeas }}
                         onSearchActiveChange={setCircleSearchActive}
                         createDialogOpen={createCircleDialogOpen}
                         onCreateDialogOpenChange={setCreateCircleDialogOpen}
@@ -3961,21 +4109,7 @@ export default function ConnectPageClient() {
                         onCancelConnectionRequest={cancelConnectionRequest}
                         refreshToken={circleRefreshToken}
                       />
-                      <div hidden={circleSearchActive}><LivingConnections
-                        key={userId ?? "signed-out"}
-                        currentUserId={userId}
-                        circlesState={circlesState}
-                        ownerName={user?.displayName || "You"}
-                        ownerPhotoUrl={user?.photoURL ?? null}
-                        connections={sortedConnections}
-                        totalCount={connectionsTotalCount}
-                        loading={!connectionsRefreshError && (!connectionsLoaded || connectionsRefreshingFirstPage) && sortedConnections.length === 0}
-                        error={connectionsRefreshError}
-                        onFindPeople={() => { setConnectionView("discover"); setTab("people"); commitSurface("all"); }}
-                        onCreateCircle={() => setCreateCircleDialogOpen(true)}
-                        onRetry={handleRefreshConnections}
-                        onRetryCircles={() => setCircleRefreshToken(value => value + 1)}
-                      /></div>
+                      <div hidden={circleSearchActive}><CircleDiscoveryCardBody model={circleIdeas} /></div>
                     </div>
                   </SwipeViews>
                 </div>
@@ -4025,7 +4159,6 @@ export default function ConnectPageClient() {
                             size="list"
                             photoUrl={person.photoUrl}
                             label={title}
-                            verified={Boolean(person.isRia)}
                           />
                         }
                         title={
@@ -4033,12 +4166,12 @@ export default function ConnectPageClient() {
                             {title}
                           </span>
                         }
+                        description={person.isRia === true ? <ConnectionStatusBadges riaVerified /> : undefined}
                         density="compact"
                         trailing={
                           <Button
                             type="button"
-                            variant="none"
-                            effect="fade"
+                            variant="plain"
                             size="compact"
                             disabled={isConnectingMultiple}
                             onClick={() => {
@@ -4068,10 +4201,7 @@ export default function ConnectPageClient() {
                                 return next;
                               });
                             }}
-                            className={cn(
-                              CONNECT_INLINE_BUTTON_CLASSNAME,
-                              CONNECT_REMOVE_BUTTON_CLASSNAME,
-                            )}
+                            className={cn(CONNECT_INLINE_BUTTON_CLASSNAME, "text-destructive")}
                           >
                             Remove
                           </Button>
@@ -4216,10 +4346,9 @@ export default function ConnectPageClient() {
                 secondary={
                   <Button
                     type="button"
-                    variant="none"
-                    effect="fade"
+                    variant="plain"
                     size="standard"
-                    className="min-w-[96px]"
+                    className="min-w-[96px] text-[color:var(--app-accent)]"
                     disabled={isConnectingMultiple}
                     onClick={closeBatchConnectDraft}
                   >
@@ -4271,7 +4400,6 @@ export default function ConnectPageClient() {
         <ContactSyncResultsSheet
           {...contactSync.resultsSheetProps}
           onRequestConnection={requestConnectionFromContactMatch}
-          onViewConnections={() => setConnectionView("connections")}
         />
         <ContactDiscoverabilityConsentDialog
           {...contactSync.discoverabilityConsentDialogProps}
@@ -4285,10 +4413,9 @@ export default function ConnectPageClient() {
             <div className="flex items-center gap-1.5 shrink-0">
               <Button
                 type="button"
-                variant="none"
-                effect="fade"
+                variant="plain"
                 size="compact"
-                className="text-muted-foreground hover:bg-muted"
+                className="text-muted-foreground"
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel
@@ -4312,4 +4439,79 @@ export default function ConnectPageClient() {
       </SettingsPresentationProvider>
     </AppPageShell>
   );
+  const roster = connectionView === "connections";
+  const nativePeople: NativeConnectPerson[] = roster ? sortedConnections.map(connection => ({
+    key: `connection:${connection.connectionId}`, label: connectPersonName(connection),
+    photoUrl: connection.photoUrl, verified: connection.isRia,
+    ...(connection.publicPersonRef ? { primary: { key: `profile:${connection.connectionId}`, label: "Open profile", run: () => router.push(buildPersonProfileRoute(connection.publicPersonRef!, { from: connectReturnHref })) } } : {}),
+    detail: [connection.createdAt && !Number.isNaN(Date.parse(connection.createdAt)) ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}` : "Connected", connection.isRia ? "Verified RIA" : null, connection.connectedFromContacts ? "From contacts" : null].filter(Boolean).join(" · "),
+    actions: [
+      ...(connection.publicPersonRef ? [
+        { key: `message:${connection.connectionId}`, label: "Message", run: () => navigateDirectMessage(router, { personRef: connection.publicPersonRef! }) },
+      ] : []),
+      { key: `remove:${connection.connectionId}`, label: "Remove connection", destructive: true, overflow: true, enabled: !busyId,
+        run: () => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null) },
+    ],
+  })) : people.map(person => {
+    const cta = relationshipCta(person.relationship);
+    const count = person.mutualConnectionCount ?? 0;
+    return {
+      key: `person:${person.userId}`, label: connectPersonName(person),
+      photoUrl: person.photoUrl, verified: person.isRia,
+      ...(!isSelectionMode && person.publicPersonRef ? { primary: { key: `profile:${person.userId}`, label: "Open profile", run: () => {
+        rememberDirectory();
+        router.push(buildPersonProfileRoute(person.publicPersonRef!, { from: connectDirectoryReturnHref(searchParams, query, tab) }));
+      } } } : {}),
+      ...(isSelectionMode ? { enabled: person.relationship === "none" && !isConnectingMultiple && (selectedPeople.has(person.userId) || selectedPeople.size < MAX_BULK_CONNECTION_REQUESTS) } : {}),
+      detail: [isSelectionMode || cta.disabled ? cta.label : null, person.isRia ? "Verified RIA" : null, count ? `${count} mutual ${count === 1 ? "connection" : "connections"}` : null].filter(Boolean).join(" · ") || undefined,
+      ...(isSelectionMode && person.relationship === "none" ? {
+        selected: selectedPeople.has(person.userId), toggle: () => setSelectedPeople(current => {
+          const next = new Map(current);
+          if (next.has(person.userId)) next.delete(person.userId);
+          else if (next.size < MAX_BULK_CONNECTION_REQUESTS) next.set(person.userId, person);
+          else toast.error(`You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`, { className: connectTypography.toast });
+          return next;
+        }),
+      } : {}),
+      actions: isSelectionMode ? [] : [
+        ...(count > 0 && person.publicPersonRef ? [{ key: `mutual:${person.userId}`, label: count > 1 ? `View all ${count} mutual connections` : "View mutual connection", web: true, run: () => openDirectoryMutual(person) }] : []),
+        ...(person.relationship === "pending_outgoing" ? [{ key: `cancel:${person.userId}`, label: "Cancel request", enabled: !isSelectionMode && busyId !== person.userId, pending: busyId === person.userId, run: () => cancelConnectionRequest(person) }] : cta.disabled ? [] : [
+          { key: `connect:${person.userId}`, label: cta.label, enabled: !isSelectionMode && !cta.disabled && busyId !== person.userId, pending: busyId === person.userId, run: () => handleConnect(person) },
+        ]),
+      ],
+    };
+  });
+  return <NativeConnectWorkspace fallback={fallback} model={{
+    ...(pendingRemoveConnection ? { confirmation: {
+      title: "Remove connection", description: `Remove ${connectPersonName(pendingRemoveConnection)} from your connections?`,
+      confirm: { key: `remove-confirm:${pendingRemoveConnection.connectionId}`, label: busyId === pendingRemoveId ? "Removing…" : "Remove", enabled: !busyId, destructive: true, run: () => handleRemove(pendingRemoveConnection) },
+      cancel: () => { if (!busyId) setPendingRemoveTarget(null); },
+    } } : {}),
+    owner: userId, current: () => connectOwnerRef.current === userId && Boolean(userId),
+    surface, selectSurface, view: connectionView, setView: setConnectionView,
+    directory: tab, directories: CONNECT_DIRECTORY_TABS.map(option => ({ ...option, run: () => setTab(option.value), web: option.value === "nearby" })),
+    query: roster ? connectionsQuery : query, setQuery: roster ? setConnectionsQuery : setQuery,
+    searchLabel: roster ? "Search my connections by name, email or phone" : "Search people",
+    connectionsLabel: `${connectionsHeadingLabel}${connectionsLoaded ? ` ${connectionsTotalCount}` : ""}`,
+    heading: roster ? connectionsHeadingLabel : CONNECT_TAB_LABEL[tab], people: nativePeople,
+    loading: roster ? (!connectionsLoaded || connectionSearch.loading) : directoryLoading,
+    error: roster ? (connectionSearch.error || connectionsRefreshError ? "Could not refresh connections. Your list may be out of date." : null) : error,
+    empty: roster ? connectionSearch.active ? "No matches found" : isAdvisorTab ? "No RIAs yet" : "No connections yet" : hasQuery ? `No one matches "${trimmedQuery}"` : isAdvisorTab ? "No RIAs found" : "No people found",
+    actions: roster ? [{ key: "refresh", label: connectionsRefreshingFirstPage ? "Refreshing…" : "Refresh", enabled: !connectionsRefreshingFirstPage, run: connectionSearch.active ? connectionSearch.retry : handleRefreshConnections }] : [
+      { key: "explore-network", label: "Explore your network", web: true, run: () => openPersonProfilePreview({ networkList: "discovery" }) },
+      ...(!isAdvisorTab && contactSync.available ? [{ key: "sync", label: contactSync.syncing ? "Syncing…" : "Sync contacts", enabled: !contactSync.syncing, web: true, run: contactSync.sync }] : []),
+      ...(error && !errorRateLimited ? [{ key: "retry", label: "Try again", enabled: !loading, run: loadNextDirectoryBatch }] : []),
+      ...(hasQuery && !people.length && canInviteToOne ? [{ key: "invite", label: "Invite to One", run: handleInviteToOne }] : []),
+    ],
+    footer: [
+      ...((roster ? connectionSearch.active ? connectionSearch.hasMore : connectionsHasMore : hasMore) ? [{ key: "load-more", label: roster ? "Load more connections" : "Load more people", enabled: roster ? !connectionsLoadingMore && !connectionSearch.loading && !connectionsRefreshingFirstPage : !loading,
+        run: () => roster ? connectionSearch.active ? connectionSearch.loadMore() : handleLoadMoreConnections() : loadNextDirectoryBatch() }] : []),
+      ...(isSelectionMode && selectedPeople.size ? [{ key: "review", label: `Review ${selectedPeople.size}`, web: true, enabled: !isConnectingMultiple, run: () => openBatchConnectDraft([...selectedPeople.values()]) }] : []),
+    ],
+    selectionMode: isSelectionMode, selectionCount: selectedPeople.size, selectionLimit: MAX_BULK_CONNECTION_REQUESTS,
+    cancelSelection: () => { setIsSelectionMode(false); setSelectedPeople(new Map()); setShowLimitBanner(false); },
+    webOnly: surface === "circles" || (connectionView === "discover" && tab === "nearby"),
+    webChildOpen: batchConnectDraft !== null || contactSync.resultsOpen || contactSync.discoverabilityConsentDialogProps.open || createCircleDialogOpen,
+  }} />;
+
 }

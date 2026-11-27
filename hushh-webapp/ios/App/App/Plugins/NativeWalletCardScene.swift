@@ -43,7 +43,7 @@ struct NativeWalletCardDraft: Codable, NativeProfileEditorDraft {
 struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
     let documentId: String; let ownerEpoch: String; let ownerGeneration: Int; let revision: Int; let visitId: String
     let updateSequence: Int; let privacyGeneration: Int; let acknowledgedEditRevision: Int; let draftRevision: Int
-    var draft: NativeWalletCardDraft; let busy: Bool; let canSave: Bool; var error: String?
+    var draft: NativeWalletCardDraft; let busy: Bool; let canSave: Bool; let draftValid: Bool; var error: String?
     let appearance: String; let accentHex: String; let foregroundHex: String
     let networks: [NativeDrawerOption]; let regions: [NativeDrawerOption]
     let collectSecurityCode: Bool; let scanEnabled: Bool; let networkLoading: Bool; let networkHint: String?
@@ -52,7 +52,7 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
     var identity: NativeOwnedChoiceIdentity { .init(documentId: documentId, ownerEpoch: ownerEpoch,
         ownerGeneration: ownerGeneration, visitId: visitId, revision: revision) }
     static let keys = NativeOwnedChoiceIdentity.keys.union(["updateSequence", "privacyGeneration", "acknowledgedEditRevision", "draftRevision",
-        "draft", "busy", "canSave", "error", "appearance", "accentHex", "foregroundHex", "networks", "regions",
+        "draft", "busy", "canSave", "draftValid", "error", "appearance", "accentHex", "foregroundHex", "networks", "regions",
         "collectSecurityCode", "scanEnabled", "networkLoading", "networkHint"])
     var valid: Bool {
         let max = HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
@@ -120,7 +120,7 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { model.action("save") }.buttonStyle(.glassProminent)
-                        .accessibilityIdentifier("native-wallet-card-save").disabled(!model.canSave || model.projection.networkLoading)
+                        .accessibilityIdentifier("native-wallet-card-save").disabled(!model.canSave || !model.projection.draftValid || model.projection.networkLoading)
                 }
             }
         }
@@ -147,12 +147,13 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
         guard let value = self?.model.projection else { return nil }
         return HushhNativeControlAppearance(appearance: value.appearance, accentHex: value.accentHex, foregroundHex: value.foregroundHex)
     }, cancel: { [weak self] in self?.wasDismissed = true; self?.model.action("cancel") }, clear: { [weak self] in self?.model.clear(); self?.mediaIntent = nil },
-       dismissPopups: { [weak self] completion in
+       initialDetent: .large, dismissPopups: { [weak self] completion in
         if let self { self.model.dismissEditorMenus(completion: completion) } else { completion() }
     })
     init(_ projection: NativeWalletCardProjection) { model = .init(projection) }
     var coversPresentation: Bool { sheet.coversPresentation }
     var presentationSettled: Bool { sheet.presentationSettled }
+    var feedbackPresenter: UIViewController? { sheet.feedbackPresenter }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool { sheet.present(from: parent, completion: completion) }
     func update(_ value: NativeWalletCardProjection) -> Bool { guard model.update(value) else { return false }; sheet.refresh(); return true }
     func settle(_ action: NativeProfileNameAction) -> Bool { guard model.settle(action) else { return false }; mediaIntent = nil; sheet.refresh(); return true }
@@ -168,6 +169,7 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
 /// replicas and confirmed intents cross this boundary; no operation runs here.
 @MainActor final class NativeWalletCardCoordinator {
     var parent: () -> UIViewController? = { nil }
+    var parentLease: ((NativeOwnedChoiceIdentity) -> (UIViewController, () -> Bool, (NativeWorkspaceProjection) -> Bool)?)?
     var available: () -> Bool = { false }
     var admitOwner: (NativeOwnedChoiceIdentity) -> Bool = { _ in false }
     var currentOwner: (NativeOwnedChoiceIdentity) -> Bool = { _ in false }
@@ -175,19 +177,26 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
     var emit: (String, [String: Any]) -> Void = { _, _ in }
     @MainActor private final class Session {
         let scene: NativeWalletCardScene
+        let parentCurrent: () -> Bool
+        let acceptsWorkspace: (NativeWorkspaceProjection) -> Bool
         var active = false; var retiring = false
         var retirement = [() -> Void]()
-        init(_ projection: NativeWalletCardProjection) { scene = .init(projection) }
+        var parentRetirement: (() -> Void)?
+        init(_ projection: NativeWalletCardProjection, parentCurrent: @escaping () -> Bool,
+             acceptsWorkspace: @escaping (NativeWorkspaceProjection) -> Bool) {
+            scene = .init(projection); self.parentCurrent = parentCurrent; self.acceptsWorkspace = acceptsWorkspace
+        }
     }
     private var current: Session?
     private var retired = [String: Int]()
     private var lastReceipt: [String: Any]?
     var concealed: Bool { current == nil }
-    var coversPresentation: Bool { current?.active == true && current?.scene.coversPresentation == true }
+    var feedbackPresenter: UIViewController? { current?.active == true && current?.retiring == false ? current?.scene.feedbackPresenter : nil }
+    var coversPresentation: Bool { current?.scene.coversPresentation == true }
     private func key(_ identity: NativeOwnedChoiceIdentity) -> String { "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)" }
     private func permitted(_ value: NativeWalletCardProjection) -> Bool {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
-        return currentOwner(value.identity) && privacy.appIsActive && !privacy.shielded &&
+        return (current == nil || current?.parentCurrent() == true) && currentOwner(value.identity) && privacy.appIsActive && !privacy.shielded &&
             privacy.generation == value.privacyGeneration && HushhSessionPrivacyShield.shared.acceptsDocument(value.documentId)
     }
     private func decode<T: Decodable>(_ call: CAPPluginCall, keys: Set<String>, as: T.Type) -> T? {
@@ -197,6 +206,7 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
         return try? JSONDecoder().decode(T.self, from: bytes)
     }
     func apply(_ call: CAPPluginCall) {
+        if let current, !current.parentCurrent() { retire(); call.reject("WALLET_CARD_PARENT_RETIRED"); return }
         guard let options = call.options as? [String: Any],
               let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["pan", "cardholderName", "expiry", "network", "issuingRegion", "securityCode"]),
               ["networks", "regions"].allSatisfy({ name in
@@ -209,12 +219,14 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
                   current.scene.update(next) else { call.reject("WALLET_CARD_SCENE_STALE"); return }
             call.resolve(next.receipt("active")); return
         }
+        let lease = parentLease?(next.identity)
         guard next.updateSequence == 1, next.acknowledgedEditRevision == 0,
               next.revision > (retired[key(next.identity)] ?? 0), available(),
-              let parent = parent(), parent.presentedViewController == nil, parent.view.window != nil else {
+              let parent = lease?.0 ?? (parentLease == nil ? parent() : nil), parent.presentedViewController == nil, parent.view.window != nil,
+              lease?.1() != false else {
             call.reject("WALLET_CARD_SCENE_PRESENTATION_REFUSED"); return
         }
-        let session = Session(next); current = session
+        let session = Session(next, parentCurrent: lease?.1 ?? { true }, acceptsWorkspace: lease?.2 ?? { _ in true }); current = session
         session.scene.coverage = { [weak self] in self?.changed() }
         session.scene.model.edit = { [weak self, weak session] draft, composing, revision in
             guard let self, let session, self.current === session, session.active, !session.retiring,
@@ -251,6 +263,7 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
         emit(final ? "walletCardFinalEdit" : "walletCardEdit", event)
     }
     func action(_ call: CAPPluginCall, settlement: Bool) {
+        if let current, !current.parentCurrent() { retire(); call.reject("WALLET_CARD_PARENT_RETIRED"); return }
         let keys = NativeOwnedChoiceIdentity.keys.union(["privacyGeneration", "updateSequence", "editRevision", "sequence", "action", "intent"])
         guard let identity = decode(call, keys: keys, as: NativeOwnedChoiceIdentity.self), let current,
               current.active, !current.retiring, current.scene.model.projection.identity == identity,
@@ -301,6 +314,20 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
             lastReceipt?["ownerGeneration"] as? Int == identity.ownerGeneration && lastReceipt?["revision"] as? Int == identity.revision && lastReceipt?["visitId"] as? String == identity.visitId
         call.resolve(matches ? lastReceipt! : absent(identity))
     }
+    func parentAccepts(_ next: NativeWorkspaceProjection) -> Bool { current?.acceptsWorkspace(next) ?? true }
+    @discardableResult func retire(completion: @escaping () -> Void) -> Bool {
+        guard let current else { completion(); return true }
+        guard current.retirement.count < 8 else { return false }
+        current.retirement.append(completion)
+        retire()
+        return true
+    }
+    func retireWithParent(completion: @escaping () -> Void) {
+        guard let current else { completion(); return }
+        // The plugin withdraws this exact workspace before calling once.
+        current.parentRetirement = completion
+        retire()
+    }
     func retire() {
         guard let current, !current.retiring else { return }
         current.retiring = true
@@ -314,6 +341,7 @@ struct NativeWalletCardProjection: Decodable, NativeProfileEditorProjection {
             self.lastReceipt = current.scene.model.projection.receipt("retired")
             self.current = nil; self.changed()
             let callbacks = current.retirement; current.retirement = []; callbacks.forEach { $0() }
+            let parent = current.parentRetirement; current.parentRetirement = nil; parent?()
         }
     }
 }

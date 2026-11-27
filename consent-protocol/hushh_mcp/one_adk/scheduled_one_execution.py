@@ -200,6 +200,7 @@ async def execute_scheduled_one(
     continuation: ScheduledContinuation | None = None,
 ) -> str:
     from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
+    from hushh_mcp.services.pod_files.runtime import files_access
 
     segment = _Segment(capability, lease)
     stack = AsyncExitStack()
@@ -214,6 +215,7 @@ async def execute_scheduled_one(
                 bind_mcp_turn(segment.scope),
                 bind_mcp_approval_port(ScheduledMcpApprovalPort(segment.owner, segment.storage)),
                 private_pending_call_scope(segment.pending),
+                files_access(segment.check),
             ):
                 return await segment.run(runner, reference, continuation)
         finally:

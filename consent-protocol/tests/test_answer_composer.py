@@ -268,3 +268,82 @@ async def test_composer_refuses_hosting_change_before_provider_dispatch(
         )
     assert error.value.status_code == 409
     composer.assert_not_called()
+
+
+@pytest.mark.parametrize("provider", ["gemini", "azure_openai"])
+def test_shared_writer_discloses_the_actual_configured_transport(monkeypatch, provider):
+    from types import SimpleNamespace
+
+    from hushh_mcp.runtime_providers import factory, managed_azure
+    from hushh_mcp.services.answer_composer import shared_answer_model
+
+    adapter = SimpleNamespace(
+        model="gpt-fixture" if provider == "azure_openai" else "gemini-fixture"
+    )
+    azure = SimpleNamespace(policy_fingerprint="policy", generation="generation")
+    monkeypatch.setattr(
+        managed_azure.ManagedAzureBinding,
+        "from_environment",
+        lambda: azure if provider == "azure_openai" else None,
+    )
+    monkeypatch.setattr(factory, "build_managed_regional_gemini_adk_model", lambda _: adapter)
+    monkeypatch.setattr(
+        factory.ManagedGeminiRuntimeBinding,
+        "from_environment",
+        lambda: SimpleNamespace(
+            project="fixture", locations=["us-central1"], auth_mode="vertex_adc"
+        ),
+    )
+    runtime, actual = shared_answer_model()
+    assert actual is adapter
+    assert runtime["provider"] == provider
+    assert runtime["model"] == adapter.model
+    assert runtime["mode"] == "shared"
+
+
+@pytest.mark.parametrize("cloud,provider", [("azure", "azure_openai"), ("gcp", "gemini")])
+def test_paid_private_disclosure_uses_native_model_and_refuses_cross_cloud_provider(
+    monkeypatch, cloud, provider
+):
+    from hushh_mcp.services import pod_ai_effective_connection as effective
+    from hushh_mcp.services import pod_platform
+
+    monkeypatch.setattr(pod_platform, "workload_platform", lambda: cloud)
+    connection = {"state": "configured", "provider": provider, "model": "fixture-model"}
+    monkeypatch.setattr(effective, "effective_connection", lambda: connection)
+    monkeypatch.setattr(effective.store, "active_ai_selection", lambda: None)
+    monkeypatch.setattr(effective, "cloud_default_fingerprint", lambda *_, **_kwargs: "a" * 64)
+    result = effective.paid_answer_runtime()
+    assert (result["provider"], result["model"]) == (provider, "fixture-model")
+    connection["provider"] = "gemini" if provider == "azure_openai" else "azure_openai"
+    with pytest.raises(ValueError, match="CLOUD_MISMATCH"):
+        effective.paid_answer_runtime()
+
+
+def test_compatible_software_update_preserves_processing_consent_but_not_installation_verification(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.runtime_providers import azure_openai
+    from hushh_mcp.services.pod_ai_effective_connection import cloud_default_fingerprint
+
+    topology = SimpleNamespace(endpoint="https://first.example/openai", deployment="gpt-fixture")
+    monkeypatch.setattr(azure_openai, "azure_openai_topology", lambda: topology)
+    monkeypatch.setenv("HUSSH_ID", "synthetic-agent")
+    monkeypatch.setenv("CONTAINER_APP_REVISION", "revision-one")
+    original_install = cloud_default_fingerprint("azure_openai", "gpt-fixture")
+    original_consent = cloud_default_fingerprint(
+        "azure_openai", "gpt-fixture", include_revision=False
+    )
+    monkeypatch.setenv("CONTAINER_APP_REVISION", "revision-two")
+    assert cloud_default_fingerprint("azure_openai", "gpt-fixture") != original_install
+    assert (
+        cloud_default_fingerprint("azure_openai", "gpt-fixture", include_revision=False)
+        == original_consent
+    )
+    topology.endpoint = "https://replacement.example/openai"
+    assert (
+        cloud_default_fingerprint("azure_openai", "gpt-fixture", include_revision=False)
+        != original_consent
+    )

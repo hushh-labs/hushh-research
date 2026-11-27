@@ -10,13 +10,34 @@ own owners after a handoff. Shared chrome and fonts are described in
 
 ## Visual Map
 
+### Important incoming Location and Connect activity
+
+The existing UI, section order, review controls and other subagents retain
+their owners. Location/Connections history is selected on the server before
+pagination and unread counts. Own share/SMS/check-in receipts, owner expiry,
+views, routine Circle roster changes and ordinary chat messages stay out.
+Pending location/connection requests use their current actionable store once;
+direct incoming location shares and connection outcomes remain visible.
+An incoming `circle_member_added` says who added the person and opens that
+Circle. Current member addition is direct; pending invitation controls support
+only retained legacy invitations, not a newly introduced product flow.
+
+Repeated SMS uses only the latest committed incident per sender/recipient.
+Selection happens before Clear; the latest cleared incident fences older ones.
+Different senders and different Circles stay independent. No older-SMS disclosure
+remains. Ordinary share and membership lifecycle rows use one opaque group key
+so realtime status changes update the existing interaction. Quiet terminal
+share changes do not introduce unread items or Feed chimes. Source audit and
+domain permissions are preserved. Wallet message cards belong to another DRI
+and retain their existing behavior.
+
 ```mermaid
 flowchart TD
-  feed["Feed"] --> prompts["Payment return and bank status"]
+  feed["Feed"] --> prompts["Explicit payment return"]
   feed --> live["Live"]
   feed --> needs["Needs you"]
   feed --> recentSms["Recent SMS alerts"]
-  live --> sms["Sender disclosure → incidents"]
+  live --> sms["Latest incident per sender"]
   recentSms --> sms
   feed --> upcoming["Coming up"]
   feed --> progress["In progress"]
@@ -53,10 +74,10 @@ Sources: [route](../../app/one/feed/page.tsx),
 [page](../../components/feed/feed-page.tsx), and
 [shared detail surface](../../components/app-ui/settings-ui.tsx).
 
-Visible order is payment-return notice, compact bank payout status,
-**Live**, **Needs you**, **Coming up**, **In progress**, then history and
-its footer controls. Empty sections are
-omitted; section counts are current account state, not product limits.
+Visible order is an explicit payment-return notice, **Live**, **Needs you**,
+**Coming up**, **In progress**, history, the compact bank payout summary and
+footer controls. Notification recovery lives in Profile preferences. Empty
+sections are omitted; section counts are current account state, not product limits.
 
 | State / CTA | Current behavior |
 | --- | --- |
@@ -140,9 +161,9 @@ owns their guards and handlers.
 | Requester answer payable | Pay $amount | Requires approved, staged, nonempty answer and known amount. Opens answer checkout; failure says checkout couldn't open and no charge was made. |
 | Other answer state | Write answer / Review question / Review price and pay / Open, or none | Selected `answer_request:<id>` pending Consent Center. Preparing or empty staged answers do not invent a payment action. |
 | Active received emergency SMS | Live sender group/incident | Sender title, original sent time, `Emergency SMS · Active`; only active incidents link selected Location grant. Cannot be cleared active. |
-| Ended received emergency SMS | Recent SMS alerts, or inside same sender’s Live group | Original sent time; Revoked/Expired/Ended; no map link. Root Clear owns dismissal. |
+| Ended received emergency SMS | Recent SMS alerts, only if this is the sender's latest incident | Original sent time; Revoked/Expired/Ended; no map link. Root Clear owns dismissal. |
 | Incoming pending location request | Desktop Deny / duration-specific Approve; phone Review | Desktop vault-token mutation preserves requested amount/manual mode. Review and row open `/one/location?requestId=<id>`. |
-| Incoming circle invitation | Desktop Decline / Accept; phone Review | Desktop vault-token membership decision. Review and row open `/one/location?circleInviteId=<id>`. |
+| Retained legacy circle invitation | Desktop Decline / Accept; phone Review | Compatibility only. Current direct additions instead show Added you to Circle in history. |
 | Scoped incoming connection | Review | Selected pending Consent Center; cannot inline-accept around scope review. |
 | Unscoped incoming connection | Decline / Confirm | Authenticated relationship reject/accept, graph/capability invalidation and refresh. |
 | Android unscoped connection | Phone Report / Review; desktop Report / Decline / Confirm | Additional two-tap Report declines/blocks. Review/row opens selected Consent Center. Report absent web/iOS or scoped-review branch. |
@@ -176,25 +197,20 @@ Owners: [consent decision hook](../../lib/consent/use-owner-consent-decision.ts)
 
 ### SMS sender grouping and original sent time
 
-Current source refresh at296d7769c adds presentation grouping only; existing
-Location state and Clear endpoints remain unchanged.
-[Grouping](../../lib/feed/feed-sms-grouping.ts) deduplicates incident IDs,
-keys by actual sender ID (unknown senders keep separate incident IDs), sorts
-incidents by original sent-time sortAt then ID, chooses newest active incident
-as group representative when any active exists, and sorts groups by that
-representative. Same display names never merge different owners. Only current
-recipient grants from another owner are included.
+[Selection](../../lib/feed/feed-sms-grants.ts) chooses the latest confirmed
+received incident per real sender before applying recipient Clear. Location
+state supplies recipient-only `feedLatestSms` and `feedSmsConfirmed` projections
+from durable Feed receipts. Older grants cannot resurface after newer grants
+are cleared or cleaned up. A draft cannot replace a confirmed incident.
+The existing grant fields remain intact for Location and Consent consumers.
 
-One incident renders its ordinary incident row directly. Multiple incidents
-render [inline details/summary](../../components/feed/feed-sms-alert-group.tsx),
-initially closed. Summary click/Enter/Space expands/collapses locally: **no
-API, approval, dismissal, route change or new overlay**. No dedicated Back
-layer is registered. A sender with any active incident stays in Live, including
-its ended incidents inside disclosure; a wholly ended sender appears in
-**Recent SMS alerts**, after Needs you and before Coming up. Ended alerts are
-not pending decisions and have no href/chevron; active incident opens its exact
-Location grant. Clear removes eligible ended incidents, including those inside
-a Live group, while retaining active incidents.
+[Grouping](../../lib/feed/feed-sms-grouping.ts) retains one current row per
+sender, including its original sent time. There is no expandable older-alert
+list. The current incident goes in Live while active and Recent SMS alerts
+when ended. A newer ended incident does not reveal an older active incident.
+Different senders with the same name remain separate. Ended incidents have no
+map link; only an active incident opens its exact grant. Clear remains scoped
+to ended received incidents and never revokes a share.
 
 Grant status from the server determines active/ended; device wall clock does
 not expire an SMS grant. Live grants add force-refresh every10 seconds through the existing
@@ -204,12 +220,8 @@ first-seen sorting but displays `Sent time unavailable`.
 [Sent-time renderer](../../components/feed/feed-sms-sent-time.tsx) always shows
 local year/month/day/hour/minute, including phones, with an ISO time datetime.
 
-The summary has min44px,flex gap12,px12/py12,compact person avatar,flexible
-copy,16px chevron rotating180° open. Copy spacing2px; child rows divide with
-hairlines and border-top. Incidents wrap name/status/sent time (py4), rather
-than ordinary Feed’s single inline truncating track; SMS has no separate
-trailing timestamp. Name still resolves13/15.86/400; status/sent time12/15.6/400.
-This is normal-flow disclosure, with no portal or new Z tier.
+The current incident reuses the existing FeedActionableRow, wrapped
+name/status/sent time and existing actions, with no new overlay or Z tier.
 
 ## Document price and review sheet
 
@@ -271,7 +283,7 @@ later read/reopen reconciles returned queued status. Owners:
 
 | Surface / CTA | Current behavior |
 | --- | --- |
-| Information request ready to review · Review | Private KYC briefing; selected Mail workspace `/one/gmail?workspace=kyc`. Nothing is shared just by opening it. |
+| Information request ready to review · Review | Private KYC briefing; the KYC screen `/one/kyc`. Nothing is shared just by opening it. |
 | A message needs your reply · Open Mail | Count-sensitive briefing; `/one/gmail`. |
 | Calendar event row | Reads next 24 hours, sorted ascending, displays at most three. Row opens `/one/calendar`; title/date/all-day wording comes from the account. |
 | Join Meet | Only with conference URL, valid times, and now between 15 minutes before start and event end. Opens external meeting URL. |
@@ -337,7 +349,7 @@ actionable.
 | Connected-system action/status | `/one/connected-systems`; CRM visibility guard applies to the relevant families. |
 | Calendar status/action | Calendar. |
 | Mail status/mailbox action | Mail. |
-| Mail information-request/delivery | Mail KYC workspace. |
+| Mail information-request/delivery | KYC screen. |
 | Receipt import/manual sync | Mail Receipts workspace. |
 | Drive search/share/trash/bulk outcome | Chat; partial, unavailable and unknown writes retain their distinct wording. |
 | Drive bulk received | Profile Memory pane over One. |
@@ -629,7 +641,7 @@ Back/Escape/dismissal cancel draft; busy refuses close. Shared-files has no
 filename preview/open/download/three-dot control. Opening its option actions
 is local; the exact remove/Undo requests are in the preceding mutation table.
 
-| Root device/bank control | Exact English |
+| Root bank control | Exact English |
 | --- | --- |
 | Deposits | `Bank payout`; `{price} bank payout pending.` / `on its way.` / `paid.` / `canceled.` / `failed. Check your linked bank details.`; optional `Test · `; `Couldn't check bank payouts right now.`; `Simulated deposits. No real money moves.`; `Bank payouts may combine earnings from multiple requests.` |
 
@@ -751,7 +763,7 @@ use N/P; generic fallback titles below replace Someone when unnamed.
 | mail_connected | `Mail connected` / `Your Mail connection is ready in One.` | `/one/gmail` |
 | mail_reconnect_required | `Mail connection needs attention` / `Open Mail to check your connection.` | same |
 | mail_disconnected | `Mail disconnected` / `One no longer has access to your mailbox.` | same |
-| mail_information_request_detected | `Information request detected` / `Review a new request in Mail before sharing anything.` | `/one/gmail?workspace=kyc` |
+| mail_information_request_detected | `Information request detected` / `Review a new request in KYC before sharing anything.` | `/one/kyc` |
 | mail_receipts_imported | `New receipts found` / `Your Mail receipts are ready to review.` | `/one/gmail?workspace=receipts` |
 | mail_sync_completed | `Mail is up to date` / `Your manual sync finished without new receipts.` | receipts |
 | mail_sync_failed | `Mail sync interrupted` / `Open Mail for the current status; One may retry automatically.` | receipts |
@@ -847,3 +859,9 @@ snapshot retains loaded history and scroll for an ordinary same-session return.
 Confirmed Dismiss/Clear/Undo advances a presentation revision and invalidates
 that snapshot, preventing an old unmount cleanup from resurrecting removed rows.
 Server mutation receipts and existing Undo/clear-watermark semantics remain canonical.
+
+## Experimental native presentation
+
+On supported iPhones with Native interface enabled, the existing shared workspace presents Feed sections, SMS groups/incidents, history detail, guarded decisions, clear/Cancel and paging. React retains the records, callbacks, pending state and restoration. Shared Back unwinds a decision, detail and SMS group before leaving Feed; the body adds no second Back.
+
+Rich document pricing, sent-file readers and payment-return reconciliation retain their complete React presentations. The native owner confirms retirement before a rich child is revealed and reactivates after dismissal. No generic JSX crosses the bridge. History removal uses the same undo callback through a bounded native feedback action; loading, errors and retry remain visible. Downward scrolling may hide shell navigation; scrolling upward restores it. Renderer-off retains the complete existing React route.

@@ -10,6 +10,7 @@ export const ROUTE_ID_VALUES = [
   "one_dashboard",
   "one_messages",
   "one_todos",
+  "one_goals",
   "getting_started",
   "delete_account",
   "privacy_policy",
@@ -17,6 +18,7 @@ export const ROUTE_ID_VALUES = [
   "one_setup",
   "one_welcome",
   "developers",
+  "design_system",
   "founder_profile",
   "research",
   "research_protocol",
@@ -70,6 +72,7 @@ export const ROUTE_ID_VALUES = [
   "email_agent",
   "pkm",
   "pkm_recent",
+  "pkm_logins",
   "pkm_location",
   "pkm_location_detail",
   "connected_systems",
@@ -180,6 +183,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "one_setup";
   }
   if (pathname === ROUTES.DEVELOPERS) return "developers";
+  if (pathname === ROUTES.DESIGN_SYSTEM) return "design_system";
   if (pathname === ROUTES.MANISH_SAINANI) return "founder_profile";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
@@ -261,6 +265,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.EMAIL_AGENT) return "email_agent";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
   if (pathname === ROUTES.PKM_RECENT) return "pkm_recent";
+  if (pathname === ROUTES.PKM_LOGINS) return "pkm_logins";
   if (pathname === ROUTES.PKM_LOCATION) return "pkm_location";
   if (pathname === ROUTES.PKM_LOCATION_DETAIL) return "pkm_location_detail";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
@@ -288,7 +293,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "consents";
   }
   if (pathname === ROUTES.ONE_MESSAGES) return "one_messages";
-  if (pathname === ROUTES.ONE_TODOS) return "one_todos";
+  if (pathname === ROUTES.ONE_TODOS || pathname === ROUTES.ONE_TASKS) return "one_todos";
+  if (pathname === ROUTES.ONE_GOALS) return "one_goals";
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";

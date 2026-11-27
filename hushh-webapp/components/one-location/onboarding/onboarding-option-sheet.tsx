@@ -2,6 +2,7 @@
 
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import type { ReactNode } from "react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 /** Optional work keeps its own focus/Back boundary without lengthening setup. */
@@ -12,6 +13,7 @@ export function OnboardingOptionSheet({
   children,
   busy = false,
   overPlace = false,
+  centered = false,
   routeId,
 }: {
   open: boolean;
@@ -20,12 +22,36 @@ export function OnboardingOptionSheet({
   children: ReactNode;
   busy?: boolean;
   overPlace?: boolean;
+  centered?: boolean;
   routeId?: string;
 }) {
   useBackLayer(routeId ?? "", open && routeId ? 3 : 0, () => {
     if (!busy) onClose();
     return true;
   });
+  if (centered) {
+    return (
+      <Dialog modal open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}>
+        <DialogContent
+          data-location-type-scale="connect"
+          data-location-type-context="overlay"
+          className="z-[9051] gap-0 overflow-hidden p-0"
+          overlayClassName="z-[9050]"
+          showCloseButton={!busy}
+          srDescription="Enter an invite code to join a circle."
+          onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
+          onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
+        >
+          <header className="shrink-0 px-6 pb-4 pt-6 pr-14">
+            <DialogTitle className="ui-text-navigation-title">{title}</DialogTitle>
+          </header>
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-6 pb-5">
+            {children}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
   return (
     <Sheet modal open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}>
       <SheetContent

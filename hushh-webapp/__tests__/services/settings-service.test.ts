@@ -78,6 +78,14 @@ describe("SettingsService", () => {
   });
 
   describe("updateSettings", () => {
+    it("keeps experimental native rendering off by default and retains the device choice across unrelated writes and reset", async () => {
+      expect(DEFAULT_SETTINGS.experimentalNativeInterface).toBe(false);
+      expect(PRODUCTION_SETTINGS.experimentalNativeInterface).toBe(false);
+      await SettingsService.updateSettings({ experimentalNativeInterface: true });
+      await SettingsService.updateSettings({ theme: "dark" });
+      expect(JSON.parse(mockPreferences.set.mock.calls.at(-1)![0].value)).toMatchObject({ experimentalNativeInterface: true, theme: "dark" });
+      expect((await SettingsService.resetSettings()).experimentalNativeInterface).toBe(false);
+    });
     it("uses native haptic authority on iOS and omits it from the legacy JSON store", async () => {
       haptics.native = true;
       haptics.read.mockResolvedValue(false);

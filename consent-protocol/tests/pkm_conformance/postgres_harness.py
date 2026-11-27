@@ -18,13 +18,17 @@ that user in a world-writable scratch dir; otherwise it runs directly.
 
 from __future__ import annotations
 
+import atexit
 import glob
+import hashlib
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PRELUDE = Path(__file__).with_name("prelude.sql")
@@ -48,6 +52,58 @@ MIGRATIONS = [
 ]
 
 _PG_BIN_ENV = "HUSHH_TEST_PG_BIN"
+_DISABLE_TEMPLATE_CACHE_ENV = "HUSHH_DISABLE_PG_TEMPLATE_CACHE"
+_TEMPLATE_CACHE_ROOT: Optional[Path] = None
+_TEMPLATE_CACHE_PID: Optional[int] = None
+_TEMPLATE_DATA_DIRS: dict[str, Path] = {}
+
+
+def template_cache_enabled() -> bool:
+    return (os.getenv(_DISABLE_TEMPLATE_CACHE_ENV) or "").strip() != "1"
+
+
+def _ensure_template_cache_root() -> Path:
+    global _TEMPLATE_CACHE_PID, _TEMPLATE_CACHE_ROOT
+    pid = os.getpid()
+    if (
+        _TEMPLATE_CACHE_ROOT is None
+        or _TEMPLATE_CACHE_PID != pid
+        or not _TEMPLATE_CACHE_ROOT.exists()
+    ):
+        _TEMPLATE_DATA_DIRS.clear()
+        root = Path(tempfile.mkdtemp(prefix=f"hushh-pg-tpl-{pid}-"))
+        os.chmod(root, 0o777)  # noqa: S103 - disposable local test fixture cache
+        _TEMPLATE_CACHE_ROOT = root
+        _TEMPLATE_CACHE_PID = pid
+
+        def _cleanup(target: Path = root, owner_pid: int = pid) -> None:
+            if os.getpid() == owner_pid:
+                shutil.rmtree(target, ignore_errors=True)
+
+        atexit.register(_cleanup)
+    return _TEMPLATE_CACHE_ROOT
+
+
+def clone_cluster_data_dir(src: Path, dst: Path) -> None:
+    """Clone a cleanly stopped PGDATA directory using CoW/reflink when supported."""
+    if sys.platform == "darwin":
+        copied = subprocess.run(  # noqa: S603
+            ["cp", "-Rc", str(src), str(dst)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    else:
+        copied = subprocess.run(  # noqa: S603
+            ["cp", "-a", "--reflink=auto", str(src), str(dst)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    if copied.returncode != 0:
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst)
+    os.chmod(dst, 0o700)
 
 
 def find_pg_bin() -> Optional[str]:
@@ -99,31 +155,148 @@ class TempPostgres:
             return sock.getsockname()[1]
 
     def _run(self, command: str) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env.setdefault("LC_ALL", "C")
         if self._as_postgres:
             argv = ["su", "postgres", "-s", "/bin/bash", "-c", command]
         else:
             argv = ["bash", "-c", command]
-        return subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
+        return subprocess.run(argv, capture_output=True, text=True, check=False, env=env)  # noqa: S603
 
-    def start(self) -> None:
-        data = f"{self.dir}/data"
+    def _init_and_boot_fresh(self, data: str) -> None:
         boot = self._run(
-            f"{self.bin}/initdb -D {data} -U hushh --no-sync -A trust >/dev/null 2>&1 && "
-            f'{self.bin}/pg_ctl -D {data} -o "-k {self.dir} -p {self.port} '
-            f"-c listen_addresses='' -c fsync=off\" -l {self.dir}/log -w start"
+            f"{self.bin}/initdb -D {shlex.quote(data)} -U hushh --no-sync --no-locale --encoding=UTF8 -A trust >/dev/null 2>&1 && "
+            f'{self.bin}/pg_ctl -D {shlex.quote(data)} -o "-k {self.dir} -p {self.port} '
+            f"-c listen_addresses='' -c fsync=off\" -l {shlex.quote(f'{self.dir}/log')} -w start"
         )
         if boot.returncode != 0:
             raise RuntimeError(f"postgres failed to start: {boot.stdout} {boot.stderr}")
 
+    def _boot_existing(self, data: str) -> None:
+        boot = self._run(
+            f'{self.bin}/pg_ctl -D {shlex.quote(data)} -o "-k {self.dir} -p {self.port} '
+            f"-c listen_addresses='' -c fsync=off\" -l {shlex.quote(f'{self.dir}/log')} -w start"
+        )
+        if boot.returncode != 0:
+            raise RuntimeError(
+                f"postgres failed to start from template: {boot.stdout} {boot.stderr}"
+            )
+
+    def _connect_default(self) -> None:
         import psycopg2
 
         self._conn = psycopg2.connect(
             host=self.dir, port=self.port, user="hushh", dbname="postgres"
         )
         self._conn.autocommit = True
-        self.apply_file(PRELUDE)
-        for name in MIGRATIONS:
-            self.apply_file(REPO_ROOT / "db" / "migrations" / name)
+
+    def _clone_from_template(self, template_data: Path, target_data: Path) -> None:
+        if self._as_postgres:
+            copied = self._run(
+                f"cp -a --reflink=auto {shlex.quote(str(template_data))} {shlex.quote(str(target_data))} "
+                f"|| cp -a {shlex.quote(str(template_data))} {shlex.quote(str(target_data))}"
+            )
+            if copied.returncode != 0:
+                raise RuntimeError(
+                    f"failed to clone postgres template dir: {copied.stdout} {copied.stderr}"
+                )
+            return
+        clone_cluster_data_dir(template_data, target_data)
+
+    def _ensure_template_data_dir(
+        self,
+        cache_key: str,
+        populate: Optional[Callable[["TempPostgres"], None]],
+    ) -> Path:
+        cache_root = _ensure_template_cache_root()
+        cached = _TEMPLATE_DATA_DIRS.get(cache_key)
+        if cached is not None and cached.exists():
+            return cached
+
+        digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:24]
+        template_data = cache_root / f"tpl-{digest}"
+        if template_data.exists():
+            shutil.rmtree(template_data, ignore_errors=True)
+
+        builder = TempPostgres()
+        builder_data = f"{builder.dir}/data"
+        try:
+            builder._init_and_boot_fresh(builder_data)
+            builder._connect_default()
+            if populate is not None:
+                populate(builder)
+            if builder._conn is not None:
+                builder._conn.close()
+                builder._conn = None
+            stopped = builder._run(
+                f"{builder.bin}/pg_ctl -D {shlex.quote(builder_data)} -m fast -w stop >/dev/null 2>&1"
+            )
+            if stopped.returncode != 0:
+                raise RuntimeError(
+                    f"postgres template failed clean shutdown: {stopped.stdout} {stopped.stderr}"
+                )
+            builder._run(
+                f"rm -f {shlex.quote(f'{builder_data}/postmaster.opts')} "
+                f"{shlex.quote(f'{builder_data}/postmaster.pid')}"
+            )
+            moved = builder._run(
+                f"mv {shlex.quote(builder_data)} {shlex.quote(str(template_data))}"
+            )
+            if moved.returncode != 0:
+                raise RuntimeError(
+                    f"failed to store postgres template dir: {moved.stdout} {moved.stderr}"
+                )
+        finally:
+            if builder._conn is not None:
+                builder._conn.close()
+                builder._conn = None
+            if Path(builder_data).exists():
+                builder._run(
+                    f"{builder.bin}/pg_ctl -D {shlex.quote(builder_data)} -m immediate stop >/dev/null 2>&1"
+                )
+            shutil.rmtree(builder.dir, ignore_errors=True)
+
+        _TEMPLATE_DATA_DIRS[cache_key] = template_data
+        return template_data
+
+    def start_with_recipe(
+        self,
+        recipe_key: str,
+        populate: Optional[Callable[["TempPostgres"], None]] = None,
+    ) -> None:
+        data = f"{self.dir}/data"
+        if not template_cache_enabled():
+            self._init_and_boot_fresh(data)
+            self._connect_default()
+            if populate is not None:
+                populate(self)
+            return
+
+        cache_key = f"{self.bin}|as_pg={int(self._as_postgres)}|{recipe_key}"
+        template_data = self._ensure_template_data_dir(cache_key, populate)
+        self._clone_from_template(template_data, Path(data))
+        self._boot_existing(data)
+        self._connect_default()
+
+    def start(self) -> None:
+        migrations_snapshot = tuple(MIGRATIONS)
+        prelude_path = PRELUDE
+        digest = hashlib.sha256()
+        digest.update(prelude_path.read_bytes())
+        digest.update(b"\0")
+        for name in migrations_snapshot:
+            migration_path = REPO_ROOT / "db" / "migrations" / name
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(migration_path.read_bytes())
+            digest.update(b"\0")
+
+        def _populate_default(cluster: "TempPostgres") -> None:
+            cluster.apply_file(prelude_path)
+            for name in migrations_snapshot:
+                cluster.apply_file(REPO_ROOT / "db" / "migrations" / name)
+
+        self.start_with_recipe(f"default:{digest.hexdigest()}", _populate_default)
 
     def apply_file(self, path: Path) -> None:
         sql = path.read_text(encoding="utf-8")

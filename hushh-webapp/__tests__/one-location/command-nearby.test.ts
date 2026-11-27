@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/services/api-client";
 import {
   prepareNearbyCommand,
   performNearbyCheckIn,
@@ -194,4 +195,39 @@ it("requires real consent and correlated service settlement, and cancels before 
     }),
   });
   expect(result.state.operationReceipt).toEqual(receipt);
+});
+
+it("recaptures once for the pre-write stale rejection and never replays an ambiguous save", async () => {
+  const first = { latitude: 10, longitude: 20, accuracyM: 24, capturedAt: "2026-11-10T00:00:00Z" };
+  const refreshed = { ...first, capturedAt: "2026-11-10T00:00:05Z" };
+  const stale = new ApiError("stale", 422, { detail: { code: "NEARBY_PRESENCE_LOCATION_STALE" } });
+  const active = { presence: { status: "active" }, attendees: [] } as OneLocationNearbyPresenceState;
+  const capture = vi.fn(async (forceNew: boolean) => forceNew ? refreshed : first);
+  const save = vi.fn(async (_point: typeof first) => active).mockRejectedValueOnce(stale);
+  const input = {
+    placeId: "venue",
+    durationMinutes: 30 as const,
+    consentAccepted: true,
+    allowConnectionRequests: false,
+    capture,
+    current: () => true,
+    save,
+  };
+  await expect(performNearbyCheckIn(input)).resolves.toEqual({ point: refreshed, state: active });
+  expect(capture.mock.calls).toEqual([[false], [true]]);
+  expect(save.mock.calls).toEqual([[first], [refreshed]]);
+
+  capture.mockClear();
+  save.mockClear();
+  save.mockRejectedValue(new ApiError("unavailable", 503));
+  await expect(performNearbyCheckIn(input)).rejects.toThrow("unavailable");
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(capture).toHaveBeenCalledExactlyOnceWith(false);
+
+  capture.mockClear();
+  save.mockClear();
+  save.mockRejectedValue(stale);
+  await expect(performNearbyCheckIn(input)).rejects.toBe(stale);
+  expect(capture.mock.calls).toEqual([[false], [true]]);
+  expect(save).toHaveBeenCalledTimes(2);
 });

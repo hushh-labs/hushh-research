@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import traceback
+from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -10,6 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from slowapi.errors import RateLimitExceeded
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.direct_messages_service import DirectMessagesError
@@ -18,11 +21,28 @@ from hushh_mcp.services.finance_sharing_service import FinanceSharingError, Fina
 
 logger = logging.getLogger(__name__)
 PRIVATE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
+_APP_ROOT = Path(__file__).resolve().parents[3]
+
+
+def failure_site(exc: BaseException) -> str:
+    """Where our own code raised or called into the failure, never its message.
+
+    Messages can carry user data, so a diagnosable log line names the file,
+    line and function instead: the innermost frame under this service that is
+    not an installed package.
+    """
+    for frame in reversed(traceback.extract_tb(exc.__traceback__)):
+        path = Path(frame.filename).resolve()
+        if "site-packages" in path.parts or not path.is_relative_to(_APP_ROOT):
+            continue
+        return f"{path.relative_to(_APP_ROOT).as_posix()}:{frame.lineno}:{frame.name}"
+    return "unknown"
 
 
 class PrivateFinanceRoute(APIRoute):
     def get_route_handler(self):
         handler = super().get_route_handler()
+        route_path = self.path
 
         async def private(request: Request):
             try:
@@ -42,16 +62,32 @@ class PrivateFinanceRoute(APIRoute):
                 return JSONResponse(
                     {"detail": {"code": "FINANCE_SHARE_INVALID"}}, status_code=422, headers=PRIVATE
                 )
+            except RateLimitExceeded:
+                return JSONResponse(
+                    {"detail": {"code": "RATE_LIMITED"}}, status_code=429, headers=PRIVATE
+                )
             except HTTPException as exc:
                 return JSONResponse(
                     {"detail": exc.detail}, status_code=exc.status_code, headers=PRIVATE
                 )
             except (FinanceSharingError, DirectMessagesError) as exc:
+                if exc.status_code >= 500:
+                    logger.warning(
+                        "finance_sharing.error reason=%s status=%s route=%s",
+                        str(exc.code).lower().replace("_", "."),
+                        exc.status_code,
+                        route_path,
+                    )
                 return JSONResponse(
                     {"detail": {"code": exc.code}}, status_code=exc.status_code, headers=PRIVATE
                 )
             except Exception as exc:
-                logger.warning("finance_sharing.unavailable error=%s", type(exc).__name__)
+                logger.warning(
+                    "finance_sharing.unavailable error=%s route=%s at=%s",
+                    type(exc).__name__,
+                    route_path,
+                    failure_site(exc),
+                )
                 return JSONResponse(
                     {"detail": {"code": "FINANCE_SHARE_UNAVAILABLE"}},
                     status_code=503,

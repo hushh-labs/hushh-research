@@ -41,6 +41,7 @@ class PKMAgentLabStructureRequest(BaseModel):
         "business_directory_v1",
         "soul_markdown_v1",
         "profile_review_v1",
+        "wiki_claim_projection_v1",
     ] = "general"
     capture_source: CaptureSource | None = None
 

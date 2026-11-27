@@ -70,7 +70,7 @@ function OwnerRuntimeConfigurationPage({
       mountedRef.current = false;
     };
   }, []);
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(
     setupMode ? true : null,
   );
@@ -85,10 +85,14 @@ function OwnerRuntimeConfigurationPage({
   const [finishing, setFinishing] = useState(false);
   const embedded = setupMode && embeddedInCloudSetup;
 
+  const setupReady =
+    canContinue &&
+    (hasRuntimeChoice === true || setupChoice === null);
+
   useEffect(() => {
-    onSetupReadyChange?.(canContinue && hasRuntimeChoice === true);
+    onSetupReadyChange?.(setupReady);
     return () => onSetupReadyChange?.(false);
-  }, [canContinue, hasRuntimeChoice, onSetupReadyChange]);
+  }, [setupReady, onSetupReadyChange]);
 
   useEffect(() => {
     if (setupMode) {
@@ -183,6 +187,9 @@ function OwnerRuntimeConfigurationPage({
         summary: "AI access setup is already being finished.",
       };
     }
+    if (setupMode && ownerId && setupChoice === null && typeof PreVaultUserStateService.markOneRuntimeChoice === "function") {
+      await PreVaultUserStateService.markOneRuntimeChoice(ownerId, "hushh_managed_vertex").catch(() => undefined);
+    }
     returnToSetupHub();
     return {
       status: "started" as const,
@@ -190,7 +197,7 @@ function OwnerRuntimeConfigurationPage({
       routeAfter: ROUTES.ONE_SETUP,
       screenAfter: "one_setup",
     };
-  }, [finishing, canContinue, returnToSetupHub]);
+  }, [finishing, canContinue, ownerId, returnToSetupHub, setupChoice, setupMode]);
 
   useLocalOnboardingActionHandler(
     "setup.finish_connections",
@@ -221,9 +228,14 @@ function OwnerRuntimeConfigurationPage({
         },
   );
 
+  const hasVolatileDraft = Boolean(
+    ownerId &&
+      (PreVaultSensitiveDraftService.hasGeminiRuntime?.(ownerId) ||
+        PreVaultSensitiveDraftService.hasActiveStagedAiConfiguration?.(ownerId)),
+  );
   const resumeSavedKey = Boolean(
     setupMode && setupChoice === "byok_pending_vault" && !isVaultUnlocked &&
-    ownerId && !PreVaultSensitiveDraftService.hasGeminiRuntime(ownerId),
+    ownerId && !hasVolatileDraft,
   );
   const runtimeSettings = (
     <>
@@ -236,6 +248,7 @@ function OwnerRuntimeConfigurationPage({
       userId={ownerId}
       vaultKey={vaultKey}
       vaultOwnerToken={vaultOwnerToken}
+      getCurrentVaultOwnerToken={getVaultOwnerToken}
       needsVaultCreation={needsVaultCreation}
       needsUnlock={needsUnlock}
       onRequestVaultCreation={() => setUnlockOpen(true)}
@@ -243,11 +256,7 @@ function OwnerRuntimeConfigurationPage({
       requiresExplicitSelection={setupMode}
       initiallyConfigured={
         hasRuntimeChoice === true &&
-        (setupChoice !== "byok_pending_vault" ||
-          Boolean(
-            ownerId &&
-            PreVaultSensitiveDraftService.hasGeminiRuntime(ownerId),
-          ))
+        (setupChoice !== "byok_pending_vault" || hasVolatileDraft)
       }
       onCanContinueChange={setupMode ? setCanContinue : undefined}
       initialSetupChoice={setupChoice}
@@ -283,6 +292,12 @@ function OwnerRuntimeConfigurationPage({
       onPreVaultDraftCleared={
         setupMode && ownerId
           ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(ownerId)
+          : undefined
+      }
+      onPreVaultAiConfigsChange={
+        setupMode && ownerId
+          ? (state) =>
+              PreVaultSensitiveDraftService.stageAiConfigurations?.(ownerId, state)
           : undefined
       }
     />

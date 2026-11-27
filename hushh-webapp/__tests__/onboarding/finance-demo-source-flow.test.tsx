@@ -4,22 +4,30 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import { useState } from "react";
+import type { KaiPreferences } from "@/lib/services/kai-profile-service";
 import { beforeEach, expect, it, vi } from "vitest";
 import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/import/finance-import-onboarding-setup-client";
+import FinanceOnboardingSetupPage from "@/app/one/setup/finance/page";
 import { PortfolioPersona } from "@/components/kai/advisor/portfolio-persona";
+import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const state = vi.hoisted(() => ({
+  beacon: vi.fn((_props: { routeId: string; marker: string }) => null),
   finish: vi.fn(),
   bootstrap: vi.fn(),
   sync: vi.fn(),
   savePreferences: vi.fn(),
   getProfile: vi.fn(),
+  vaultLocked: false,
   current: true,
   ready: false,
   resumed: false,
   blocked: true,
+  sourceBack: undefined as (() => void) | undefined,
   source: null as
     | null
     | ((
@@ -40,16 +48,22 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: {}, userId: "owner", loading: false }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultOwnerToken: "memory-only" }),
+  useVault: () => ({
+    vaultOwnerToken: "memory-only",
+    getVaultKey: () => null,
+  }),
 }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
   useFinanceShareContext: () => ({
-    capture: () => ({
-      userId: "owner",
-      vaultKey: "synthetic",
-      vaultOwnerToken: "synthetic",
-      isCurrent: () => state.current,
-    }),
+    capture: () =>
+      state.vaultLocked
+        ? null
+        : {
+            userId: "owner",
+            vaultKey: "synthetic",
+            vaultOwnerToken: "synthetic",
+            isCurrent: () => state.current,
+          },
   }),
 }));
 vi.mock("@/lib/services/kai-profile-service", () => ({
@@ -63,7 +77,7 @@ vi.mock("@/lib/auth/session-owner", () => ({
   isValidatedAuthSessionOwnerCurrent: () => state.current,
 }));
 vi.mock("@/components/app-ui/native-test-beacon", () => ({
-  NativeTestBeacon: () => null,
+  NativeTestBeacon: state.beacon,
 }));
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
   SetupCapabilityLoading: () => <p>Preparing</p>,
@@ -90,18 +104,25 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   },
 }));
 vi.mock("@/components/kai/kai-flow", () => ({
-  KaiFlow: (props: { onSetupSourceSettled: typeof state.source }) => {
+  KaiFlow: (props: {
+    onSetupSourceSettled: typeof state.source;
+    onSetupPersonaBack?: () => void;
+  }) => {
     state.source = props.onSetupSourceSettled;
+    state.sourceBack = props.onSetupPersonaBack;
     return <p>Real source workflow</p>;
   },
 }));
 beforeEach(() => {
   vi.clearAllMocks();
   state.current = true;
+  state.vaultLocked = false;
   state.source = null;
+  state.sourceBack = undefined;
   state.resumed = false;
   state.bootstrap.mockResolvedValue(state.journey);
   state.sync.mockResolvedValue(undefined);
+  state.finish.mockResolvedValue({ status: "succeeded" });
   state.savePreferences.mockImplementation(
     async ({ updates, beforeEffect }) => {
       await beforeEffect();
@@ -110,60 +131,66 @@ beforeEach(() => {
   );
 });
 
-it("keeps the demo local and waits for source confirmation and explicit terminal finish", async () => {
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+it("starts at the questionnaire and shows Plaid confirmation before automatic settlement", async () => {
+  render(<FinanceOnboardingSetupPage />);
+  expect(state.beacon.mock.calls.at(-1)?.[0]).toMatchObject({
+    routeId: "/one/setup/finance",
+    marker: "native-route-one-setup-finance",
+  });
   expect(
-    screen.getByRole("heading", { name: "Follow the market." }),
-  ).toBeTruthy();
+    screen.getByRole("heading", { name: "Let’s build your financial persona" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Meet Finance" })).toBeNull();
   expect(state.ready).toBe(false);
   expect(state.blocked).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Skip for now", exact: true }),
-  );
-  expect(screen.getByText("Real source workflow")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(await screen.findByText("Real source workflow")).toBeTruthy();
   expect(state.bootstrap).not.toHaveBeenCalled();
   await act(async () => {
     expect(await state.source!("plaid", "wrong-attempt")).toBe(false);
   });
   expect(state.sync).not.toHaveBeenCalled();
-  await act(async () => {
-    expect(await state.source!("plaid", "attempt")).toBe(true);
-  });
-  expect(screen.getByRole("heading", { name: "You're all set" })).toBeTruthy();
-  expect(state.ready).toBe(true);
-  expect(state.blocked).toBe(false);
-  expect(state.finish).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
-  expect(state.finish).toHaveBeenCalledOnce();
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      expect(await state.source!("plaid", "attempt")).toBe(true);
+    });
+    expect(screen.getByRole("heading", { name: "Account connected" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Continuing setup");
+    expect(state.ready).toBe(true);
+    expect(state.blocked).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(1499));
+    expect(state.finish).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(state.finish).toHaveBeenCalledOnce();
+    expect(state.finish).toHaveBeenCalledWith({ recordAttempt: false });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
-it("saves the persona before import and keeps risk comfort separate from near-term needs", async () => {
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
-  fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+it("saves the original three starter preferences before import without overwriting loss capacity", async () => {
+  render(<FinanceOnboardingSetupPage />);
   expect(
     screen.getByRole("heading", { name: "Let’s build your financial persona" }),
   ).toBeVisible();
   act(() => {
-    expect(unwindBackLayer("/one/setup/finance")).toBe(true);
+    expect(unwindBackLayer("/one/setup/finance")).toBe(false);
   });
-  expect(
-    screen.getByRole("heading", { name: "Follow the market." }),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+  expect(screen.getAllByRole("group").map((group) => group.querySelector("legend")?.textContent)).toEqual([
+    "How long will this stay invested?",
+    "Portfolio down 20%, what's your move?",
+    "Which feels more comfortable to you?",
+  ]);
   for (const label of [
     "Less than 3 years",
-    "Consider investing more if my plan still fits",
-    "Lose 30% or gain 35%",
-    "I’d probably need to sell to cover bills",
+    "Invest more at lower prices",
+    "Larger swings for higher potential returns",
   ]) {
-    fireEvent.click(screen.getByRole("radio", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: label }));
   }
-  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
-  expect(await screen.findByText("Growth-oriented")).toBeVisible();
-  expect(
-    screen.getByText("One will look first at the money you may need soon."),
-  ).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(await screen.findByText("Real source workflow")).toBeVisible();
   expect(state.savePreferences).toHaveBeenCalledWith(
     expect.objectContaining({
       userId: "owner",
@@ -171,23 +198,41 @@ it("saves the persona before import and keeps risk comfort separate from near-te
         investment_horizon: "short_term",
         drawdown_response: "buy_more",
         volatility_preference: "large",
-        loss_capacity: "essentials",
       },
     }),
   );
   expect(state.ready).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Continue to import" }));
   expect(screen.getByText("Real source workflow")).toBeVisible();
+  expect(state.sourceBack).toBeTypeOf("function");
+  act(() => state.sourceBack?.());
+  expect(screen.getByRole("heading", { name: "Let’s build your financial persona" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeVisible();
+});
+
+it("offers no skip-all and only three tappable answers per question", () => {
+  render(<FinanceOnboardingSetupPage />);
+  expect(screen.queryByRole("button", { name: "Skip all" })).toBeNull();
+  expect(screen.queryByRole("radio")).toBeNull();
+  const short = screen.getByRole("button", { name: "Less than 3 years" });
+  const medium = screen.getByRole("button", { name: "3–7 years" });
+  fireEvent.click(short);
+  expect(short).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(medium);
+  expect(short).toHaveAttribute("aria-pressed", "false");
+  expect(medium).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(medium);
+  expect(medium).toHaveAttribute("aria-pressed", "false");
 });
 
 it("recovers the explicit completion screen from a verified persisted source callback", () => {
   state.resumed = true;
-  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+  render(<FinanceOnboardingSetupPage />);
   expect(screen.getByRole("heading", { name: "You're all set" })).toBeTruthy();
   expect(screen.queryByText("Real source workflow")).toBeNull();
   expect(state.blocked).toBe(false);
   expect(state.finish).not.toHaveBeenCalled();
 });
+
 
 it("does not show completion or mutate the journey when the owner retires during the read", async () => {
   let resolve!: (value: typeof state.journey) => void;
@@ -197,6 +242,10 @@ it("does not show completion or mutate the journey when the owner retires during
     }),
   );
   render(<FinanceImportOnboardingSetupClient />);
+  expect(state.beacon.mock.calls.at(-1)?.[0]).toMatchObject({
+    routeId: "/one/setup/finance/import",
+    marker: "native-route-one-setup-finance-import",
+  });
   let result!: Promise<boolean>;
   act(() => {
     result = state.source!("later");
@@ -211,76 +260,41 @@ it("does not show completion or mutate the journey when the owner retires during
   expect(screen.queryByRole("heading", { name: "You're all set" })).toBeNull();
 });
 
-it("retakes a saved persona in Portfolio Analysis and updates its badge", async () => {
-  state.getProfile.mockResolvedValue({
-    preferences: {
-      investment_horizon: "long_term",
-      drawdown_response: "reduce",
-      volatility_preference: "small",
-      loss_capacity: "flexible",
-    },
+it("opens a single 13-question assessment directly and updates the saved badge", async () => {
+  const starter = {
+    investment_horizon: "long_term",
+    drawdown_response: "reduce",
+    volatility_preference: "small",
+    loss_capacity: "flexible",
+  } as KaiPreferences;
+  state.savePreferences.mockImplementation(async ({ updates, beforeEffect }) => {
+    await beforeEffect();
+    return { preferences: { ...starter, ...updates } };
   });
-  render(
-    <PortfolioPersona
-      context={{
-        userId: "owner",
-        vaultKey: "synthetic",
-        vaultOwnerToken: "synthetic",
-        getIdToken: async () => "synthetic",
-        isCurrent: () => state.current,
-      }}
-    />,
-  );
-  expect(await screen.findByText("Careful")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Retake questions" }));
-  expect(
-    screen.getByRole("radio", { name: "More than 7 years" }),
-  ).toBeChecked();
-  fireEvent.click(
-    screen.getByRole("radio", {
-      name: "Keep my investments while I review my plan",
-    }),
-  );
-  fireEvent.click(screen.getByRole("radio", { name: "Lose 15% or gain 18%" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
-  expect(
-    await screen.findByRole("heading", { name: "Your investing persona" }),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
-  expect(screen.getByText("Balanced")).toBeVisible();
-  expect(state.savePreferences).toHaveBeenCalledWith(
-    expect.objectContaining({ mode: "edit" }),
-  );
-});
-
-it("saves the 13-question assessment and lets the owner retake it", async () => {
-  state.getProfile.mockResolvedValue({
-    preferences: {
-      investment_horizon: "long_term",
-      drawdown_response: "reduce",
-      volatility_preference: "small",
-      loss_capacity: "flexible",
-    },
-  });
+  const context = {
+    userId: "owner",
+    vaultKey: "synthetic",
+    vaultOwnerToken: "synthetic",
+    getIdToken: async () => "synthetic",
+    isCurrent: () => state.current,
+  };
   const onSaved = vi.fn();
-  render(
-    <PortfolioPersona
-      context={{
-        userId: "owner",
-        vaultKey: "synthetic",
-        vaultOwnerToken: "synthetic",
-        getIdToken: async () => "synthetic",
-        isCurrent: () => state.current,
-      }}
-      onSaved={onSaved}
-    />,
-  );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Refine your persona" }),
-  );
+  function Fixture() {
+    const [preferences, setPreferences] = useState(starter);
+    return <PortfolioPersona context={context} preferences={preferences} onSaved={(value) => {
+      setPreferences(value);
+      onSaved(value);
+    }} />;
+  }
+  render(<Fixture />);
+  expect(screen.getByText("Careful")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Refine persona" }));
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByRole("progressbar", { name: "Assessment answers" })).toHaveAttribute("aria-valuenow", "0");
+  expect(screen.queryByRole("button", { name: "Open detailed assessment" })).toBeNull();
   for (let index = 0; index < 13; index++) {
     expect(screen.getByText(`Question ${index + 1} of 13`)).toBeVisible();
-    fireEvent.click(screen.getAllByRole("radio")[index < 8 ? 2 : 0]);
+    fireEvent.click(within(screen.getByRole("group")).getAllByRole("button")[index < 8 ? 2 : 0]);
     fireEvent.click(
       screen.getByRole("button", {
         name: index === 12 ? "Save assessment" : "Continue",
@@ -303,6 +317,21 @@ it("saves the 13-question assessment and lets the owner retake it", async () => 
   expect(onSaved).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   expect(screen.getByText("Growth-oriented")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Retake assessment" }));
-  expect(screen.getAllByRole("radio")[2]).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Refine persona" }));
+  expect(within(screen.getByRole("group")).getAllByRole("button")[2]).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(within(screen.getByRole("group")).getAllByRole("button")[2]);
+  expect(within(screen.getByRole("group")).getAllByRole("button")[2]).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+});
+
+it("saves a toggled-off or unanswered assessment as unknown", async () => {
+  const onSave = vi.fn(async () => ({}));
+  render(<DetailedPersonaForm initial={{}} onSave={onSave} onDone={vi.fn()} onSavingChange={vi.fn()} />);
+  const first = within(screen.getByRole("group")).getAllByRole("button")[0];
+  fireEvent.click(first);
+  fireEvent.click(first);
+  for (let index = 0; index < 13; index++) {
+    fireEvent.click(screen.getByRole("button", { name: index === 12 ? "Save assessment" : "Continue" }));
+  }
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith(Array(13).fill(null)));
 });

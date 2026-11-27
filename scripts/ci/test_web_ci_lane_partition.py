@@ -414,9 +414,12 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/components/connections/person-profile-page.module.css",
         "hushh-webapp/components/connections/person-profile-hero.tsx",
         "hushh-webapp/e2e/person-profile-actions.layout.spec.ts",
+        "hushh-webapp/e2e/person-profile-preview.layout.spec.ts",
         "hushh-webapp/e2e/fixtures/person-profile.tsx",
         "hushh-webapp/e2e/fixtures/person-profile-requests.tsx",
         "hushh-webapp/e2e/fixtures/person-profile-request-ports.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-preview.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-preview-ports.tsx",
         "hushh-webapp/components/app-ui/illustrated-request-dialog.tsx",
         "hushh-webapp/components/app-ui/illustrated-request-dialog.module.css",
         "hushh-webapp/components/consent/document-file-request.tsx",
@@ -432,6 +435,15 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         overlap_owner = "run test:drive-sharing-layout" in calls
         expected = "run test:connections-layout:without-covered" if overlap_owner else "run test:connections-layout"
         assert calls.count(expected) == 1, (changed, calls)
+        if "person-profile-preview" in changed:
+            assert "run test:connections-web" not in calls, (changed, calls)
+            node_code, node_calls, node_output = _run(
+                TARGETED,
+                {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": changed},
+            )
+            assert node_code == 0, node_output[-2000:]
+            assert node_calls.count("run test:connections-web") == 1, (changed, node_calls)
+            assert not any("connections-layout" in call for call in node_calls), (changed, node_calls)
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     pack = scripts["test:connections-layout"]
     for spec in ("e2e/profile-confirmation-back.spec.ts", "e2e/shortcut-icons.motion.spec.ts", "e2e/person-profile-actions.layout.spec.ts"):

@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { useRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { beginRouteTransition, useRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { useProfilePanePresentation } from "@/lib/navigation/use-profile-pane-presentation";
 import { openProfilePane, pushProfilePaneLocation, profilePanelParentForPresentation,
   getProfilePaneHistoryDepth, popProfilePaneLocation, resolveProfilePaneUrlState } from "@/lib/navigation/profile-pane";
@@ -116,6 +116,63 @@ it("lets a pending exit hold the new route for two frames before the enter beat"
     expect(document.documentElement.dataset.routeTransition).toBe("entering");
     view.unmount();
   } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("resolves View Transition updateCallback synchronously on pathname commit even while requestAnimationFrame is suppressed", async () => {
+  vi.useFakeTimers();
+  const originalRaf = window.requestAnimationFrame;
+  // Simulate Chromium/WebKit rendering suppression while startViewTransition awaits updateCallback:
+  // requestAnimationFrame NEVER fires until updateCallback's returned Promise resolves!
+  window.requestAnimationFrame = vi.fn(() => 1);
+  const doc = document as Document & {
+    startViewTransition?: (update: () => void | Promise<void>) => {
+      ready: Promise<void>;
+      finished: Promise<void>;
+      skipTransition: () => void;
+    };
+  };
+  const originalStartVt = doc.startViewTransition;
+  let updateSettled = false;
+  doc.startViewTransition = vi.fn((update) => {
+    const maybePromise = update();
+    void Promise.resolve(maybePromise).then(() => {
+      updateSettled = true;
+    });
+    return {
+      ready: Promise.resolve(),
+      finished: Promise.resolve(),
+      skipTransition: vi.fn(),
+    };
+  });
+
+  try {
+    window.history.replaceState(null, "", "/one");
+    navigation.pathname = "/one";
+    navigation.query = "";
+    const view = renderHook(() => useRouteTransition());
+
+    act(() => {
+      beginRouteTransition(
+        "/one/pkm",
+        () => {
+          navigation.pathname = "/one/pkm";
+        },
+        "tap",
+        "full",
+      );
+      view.rerender();
+    });
+    await Promise.resolve();
+
+    // Must settle immediately on DOM commit without advancing timers or firing rAF!
+    expect(updateSettled).toBe(true);
+    expect(document.documentElement.dataset.routeTransition).toBe("idle");
+    view.unmount();
+  } finally {
+    window.requestAnimationFrame = originalRaf;
+    doc.startViewTransition = originalStartVt;
     vi.useRealTimers();
   }
 });

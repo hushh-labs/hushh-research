@@ -10,7 +10,7 @@ export const PWM_RESEARCH_DISCLOSURE =
   "Agent One will look up public information about you to prepare your Personal World Model, and email you when it's ready. You review everything before it's saved, and you can turn either off anytime in Personal World Model.";
 
 export const PWM_RESEARCH_DISCLOSURE_COMPACT =
-  "One uses public info for your Personal World Model and emails you when ready. Review before saving; turn either off anytime.";
+  "One looks up public information about you and emails you when your Personal World Model is ready. Review before saving. Turn either off anytime.";
 
 export const PWM_AZURE_RESEARCH_DISCLOSURE =
   "Public research for your Personal World Model is off until you turn it on there. If you do, GPT-5 mini on Microsoft Azure AI plans searches and prepares your draft from public pages. Bing receives search terms that can include your name and verified email or phone outside Azure's compliance and data residency boundary. You review findings before anything is saved, and can turn research and ready email off anytime.";

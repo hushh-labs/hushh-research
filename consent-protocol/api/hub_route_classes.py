@@ -61,6 +61,8 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/feed/files/owner/search
+POST /api/one/feed/files/owner/file
 POST /api/one/finance/advisor-reviews/portfolio-analysis
 POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
@@ -115,6 +117,8 @@ POST /api/kai/gmail/receipts-memory/preview
 GET /api/kai/gmail/receipts/{user_id}
 POST /api/kai/gmail/receipts/scan
 POST /api/kai/gmail/receipts/detail
+POST /api/kai/gmail/receipts/notice
+POST /api/kai/gmail/receipts/notice/source
 POST /api/kai/gmail/reconcile
 POST /api/kai/gmail/sync
 GET /api/kai/gmail/sync/{run_id}
@@ -162,6 +166,8 @@ POST /api/one/calendar/followups/resolve
 POST /api/one/calendar/followups/source
 POST /api/one/calendar/followups/source/link
 POST /api/one/calendar/followups/request
+POST /api/one/calendar/followups/booking/review
+POST /api/one/calendar/followups/booking/execute
 POST /api/one/calendar/followups/booking/confirm
 POST /api/one/calendar/followups/scan
 POST /api/one/calendar/followups/mail/connect/start
@@ -208,6 +214,12 @@ POST /api/one/transcriptions
 POST /api/one/u/{hushh_id}/conversation/{conversation_id}/close
 POST /api/one/u/{hushh_id}/turn
 WS /api/one/voice/live
+POST /api/one/mail/overview/recent
+POST /api/one/mail/overview/search
+POST /api/one/mail/overview/open
+POST /api/one/mail/overview/reply-source
+POST /api/one/mail/overview/brief
+POST /api/one/mail/overview/completed
 POST /api/one/voice/mail/open
 GET /api/one/voice/pending-actions
 POST /api/one/voice/pending-actions/{pending_action_id}/cancel
@@ -216,15 +228,21 @@ POST /api/one/voice/sessions
 POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
+POST /api/pkm/memory/rewrite
 [AUTHORITY]
+GET /api/one/answer-requests/runtime
+POST /api/one/answer-requests/{request_id}/pod-composition-receipt
 GET /api/one/finance/shares/active-recipients
 GET,PUT /api/one/plg/preferences
+GET,PUT /api/one/plg/attempt-email/preferences
+GET,POST /api/one/plg/attempt-email/unsubscribe
 POST /api/one/plg/subscriptions/check
 POST /api/one/plg/subscriptions/revoke
 POST /api/one/pod/browser-approval/issue
 POST /api/one/pod/browser-approval/consume
 POST /api/one/pod/browser-approval/validate
 POST /api/one/pod/browser-approval/confirm
+POST /api/one/pod/browser-approval/export/current
 GET,PUT /api/one/models/private-text-approval
 GET,PUT /api/one/world-model/preferences
 POST /api/one/world-model/invitations/reject
@@ -253,6 +271,11 @@ POST /api/one/agent-chat/runs/{conversation_id}/stop
 POST /api/one/agent-chat/proposals/prepare
 GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
+GET /api/one/pod/custody/broker-key
+GET /api/one/pod/custody/sandbox-placement/{hushh_id}
+POST /api/one/pod/custody/storage-token
+POST /api/one/pod/custody/dek
+POST /api/one/pod/schedule-delivery/offer
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
@@ -268,6 +291,8 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+POST /api/one/feed/files/requester/search
+POST /api/one/feed/files/requester/file
 POST /api/one/finance/advisor-reviews/candidates
 POST /api/one/finance/advisor-reviews/{request_id}/decision
 POST /api/one/finance/advisor-reviews/{request_id}/meeting
@@ -275,6 +300,8 @@ POST /api/one/finance/advisor-reviews/{request_id}/meeting/decision
 POST /api/one/finance/advisor-reviews/{request_id}/plan
 POST /api/one/finance/advisor-reviews/{request_id}/checkout
 DELETE,GET /api/one/finance/advisor-reviews/{request_id}/billing
+GET /api/one/finance/advisor-reviews/{request_id}/sandbox-payout
+POST /api/one/finance/advisor-reviews/{request_id}/sandbox-payout/{action}
 GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
@@ -285,10 +312,16 @@ GET /api/one/finance/advisor-reviews/{request_id}
 GET,POST /api/one/finance/shares
 DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export
+DELETE,GET,PUT /api/one/pod/storage-gateway/{object_path:path}
 GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}
 GET,PUT /api/one/files/objects/{namespace}/{object_id}
+GET /api/one/agent-chat/migration/sessions
+GET /api/one/files/migration/manifest
+GET /api/one/files/migration/wiki/{page_id}
+GET /api/one/files/migration/file/{file_id}/chunk/{index}
+POST /api/one/files/migration/complete
 POST /api/one/answer-requests/{request_id}/deliver
 GET /api/one/answer-requests/{request_id}/answer
 DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}
@@ -345,9 +378,11 @@ POST /api/one/google/connect/transition/prepare
 POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
+POST /api/one/runtime/openai/validate
 [SUPPORT]
 GET /api/one/todos/suggestions/status
 GET /api/kai/market/company-facts/{user_id}
+GET /api/kai/market/fx/usd-inr/{user_id}
 GET /api/kai/market/history/{user_id}
 GET /api/one/wallet/card-access/artwork/assets/{digest}
 POST /api/one/wallet/card-access/artwork/resolve
@@ -386,7 +421,22 @@ POST /api/one/plg/subscriptions/ack
 GET,POST /api/one/plg/activity
 POST /api/one/plg/snapshot
 POST /api/one/plg/audience
+POST /api/one/plg/audience-uat
 POST /api/one/plg/customer-cohort
+POST /api/one/plg/owner
+POST /api/one/plg/owner-dev
+POST /api/one/plg/owner-uat
+POST /api/one/plg/permission-dev
+POST /api/one/plg/permission-owner
+POST /api/one/plg/permission-uat
+POST /api/one/plg/snapshot-dev
+POST /api/one/plg/snapshot-owner
+POST /api/one/plg/snapshot-uat
+POST /api/one/plg/attempt-email/pull
+POST /api/one/plg/attempt-email/claim
+POST /api/one/plg/attempt-email/settle
+POST /api/one/plg/attempt-email/feedback-state
+POST /api/one/plg/attempt-email/feedback-apply
 POST /api/one/runtime/byoc/attach/retry
 POST /api/kai/gmail/webhook
 GET /api/one/agent-prompt
@@ -408,6 +458,8 @@ POST /api/one/pod/heartbeat
 GET /api/one/pod/lifecycle
 GET /api/one/pod/lifecycle/stream
 POST /api/one/pod/wake
+POST /api/one/pod/wake/signal
+POST /api/one/pod/wake/drain
 GET /api/one/puppy/status/{device_id}
 POST /api/one/runtime/byoc/authorize/begin
 POST /api/one/runtime/byoc/authorize/complete
@@ -417,16 +469,25 @@ POST /api/one/runtime/byoc/azure/authorize/complete
 GET /api/one/runtime/byoc/azure/hosting
 POST /api/one/runtime/byoc/azure/rebuild/begin
 POST /api/one/runtime/byoc/azure/upgrade/begin
+GET /api/one/runtime/byoc/hosted/azure/migrate/status
+POST /api/one/runtime/byoc/hosted/azure/migrate
 POST /api/one/runtime/byoc/hosted/select
+GET /api/one/runtime/byoc/hosted/cells/status
+GET /api/one/runtime/byoc/hosted/source-retirement/status
+POST /api/one/runtime/byoc/hosted/source-retirement/confirm
 POST /api/one/runtime/byoc/project/check
 POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save
 GET /api/one/runtime/byoc/project/suggest
 GET /api/one/runtime/byoc/setup/status
+POST /api/one/runtime/hosting/switch
 GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
+POST /api/one/runtime/pooled-sandbox/adopt
 POST /api/one/runtime/shared/select
 POST /api/one/runtime/standby/sync
+POST /api/one/sandbox/claims
+DELETE,GET /api/one/sandbox/claims/{lease_id}
 GET /api/one/u/{hushh_id}/diagnostics/model
 GET /api/one/u/{hushh_id}/info
 GET /api/one/u/{hushh_id}/memory/status

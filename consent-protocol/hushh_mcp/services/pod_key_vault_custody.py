@@ -75,7 +75,31 @@ def key_vault_custody_configured() -> bool:
 
 def parse_key_vault_key(value: str) -> KeyVaultKey:
     """A versioned key id. The version is required: it is what the DEK is wrapped to."""
+    from hushh_mcp.services.pod_emulator_endpoints import (  # noqa: PLC0415
+        PodEmulatorEndpointError,
+        resolve_azure_emulator_origin,
+    )
+
+    try:
+        emulator_origin = resolve_azure_emulator_origin()
+    except PodEmulatorEndpointError as exc:
+        raise PodKeyVaultCustodyError(str(exc)) from None
+
     parsed = urllib.parse.urlsplit(str(value or "").strip())
+    if (
+        emulator_origin is not None
+        and f"{parsed.scheme}://{parsed.netloc}" == emulator_origin
+        and not parsed.username
+        and not parsed.password
+        and not parsed.query
+        and not parsed.fragment
+        and _KEY_PATH.fullmatch(parsed.path)
+    ):
+        return KeyVaultKey(
+            key_id=f"{emulator_origin}{parsed.path}",
+            resource="https://vault.azure.net",
+        )
+
     host = (parsed.hostname or "").lower()
     suffix = next((s for s in _VAULT_CLOUDS if host.endswith(s)), "")
     if (

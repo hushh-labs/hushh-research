@@ -27,6 +27,12 @@ from hushh_mcp.runtime_providers.factory import (
     ManagedGeminiRuntimeBinding,
     build_runtime_client,
 )
+from hushh_mcp.runtime_providers.owner_openai import (
+    OWNER_OPENAI_MODE,
+    OwnerOpenAIModeMismatch,
+    build_owner_openai_transport,
+    owner_openai_model,
+)
 from hushh_mcp.services.ai_connection_gate import on_ai_connection_verified
 from hushh_mcp.services.owner_hosting_choice import (
     write_cloud_setup_marker as _write_cloud_setup_marker,
@@ -65,6 +71,15 @@ class GeminiCredentialValidationResponse(BaseModel):
     status: Literal["ready"]
 
 
+class OpenAICredentialValidationRequest(BaseModel):
+    credential: SecretStr = Field(min_length=1, max_length=12_000)
+    model: str | None = Field(default=None, max_length=128)
+
+
+class OpenAICredentialValidationResponse(BaseModel):
+    status: Literal["ready"]
+
+
 class ManagedGeminiReadinessResponse(BaseModel):
     status: Literal["ready"]
     model: str
@@ -81,6 +96,17 @@ _MANAGED_READINESS_TTL_SECONDS = 60.0
 def _safe_failure_code(exc: Exception) -> str:
     # Classify without logging or reflecting provider text: it can contain
     # request metadata and must never be associated with a user's secret.
+    status_code = getattr(exc, "status_code", None)
+    if not isinstance(status_code, int) or isinstance(status_code, bool):
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code == 429:
+        return "quota_exhausted"
+    if status_code == 403:
+        return "permission_denied"
+    if status_code == 401:
+        return "invalid_key"
+    if status_code == 404:
+        return "unsupported_model"
     message = str(exc).lower()
     if any(
         token in message
@@ -137,6 +163,17 @@ async def _managed_readiness() -> ManagedGeminiReadinessResponse:
         if policy is not None:
             descriptor = managed_text_binding(scope="one_text_chat")
             cache_binding = (policy["generation"], descriptor["config_fingerprint"])
+        else:
+            from hushh_mcp.managed_ai_config import (
+                load_managed_runtime_policy,
+                sandbox_managed_azure_enabled,
+            )
+
+            if sandbox_managed_azure_enabled():
+                transport = load_managed_runtime_policy()
+                if transport is None:
+                    raise ValueError("Sandbox Azure transport is unavailable")
+                cache_binding = ("sandbox_azure", transport["config_fingerprint"])
     except Exception:
         raise HTTPException(
             status_code=503,
@@ -337,6 +374,42 @@ async def _probe_managed_gemini(
             _managed_readiness_cache = (time.monotonic(), response)
             _managed_readiness_binding = cache_binding
             return response
+        if cache_binding[0] == "sandbox_azure":
+            from google.adk.models.llm_request import LlmRequest
+
+            from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+            model = build_azure_text_model(_ONE_RUNTIME_MODEL, capability="one_text_root")
+            if model is None:
+                raise RuntimeError("Sandbox Azure configuration ended")
+            request = LlmRequest(
+                model=model.model,
+                contents=[
+                    genai_types.Content(role="user", parts=[genai_types.Part(text="Reply OK.")])
+                ],
+                config=genai_types.GenerateContentConfig(max_output_tokens=16),
+            )
+
+            async def probe():
+                return [item async for item in model.generate_content_async(request)]
+
+            results = await asyncio.wait_for(probe(), timeout=20)
+            if not any(
+                part.text and not part.thought
+                for item in results
+                if item.content and not item.error_code
+                for part in item.content.parts or []
+            ):
+                raise RuntimeError("Sandbox Azure returned no usable response")
+            response = ManagedGeminiReadinessResponse(
+                status="ready",
+                provider="azure_openai",
+                model=model.model,
+                location=None,
+            )
+            _managed_readiness_cache = (time.monotonic(), response)
+            _managed_readiness_binding = cache_binding
+            return response
         binding = ManagedGeminiRuntimeBinding.from_environment()
         client = binding.build_direct_client(model=_ONE_RUNTIME_MODEL)
         await asyncio.wait_for(
@@ -464,6 +537,62 @@ async def validate_gemini_credential(
     )
     logger.info("runtime.ai_connection_verified provision=%s", verdict.get("reason"))
     return GeminiCredentialValidationResponse(status="ready")
+
+
+@router.post("/openai/validate", response_model=OpenAICredentialValidationResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def validate_openai_credential(
+    request: Request,
+    body: OpenAICredentialValidationRequest,
+    _firebase_uid: str = Depends(require_firebase_auth),
+) -> OpenAICredentialValidationResponse:
+    """Bounded stateless OpenAI probe; the credential is never stored server-side."""
+    try:
+        model = owner_openai_model(body.model)
+    except OwnerOpenAIModeMismatch:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "OPENAI_CREDENTIAL_VALIDATION_FAILED",
+                "status": "unsupported_model",
+            },
+        ) from None
+    credential = body.credential.get_secret_value()
+    transport: Any = None
+    try:
+        transport = build_owner_openai_transport(
+            runtime_provider="openai",
+            runtime_mode=OWNER_OPENAI_MODE,
+            credential=credential,
+        )
+        await asyncio.wait_for(
+            transport.aio.models.generate_content(
+                model=model,
+                contents="Reply OK.",
+                config=genai_types.GenerateContentConfig(max_output_tokens=16),
+            ),
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 - preserve a safe public taxonomy
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "OPENAI_CREDENTIAL_VALIDATION_FAILED",
+                "status": _safe_failure_code(exc),
+            },
+        ) from None
+    finally:
+        credential = ""
+        if transport is not None and hasattr(transport, "aclose"):
+            try:
+                await transport.aclose()
+            except Exception:  # noqa: BLE001 - best-effort transport cleanup
+                pass
+    verdict = await on_ai_connection_verified(
+        user_id=_firebase_uid, provider="openai", transport="developer_api"
+    )
+    logger.info("runtime.ai_connection_verified provision=%s", verdict.get("reason"))
+    return OpenAICredentialValidationResponse(status="ready")
 
 
 # --- BYOC: naming and creating the project a person's pod will live in --------------
@@ -711,6 +840,15 @@ class SharedHostingSelectResponse(BaseModel):
     nextStep: str
 
 
+class HostingSwitchRequest(BaseModel):
+    target: Literal["shared", "own_cloud"]
+
+
+class HostingSwitchResponse(BaseModel):
+    hostingMode: str
+    detachedPriorHost: bool = False
+
+
 class HostedCloudSelectResponse(BaseModel):
     deploymentTarget: str
     # The claim the hosted tier is allowed to make, returned by the server so the
@@ -819,6 +957,21 @@ async def select_shared_hosting(
     )
 
 
+@router.post("/hosting/switch", response_model=HostingSwitchResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def switch_hosting_mode_route(
+    request: Request,
+    body: HostingSwitchRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> HostingSwitchResponse:
+    """Switch an owner's hosting mode safely from Profile Hosting."""
+    del request
+    from api.routes.one.runtime_placement import switch_hosting_placement
+
+    verdict = await switch_hosting_placement(firebase_uid, target=body.target)
+    return HostingSwitchResponse(**verdict)
+
+
 @router.post("/byoc/project/save", response_model=ByocProjectSaveResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def save_byoc_project(
@@ -907,6 +1060,24 @@ async def _save_byoc_project(
             model_credential_mode="user_adc",
         )
     else:
+        from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+        from hushh_mcp.services.personal_agent_placement_detach import detach_placement
+        from hushh_mcp.services.pooled_sandbox_cutover import sandbox_pool_cutover_enabled
+
+        if sandbox_pool_cutover_enabled():
+            existing_row = await repo.get(firebase_uid)
+            if (
+                existing_row
+                and str(existing_row.get("deployment_target") or "").strip().lower() == "ace"
+                and str(existing_row.get("backend") or "").strip().lower() in {"", "ace"}
+                and has_hosted_ace_evidence(existing_row)
+                and bool(existing_row.get("external_agent_id"))
+            ):
+                await detach_placement(
+                    row=dict(existing_row),
+                    reason="owner saved Bring your own cloud project",
+                    allow_stalled_states=True,
+                )
         wrote = await _attach_cloud()
         if not wrote:
             # `set_user_cloud` is an UPDATE, and the row it updates is written at phone
@@ -1333,3 +1504,201 @@ async def byoc_authorization_instructions(
         # Proven, never asserted -- the same rule the save route follows.
         authorized=bool(cloud and cloud.authorized),
     )
+
+
+class HostedAzureMigrationRequest(BaseModel):
+    cellId: str | None = Field(default=None, max_length=80)
+    allowFreshPodLog: bool = Field(default=False)
+
+
+class HostedSourceRetirementConfirmRequest(BaseModel):
+    placementId: str | None = Field(default=None, max_length=64)
+
+
+def _require_dev_hosted_azure_lane() -> None:
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane
+
+    if deploy_lane() != "dev":
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "HOSTED_AZURE_UNAVAILABLE",
+                "message": "Hosted Azure cells are dev-only",
+            },
+        )
+
+
+@router.post("/byoc/hosted/azure/migrate")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def migrate_owner_pod_to_hosted_azure(
+    request: Request,
+    body: HostedAzureMigrationRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Migrate an owner's provisioned BYOC/GCP pod onto a pre-warmed HushOne Inc. Azure cell slot."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        execute_owner_migration_to_hosted_azure,
+    )
+    from hushh_mcp.services.pod_umbrella_cell_pool import (
+        CellCapacityExceededError,
+        NoWarmSkeletonAvailableError,
+    )
+
+    try:
+        return dict(
+            await execute_owner_migration_to_hosted_azure(
+                firebase_uid,
+                cell_id=(body.cellId if body else None),
+                allow_fresh_pod_log=bool(body.allowFreshPodLog if body else False),
+            )
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail={"code": "HOSTED_AZURE_UNAVAILABLE"}) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "HOSTED_AZURE_PRECONDITION_FAILED", "message": str(exc)},
+        ) from exc
+    except (CellCapacityExceededError, NoWarmSkeletonAvailableError) as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "UMBRELLA_CELL_EXHAUSTED", "message": str(exc)}
+        ) from exc
+
+
+@router.get("/byoc/hosted/azure/migrate/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_azure_migration_status_route(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Return Hosted Azure migration job status, Relay-First cutover state, and direct readiness."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        get_owner_hosted_azure_migration_status,
+    )
+
+    return dict(await get_owner_hosted_azure_migration_status(firebase_uid))
+
+
+@router.get("/byoc/hosted/cells/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_umbrella_cells_status(
+    request: Request,
+    cell_id: str | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Inspect Umbrella Compute Cell capacity watermarks and warm skeleton availability."""
+    _require_dev_hosted_azure_lane()
+    del firebase_uid  # Authenticated caller only; returns non-PII cell pool inventory.
+    from hushh_mcp.services.hosted_azure_migration_provisioner import (
+        get_hosted_umbrella_cells_snapshot,
+    )
+
+    return dict(await get_hosted_umbrella_cells_snapshot(cell_id=cell_id))
+
+
+@router.get("/byoc/hosted/source-retirement/status")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def get_hosted_source_retirement_status_route(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Read the owner's 3-day source-pod retirement window & confirmation state."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.source_pod_retirement import (
+        get_owner_source_pod_retirement_status,
+    )
+
+    return dict(await get_owner_source_pod_retirement_status(firebase_uid))
+
+
+@router.post("/byoc/hosted/source-retirement/confirm")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def confirm_hosted_source_retirement_route(
+    request: Request,
+    body: HostedSourceRetirementConfirmRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Record explicit owner confirmation to retire the prior pod once the 3-day window expires."""
+    _require_dev_hosted_azure_lane()
+    from hushh_mcp.services.source_pod_retirement import (
+        confirm_owner_source_pod_retirement,
+    )
+
+    try:
+        return dict(
+            await confirm_owner_source_pod_retirement(
+                firebase_uid,
+                placement_id=(body.placementId if body else None),
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SOURCE_RETIREMENT_PRECONDITION_FAILED", "message": str(exc)},
+        ) from exc
+
+
+class PooledSandboxAdoptRequest(BaseModel):
+    allowCleanSlate: bool = Field(default=False)
+    removePriorCloudResources: bool = Field(default=False)
+
+
+class PooledSandboxAdoptResponse(BaseModel):
+    status: str
+    hostingMode: str
+    deploymentTarget: str
+    hushhId: str
+    podUrl: str
+    detachedPriorHost: bool
+    migrationMode: str = "fresh_start"
+    syncedRecordCount: int = 0
+    backgroundCleanupQueued: bool = False
+
+
+@router.post("/pooled-sandbox/adopt", response_model=PooledSandboxAdoptResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def adopt_pooled_sandbox_route(
+    request: Request,
+    body: PooledSandboxAdoptRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> PooledSandboxAdoptResponse:
+    """Switch an owner (including stalled/expired BYOC or fenced setup) onto Pooled Personal Sandbox."""
+    del request
+    from hushh_mcp.services.pooled_sandbox_cutover import adopt_pooled_sandbox_for_owner
+
+    adopt_kwargs: dict[str, Any] = {
+        "user_id": firebase_uid,
+        "allow_clean_slate": bool(body.allowCleanSlate if body else False),
+    }
+    if bool(body and body.removePriorCloudResources):
+        adopt_kwargs["remove_prior_cloud_resources"] = True
+
+    try:
+        verdict = await adopt_pooled_sandbox_for_owner(**adopt_kwargs)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "POOLED_SANDBOX_UNAVAILABLE",
+                "message": "Pooled Personal Sandboxes are not enabled in this environment.",
+            },
+        ) from exc
+    except ValueError as exc:
+        message = str(exc)
+        if message == "CLEAN_SLATE_CONFIRMATION_REQUIRED":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "CLEAN_SLATE_CONFIRMATION_REQUIRED",
+                    "message": "Confirm switching to a fresh Hussh Personal Sandbox.",
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "POOLED_SANDBOX_SWITCH_BLOCKED", "message": message},
+        ) from exc
+
+    await _write_cloud_setup_marker(firebase_uid)
+    return PooledSandboxAdoptResponse(**verdict)

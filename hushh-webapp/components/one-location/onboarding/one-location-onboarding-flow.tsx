@@ -31,7 +31,10 @@ import {
 } from "@/components/one-location/redesign/location-action-styles";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
-import type { OneLocationOnboardingScreen } from "@/components/one-location/onboarding/one-location-onboarding-steps";
+import {
+  LOCATION_ONBOARDING_CIRCLE_TITLE,
+  type OneLocationOnboardingScreen,
+} from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   READY_CODE_CLASSNAME,
   READY_MAP_CLASSNAME,
@@ -152,7 +155,7 @@ type OneLocationOnboardingFlowProps = {
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
   /** Acquire a foreground fix on entry, or when the owner retries. */
-  onPrepareLocation?: () => Promise<boolean>;
+  onPrepareLocation?: (reason: "entry" | "retry") => Promise<boolean>;
   /** A foreground return observed usable, granted location permission. */
   locationResumeAttempt?: number;
   /** A completed save retained by the account-scoped page through auth gates. */
@@ -339,7 +342,7 @@ function ContactsScreen({
     <div
       className={cn(
         embedded
-          ? "rounded-[18px] bg-[color:var(--app-card-surface-compact)] p-3.5"
+          ? "rounded-[18px] bg-[color:var(--app-card-surface-compact)] px-3.5 pb-3.5"
           : "flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]",
       )}
       data-testid="one-location-onboarding-contacts-surface"
@@ -449,8 +452,7 @@ function ContactsScreen({
                     {requestRequired ? (
                       <MorphyButton
                         type="button"
-                        variant="none"
-                        effect="fade"
+                        variant="plain"
                         size="compact"
                         onClick={() => onAdd(match.userId)}
                         disabled={added || adding || leaving}
@@ -706,13 +708,12 @@ function ReadyScreen({
       data-testid="one-location-onboarding-ready-surface"
     >
       <header className="col-span-full shrink-0">
-        <div className="flex h-11 items-center gap-3">
+        <div className="flex min-h-11 items-center gap-3">
           <button type="button" onClick={onBack} disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")} aria-label="Go back">
             <ArrowLeft className="h-5 w-5" aria-hidden />
           </button>
-          <h1 ref={headingRef} tabIndex={-1} data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)] outline-none" data-one-ready-title>Your people.</h1>
+          <h1 ref={headingRef} tabIndex={-1} data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)] outline-none" data-one-ready-title>{LOCATION_ONBOARDING_CIRCLE_TITLE}</h1>
         </div>
-        <p data-location-type-role="row-description" className="mb-3 mt-2 text-muted-foreground">Connect now. Share only when you choose.</p>
       </header>
       <OnboardingLiveMap point={mapPoint} emptyLabel={mapEmptyLabel} className={READY_MAP_CLASSNAME} />
 
@@ -720,7 +721,7 @@ function ReadyScreen({
         className={READY_PANEL_CLASSNAME}
         data-testid="one-location-onboarding-ready-panel"
       >
-        <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-hidden [@media(max-height:560px)]:justify-start [@media(max-height:560px)]:overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-px py-1">
           <div
             className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
             data-testid="one-location-onboarding-invite-card"
@@ -818,7 +819,7 @@ function ReadyScreen({
                 <span data-location-type-role="utility-action" className="min-w-0 flex-1">Join with a code</span>
                 <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
-              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "join"} onClose={() => onCloseDisclosure("join")} title="Join with a code" busy={joinBusy}>
+              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "join"} onClose={() => onCloseDisclosure("join")} title="Join with a code" busy={joinBusy} centered>
                 <div
                   id="onboarding-join-circle-panel"
                   className="mt-3"
@@ -842,46 +843,49 @@ function ReadyScreen({
                       className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                       data-testid="onboarding-join-circle-preview"
                     >
-                      <p data-location-type-role="row-title" className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <p data-location-type-role="row-title" className="break-words text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
                         {joinPreview.name}
                       </p>
-                      <p data-location-type-role="row-description" className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                      <p data-location-type-role="row-description" className="mt-1 break-words text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                         {joinPreview.ownerDisplayName} &middot;{" "}
                         {joinPreview.memberCount}{" "}
                         {joinPreview.memberCount === 1 ? "person" : "people"}
                       </p>
-                      {!joinPreview.alreadyMember ? (
-                        <button data-location-type-role="primary-action"
-                          type="button"
-                          onClick={onAcceptJoinCode}
-                          disabled={joinBusy || leaving}
-                          className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
-                        >
-                          {joinBusy ? (
-                            <Loader2
-                              className="h-4 w-4 animate-spin"
-                              aria-hidden
-                            />
-                          ) : null}
-                          Join {joinPreview.name}
-                        </button>
-                      ) : (
+                      {joinPreview.alreadyMember ? (
                         <p data-location-type-role="row-description" className="mt-3 text-[13px] text-muted-foreground">
                           Already in this circle.
                         </p>
-                      )}
-                      <button data-location-type-role="primary-action"
-                        type="button"
-                        onClick={onClearJoinPreview}
-                        disabled={joinBusy || leaving}
-                        className="press-scale mt-2 min-h-11 w-full text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50"
-                        data-testid="onboarding-join-circle-reset"
-                      >
-                        Use a different code
-                      </button>
+                      ) : null}
+                      <div className="mx-auto mt-3 flex w-full max-w-[224px] flex-col gap-2">
+                        {!joinPreview.alreadyMember ? (
+                          <button data-location-type-role="primary-action"
+                            type="button"
+                            onClick={onAcceptJoinCode}
+                            disabled={joinBusy || leaving}
+                            className="press-scale inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] px-3 text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                          >
+                            {joinBusy ? (
+                              <Loader2
+                                className="h-4 w-4 shrink-0 animate-spin"
+                                aria-hidden
+                              />
+                            ) : null}
+                            Join circle
+                          </button>
+                        ) : null}
+                        <button data-location-type-role="primary-action"
+                          type="button"
+                          onClick={onClearJoinPreview}
+                          disabled={joinBusy || leaving}
+                          className="press-scale min-h-11 w-full px-3 text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50"
+                          data-testid="onboarding-join-circle-reset"
+                        >
+                          Use a different code
+                        </button>
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex gap-2">
+                    <div className="grid gap-2 min-[420px]:grid-cols-[minmax(0,1fr)_auto]">
                       <input data-location-type-exception="invitation-code"
                         value={joinCode}
                         onChange={(event) =>
@@ -895,13 +899,13 @@ function ReadyScreen({
                         aria-describedby={
                           joinError ? "onboarding-join-code-error" : undefined
                         }
-                        className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                        className="h-11 w-full min-w-0 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       />
                       <button data-location-type-role="utility-action"
                         type="button"
                         onClick={onPreviewJoinCode}
                         disabled={joinBusy || !joinCode.trim() || leaving}
-                        className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                        className="press-scale inline-flex min-h-11 max-w-full items-center justify-center gap-2 justify-self-center rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       >
                         {joinBusy ? (
                           <Loader2
@@ -909,7 +913,7 @@ function ReadyScreen({
                             aria-hidden
                           />
                         ) : null}
-                        Look up
+                        Preview circle
                       </button>
                     </div>
                   )}
@@ -944,7 +948,7 @@ function ReadyScreen({
                 <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
               <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "contacts"} onClose={() => onCloseDisclosure("contacts")} title="Find contacts" busy={contactState.kind === "busy" || addingContactIds.length > 0}>
-                <div id="onboarding-contacts-panel" className="mt-3">
+                <div id="onboarding-contacts-panel" className="-mt-2">
                   <ContactsScreen
                     embedded
                     state={contactState}
@@ -1120,6 +1124,7 @@ export function OneLocationOnboardingFlow({
   const placeSaved = savedPlace || localPlaceSaved;
   const placeSaveInFlightRef = useRef(false);
   const [locationPreparing, setLocationPreparing] = useState(false);
+  const [captureRevision, setCaptureRevision] = useState(0);
   const locationPreparingRef = useRef(false);
   const autoLocationAttemptedRef = useRef(false);
   const lastLocationResumeRef = useRef(locationResumeAttempt);
@@ -1448,21 +1453,25 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  const requestLocation = useCallback(() => {
-    if (leaving || locationPreparingRef.current || !onPrepareLocation) return;
+  const requestLocation = useCallback((reason: "entry" | "retry" = "retry") => {
+    if (leaving || locationPreparingRef.current || placeSaveInFlightRef.current || !onPrepareLocation) return;
+    autoLocationAttemptedRef.current = true;
     locationPreparingRef.current = true;
     setLocationError(null);
     setLocationPreparing(true);
     void (async () => {
       try {
-        if (await onPrepareLocation()) return;
+        if (await onPrepareLocation(reason)) {
+          setCaptureRevision((revision) => revision + 1);
+          return;
+        }
       } catch {
         // The same recovery is available for a rejected acquisition.
       } finally {
         locationPreparingRef.current = false;
         setLocationPreparing(false);
       }
-      setLocationError("Couldn't find your location. Allow location access in your browser or device settings, make sure Location is on, then try again.");
+      setLocationError("Couldn't find your location. Try again, or check that location access is enabled.");
     })();
   }, [leaving, onPrepareLocation]);
 
@@ -1471,26 +1480,25 @@ export function OneLocationOnboardingFlow({
     lastLocationResumeRef.current = locationResumeAttempt;
     // Resume only a failed setup read. Never replace a chosen point or retry
     // while the original permission sheet/acquisition is still settling.
-    if (screen !== "features" || leaving || !locationError || placeSaved || place?.mapInitial) return;
+    if (screen !== "features" || leaving || !locationError || placeSaved) return;
     requestLocation();
-  }, [locationResumeAttempt, screen, leaving, locationError, placeSaved, place?.mapInitial, requestLocation]);
+  }, [locationResumeAttempt, screen, leaving, locationError, placeSaved, requestLocation]);
 
   // Ask once when the place screen is ready. Returning from the next screen,
   // a rerender, or Strict Mode must not repeatedly prompt after a refusal.
   useEffect(() => {
     if (screen !== "features" || leaving || !onPrepareLocation || autoLocationAttemptedRef.current) return;
-    if (placeSaved || place?.mapInitial) {
+    if (placeSaved) {
       autoLocationAttemptedRef.current = true;
       return;
     }
     // Defer until mount effects have settled so a Strict Mode cleanup cannot
     // invalidate the account session while its first capture is starting.
     const timer = window.setTimeout(() => {
-      autoLocationAttemptedRef.current = true;
-      requestLocation();
+      if (!autoLocationAttemptedRef.current) requestLocation("entry");
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [screen, leaving, onPrepareLocation, placeSaved, place?.mapInitial, requestLocation]);
+  }, [screen, leaving, onPrepareLocation, placeSaved, requestLocation]);
 
   // All Back surfaces unwind the same local flow, including native Back and
   // legacy/controlled entries that start directly on the feature screen.
@@ -1512,7 +1520,7 @@ export function OneLocationOnboardingFlow({
       // Onboarding is modal; nothing from the app shell belongs over it. Keep
       // it above elevated Talk to One / bottom-nav states without touching those
       // global controls.
-      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] dark:text-[color:var(--app-label)]"
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-white text-[#171d28] dark:bg-[color:var(--app-grouped-background)] dark:text-[color:var(--app-label)]"
       data-one-onboarding-design="location-agent-v3"
       data-location-type-scale="connect"
       data-location-type-context="flow"
@@ -1523,9 +1531,8 @@ export function OneLocationOnboardingFlow({
       <NativeTestBeacon {...nativeTest} />
       <section
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[color:var(--app-grouped-background)]",
-          // Feature content keeps a responsive rail; Ready owns its panel.
-          "max-w-none",
+          "flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden",
+          screen === "ready" && "sm:bg-[color:var(--app-scrim-color)]",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
@@ -1538,7 +1545,8 @@ export function OneLocationOnboardingFlow({
           compactOnboarding
           onboardingRouteId={nativeTest.routeId}
           onBack={handleFlowBack}
-          onRequestLocation={requestLocation}
+          onRequestLocation={onPrepareLocation ? () => requestLocation() : undefined}
+          captureRevision={captureRevision}
           requestingLocation={locationPreparing}
           locationError={locationError}
           onboardingPlaceSaved={placeSaved}

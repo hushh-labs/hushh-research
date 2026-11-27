@@ -275,6 +275,10 @@ def _behavior_sync(
 
     with (
         patch(
+            "hushh_mcp.services.connections_service.active_directory_user_ids",
+            side_effect=lambda ids, **_: set(ids),
+        ),
+        patch(
             "hushh_mcp.services.connections_service.activate_contact_sync_connections_bulk",
             side_effect=activate,
         ),

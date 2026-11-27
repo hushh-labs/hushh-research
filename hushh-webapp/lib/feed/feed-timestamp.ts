@@ -30,3 +30,13 @@ export function formatFeedTimestamp(value: string | number | Date): string {
     meridiem.toUpperCase(),
   );
 }
+
+/** A source date only; unknown times must never imply January 1970. */
+export function feedDayLabel(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Pending";
+  const days = daysSinceToday(date);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}

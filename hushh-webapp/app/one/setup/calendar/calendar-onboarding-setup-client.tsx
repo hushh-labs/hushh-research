@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
+import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
@@ -22,7 +23,7 @@ export function CalendarOnboardingSetupClient() {
   });
 
   if (!coordinator.isReady) {
-    return <SetupCapabilityLoading label="Preparing Calendar setup…" />;
+    return <SetupCapabilityLoading label="Preparing Calendar setup…" className={calendarType.routeLoading} />;
   }
 
   return (

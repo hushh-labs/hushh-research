@@ -8,12 +8,14 @@
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/connected-systems/[systemId]/page.voice-action-contract.json",
     "hushh-webapp/app/one/email/page.voice-action-contract.json",
+    "hushh-webapp/app/one/feed/page.voice-action-contract.json",
     "hushh-webapp/app/one/files/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
+    "hushh-webapp/app/one/pkm/logins/page.voice-action-contract.json",
     "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
@@ -28,6 +30,7 @@
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
+    "hushh-webapp/app/one/tasks/page.voice-action-contract.json",
     "hushh-webapp/app/one/wallet-card/page.voice-action-contract.json",
     "hushh-webapp/app/one/wallet/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
@@ -42,12 +45,15 @@
     "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
     "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
+    "hushh-webapp/components/account/attempt-email-panel.voice-action-contract.json",
     "hushh-webapp/components/account/marketing-preference-panel.voice-action-contract.json",
     "hushh-webapp/components/agent/career-chat-actions.voice-action-contract.json",
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
+    "hushh-webapp/components/consent/answer-request-card.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
+    "hushh-webapp/components/kai/advisor/advisor-recommendations.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/cards/stock-quote-header.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
@@ -232,6 +238,37 @@
           "auth_signed_in"
         ],
         "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_feed",
+      "surface_title": "Feed",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/feed/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one/feed"
+          ],
+          "screens": [
+            "one_feed"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
       },
       "search": {},
       "orchestration": {
@@ -460,6 +497,35 @@
         "context_policy": null,
         "trust_boundary": "consent",
         "delegation_policy": "one_action_gate"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "pkm_logins",
+      "surface_title": "Website logins",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/pkm/logins/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/pkm/logins"
+          ],
+          "screens": [
+            "pkm_logins"
+          ],
+          "hidden_navigable": false
+        },
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ]
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -837,6 +903,40 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_todos",
+      "surface_title": "To-do list",
+      "docs_references": [
+        "docs/development/contracts/api-contracts.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/tasks/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one/tasks",
+            "/one"
+          ],
+          "screens": [
+            "app",
+            "one_agents"
+          ],
+          "hidden_navigable": false
+        }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_wallet_card",
       "surface_title": "Wallet Profile",
       "docs_references": [],
@@ -1193,6 +1293,29 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_attempt_email",
+      "surface_title": "Optional activity emails",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/components/account/attempt-email-panel.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_email_updates",
       "surface_title": "Optional One email updates",
       "docs_references": [],
@@ -1319,6 +1442,37 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_paid_answer",
+      "surface_title": "Paid answer request",
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "contract_file": "hushh-webapp/components/consent/answer-request-card.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/consent"
+          ],
+          "screens": [
+            "consents"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": [
+            "Open a current answer request as its signed-in participant."
+          ]
+        },
+        "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "consents",
       "surface_title": "Consent Center",
       "docs_references": [
@@ -1365,6 +1519,38 @@
           ]
         },
         "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "finance_advisor_recommendations",
+      "surface_title": "Finance advisor recommendations",
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/advisor/advisor-recommendations.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "kai",
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ],
+          "routes": [
+            "/one/kai/portfolio/analysis"
+          ],
+          "screens": [
+            "kai_portfolio_analysis"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
       },
       "search": {},
       "orchestration": {
@@ -2668,6 +2854,402 @@
       }
     },
     {
+      "action_id": "auth.deletion_start_fresh",
+      "surface_id": "login",
+      "label": "Start fresh",
+      "aliases": [
+        "start fresh"
+      ],
+      "search_keywords": [
+        "account",
+        "delete",
+        "start fresh"
+      ],
+      "meaning": "Opens the existing sign-in choices after confirmed account deletion with deferred cloud cleanup. It does not create an account, reuse SMS proof, restore information or adopt an old pod.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.deletion_start_fresh"
+      },
+      "control_ids": [
+        "login_deletion_start_fresh"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.auth.deletion_start_fresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.deletion_start_fresh",
+            "label": "Start fresh",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "auth.deletion_done",
+      "surface_id": "login",
+      "label": "Done",
+      "aliases": [
+        "done"
+      ],
+      "search_keywords": [
+        "account",
+        "delete",
+        "done"
+      ],
+      "meaning": "Leaves the confirmed deletion screen for public welcome. Pending cloud cleanup remains independent.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.deletion_done"
+      },
+      "control_ids": [
+        "login_deletion_done"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.auth.deletion_done",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.deletion_done",
+            "label": "Done",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "calendar.connection.connect",
+      "surface_id": "one_calendar",
+      "label": "Connect Calendar account",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Reports the person's manual attempt to connect a Calendar account or extend its access. The original connection flow retains consent and confirms the result.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The person opens the Calendar connection control"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person must start Calendar consent from the existing connection control.",
+        "intended_handler": "CalendarAgentPage.connect"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
+        "components/calendar/calendar-agent-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.connection.connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "calendar.connection.connect",
+            "label": "Connect Calendar account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "calendar.connection.disconnect",
+      "surface_id": "one_calendar",
+      "label": "Disconnect Calendar account",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Reports the person's confirmed attempt to disconnect the selected Calendar account. The original Calendar flow checks the resulting connection status.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The person confirms the Calendar account disconnection"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the existing Calendar confirmation dialog may submit this manual action.",
+        "intended_handler": "CalendarAgentPage.disconnect"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-calendar-knowledge-graph.md",
+        "docs/architecture/one/one-voice-runtime-architecture.md",
+        "components/calendar/calendar-agent-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.connection.disconnect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "calendar.connection.disconnect",
+            "label": "Disconnect Calendar account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "calendar.read",
       "surface_id": "one_calendar",
       "label": "Read Calendar",
@@ -2930,7 +3512,7 @@
         "second degree",
         "third degree"
       ],
-      "meaning": "Opens viewer-relative network discovery with exact 1st, 2nd and 3rd degree filters. Only consented paths qualify; mutual connections remain people directly connected to both you and a target.",
+      "meaning": "Opens viewer-relative network discovery with My connections, Through connections and Extended network filters. Extended network pages through qualified third-degree connections and eligible public people, including people without mutual connections. Only consented graph paths receive a degree; suggestions never claim a graph relationship. Mutual connections remain people directly connected to both you and a target.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -3182,7 +3764,8 @@
         "target": "connect.open_people"
       },
       "control_ids": [
-        "one-connect-discovery"
+        "one-connect-discovery",
+        "network-find-people"
       ],
       "state_exposure": [
         "active connect tab",
@@ -4410,6 +4993,121 @@
       }
     },
     {
+      "action_id": "feed.search_activity",
+      "surface_id": "one_feed",
+      "label": "Search Feed",
+      "aliases": [
+        "search my feed",
+        "find earlier activity",
+        "filter feed by agent"
+      ],
+      "search_keywords": [
+        "feed search",
+        "activity history",
+        "agent filter"
+      ],
+      "meaning": "Opens the owner’s read-only Feed search and applies an explicitly supplied query and known agent scope. Urgent emergencies remain pinned. Does not grant access, mark activity read, alter notifications or invent people or results.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "feed.search_activity"
+      },
+      "control_ids": [
+        "feed.search.open",
+        "feed.search.query",
+        "feed.search.scope"
+      ],
+      "state_exposure": [
+        "search open",
+        "selected public agent scope"
+      ],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.feed.search_activity",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {
+          "query": "string_optional",
+          "scope": "string_optional"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Search Feed",
+            "failure_behavior": "stop",
+            "action_id": "feed.search_activity",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_files",
       "surface_id": "one_files",
       "label": "Open Files",
@@ -4490,6 +5188,100 @@
               "route": "/one/files",
               "screen": "one_files"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "files.upload",
+      "surface_id": "one_files",
+      "label": "Upload file",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Reports the person's selected upload or resume attempt. A completed report requires the Files library to acknowledge the full transfer as ready. Automatic organization has a separate outcome.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/files"
+        ],
+        "screens": [
+          "one_files"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the person's explicit file selection in the private Files workspace can start an upload.",
+        "intended_handler": "FilesWorkspace.fileInput"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/operations/hosting/private-files-library.md",
+        "components/files/files-workspace.tsx",
+        "lib/files/service.ts"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/files"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.files.upload",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "files.upload",
+            "label": "Upload file",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -4816,6 +5608,214 @@
               "route": "/one/gmail?workspace=kyc",
               "screen": "gmail"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kyc_requests",
+      "surface_id": "gmail",
+      "label": "Open KYC requests",
+      "aliases": [
+        "open kyc requests",
+        "review kyc requests",
+        "review information requests"
+      ],
+      "search_keywords": [
+        "kyc",
+        "information requests",
+        "identity"
+      ],
+      "meaning": "Opens the KYC screen, where information requests are reviewed and every reply is approved before it is sent. It is a screen of its own, not a Mail tab. Shows the connect entry when Gmail is not connected.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to the KYC screen if the route is currently outside it"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kyc"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "app/one/kyc/kyc-page-client.tsx",
+        "components/gmail/gmail-receipts-page.tsx",
+        "components/gmail/mail-kyc-connect-entry.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kyc_requests",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kyc_requests",
+            "label": "Open KYC requests",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.save_profile",
+      "surface_id": "gmail",
+      "label": "Save KYC profile",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Imports the person's explicitly submitted identity details into private Memory. A completed outcome requires the encrypted write's acknowledgement; local staging alone does not confirm saving.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail?workspace=kyc",
+          "/one/setup/email"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_email"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "KYC profile import is open",
+          "The person is signed in with an unlocked private vault"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the person's explicit Save profile or Import & Continue handler may submit their identity details.",
+        "intended_handler": "KycIdentityProfilePkmService.saveProfile"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "components/gmail/gmail-verification-onboarding.tsx",
+        "components/onboarding/setup/kyc-identity-preface.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail?workspace=kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.save_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.save_profile",
+            "label": "Save KYC profile",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -13999,6 +14999,105 @@
       }
     },
     {
+      "action_id": "messages.copy_text",
+      "surface_id": "one_messages",
+      "label": "Copy message text",
+      "aliases": [],
+      "search_keywords": [
+        "message",
+        "copy text"
+      ],
+      "meaning": "Explicitly copies readable plain text from the current message menu to the local clipboard; opaque shares are excluded.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/messages"
+        ],
+        "screens": [
+          "one_messages"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Signed-in user; destination retains its existing access checks."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible message menu owns the user gesture and current-message clipboard scope.",
+        "intended_handler": "Message context menu"
+      },
+      "control_ids": [
+        "messages-people-copy-text",
+        "messages-circles-copy-text"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/messages"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.messages.copy_text",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "messages.copy_text",
+            "label": "Copy message text",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
       "label": "Open Agents",
@@ -14764,6 +15863,1679 @@
       }
     },
     {
+      "action_id": "route.one_pkm_logins",
+      "surface_id": "pkm_logins",
+      "label": "Open website logins",
+      "aliases": [
+        "open website logins",
+        "manage saved website passwords"
+      ],
+      "search_keywords": [
+        "website",
+        "login",
+        "password",
+        "credentials"
+      ],
+      "meaning": "Open the owner encrypted website login settings. This navigation never reveals, saves, uses or shares a credential.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm/logins"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_pkm_logins",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open secure website login settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm/logins",
+              "screen": "pkm_logins"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.add",
+      "surface_id": "pkm_logins",
+      "label": "Add a website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Add a website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-add"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.add",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.add",
+            "label": "Add a website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.edit",
+      "surface_id": "pkm_logins",
+      "label": "Edit a website login privately",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Edit a website login privately through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-edit"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.edit",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.edit",
+            "label": "Edit a website login privately",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.save",
+      "surface_id": "pkm_logins",
+      "label": "Save a website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Save a website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.save",
+            "label": "Save a website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.cancel",
+      "surface_id": "pkm_logins",
+      "label": "Cancel the current website login edit",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Cancel the current website login edit through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-cancel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.cancel",
+            "label": "Cancel the current website login edit",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.remove",
+      "surface_id": "pkm_logins",
+      "label": "Remove a saved website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Remove a saved website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-remove",
+        "website-login-remove-confirm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.remove",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.remove",
+            "label": "Remove a saved website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.refresh",
+      "surface_id": "pkm_logins",
+      "label": "Refresh saved website logins",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Refresh saved website logins through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-refresh"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.refresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.refresh",
+            "label": "Refresh saved website logins",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.renew",
+      "surface_id": "pkm_logins",
+      "label": "Renew saved login access",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Renew saved login access through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-renew"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.renew",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.renew",
+            "label": "Renew saved login access",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.share",
+      "surface_id": "pkm_logins",
+      "label": "Review sharing a selected website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Review sharing a selected website login through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share",
+        "website-login-share-review"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.share",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.share",
+            "label": "Review sharing a selected website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.share_confirm",
+      "surface_id": "pkm_logins",
+      "label": "Approve sharing a selected website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Approve sharing a selected website login through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share-confirm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.share_confirm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.share_confirm",
+            "label": "Approve sharing a selected website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.share_cancel",
+      "surface_id": "pkm_logins",
+      "label": "Cancel website login sharing",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Cancel website login sharing through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share-cancel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.share_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.share_cancel",
+            "label": "Cancel website login sharing",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.export_memory",
+      "surface_id": "pkm",
+      "label": "Download Memory",
+      "aliases": [],
+      "search_keywords": [
+        "memory",
+        "export"
+      ],
+      "meaning": "The signed-in owner exports their unlocked Memory through the existing guarded file download or native share sheet. A cancelled handoff is not a saved file.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The owner has opened Saved with an unlocked vault."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible Memory control retains the current owner, vault and trusted file handoff.",
+        "intended_handler": "handleExportMemory"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.export_memory",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.export_memory",
+            "label": "Download Memory",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.edit_memory",
+      "surface_id": "pkm",
+      "label": "Update a saved memory",
+      "aliases": [],
+      "search_keywords": [
+        "memory",
+        "edit"
+      ],
+      "meaning": "The owner confirms an edit to an exact saved Memory field through the existing encrypted write coordinator and current sharing review. Observation contains no field name or value.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An editable memory is open and its current sharing impact is verified."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible Memory confirmation retains the exact field, current owner and sharing impact.",
+        "intended_handler": "persistMemoryCardChange"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.edit_memory",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.edit_memory",
+            "label": "Update a saved memory",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.delete_memory",
+      "surface_id": "pkm",
+      "label": "Forget a saved memory",
+      "aliases": [],
+      "search_keywords": [
+        "memory",
+        "forget"
+      ],
+      "meaning": "The owner confirms removal of an exact saved Memory field through the existing encrypted write coordinator. Opening or cancelling the confirmation does not delete a memory.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An editable memory is open and the owner confirms its verified sharing impact."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible Memory confirmation owns deletion and current sharing review.",
+        "intended_handler": "persistMemoryCardChange"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.delete_memory",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.delete_memory",
+            "label": "Forget a saved memory",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.prepare_capture",
+      "surface_id": "pkm",
+      "label": "Prepare a Memory review",
+      "aliases": [],
+      "search_keywords": [
+        "memory",
+        "review"
+      ],
+      "meaning": "The owner asks Memory to prepare a note for review through the current guarded preparation path. Preparation does not save the note; duplicates or unresolved sections remain for review.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The owner enters a note in Add with an unlocked vault."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible Add control retains note-specific preparation and identifier approval.",
+        "intended_handler": "previewMemoryCapture"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.prepare_capture",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.prepare_capture",
+            "label": "Prepare a Memory review",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.retry_capture_section",
+      "surface_id": "pkm",
+      "label": "Retry a Memory review section",
+      "aliases": [],
+      "search_keywords": [
+        "memory",
+        "retry"
+      ],
+      "meaning": "The owner retries one unresolved section of the unchanged note using its original source range. No section contents enter activity evidence, and preparation does not save memory.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An unresolved retryable section remains in the current Memory review."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible section control retains the current source snapshot and owner preparation guard.",
+        "intended_handler": "retryCaptureSection"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.retry_capture_section",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.retry_capture_section",
+            "label": "Retry a Memory review section",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.save_capture",
+      "surface_id": "pkm",
+      "label": "Save reviewed memories",
+      "aliases": [],
+      "search_keywords": [
+        "memory",
+        "save"
+      ],
+      "meaning": "The owner confirms selected prepared Memory details through the existing encrypted write path and sharing acknowledgement. A partial or retired result does not prove the whole save completed.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The owner reviews saveable details and acknowledges any current sharing impact."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible save control retains exact reviewed cards, sharing acknowledgement and write deduplication.",
+        "intended_handler": "saveMemoryCapture"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.save_capture",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.save_capture",
+            "label": "Save reviewed memories",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "pkm.review_sharing_price",
       "surface_id": "pkm",
       "label": "Review sharing price",
@@ -15335,7 +18107,10 @@
       ],
       "search_keywords": [
         "profile",
-        "account"
+        "account",
+        "native interface",
+        "experimental interface",
+        "appearance"
       ],
       "meaning": "Navigates to profile landing route.",
       "speaker_persona": "one",
@@ -15552,7 +18327,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/profile/my-data"
+          "/one/pkm"
         ],
         "screens": [
           "profile_account",
@@ -15578,22 +18353,20 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/profile/my-data"
+        "target": "/one/pkm"
       },
-      "control_ids": [
-        "profile_my_data"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
         "hushh-webapp/app/register-phone/page.voice-action-contract.json",
-        "app/one/profile/my-data/page.tsx"
+        "app/one/pkm/page.tsx"
       ],
       "workflow": null,
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile/my-data"
+          "current route becomes /one/pkm"
         ],
         "backend_effects": []
       },
@@ -15618,7 +18391,7 @@
             "label": "Open Memory",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/profile/my-data",
+              "route": "/one/pkm",
               "screen": "profile_account"
             }
           }
@@ -15864,6 +18637,112 @@
       }
     },
     {
+      "action_id": "route.profile_net_worth_score",
+      "surface_id": "profile_account",
+      "label": "Net Worth Score",
+      "aliases": [
+        "open my net worth score",
+        "connect bank for score"
+      ],
+      "search_keywords": [
+        "net worth",
+        "financial score",
+        "Plaid bank"
+      ],
+      "meaning": "Opens the owner’s private Net Worth Score in Profile for bank connections and score coverage.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile?panel=net-worth-score"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/register-phone/page.voice-action-contract.json",
+        "components/profile/net-worth-score-card.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile?panel=net-worth-score"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_net_worth_score",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_net_worth_score",
+            "label": "Net Worth Score",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile?panel=net-worth-score",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_payouts",
       "surface_id": "profile_account",
       "label": "Open Payouts",
@@ -15872,9 +18751,6 @@
         "set up payouts",
         "document earnings",
         "payments",
-        "add funds",
-        "purchase balance",
-        "information-access earnings",
         "wallet",
         "open payouts",
         "payments and earnings"
@@ -17378,7 +20254,7 @@
         "name",
         "display name"
       ],
-      "meaning": "Changes the person's Hussh display name at the identity provider after confirmation.",
+      "meaning": "In typed Chat, prepares the proposed Hussh display name in the existing account editor for the person to review and Save. Native voice changes the identity-provider name through its existing confirmation.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17435,9 +20311,32 @@
       },
       "goal": {
         "goal_id": "goal.profile.update_display_name",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
+        "required_inputs": [
+          {
+            "name": "display_name",
+            "prompt": "What should your account display name be?",
+            "required": true,
+            "slot": "display_name",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "type": "object",
+          "properties": {
+            "display_name": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 60
+            }
+          },
+          "required": [
+            "display_name"
+          ],
+          "additionalProperties": false
+        },
         "workflow_steps": [
           {
             "type": "action",
@@ -22040,6 +24939,398 @@
       }
     },
     {
+      "action_id": "todos.sources",
+      "surface_id": "one_todos",
+      "label": "Task sources",
+      "aliases": [],
+      "search_keywords": [
+        "task sources"
+      ],
+      "meaning": "The person chooses which existing capabilities contribute to tasks. Choices stay in encrypted private memory and do not grant new connector access.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/tasks",
+          "/one"
+        ],
+        "screens": [
+          "app",
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person chooses sources in the existing sheet.",
+        "intended_handler": "TodoTaskSources.save"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/development/contracts/api-contracts.md",
+        "components/todos/todo-task-sources.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/tasks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.todos.sources",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "todos.sources",
+            "label": "Task sources",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "todos.detail",
+      "surface_id": "one_todos",
+      "label": "View task details",
+      "aliases": [],
+      "search_keywords": [
+        "task details"
+      ],
+      "meaning": "The person opens one task detail view and returns to the same list with Back. Opening details does not execute a source action.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/tasks",
+          "/one"
+        ],
+        "screens": [
+          "app",
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person selects a task in their list.",
+        "intended_handler": "TodoTaskDetail"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/development/contracts/api-contracts.md",
+        "components/todos/todo-task-detail.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/tasks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.todos.detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "todos.detail",
+            "label": "View task details",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "todos.complete",
+      "surface_id": "one_todos",
+      "label": "Mark as completed",
+      "aliases": [],
+      "search_keywords": [
+        "complete task"
+      ],
+      "meaning": "The person marks a task complete or restores it through the existing encrypted task store. Source records stay unchanged.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/tasks",
+          "/one"
+        ],
+        "screens": [
+          "app",
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person confirms task completion in the existing view.",
+        "intended_handler": "TodoListPkmService.setStatus"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/development/contracts/api-contracts.md",
+        "components/todos/todo-task-detail.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/tasks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.todos.complete",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "todos.complete",
+            "label": "Mark as completed",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "todos.remove",
+      "surface_id": "one_todos",
+      "label": "Remove task",
+      "aliases": [],
+      "search_keywords": [
+        "remove task"
+      ],
+      "meaning": "The person confirms removal of a task. A private dismissal prevents automatic reappearance without deleting the source meeting, email or request.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/tasks",
+          "/one"
+        ],
+        "screens": [
+          "app",
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Removal requires the person's explicit confirmation.",
+        "intended_handler": "TodoListPkmService.remove"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/development/contracts/api-contracts.md",
+        "components/todos/todo-task-detail.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/tasks"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.todos.remove",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "todos.remove",
+            "label": "Remove task",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.wallet_profile_cards",
       "surface_id": "one_wallet_card",
       "label": "Back to Wallet cards",
@@ -23242,7 +26533,7 @@
         "mutual",
         "connections"
       ],
-      "meaning": "The profile shows viewer-relative degree and direct shared neighbors. Zero mutuals hide the control, one opens its available profile, and multiple open a list. View connections appears only when the server authorizes this active direct connection after the target opts in.",
+      "meaning": "The profile shows viewer-relative degree and eligible connections. Zero mutuals hide the control, one opens its available profile, and multiple open a list. The connection count opens the list when the server confirms an accepted active direct connection, without a separate owner opt-in.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -23796,19 +27087,17 @@
       }
     },
     {
-      "action_id": "phone_mandate.review_previous_deletion",
+      "action_id": "phone_mandate.send_real_sms",
       "surface_id": "phone_mandate",
-      "label": "Delete my previous account",
+      "label": "Send a real SMS code",
       "aliases": [
-        "delete my previous account",
-        "review previous account deletion"
+        "send a real SMS code"
       ],
       "search_keywords": [
         "phone",
-        "previous account",
-        "deletion review"
+        "recovery"
       ],
-      "meaning": "Starts a server-bound deletion review requiring independent sign-in to the previous account and a separate confirmation. This action never deletes an account.",
+      "meaning": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -23824,7 +27113,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The occupied-number conflict must be visible; previous-account sign-in and confirmation are required before deletion."
+          "The occupied test-number recovery choices must be visible."
         ],
         "active_personas": [
           "investor",
@@ -23836,7 +27125,7 @@
         "auth_signed_in",
         "manual_user_execution"
       ],
-      "risk_level": "high",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -23848,10 +27137,121 @@
         "intended_handler": "PhoneVerificationFlow"
       },
       "control_ids": [
-        "phone-flow-delete-review"
+        "phone-flow-fresh-sms"
       ],
       "state_exposure": [
-        "deletion review step only"
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-conflict-recovery.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.send_real_sms",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.send_real_sms",
+            "label": "Send a real SMS code",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.transfer_review",
+      "surface_id": "phone_mandate",
+      "label": "Use this number on this account",
+      "aliases": [
+        "use this number on this account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Review a transfer after fresh real SMS verification; no account information moves or is erased.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-review"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
       ],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
@@ -23876,15 +27276,793 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.phone_mandate.review_previous_deletion",
+        "goal_id": "goal.phone_mandate.transfer_review",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "phone_mandate.review_previous_deletion",
+            "action_id": "phone_mandate.transfer_review",
+            "label": "Use this number on this account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.transfer_confirm",
+      "surface_id": "phone_mandate",
+      "label": "Confirm phone transfer",
+      "aliases": [
+        "confirm phone transfer"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Explicit human confirmation moves only the phone link; pending work must settle before completion.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-confirm"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.transfer_confirm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.transfer_confirm",
+            "label": "Confirm phone transfer",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.recover",
+      "surface_id": "phone_mandate",
+      "label": "Recover my previous account",
+      "aliases": [
+        "recover my previous account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Open the existing Google or Apple sign-in to recover the previous account without exposing its identity.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-recover"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.recover",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.recover",
+            "label": "Recover my previous account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous",
+      "surface_id": "phone_mandate",
+      "label": "Delete my previous account",
+      "aliases": [
+        "delete my previous account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-previous"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous",
             "label": "Delete my previous account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous_confirm",
+      "surface_id": "phone_mandate",
+      "label": "Delete and continue",
+      "aliases": [
+        "delete and continue"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-confirm"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous_confirm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous_confirm",
+            "label": "Delete and continue",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous_cancel",
+      "surface_id": "phone_mandate",
+      "label": "Cancel deletion review",
+      "aliases": [
+        "cancel deletion review"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-cancel"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous_cancel",
+            "label": "Cancel deletion review",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous_verify_again",
+      "surface_id": "phone_mandate",
+      "label": "Verify this number again",
+      "aliases": [
+        "verify this number again"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Return to number entry after the code used for deletion expired; nothing is deleted.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-verify-again"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous_verify_again",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous_verify_again",
+            "label": "Verify this number again",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.review_previous_devices",
+      "surface_id": "phone_mandate",
+      "label": "Review previous device access",
+      "aliases": [
+        "review previous device access"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery",
+        "devices"
+      ],
+      "meaning": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-revoke-previous"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.review_previous_devices",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.review_previous_devices",
+            "label": "Review previous device access",
             "failure_behavior": "stop"
           }
         ],
@@ -23919,7 +28097,7 @@
         "phone",
         "recovery"
       ],
-      "meaning": "Returns to phone entry without changing the existing email account that owns an occupied number.",
+      "meaning": "Retire this phone attempt and return to number entry before a transfer has been dispatched.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -23996,6 +28174,117 @@
             "type": "action",
             "action_id": "phone_mandate.change_number",
             "label": "Use a different number",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.transfer_cancel",
+      "surface_id": "phone_mandate",
+      "label": "Cancel phone transfer review",
+      "aliases": [
+        "cancel phone transfer review"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Return to recovery choices before confirmation; pending transfers cannot be cancelled.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-cancel"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.transfer_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.transfer_cancel",
+            "label": "Cancel phone transfer review",
             "failure_behavior": "stop"
           }
         ],
@@ -27363,6 +31652,312 @@
       }
     },
     {
+      "action_id": "profile.attempt_email.choose",
+      "surface_id": "one_attempt_email",
+      "label": "Choose activity emails",
+      "aliases": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "meaning": "The person chooses an activity email choice on screen. Changing the draft does not subscribe or save it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has loaded their saved preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner chooses optional email permission directly on screen.",
+        "intended_handler": "AttemptEmailPanel"
+      },
+      "control_ids": [
+        "one_attempt_email_enabled"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/account"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.attempt_email.choose",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.attempt_email.choose",
+            "label": "Choose activity emails",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.attempt_email.save",
+      "surface_id": "one_attempt_email",
+      "label": "Save activity email choice",
+      "aliases": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "meaning": "The person explicitly saves the activity email choice reviewed on screen. One may explain or open the form but cannot choose or submit activity email permission.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has reviewed the optional email disclosure and chosen their preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner must explicitly save email permission using the visible form.",
+        "intended_handler": "AttemptEmailPanel"
+      },
+      "control_ids": [
+        "one_attempt_email_save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/account"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.attempt_email.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.attempt_email.save",
+            "label": "Save activity email choice",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.attempt_email.retry",
+      "surface_id": "one_attempt_email",
+      "label": "Retry activity email choice",
+      "aliases": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "meaning": "The person retries reading their saved activity email choice. This changes no subscription.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The saved email preference could not be loaded."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible form owns retry and loading state.",
+        "intended_handler": "AttemptEmailPanel"
+      },
+      "control_ids": [
+        "one_attempt_email_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/account"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.attempt_email.retry",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.attempt_email.retry",
+            "label": "Retry activity email choice",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_email_updates",
       "surface_id": "one_email_updates",
       "label": "Email preferences",
@@ -29054,6 +33649,307 @@
             "label": "Decrypt and show the card privately on this device",
             "failure_behavior": "stop",
             "service": "frontend.wallet.reveal"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "answer.request.enable_receiving",
+      "surface_id": "one_paid_answer",
+      "label": "Enable secure receiving",
+      "aliases": [],
+      "search_keywords": [
+        "answer",
+        "request",
+        "secure receiving"
+      ],
+      "meaning": "The requester unlocks and explicitly publishes this device's existing public receiving key, or creates its first key, so the owner can prepare the approved answer. This neither approves terms nor charges money. An active prepared key on another device cannot be replaced by this action.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open a current answer request as its signed-in participant."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The participant card owns current device custody and explicit recovery.",
+        "intended_handler": "AnswerRequestCard"
+      },
+      "control_ids": [
+        "answer-request-receive"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.answer.request.enable_receiving",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "answer.request.enable_receiving",
+            "label": "Enable secure receiving",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "answer.request.prepare",
+      "surface_id": "one_paid_answer",
+      "label": "Prepare approved answer",
+      "aliases": [],
+      "search_keywords": [
+        "answer",
+        "prepare",
+        "question"
+      ],
+      "meaning": "The owner explicitly prepares an answer from the exact approved scopes and composition consent while their memory is unlocked. Only requester-encrypted ciphertext is staged; this does not charge the requester or release the answer before verified payment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open a current answer request as its signed-in participant."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner's visible card owns consent-bound local preparation.",
+        "intended_handler": "AnswerRequestCard"
+      },
+      "control_ids": [
+        "answer-request-prepare"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.answer.request.prepare",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "answer.request.prepare",
+            "label": "Prepare approved answer",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "answer.request.pay",
+      "surface_id": "one_paid_answer",
+      "label": "Pay for prepared answer",
+      "aliases": [],
+      "search_keywords": [
+        "answer",
+        "pay",
+        "question"
+      ],
+      "meaning": "The requester unlocks the device holding the prepared answer's private receiving key, reviews coverage and price, and explicitly opens hosted checkout. Unlocking alone never opens checkout. Only a verified provider event releases the answer.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open a current answer request as its signed-in participant."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The requester's visible card owns device custody, coverage and checkout confirmation.",
+        "intended_handler": "AnswerRequestCard"
+      },
+      "control_ids": [
+        "answer-request-unlock-pay",
+        "answer-request-pay"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.answer.request.pay",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "answer.request.pay",
+            "label": "Pay for prepared answer",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -31930,6 +36826,109 @@
       }
     },
     {
+      "action_id": "finance.advisor.recommend",
+      "surface_id": "finance_advisor_recommendations",
+      "label": "Recommend advisor",
+      "aliases": [
+        "recommend an advisor",
+        "find matching advisors"
+      ],
+      "search_keywords": [
+        "advisor",
+        "recommendation",
+        "service",
+        "RIA"
+      ],
+      "meaning": "Switches All in Finance advisor discovery to optional service matching with an unlocked vault and saved portfolio. Reuses a saved service choice or presents four fixed choices. Opening or selecting a match never sends a connection request, shares Finance or calls a model.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/analysis"
+        ],
+        "screens": [
+          "kai_portfolio_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "finance_recommend_advisor"
+      },
+      "control_ids": [
+        "finance_recommend_advisor"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.finance.advisor.recommend",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "finance.advisor.recommend",
+            "label": "Recommend advisor",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "analysis.back_to_history",
       "surface_id": "kai_analysis_controls",
       "label": "Back to Analysis History",
@@ -32348,9 +37347,11 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
+          "/",
           "/one/kai?tab=analysis"
         ],
         "screens": [
+          "chat",
           "kai_analysis"
         ],
         "hidden_navigable": false,
@@ -32762,12 +37763,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/holdings"
+          "/one/kai/portfolio/holdings",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_holdings"
+          "kai_portfolio_holdings",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -32788,7 +37791,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/holdings"
       },
-      "control_ids": [],
+      "control_ids": [
+        "show_portfolio_holdings"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
@@ -32866,12 +37871,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/allocation"
+          "/one/kai/portfolio/allocation",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_allocation"
+          "kai_portfolio_allocation",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -32892,7 +37899,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/allocation"
       },
-      "control_ids": [],
+      "control_ids": [
+        "show_portfolio_allocation"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
@@ -32971,12 +37980,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/performance"
+          "/one/kai/portfolio/performance",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_performance"
+          "kai_portfolio_performance",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -32997,7 +38008,9 @@
         "path": "route",
         "target": "/one/kai/portfolio/performance"
       },
-      "control_ids": [],
+      "control_ids": [
+        "show_portfolio_performance"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
@@ -33181,12 +38194,14 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio/sources"
+          "/one/kai/portfolio/sources",
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
-          "kai_portfolio_sources"
+          "kai_portfolio_sources",
+          "kai_portfolio_dashboard"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Portfolio route must be active"
         ],
@@ -35188,6 +40203,218 @@
             "type": "action",
             "action_id": "setup.hub_master_ack",
             "label": "Finish setup",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.memory_import_skip",
+      "surface_id": "one_setup_hub",
+      "label": "Skip",
+      "aliases": [
+        "skip memory import"
+      ],
+      "search_keywords": [
+        "memory",
+        "import",
+        "skip"
+      ],
+      "meaning": "Discards the unsubmitted draft and completes required setup without importing it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open the import step after phone, hosting and AI setup."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.memory_import_skip"
+      },
+      "control_ids": [
+        "one-memory-import-skip"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/memory-import-step.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.memory_import_skip",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.memory_import_skip",
+            "label": "Skip",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.hub_continue",
+      "surface_id": "one_setup_hub",
+      "label": "Continue",
+      "aliases": [
+        "continue setup",
+        "import my memory"
+      ],
+      "search_keywords": [
+        "continue",
+        "memory",
+        "import",
+        "setup"
+      ],
+      "meaning": "Validates phone, hosting and AI setup, then opens the optional memory import step. It does not acknowledge setup completion.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.hub_continue"
+      },
+      "control_ids": [
+        "one-setup-continue"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.hub_continue",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.hub_continue",
+            "label": "Continue",
             "failure_behavior": "stop"
           }
         ],

@@ -86,7 +86,6 @@ async def get_email_auth_service():
     config = EmailAuthConfig.from_env()
     config.require_ready()
     if _service is None:
-        from db.connection import get_pool
         from hushh_mcp.services.email_auth.domain_policy import DomainEvaluator, RiskSnapshot
         from hushh_mcp.services.email_auth.identity import FirebaseEmailIdentity
         from hushh_mcp.services.email_auth.service import EmailAuthService
@@ -95,7 +94,7 @@ async def get_email_auth_service():
         risk = RiskSnapshot.load(config.risk_manifest)
         _service = EmailAuthService(
             config,
-            PostgresEmailAuthStore(await get_pool()),
+            await PostgresEmailAuthStore.from_shared_pool(),
             DomainEvaluator(risk),
             FirebaseEmailIdentity(),
         )

@@ -106,4 +106,24 @@ describe("voice compute follows verified owner hosting", () => {
       expect(readiness).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["ace", "gcp"])(
+    "arms private pod_commands without Shared fallback for hussh_pods target %s",
+    async (deploymentTarget) => {
+      hosting.mockResolvedValue({ hostingMode: "hussh_pods", deploymentTarget });
+      render(view());
+      await screen.findByText("pod_commands");
+      expect(readiness).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["azure", undefined, "unknown"])(
+    "does not arm voice for unsupported hussh_pods target %s",
+    async (deploymentTarget) => {
+      hosting.mockResolvedValue({ hostingMode: "hussh_pods", deploymentTarget });
+      render(view());
+      await screen.findByText("none");
+      expect(readiness).not.toHaveBeenCalled();
+    },
+  );
 });

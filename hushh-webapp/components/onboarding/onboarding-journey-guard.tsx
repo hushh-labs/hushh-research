@@ -10,6 +10,7 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  buildOneSetupCloudRoute,
   buildOneSetupRoute,
   isOneSetupCapabilityRoute,
   isCapabilityOnboardingRoute,
@@ -23,6 +24,7 @@ import {
   ROUTES,
   buildInitialContactsWelcomeRoute,
 } from "@/lib/navigation/routes";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
@@ -374,9 +376,12 @@ export function OnboardingJourneyGuard({
           return;
         }
 
-        const redirectTarget = buildOneSetupRoute({
-          returnTo: safeWorldModelInvitationReturnPath(currentHref, userId),
-        });
+        const invitationReturnPath = safeWorldModelInvitationReturnPath(currentHref, userId);
+        const redirectTarget = isPooledSandboxSwitchAvailable()
+          ? buildOneSetupCloudRoute(invitationReturnPath)
+          : buildOneSetupRoute({
+              returnTo: invitationReturnPath,
+            });
         if (redirectTargetRef.current === redirectTarget) {
           return;
         }
@@ -388,7 +393,10 @@ export function OnboardingJourneyGuard({
         // indefinitely. Retry once, then expose a recoverable error.
         redirectWatchdogRef.current = setTimeout(() => {
           if (cancelled || typeof window === "undefined") return;
-          if (isOneSetupRoute(window.location.pathname)) {
+          if (
+            isOneSetupRoute(window.location.pathname) ||
+            (isPooledSandboxSwitchAvailable() && isOneSetupSurfaceRoute(window.location.pathname))
+          ) {
             setRedirecting(false);
             setChecking(false);
             return;
@@ -396,7 +404,10 @@ export function OnboardingJourneyGuard({
           router.replace(redirectTarget);
           redirectWatchdogRef.current = setTimeout(() => {
             if (cancelled || typeof window === "undefined") return;
-            if (isOneSetupRoute(window.location.pathname)) {
+            if (
+              isOneSetupRoute(window.location.pathname) ||
+              (isPooledSandboxSwitchAvailable() && isOneSetupSurfaceRoute(window.location.pathname))
+            ) {
               setRedirecting(false);
               setChecking(false);
               return;

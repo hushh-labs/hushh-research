@@ -19,6 +19,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+from tests.services.test_location_command_postgres import (
+    active_location_provider_accounts as active_location_provider_accounts,
+)
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db/migrations"
 INITIAL_MIGRATION = "337_initial_contacts_onboarding.sql"

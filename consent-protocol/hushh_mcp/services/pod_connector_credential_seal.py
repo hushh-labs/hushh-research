@@ -60,14 +60,24 @@ REFUSAL_CODES: tuple[str, ...] = (
 PROVIDER_GOOGLE = "google"
 PROVIDER_MCP = "mcp"
 GOOGLE_CONNECTORS: tuple[str, ...] = ("gmail", "calendar", "drive", "contacts")
+HOSTED_WEB_GOOGLE_CONNECTORS: frozenset[str] = frozenset({"gmail", "calendar", "drive"})
 GOOGLE_OWNER_CLIENT = "google_owner_client"
-CLIENT_PROFILES: tuple[str, ...] = ("hussh_ios", "hussh_android", "owner_client")
+HOSTED_WEB_CLIENT_PROFILES: frozenset[str] = frozenset({"hussh_web", "hussh_uat_mail_web"})
+CLIENT_PROFILES: tuple[str, ...] = (
+    "hussh_ios",
+    "hussh_android",
+    "owner_client",
+    "hussh_web",
+    "hussh_uat_mail_web",
+)
 KIND_AUTHORIZATION_CODE = "authorization_code"
 KIND_OWNER_CLIENT = "owner_client"
 KIND_MCP_OAUTH = "mcp_oauth"
 
 _G = "https://www.googleapis.com/auth/"
 #: Per connector and access level, the scope sets that satisfy it, preferred first.
+OTHER_CONTACTS_SCOPE = _G + "contacts.other.readonly"
+POD_CALENDAR_LIST_SCOPE = _G + "calendar.calendarlist.readonly"
 CONNECTOR_SCOPES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
     "gmail": {
         "read": ((_G + "gmail.readonly",), (_G + "gmail.modify",)),
@@ -79,12 +89,16 @@ CONNECTOR_SCOPES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
             (_G + "calendar.events", _G + "calendar.freebusy"),
         ),
         "manage": ((_G + "calendar.events", _G + "calendar.freebusy"),),
+        "read_calendar_list": ((POD_CALENDAR_LIST_SCOPE,),),
     },
     "drive": {
         "read": ((_G + "drive.readonly",), (_G + "drive",)),
         "manage": ((_G + "drive",),),
     },
-    "contacts": {"read": ((_G + "contacts.readonly",),)},
+    "contacts": {
+        "read": ((_G + "contacts.readonly",),),
+        "read_other": ((OTHER_CONTACTS_SCOPE,),),
+    },
 }
 IDENTITY_SCOPES = frozenset({"openid", "email", _G + "userinfo.email"})
 
@@ -137,6 +151,7 @@ class OpenedConnectorCredential:
     code_verifier: Optional[str] = field(default=None, repr=False)
     client_secret: Optional[str] = field(default=None, repr=False)
     mcp: Optional[dict[str, Any]] = field(default=None, repr=False)
+    mail_account: Optional[dict[str, str]] = None
 
 
 def _refuse(code: str) -> ConnectorCredentialRefused:
@@ -209,6 +224,14 @@ def _authorization_code(body: Mapping[str, Any], connector_id: str) -> dict[str,
         raise _refuse(CLIENT_PROFILE_UNSUPPORTED)
     client_id = _text(body.get("clientId"), limit=160, pattern=_GOOGLE_CLIENT_RE)
     redirect_uri = _text(body.get("redirectUri"), limit=512, pattern=_REDIRECT_RE)
+    if profile == "hussh_uat_mail_web" and (
+        connector_id != "gmail" or body["codeVerifier"] is not None
+    ):
+        raise _refuse(BAD_ENVELOPE)
+    if profile == "hussh_web" and (
+        connector_id not in HOSTED_WEB_GOOGLE_CONNECTORS or body["codeVerifier"] is not None
+    ):
+        raise _refuse(BAD_ENVELOPE)
     if profile == "hussh_ios":
         # Google's iOS client redirects only to its own reversed client id scheme.
         match = _GOOGLE_CLIENT_RE.fullmatch(client_id)
@@ -229,7 +252,9 @@ def _authorization_code(body: Mapping[str, Any], connector_id: str) -> dict[str,
         "client_profile": profile,
         "client_id": client_id,
         "code": _text(body.get("code"), limit=2048, pattern=_NO_SPACE_RE),
-        "code_verifier": _text(body.get("codeVerifier"), limit=128, pattern=_VERIFIER_RE),
+        "code_verifier": None
+        if profile in HOSTED_WEB_CLIENT_PROFILES
+        else _text(body.get("codeVerifier"), limit=128, pattern=_VERIFIER_RE),
         "redirect_uri": redirect_uri,
         "scopes": _scopes(body.get("scopes"), connector_id=connector_id),
     }
@@ -271,12 +296,35 @@ def _mcp_oauth(body: Mapping[str, Any]) -> dict[str, Any]:
 
 def _parse_plaintext(raw: bytes, *, kind: str, connector_id: str) -> dict[str, Any]:
     body = core.parse_json_object(raw, purpose=SEAL_PURPOSE)
+    mail_account = body.pop("mailAccount", None)
+    if mail_account is not None:
+        from hushh_mcp.services.pod_mail_accounts import ACCOUNT_ID
+
+        if (
+            connector_id != "gmail"
+            or kind != KIND_AUTHORIZATION_CODE
+            or not isinstance(mail_account, dict)
+        ):
+            raise _refuse(BAD_ENVELOPE)
+        if mail_account.get("mode") == "add":
+            if set(mail_account) != {"mode"}:
+                raise _refuse(BAD_ENVELOPE)
+        elif mail_account.get("mode") == "reconnect":
+            if (
+                set(mail_account) != {"mode", "accountId", "credentialId"}
+                or not isinstance(mail_account.get("accountId"), str)
+                or not ACCOUNT_ID.fullmatch(mail_account["accountId"])
+            ):
+                raise _refuse(BAD_ENVELOPE)
+            core.check_uuid4(mail_account.get("credentialId"), purpose=SEAL_PURPOSE)
+        else:
+            raise _refuse(BAD_ENVELOPE)
     if body.get("kind") not in _KIND_KEYS or body.get("kind") != kind:
         raise _refuse(CREDENTIAL_KIND_UNSUPPORTED)
     if set(body) != _KIND_KEYS[kind]:
         raise _refuse(BAD_ENVELOPE)
     if kind == KIND_AUTHORIZATION_CODE:
-        return _authorization_code(body, connector_id)
+        return {**_authorization_code(body, connector_id), "mail_account": mail_account}
     if kind == KIND_OWNER_CLIENT:
         return _owner_client(body)
     return _mcp_oauth(body)

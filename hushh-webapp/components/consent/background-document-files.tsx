@@ -13,6 +13,7 @@ import { BackgroundDocumentActivity } from "./background-document-activity";
 import { BackgroundDocumentRevokeDialog } from "./background-document-revoke-dialog";
 import { HostedPdfCanvas } from "./hosted-pdf-canvas";
 import { useOneCopyFileActions, useOneCopyStatus } from "./use-one-copy-files";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 export function BackgroundDocumentFiles({ requestId, owner = false }: { requestId: string; owner?: boolean }) {
   const session = useHostedDocumentSession();
@@ -43,8 +44,12 @@ export function BackgroundDocumentFilesBody({ session, requestId }: { session: D
     if (!session.isCurrent() || revoking) return;
     setConfirmRevoke(false);
     const controller = new AbortController(); revokeOperation.current = controller; setRevoking(true); setRevokeError(false); actions.close();
-    try { await OneCopyService.revoke(session, requestId, controller.signal); }
-    catch { if (session.isCurrent() && !controller.signal.aborted) setRevokeError(true); }
+    const attempt = captureProductAttempt("document.copy.revoke", session.userId); attempt.started();
+    try { await OneCopyService.revoke(session, requestId, controller.signal); if (session.isCurrent() && !controller.signal.aborted) attempt.settled("returned"); }
+    catch (error) { if (session.isCurrent() && !controller.signal.aborted) {
+      if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt.settled("failed");
+      setRevokeError(true);
+    } }
     finally { if (session.isCurrent() && !controller.signal.aborted) { setRevoking(false); refresh(); } }
   };
   return <section className="min-w-0 space-y-3" aria-label="One copies" aria-busy={actions.busy || revoking}>
@@ -67,15 +72,20 @@ export function BackgroundDocumentFilesBody({ session, requestId }: { session: D
     </div>)}
     <HelperText role={actions.busy || actions.notice ? "status" : undefined} aria-hidden={!actions.busy && !actions.notice}>{actions.busy ? "Opening file…" : actions.notice || " "}</HelperText>
     {actions.preview ? <div role="region" aria-label="Document preview" className="space-y-2">
-      <Button data-voice-control-id="document-copy-close-preview" size="compact" variant="none" onClick={actions.close}>Back to files</Button>
+      <Button data-voice-control-id="document-copy-close-preview" size="compact" variant="none" onClick={() => {
+        const attempt = captureProductAttempt("document.copy.close_preview", session.userId); attempt.started();
+        if (actions.close() && session.isCurrent()) attempt.settled("returned");
+      }}>Back to files</Button>
       <div className="relative overflow-hidden">
-        <HostedPdfCanvas bytes={actions.preview.bytes} signal={actions.preview.controller.signal} onRendered={() => undefined} />
+        <HostedPdfCanvas bytes={actions.preview.bytes} signal={actions.preview.controller.signal}
+          onRendered={() => { if (session.isCurrent() && !actions.preview?.controller.signal.aborted) actions.preview?.attempt.settled("returned"); }}
+          onFailed={() => { if (session.isCurrent() && !actions.preview?.controller.signal.aborted) actions.preview?.attempt.settled("failed"); }} />
         <BodyText aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center break-words p-6 text-center text-black/25">Shared in One · Access {requestId.slice(0, 8)} · {new Date().toLocaleDateString()}</BodyText>
       </div>
     </div> : null}
     <div className="flex flex-wrap gap-2">
       {link && copy?.files.some(file => file.status === "ready") ? <Button data-voice-control-id="document-copy-open-link" asChild size="compact" variant="none"><a href={link} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">Open One link</a></Button> : null}
-      <Button data-voice-control-id="document-copy-refresh" size="compact" variant="none" onClick={() => { actions.close(); refresh(); }}>Refresh</Button>
+      <Button data-voice-control-id="document-copy-refresh" size="compact" variant="none" onClick={() => { actions.close(); refresh(true); }}>Refresh</Button>
     </div>
     {canManage ? <section aria-label="Document access" className="space-y-3 border-t border-border pt-4">
       <SectionTitle>Access</SectionTitle>

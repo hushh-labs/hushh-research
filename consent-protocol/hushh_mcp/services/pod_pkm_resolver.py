@@ -103,7 +103,12 @@ _INITIALIZATION: Optional[asyncio.Task[Optional[Any]]] = None
 
 
 def local_pkm_enabled() -> bool:
-    return str(os.getenv(_ENABLED_ENV) or "").strip().lower() in {"1", "true", "yes", "on"}
+    raw = os.getenv(_ENABLED_ENV)
+    if raw is not None:
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime  # noqa: PLC0415
+
+    return bool(hosted_ace_runtime())
 
 
 def sqlite_path() -> str:
@@ -285,6 +290,10 @@ async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[st
 
     lines: list[str] = []
     for domain in domains:
+        # Saved sign-in information has a dedicated model-blind broker. Never
+        # reuse even a historical malformed plaintext index as agent grounding.
+        if str(domain).strip().lower() == "credentials":
+            continue
         summary = (summaries.get(domain) or {}).get("readable_summary")
         if summary:
             lines.append(f"{domain}: {summary}")

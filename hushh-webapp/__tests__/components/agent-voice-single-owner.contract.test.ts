@@ -42,13 +42,13 @@ describe("One interactive audio ownership", () => {
     expect(gate).toContain("<LocationCommandProvider enabled={commands}>");
     expect(gate).toContain("<VoiceSessionProvider enabled={live}>");
     expect(gate).toContain("useOneVoiceLiveEnabled()");
-    // The Live-only app bridges (the publish loop, the device Location step
-    // consumer, and the connection-request review step consumer) mount
-    // together, once, and only while Live owns the mic; the bounded owner
-    // keeps its own device bridge for the other case.
+    // Only the voice step consumers depend on microphone ownership. A typed
+    // chat share also needs the publisher when One Live is disabled.
     expect(gate).toMatch(
-      /live \? \(\s*<>\s*<LocationPublisherBridge \/>\s*<LocationUpdatesStepBridge \/>\s*<RequestReviewStepBridge \/>\s*<\/>\s*\)\s*:\s*null/,
+      /live \? \(\s*<>\s*<LocationUpdatesStepBridge \/>\s*<RequestReviewStepBridge \/>\s*<\/>\s*\)\s*:\s*null/,
     );
+    expect(gate).toContain("{live || MAIN_CHAT_LOCATION_ENABLED ? <LocationPublisherBridge pathname={pathname} /> : null}");
+    expect(gate.match(/<LocationPublisherBridge\b/g)).toHaveLength(1);
     expect(gate).toContain("{commands ? <LocationCommandDeviceBridge /> : null}");
     expect(gate.match(/<LocationUpdatesStepBridge \/>/g)).toHaveLength(1);
     expect(gate.match(/<RequestReviewStepBridge \/>/g)).toHaveLength(1);

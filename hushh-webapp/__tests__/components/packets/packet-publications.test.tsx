@@ -118,11 +118,23 @@ describe("@feature_drive_packets @trace_loop owner profile visibility", () => {
     const visibilityRows = () => result.current.pages.flatMap(page => page.sections).flatMap(section => section.rows).filter(row => row.label === "Show on profile");
     await waitFor(() => expect(visibilityRows()[0]?.toggle).toBe(true));
     expect(visibilityRows()).toHaveLength(1);
-    const row = visibilityRows()[0], off = row.options!.find(option => option.label === "Off")!;
-    const retired = result.current.rows.get(off.id)!;
+    expect(visibilityRows()[0].options!.map(option => option.label)).toEqual(["On", "Off"]);
+    expect(visibilityRows()[0].options![0].selected).toBe(true);
+    // Swift Toggle dispatches index 1 for Off and index 0 for On.
+    const off = visibilityRows()[0].options![1];
+    await act(async () => result.current.rows.get(off.id)!({ rowId: off.id } as NativeDrawerChoice));
+    await waitFor(() => expect(visibilityRows()[0].options![0].selected).toBe(false));
+    expect(state.setVisibility).toHaveBeenLastCalledWith("vault-owner-token", preference, false, expect.any(Function));
+    const on = visibilityRows()[0].options![0];
+    await act(async () => result.current.rows.get(on.id)!({ rowId: on.id } as NativeDrawerChoice));
+    await waitFor(() => expect(visibilityRows()[0].options![0].selected).toBe(true));
+    expect(state.setVisibility).toHaveBeenLastCalledWith("vault-owner-token", { ...preference, enabled: false, revision: 1 }, true, expect.any(Function));
+    state.setVisibility.mockClear();
+    const retiredOff = visibilityRows()[0].options![1];
+    const retired = result.current.rows.get(retiredOff.id)!;
     state.uid = "replacement"; state.ownerId = "replacement";
     publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 }); rerender();
-    await act(async () => retired({ rowId: off.id } as NativeDrawerChoice));
+    await act(async () => retired({ rowId: retiredOff.id } as NativeDrawerChoice));
     expect(state.setVisibility).not.toHaveBeenCalled(); expect(state.privateCatalog).not.toHaveBeenCalled();
   });
 });

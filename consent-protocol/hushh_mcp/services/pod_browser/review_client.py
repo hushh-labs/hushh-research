@@ -214,5 +214,5 @@ class PodBrowserReviews:
             )
             if result != {"status": "valid"}:
                 raise BrowserRefused("BROWSER_REVIEW_UNAVAILABLE")
-            if purpose in {"disclose", "provider_safety"}:
+            if purpose in {"disclose", "provider_safety", "credential_fill"}:
                 pending.consumed = True

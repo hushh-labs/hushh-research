@@ -267,6 +267,15 @@ async def test_held_browser_without_ack_recovers_saved_target_without_new_mutati
     template["metadata"]["annotations"]["hussh/restart-nonce"] = hashlib.sha256(
         row["backend_metadata"]["upgradeLease"].encode()
     ).hexdigest()
+    from hushh_mcp.services.personal_agent_registry_repo import (
+        upgrade_host_binding_json,
+        upgrade_host_snapshot,
+    )
+
+    row["user_cloud_authorized_at"] = "2026-10-20T00:00:00Z"
+    row["backend_metadata"]["upgradeLeaseHost"] = json.loads(
+        upgrade_host_binding_json(upgrade_host_snapshot(row))
+    )
     registry = FakeRegistry({row["user_id"]: row})
     backend = SimpleNamespace(
         inspect_pod_configuration=AsyncMock(return_value=observed),

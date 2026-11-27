@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from hushh_mcp.runtime_settings import one_todo_suggestions_enabled
 
@@ -32,6 +32,14 @@ class TaskSuggestionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     allow_model_processing: StrictBool
     sources: list[TaskSource] = Field(min_length=1, max_length=100)
+    selected_capabilities: list[CapabilityId] | None = Field(default=None, max_length=9)
+
+    @field_validator("selected_capabilities")
+    @classmethod
+    def unique_capabilities(cls, value: list[CapabilityId] | None) -> list[CapabilityId] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("duplicate selected capability")
+        return value
 
 
 class TaskSuggestion(BaseModel):
@@ -46,7 +54,9 @@ class TaskSuggestions(BaseModel):
     items: list[TaskSuggestion] = Field(default_factory=list, max_length=12)
 
 
-async def run_todo_gene(*, prompt: str, user_id: str, consent_token: str) -> object:
+async def run_todo_gene(
+    *, prompt: str, user_id: str, consent_token: str, model: object | None = None
+) -> object:
     from hushh_mcp.hushh_adk.manifest import ManifestLoader
     from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 
@@ -57,7 +67,7 @@ async def run_todo_gene(*, prompt: str, user_id: str, consent_token: str) -> obj
     if gene.runtime.adk_mode != "single_turn" or gene.privacy.plaintext_telemetry:
         raise ValueError("invalid task suggestion boundary")
     result = await run_single_turn(
-        build_single_turn_agent(gene, output_schema=TaskSuggestions),
+        build_single_turn_agent(gene, output_schema=TaskSuggestions, model=model),
         prompt_parts=prompt,
         user_id=user_id,
         consent_token=consent_token,
@@ -81,16 +91,29 @@ async def suggest_tasks(
     refs = {source.ref for source in request.sources}
     if len(refs) != len(request.sources):
         raise ValueError("duplicate task source reference")
-    await require_access()
-    response = TaskSuggestions.model_validate(
-        await runner(
-            prompt=json.dumps(
-                {"owner_supplied_summaries": [s.model_dump() for s in request.sources]}
-            ),
-            user_id=user_id,
-            consent_token=consent_token,
+    sources = [
+        source
+        for source in request.sources
+        if (
+            request.selected_capabilities is None
+            or source.capability in request.selected_capabilities
         )
-    )
+        and not source.already_pending
+    ]
+    refs = {source.ref for source in sources}
+    await require_access()
+    if sources:
+        response = TaskSuggestions.model_validate(
+            await runner(
+                prompt=json.dumps(
+                    {"owner_supplied_summaries": [source.model_dump() for source in sources]}
+                ),
+                user_id=user_id,
+                consent_token=consent_token,
+            )
+        )
+    else:
+        response = TaskSuggestions()
     selected = [item.source_ref for item in response.items]
     if len(set(selected)) != len(selected) or any(ref not in refs for ref in selected):
         raise ValueError("unoffered task source reference")

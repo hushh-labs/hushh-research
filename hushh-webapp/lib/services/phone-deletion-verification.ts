@@ -10,7 +10,7 @@ import {
   signInWithCredential,
   signOut as firebaseSignOut,
 } from "firebase/auth";
-import { app, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import { HushhAuth } from "@/lib/capacitor";
 import type { PhoneLinkConflict } from "./firebase-phone-link";
 import type { PhoneLinkIntent } from "@/lib/capacitor/types/auth";
@@ -240,7 +240,11 @@ export async function mintPhoneClaimIdToken(
   const secondaryApp =
     getApps().find(
       (firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME,
-    ) || initializeApp(app.options, PHONE_CLAIM_APP_NAME);
+    ) || initializeApp(auth.app.options, PHONE_CLAIM_APP_NAME);
+  if (secondaryApp.options.projectId !== auth.app.options.projectId ||
+      secondaryApp.options.apiKey !== auth.app.options.apiKey) {
+    throw new Error("The sign-in service changed. Request a new verification code.");
+  }
   const phoneClaimAuth = getAuth(secondaryApp);
 
   await setPersistence(phoneClaimAuth, inMemoryPersistence);

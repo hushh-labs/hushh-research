@@ -43,6 +43,16 @@ describe("connected Calendar transport authority", () => {
     expect(apiFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("confirms a versioned Calendar review with the displayed screen contract", async () => {
+    await GoogleCalendarService.executeProposal({
+      vaultOwnerToken: "vault-owner", userId: "owner", proposalId: "gcal_reviewed",
+      accountId: "second", reviewContract: 1,
+    });
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      user_id: "owner", proposal_id: "gcal_reviewed", account_id: "second", review_contract: 1,
+    });
+  });
+
   it.each(["review", "confirm"])("sends matching Firebase/vault authority and the current-lifetime guard for %s", async kind => {
     if (kind === "confirm") apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ calendar: "declined", email: "sent", calendar_error: null, email_error: null }), { status: 200 }));
     const current = vi.fn(() => true);

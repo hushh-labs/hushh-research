@@ -114,7 +114,7 @@ export function AnalysisView({
   };
 
   return (
-    <div className="flex flex-col h-full bg-transparent relative">
+    <div className="app-type-compact flex flex-col h-full bg-transparent relative">
       {/* Header - Masked gradient + sticky nav */}
       <div className="flex-none sticky top-0 z-10 overflow-hidden mb-4">
         {/* Root layout owns the app gradient; keep header readable with a subtle surface only. */}
@@ -133,7 +133,7 @@ export function AnalysisView({
             />
 
             <div>
-              <h1 className="text-[28px] font-medium tracking-normal">{result.symbol}</h1>
+              <h1 className="ui-text-section-label">{result.symbol}</h1>
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Investment Analysis</p>
             </div>
           </div>
@@ -162,7 +162,7 @@ export function AnalysisView({
                 <p className="text-sm text-muted-foreground">Recommendation</p>
                 <p
                   className={cn(
-                    "text-2xl font-medium",
+                    "ui-text-row-label-emphasized",
                     getDecisionColor(result.decision)
                   )}
                 >
@@ -174,7 +174,7 @@ export function AnalysisView({
               <p className="text-sm text-muted-foreground">Confidence</p>
               <p
                 className={cn(
-                  "text-xl font-semibold",
+                  "ui-text-row-label-emphasized tabular-nums",
                   getConfidenceColor(result.confidence)
                 )}
               >
@@ -189,14 +189,14 @@ export function AnalysisView({
             </div>
           </div>
 
-          <p className="text-muted-foreground">{result.summary}</p>
+          <p className="ui-text-row-description">{result.summary}</p>
         </SurfaceCardContent>
       </SurfaceCard>
 
       {/* Agent Insights Tabs */}
       <SurfaceCard>
         <SurfaceCardHeader className="pb-0">
-          <SurfaceCardTitle className="text-base">Agent Insights</SurfaceCardTitle>
+          <SurfaceCardTitle className="ui-text-section-label">Agent Insights</SurfaceCardTitle>
         </SurfaceCardHeader>
         <SurfaceCardContent className="p-4">
           {/* Tab Buttons */}

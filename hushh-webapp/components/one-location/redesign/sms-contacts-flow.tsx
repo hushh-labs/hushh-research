@@ -1,6 +1,10 @@
 "use client";
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "./native-location-workspace";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useCallback, useMemo, useState } from "react";
+import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
 import { Loader2 } from "@/components/icons";
 
 import {
@@ -49,6 +53,7 @@ const TABS: ReadonlyArray<{ value: SmsContactsTab; label: string }> = [
 ];
 
 type SmsContactsFlowProps = {
+  embeddedInChat?: boolean;
   recipients: OneLocationRecipient[];
   circles: OneLocationCircleSummary[];
   selectedUserIds: string[];
@@ -87,6 +92,7 @@ type SmsContactsFlowProps = {
  * "added" and not "selected".
  */
 export function SmsContactsFlow({
+  embeddedInChat = false,
   recipients,
   circles,
   selectedUserIds,
@@ -186,17 +192,34 @@ export function SmsContactsFlow({
     [onAddCircleMembers],
   );
 
-  return (
-    // Renders inside the signed-in shell like every other Location task flow,
-    // so the top bar keeps the single back control, the SMS trail and the
-    // profile avatar.
+  const native = useNativeLocationEnabled();
+  const nativeBackDepth = native && (pendingRemoval || reviewOpen || expandedCircleId) ? 3 : 0;
+  const chatBackDepth = expandedCircleId ? 2 : 0;
+  useBackLayer(embeddedInChat ? ROUTES.HOME : ROUTES.ONE_LOCATION, embeddedInChat ? chatBackDepth : nativeBackDepth, () => {
+    if (removing) return true;
+    if (pendingRemoval) setPendingRemoval(null);
+    else if (reviewOpen) setReviewOpen(false);
+    else setExpandedCircleId(null);
+    return true;
+  });
+  const sortValue = tab === "circles" ? circleSort : contactSort;
+  return <NativeLocationLayer flow="sms-contacts" title="Emergency contacts" viewKey={reviewOpen ? "sms:review" : `sms:${tab}`} tabs={!reviewOpen ? { label: "Contact sources", options: TABS.map(entry => ({ key: entry.value, label: entry.label, selected: tab === entry.value, run: () => { setExpandedCircleId(null); setTab(entry.value); } })) } : undefined} sections={[
+    { key: "summary", rows: [{ key: "summary", label: "Emergency contacts", detail: "Choose who receives your Save My Soul alerts." },
+      { key: "review", label: `${selected.length} added`, run: () => setReviewOpen(true) },
+      ...(!reviewOpen ? [{ key: "sort", label: "Sort", choices: (["default", "name-asc", "name-desc"] as const).map(value => ({ key: value, label: value === "default" ? "Default" : value === "name-asc" ? "A–Z" : "Z–A", selected: sortValue === value, run: () => tab === "circles" ? setCircleSort(value) : setContactSort(value) })) }] : []),
+    ] },
+    { key: "contacts", rows: reviewOpen || tab === "all-contacts" ? (reviewOpen ? selected : visibleContacts).map(recipient => ({ key: recipient.userId, label: recipientLabel(recipient), detail: recipientSubtitle(recipient), person: { name: recipientLabel(recipient), photoUrl: recipient.photoUrl },
+      inlineActions: [{ key: selectedIds.has(recipient.userId) ? "remove" : "add", label: selectedIds.has(recipient.userId) ? "Remove" : "Add", tone: selectedIds.has(recipient.userId) ? "danger" as const : "primary" as const,
+        enabled: !busyKey && (selectedIds.has(recipient.userId) || isRecipientShareReady(recipient)), pending: busyKey === `sms-contact:${recipient.userId}`,
+        run: () => selectedIds.has(recipient.userId) ? askRemoveById(recipient.userId) : onAdd(recipient.userId) }] })) : visibleCircles.map(circle => ({ key: circle.id, label: circle.name, detail: `${circle.memberCount} members`, run: () => setExpandedCircleId(circle.id) })) },
+    ...(reviewOpen ? [{ key: "done", rows: [{ key: "done", label: "Done", run: () => setReviewOpen(false) }] }] : []),
+  ]} search={!reviewOpen ? { query: tab === "circles" ? circleQuery : contactQuery, label: tab === "circles" ? "Search Circles" : "Search contacts", change: tab === "circles" ? setCircleQuery : setContactQuery } : undefined}
+    confirmation={pendingRemoval ? { title: `Remove ${recipientLabel(pendingRemoval)}?`, description: "They won't receive SMS alerts.", cancelLabel: "Cancel", cancel: () => { if (!removing) setPendingRemoval(null); }, confirm: { key: "remove-contact", label: "Remove", destructive: true, enabled: !removing, pending: removing, run: removePending } } : undefined}>
+
+    {/* Keep the existing signed-in shell and authored Back. */}
     <section data-testid="sms-contacts-screen">
-      {/* 430px is a phone, not a layout. Held at every width it left most of a
-          tablet or a desktop window as empty grey while the lists below scrolled
-          inside a narrow ribbon. The column grows with the viewport instead, and
-          stops at 960px so the rows never stretch into unreadable full-bleed
-          lines. */}
-      <div className="mx-auto w-full max-w-[430px] md:max-w-[680px] xl:max-w-[720px]">
+      {/* The Location shell owns the bounded page width and responsive gutters. */}
+      <div className="min-w-0 w-full">
         <TaskFlowHeader
           title="Emergency contacts"
           description="Choose who receives your Save My Soul alerts."
@@ -228,10 +251,10 @@ export function SmsContactsFlow({
                 aria-controls={"sms-panel-" + entry.value}
                 onClick={() => setTab(entry.value)}
                 className={cn(
-                  "press-scale h-10 flex-1 rounded-full text-[15px] font-semibold transition-colors",
+                  "ui-text-agent-tab-label min-h-11 flex-1 rounded-full px-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   active
                     ? "bg-[color:var(--app-card-surface-default-solid)] text-foreground shadow-sm"
-                    : "text-muted-foreground",
+                    : "text-muted-foreground [@media(hover:hover)]:hover:bg-[color:var(--app-secondary-fill)]",
                 )}
               >
                 {entry.label}
@@ -359,7 +382,7 @@ export function SmsContactsFlow({
       </div>
 
       <SelectedContactsSheet
-        open={reviewOpen}
+        open={reviewOpen && !native}
         onOpenChange={setReviewOpen}
         recipients={selected}
         busyUserId={
@@ -373,7 +396,7 @@ export function SmsContactsFlow({
       />
 
       <AlertDialog
-        open={Boolean(pendingRemoval)}
+        open={Boolean(pendingRemoval) && !native}
         onOpenChange={(open) => {
           if (!open && !removing) setPendingRemoval(null);
         }}
@@ -426,9 +449,11 @@ export function SmsContactsFlow({
               )}
             </AlertDialogAction>
             <AlertDialogCancel
-              variant="secondary"
+              variant="ghost"
+              size="standard"
               disabled={removing}
-              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-[color:var(--app-label)] hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
+              className={QUIET_FLOW_ACTION_CLASSNAME}
+              disableHoverRipple
             >
               Cancel
             </AlertDialogCancel>
@@ -436,5 +461,5 @@ export function SmsContactsFlow({
         </AlertDialogContent>
       </AlertDialog>
     </section>
-  );
+  </NativeLocationLayer>;
 }

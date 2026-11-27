@@ -7,22 +7,16 @@ export interface FeedSmsAlertGroup {
   activeCount: number;
 }
 
-/** Group presentation only; every incident retains its own grant and sent time. */
+/** Each incident stays separate; only revisions of its verified operation fold. */
 export function groupFeedSmsAlerts(items: readonly FeedActionable[]): FeedSmsAlertGroup[] {
-  const groups = new Map<string, FeedActionable[]>();
-  const seen = new Set<string>();
+  const incidents = new Map<string, FeedActionable>();
   for (const item of items) {
-    if (!item.smsEmergency || seen.has(item.id)) continue;
-    seen.add(item.id);
-    // Labels are not identities. Unknown senders must never be joined together.
-    const key = item.smsEmergency.senderId || item.id;
-    const members = groups.get(key) ?? [];
-    members.push(item);
-    groups.set(key, members);
+    if (!item.smsEmergency) continue;
+    const key = item.operationKey || item.id;
+    const previous = incidents.get(key);
+    if (!previous || item.sortAt > previous.sortAt || (item.sortAt === previous.sortAt && item.id > previous.id)) incidents.set(key, item);
   }
-  return [...groups].map(([id, members]) => {
-    members.sort((a, b) => b.sortAt - a.sortAt || a.id.localeCompare(b.id));
-    const active = members.filter((item) => item.emphasis === "emergency");
-    return { id, items: members, latest: active[0] ?? members[0]!, activeCount: active.length };
-  }).sort((a, b) => b.latest.sortAt - a.latest.sortAt || a.id.localeCompare(b.id));
+  return [...incidents].map(([id, latest]) => ({ id, items: [latest], latest,
+    activeCount: latest.emphasis === "emergency" ? 1 : 0,
+  })).sort((a, b) => b.activeCount - a.activeCount || b.latest.sortAt - a.latest.sortAt || a.id.localeCompare(b.id));
 }

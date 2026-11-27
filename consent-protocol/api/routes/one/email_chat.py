@@ -1,7 +1,6 @@
-"""Gmail inbox agent chat endpoint (read-only, non-streaming).
+"""Owner-scoped Gmail chat endpoint (non-streaming compatibility surface).
 
-Mirrors the Information Marketplace chat: a conversational turn over read-only
-inbox tools. Reuses the connected ``gmail.readonly`` connection; VAULT_OWNER
+Mirrors the Information Marketplace chat: a conversational Gmail turn with scope-checked read/compose tools. Reuses the connected ``gmail.readonly`` connection; VAULT_OWNER
 consent is verified via the token dependency.
 """
 

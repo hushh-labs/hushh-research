@@ -1,6 +1,7 @@
 "use client";
 
 import { forgetMailAttentionDismissals } from "@/lib/agent/mail-attention-dismissals";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { forgetFeedDeviceState } from "@/lib/feed/feed-clear-watermark";
 import { forgetLocationMemory } from "@/lib/one-location/location-grant-memory";
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
@@ -56,15 +57,22 @@ export class UserLocalStateService {
 
   static async clearForUser(userId: string, options: { deleteDurableReceipts?: boolean } = {}): Promise<void> {
     if (!userId) return;
+    const messageDraftCleanup = MessagesDraftService.clearForUser(userId);
+    void messageDraftCleanup.catch(() => undefined);
 
     // Confirmed Reset/delete only; ordinary sign-out/disconnect retains saved
     // receipts. Purge also fences old writes and removes pending PKM jobs.
     const { clearMarkdownMemory } = await import("@/lib/pkm/markdown-memory");
     const { clearCachedGmailReceipts } = await import("@/lib/profile/gmail-receipts-cache");
     const { clearLiveActivity, clearLiveActivityNotice } = await import("@/lib/pkm/live-activity/live-activity-journal");
+    const { clearAgentChatHistoryCache } = await import("@/lib/agent/agent-chat-history-cache");
+    const { clearFilesCache } = await import("@/lib/files/files-cache");
+    const { deleteEncryptedOwnerUiRecords } = await import("@/lib/storage/encrypted-owner-ui-cache");
     clearMarkdownMemory(userId);
     clearCachedGmailReceipts(userId);
     clearLiveActivity(userId);
+    clearAgentChatHistoryCache(userId, { includeDevice: true });
+    clearFilesCache(userId, { includeDevice: true });
     const { SecureDurableResourceService } = await import("./secure-durable-resource-service");
     let receiptPurgeError: unknown;
     if (options.deleteDurableReceipts) {
@@ -90,7 +98,9 @@ export class UserLocalStateService {
     // unrelated rejection must not be able to skip it.
     forgetLocationMemory(userId);
 
-    const tasks: Array<Promise<unknown>> = [
+    const tasks: [Promise<unknown>, ...Promise<unknown>[]] = [
+      messageDraftCleanup,
+      deleteEncryptedOwnerUiRecords(userId),
       PreVaultOnboardingService.clear(userId),
       FinanceSetupDraftService.clear(userId),
       KaiNavTourLocalService.clear(userId),
@@ -106,5 +116,8 @@ export class UserLocalStateService {
       }
     }
     if (receiptPurgeError) throw new Error("Account reset completed, but encrypted device receipts couldn't be removed. Clear this device's app storage before using it again.");
+    if (options.deleteDurableReceipts && results[0].status === "rejected") {
+      throw new Error("Your message drafts couldn't be removed. Try again before starting fresh.");
+    }
   }
 }

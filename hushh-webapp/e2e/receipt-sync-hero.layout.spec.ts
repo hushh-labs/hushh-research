@@ -145,20 +145,13 @@ for (const width of [320, 390, 1440]) {
       recent.getByRole("heading", { name: "Recent receipts" }),
     ).toBeVisible();
     await expect(
-      recent.getByRole("searchbox", { name: "Search table" }),
+      recent.getByRole("searchbox", { name: "Search receipts" }),
     ).toBeVisible();
+    await expect(recent.getByTestId("receipt-type-filter")).toHaveValue("all");
+    await expect(recent.getByTestId("receipt-type-filter").getByRole("option", { name: "Due" })).toHaveCount(0);
+    await expect(recent.getByText("October 2026", { exact: true })).toBeVisible();
     await expect(
-      recent.getByRole("tablist", { name: "Receipt status filters" }),
-    ).toBeVisible();
-    await expect(
-      recent.getByRole("tab", { name: "All", exact: true }),
-    ).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await expect(recent.getByText("OCTOBER 2026", { exact: true })).toBeVisible();
-    await expect(
-      recent.getByText("SEPTEMBER 2026", { exact: true }),
+      recent.getByText("September 2026", { exact: true }),
     ).toBeVisible();
     await expect(receiptRows).toHaveCount(10);
     await expect(recent.getByText("—")).toBeVisible();
@@ -314,7 +307,7 @@ for (const width of [320, 390, 1440]) {
     await expect(selectedReceiptRow).toBeFocused();
 
     const receiptSearch = recent.getByRole("searchbox", {
-      name: "Search table",
+      name: "Search receipts",
     });
     await receiptSearch.fill("unknown");
     await expect(recent.getByText("Receipt", { exact: true })).toBeVisible();
@@ -322,29 +315,21 @@ for (const width of [320, 390, 1440]) {
     await receiptSearch.fill("");
     await expect(recent.getByText("Myntra")).toHaveCount(3);
 
-    await recent.getByRole("tab", { name: "Paid", exact: true }).click();
+    const typeFilter = recent.getByTestId("receipt-type-filter");
+    await typeFilter.selectOption("paid");
     await expect(receiptRows).toHaveCount(3);
-    await expect(
-      recent.locator('[data-receipt-status="paid"]').first(),
-    ).toHaveClass(/app-success-tint/);
 
-    await recent.getByRole("tab", { name: "Due", exact: true }).click();
-    await expect(receiptRows).toHaveCount(0);
-    await expect(recent.getByText("No receipts match this view.")).toBeVisible();
-
-    await recent.getByRole("tab", { name: "Overdue", exact: true }).click();
+    await typeFilter.selectOption("overdue");
     await expect(receiptRows).toHaveCount(1);
-    await expect(
-      recent.locator('[data-receipt-status="overdue"]'),
-    ).toHaveClass(/app-destructive-tint/);
+    await expect(receiptRows.first()).toContainText("Overdue");
 
-    await recent.getByRole("tab", { name: "Upcoming", exact: true }).click();
+    await typeFilter.selectOption("upcoming");
     await expect(receiptRows).toHaveCount(2);
 
-    await recent.getByRole("tab", { name: "Cancelled", exact: true }).click();
-    await expect(receiptRows).toHaveCount(2);
+    await typeFilter.selectOption("cancelled");
+    await expect(receiptRows).toHaveCount(1);
 
-    await recent.getByRole("tab", { name: "All", exact: true }).click();
+    await typeFilter.selectOption("all");
     await expect(receiptRows).toHaveCount(10);
     await recent.getByRole("button", { name: "Next" }).click();
     await expect(recent.getByText("2 / 2")).toBeVisible();
@@ -626,7 +611,7 @@ for (const nested of [false, true]) {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
     await expect(toolbar).toHaveAttribute("aria-busy", "true");
     await expect(page.getByText("Checking Mail for receipts…")).toBeVisible();
-    const search = page.getByRole("searchbox", { name: "Search table" });
+    const search = page.getByRole("searchbox", { name: "Search receipts" });
     await search.evaluate(element => element.focus({ preventScroll: true }));
     await expect(search).toBeFocused();
     await page.evaluate(() => {

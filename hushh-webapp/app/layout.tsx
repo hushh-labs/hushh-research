@@ -171,8 +171,8 @@ export default function RootLayout({
               every Suspense boundary, so it is in each route's static HTML
               and continues the native splash from the first frame. */}
           <BootSurface />
+          <NetworkStatusBanner />
           <RootLayoutClient fontClasses="">
-            <NetworkStatusBanner />
             {children}
           </RootLayoutClient>
         </ThemeProvider>

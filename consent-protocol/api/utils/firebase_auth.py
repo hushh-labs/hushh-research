@@ -332,7 +332,29 @@ def verify_firebase_principal(
 def verify_account_cleanup_bearer(
     authorization: Optional[str], *, operation_id: str | None = None
 ) -> str:
-    """Verify identity for cleanup status only; never issue account admission."""
+    """Verify a live identity for cleanup continuation; no account admission."""
+    return _verify_account_cleanup_bearer(
+        authorization, operation_id=operation_id, check_revoked=True
+    )
+
+
+def verify_account_cleanup_status_bearer(
+    authorization: Optional[str], *, operation_id: str | None = None
+) -> str:
+    """Read one bound operation after native deletion with its unexpired JWT.
+
+    Signature, issuer, audience, expiry and exact UID/operation checks remain.
+    Discovery without an operation still requires a live Firebase identity.
+    This exception grants no account access or continuation authority.
+    """
+    return _verify_account_cleanup_bearer(
+        authorization, operation_id=operation_id, check_revoked=operation_id is None
+    )
+
+
+def _verify_account_cleanup_bearer(
+    authorization: Optional[str], *, operation_id: str | None, check_revoked: bool
+) -> str:
     from hushh_mcp.services.account_deletion_provider_journal import (
         CleanupOperationNotFound,
         inspect_for_identity,
@@ -356,7 +378,7 @@ def verify_account_cleanup_bearer(
 
     try:
         return _verify_firebase_bearer(
-            authorization, check_revoked=True, account_guard=cleanup_guard
+            authorization, check_revoked=check_revoked, account_guard=cleanup_guard
         )
     except HTTPException as exc:
         exc.headers = {**(exc.headers or {}), "Cache-Control": "private, no-store"}

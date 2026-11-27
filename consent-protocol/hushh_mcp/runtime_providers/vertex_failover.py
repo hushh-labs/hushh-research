@@ -15,8 +15,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_RETRYABLE_STATUS_CODES = {429, 500, 503}
-_RETRYABLE_STATUS_NAMES = {"INTERNAL", "RESOURCE_EXHAUSTED", "UNAVAILABLE"}
+_RETRYABLE_STATUS_CODES = {429, 500, 503, 504}
+_RETRYABLE_STATUS_NAMES = {"DEADLINE_EXCEEDED", "INTERNAL", "RESOURCE_EXHAUSTED", "UNAVAILABLE"}
 
 
 def _status_code(error: Exception) -> int | None:

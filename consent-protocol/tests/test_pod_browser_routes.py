@@ -7,7 +7,10 @@ import pytest
 from tests.helpers.pod_browser import task_runtime_fixture
 
 
-async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(monkeypatch):
+@pytest.mark.parametrize("purpose", ["model_process", "credential_fill"])
+async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(
+    monkeypatch, purpose
+):
     import time
     from unittest.mock import AsyncMock
 
@@ -46,7 +49,7 @@ async def test_browser_hub_approval_separates_owner_and_signed_machine_authority
             "environment": "development",
             "expires_at": int(time.time()) + 600,
         },
-        "purpose": "model_process",
+        "purpose": purpose,
         "commitment": "a" * 64,
         "pod_key_id": "key",
         "environment": "dev",
@@ -128,6 +131,7 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
             "public_research_only": False,
             "code": "BROWSER_CLOUD_GATE_UNAVAILABLE",
             "remembered_sessions_available": False,
+            "saved_logins_available": False,
             "owner_id": "owner",
             "pod_id": "pod",
             "incarnation": "epoch",
@@ -157,6 +161,28 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
         )
         assert invalid.status_code == 422
         assert "owner-password" not in invalid.text and "owner-secret" not in invalid.text
+        for suffix in ("credentials/use", "credentials/transient"):
+            invalid_private = await client.post(
+                path + "/tasks/task/" + suffix,
+                headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
+                json={
+                    "operation_id": "owner-password",
+                    "handle": "owner-secret",
+                    "control_epoch": "owner-secret",
+                },
+            )
+            assert invalid_private.status_code == 422
+            assert (
+                "owner-password" not in invalid_private.text
+                and "owner-secret" not in invalid_private.text
+            )
+        scopes.remove("browser.control")
+        catalog_denied = await client.get(
+            path + "/tasks/task/credentials?origin=https://example.com",
+            headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
+        )
+        assert catalog_denied.status_code == 403
+        scopes.add("browser.control")
         fixture = task_runtime_fixture(monkeypatch)
         app.state.browser_task_runtime = fixture.runtime
         accepted = await client.post(
@@ -362,3 +388,47 @@ async def test_browser_recovery_never_promotes_unclosed_or_malformed_completion(
     fixture.log.records.append(record)
     with pytest.raises(BrowserRefused, match="TASK_LOG_INVALID"):
         await recover_browser_tasks(fixture.log, "owner", "pod", incarnation="epoch")
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_status", "expected_wire_env"),
+    [
+        ("uat", 200, "uat"),
+        ("production", 503, None),
+    ],
+)
+async def test_browser_routes_admit_uat_and_refuse_production(
+    monkeypatch, env, expected_status, expected_wire_env
+):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from api.routes.one import pod_browser
+
+    async def held():
+        return None
+
+    authority = SimpleNamespace(environment=env, require_held=held)
+    monkeypatch.setattr(
+        pod_browser,
+        "verified_session",
+        lambda authorization, *, role, scope: (
+            authority,
+            {"user_id": "owner", "hushh_id": "pod", "exp": 1900},
+        ),
+    )
+    monkeypatch.setattr(pod_browser, "pod_incarnation", lambda: "epoch")
+    app = FastAPI()
+    app.include_router(pod_browser.router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://pod") as client:
+        resp = await client.get(
+            "/api/one/pod/browser/capability",
+            headers={"Authorization": "Bearer owner-session"},
+        )
+        assert resp.status_code == expected_status
+        if expected_status == 200:
+            assert resp.json()["environment"] == expected_wire_env
+        else:
+            assert resp.json()["detail"]["code"] == "BROWSER_ENVIRONMENT_UNAVAILABLE"

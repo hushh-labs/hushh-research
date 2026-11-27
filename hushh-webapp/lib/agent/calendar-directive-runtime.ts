@@ -1,13 +1,22 @@
+import { calendarProposalReviewError } from "@/lib/agent/calendar-proposal-review";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
+import type { CalendarExecution } from "@/lib/calendar/calendar-board-booking";
 import type {
   DelegateResult,
   SpecialistDirective,
 } from "@/lib/agent/specialist-directive-runtime";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { readPrivateCalendarReplyStatus } from "@/lib/services/private-google-connections";
 import {
   calendarTodoInput,
   createTodo,
 } from "@/lib/services/todo-list-pkm-service";
+
+function gmailReplyDetail(status?: string): string {
+  if (status === "sent") return " The threaded Gmail reply was sent.";
+  if (status === "not_sent") return " The Gmail reply was not sent.";
+  return " Gmail delivery could not be confirmed. Check the thread before sending another reply.";
+}
 
 /**
  * Execute the exact, server-persisted Calendar proposal shown in the chat card.
@@ -25,15 +34,23 @@ export async function runCalendarDirective(
 ): Promise<DelegateResult> {
   const payload = directive.payload as Record<string, unknown>;
   const proposalId = String(payload.proposalId ?? "");
-  if (payload.type !== "calendar.execute_proposal" || !proposalId) {
-    throw new Error("Calendar confirmation is invalid.");
-  }
+  const reviewError = calendarProposalReviewError(payload);
+  if (reviewError) throw new Error(reviewError);
 
+  const linkedReply = payload.gmailReply != null;
   const result = await GoogleCalendarService.executeProposal({
-    vaultOwnerToken,
-    userId,
-    proposalId,
-  });
+    vaultOwnerToken, userId, proposalId, accountId: String(payload.accountId),
+    ...(payload.reviewContract === 1 ? { reviewContract: 1 as const } : {}),
+  })
+    .catch(async (error: unknown): Promise<CalendarExecution> => {
+      if (!linkedReply) throw error;
+      const receipt = await readPrivateCalendarReplyStatus(proposalId).catch(() => null);
+      if (receipt?.calendar === "created") {
+        return { action: "create" as const, event: {}, gmail_reply: { status: receipt.gmail } };
+      }
+      if (receipt?.calendar === "prepared" || receipt?.calendar === "expired") throw error;
+      throw new Error(`The Calendar outcome could not be confirmed. Check Calendar before scheduling again.${gmailReplyDetail(receipt?.gmail)}`);
+    });
 
   notifyCalendarChanged(userId);
 
@@ -56,6 +73,7 @@ export async function runCalendarDirective(
   }
 
   const eventTitle = result.event.title || "the event";
+  const replyDetail = linkedReply ? gmailReplyDetail(result.gmail_reply?.status) : "";
   const bookingDetail =
     result.action === "cancel"
       ? "The event was cancelled."
@@ -65,7 +83,7 @@ export async function runCalendarDirective(
           : result.event.conference_url
             ? `Scheduled ${eventTitle} with a Google Meet link. It is ready in the Calendar invite.`
             : `Scheduled ${eventTitle}. Google Meet is being added to the Calendar invite.`
-        : `Rescheduled ${eventTitle}.`;
+        : payload.metadataOnly === true ? `Updated ${eventTitle}.` : `Rescheduled ${eventTitle}.`;
 
   return {
     delegate_agent_id: "agent_calendar",
@@ -75,7 +93,7 @@ export async function runCalendarDirective(
     status: "completed",
     detail:
       result.action === "create" && addedToTodoList
-        ? `${bookingDetail} It is also in your To-do list.`
-        : bookingDetail,
+        ? `${bookingDetail}${replyDetail} It is also in your To-do list.`
+        : `${bookingDetail}${replyDetail}`,
   };
 }

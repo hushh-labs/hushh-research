@@ -220,3 +220,21 @@ def test_an_unknown_mode_is_judged_by_the_warm_rule():
         )
     )
     assert decision.should_probe is True
+
+
+def test_disposable_ace_sandbox_uses_economy_liveness_even_when_legacy_row_says_warm():
+    """Personal Sandboxes (`ace`) reap idle leases by design; silence must read
+    as sleeping without probing the edge gateway or marking the owner unreachable."""
+    decision = _evaluate(
+        _row(
+            backend="ace",
+            deployment_target="ace",
+            liveness_mode=MODE_WARM,
+            liveness_failures=31,
+            last_heartbeat_at=(NOW - timedelta(hours=6)).isoformat(),
+        ),
+        heal_enabled=True,
+    )
+    assert decision.health_state == HEALTH_SLEEPING
+    assert decision.should_probe is False
+    assert decision.should_heal is False

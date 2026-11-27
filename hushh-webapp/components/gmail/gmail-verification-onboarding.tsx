@@ -1,8 +1,9 @@
 "use client";
+import { NativeMailLayer, useNativeMailPaneActive, type MailNativeSection } from "./native-mail-workspace";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ShieldCheck } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { withDeadline } from "@/lib/utils/with-deadline";
 import { useMailKycIntake } from "@/lib/gmail/use-mail-kyc-intake";
@@ -14,6 +15,7 @@ import { MailActionButton as Button } from "./mail-action-button";
 import mailStyles from "./mail-workspace.module.css";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 const EXTERNAL_AGENT_PROMPT =
   "Summarize my personal and KYC details as simple Markdown bullet points under Facts, Preferences, and Commitments. Note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.";
@@ -50,6 +52,9 @@ function GmailVerificationOnboardingSession({
   onDetailsChange,
   children,
 }: GmailVerificationOnboardingProps) {
+  const nativeActive = useNativeMailPaneActive("kyc");
+  const native = (fallback: ReactNode, sections: MailNativeSection[], webChild = false) =>
+    <NativeMailLayer active={nativeActive} title="KYC" includeRoot sections={sections} webChild={webChild} fallback={fallback} />;
   const currentSessionRef = useRef(true);
   useEffect(() => { currentSessionRef.current = true; return () => { currentSessionRef.current = false; }; }, []);
   const intake = useMailKycIntake({ userId, vaultKey, vaultOwnerToken });
@@ -89,11 +94,14 @@ function GmailVerificationOnboardingSession({
 
     saveStartedRef.current = true;
     setSaving(true);
+    const attempt = captureProductAttempt("kyc.save_profile", userId);
+    attempt.started();
     const saveTask = withDeadline(KycIdentityProfilePkmService.saveProfile({
       userId,
       vaultKey,
       vaultOwnerToken,
       profile: { aboutMe },
+      onOutcome: attempt.settled,
     }), Date.now() + 120_000);
 
     // The person has explicitly approved this import. Continue into the KYC
@@ -133,7 +141,7 @@ function GmailVerificationOnboardingSession({
   };
 
   if (checking) {
-    return (
+    return native((
       <SurfaceInset
         aria-busy="true"
         aria-live="polite"
@@ -158,12 +166,12 @@ function GmailVerificationOnboardingSession({
           <Skeleton className="h-24 w-full" />
         </div>
       </SurfaceInset>
-    );
+    ), [{ key: "intake-loading", rows: [{ key: "checking", label: "Getting your KYC workspace ready.", pending: true }] }]);
   }
   if (profileReady || deferred) return <>{children}</>;
 
   if (!vaultKey || !vaultOwnerToken) {
-    return (
+    return native((
       <SurfaceInset className="space-y-3 px-4 py-5 sm:px-5">
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-primary/10 p-2 text-primary">
@@ -183,10 +191,13 @@ function GmailVerificationOnboardingSession({
           Open private vault
         </Button>
       </SurfaceInset>
-    );
+    ), [{ key: "intake-unlock", rows: [
+      { key: "intro", label: "Set up KYC", detail: "Open your private vault before importing details for future KYC replies." },
+      { key: "unlock", label: "Open private vault", web: true, run: onRequestVaultUnlock },
+    ] }]);
   }
 
-  return (
+  return native((
     <>
       <KycProfileHero onPasteDetails={() => setPasteOpen(true)} triggerRef={pasteTriggerRef} />
       <KycPasteDetailsDialog
@@ -205,5 +216,8 @@ function GmailVerificationOnboardingSession({
         }}
       />
     </>
-  );
+  ), [{ key: "intake-intro", rows: [
+    { key: "intro", label: "Build your KYC profile", detail: "Paste your profile details to automate future KYC responses." },
+    { key: "paste", label: "Paste details", web: true, run: () => setPasteOpen(true) },
+  ] }], pasteOpen);
 }

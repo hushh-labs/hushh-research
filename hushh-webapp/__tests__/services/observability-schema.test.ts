@@ -4,11 +4,32 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  type EventPayloadWithContextFor,
   LIVE_MEMORY_SOURCE_KINDS,
 } from "@/lib/observability/events";
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 
 describe("observability schema", () => {
+  it("keeps only governed metadata for Mail connection prompt views", () => {
+    const metadata = {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "1.0.0",
+    } as const;
+    const reported = { ...metadata, result: "success", email: "owner@example.test" } as const;
+    const result = validateAndSanitizeEvent("hushh_mail_signin_screen_view", reported);
+    expect(result.sanitized).toEqual({ ...metadata, result: "success" });
+    expect(result.droppedKeys).toContain("email");
+    const malformed = { ...metadata, result: "error" };
+    expect(
+      validateAndSanitizeEvent(
+        "hushh_mail_signin_screen_view",
+        malformed as unknown as EventPayloadWithContextFor<"hushh_mail_signin_screen_view">,
+      ),
+    ).toMatchObject({ fatal: true, droppedKeys: ["result"] });
+  });
+
   it.each(["private note", "1234567890123", 10, null])("drops invalid native build metadata %s", (app_build) => {
     const result = validateAndSanitizeEvent("page_view", {
       env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build,

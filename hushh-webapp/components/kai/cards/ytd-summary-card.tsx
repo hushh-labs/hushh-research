@@ -27,6 +27,8 @@ import {
 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrencyShort } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export interface YtdData {
   net_deposits_ytd?: number;
   withdrawals_ytd?: number;
@@ -38,22 +40,6 @@ export interface YtdData {
 interface YtdSummaryCardProps {
   data: YtdData;
   className?: string;
-}
-
-function formatCurrency(value: number): string {
-  const absValue = Math.abs(value);
-  if (absValue >= 1000000) {
-    return `$${(value / 1000000).toFixed(2)}M`;
-  }
-  if (absValue >= 1000) {
-    return `$${(value / 1000).toFixed(1)}K`;
-  }
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 interface MetricItemProps {
@@ -91,7 +77,7 @@ function MetricItem({ label, value, icon, showSign = false, invertColors = false
           )}
         >
           {showSign && value > 0 ? "+" : ""}
-          {formatCurrency(value)}
+          {formatCurrencyShort(value, "USD", { digits: { M: 2, Cr: 2, K: 1, L: 1 }, below: "cents" })}
         </span>
       </div>
     </div>
@@ -99,6 +85,7 @@ function MetricItem({ label, value, icon, showSign = false, invertColors = false
 }
 
 export function YtdSummaryCard({ data, className }: YtdSummaryCardProps) {
+  useMarketCurrency();
   // Check if we have any YTD data to display
   const hasData = useMemo(() => {
     return (

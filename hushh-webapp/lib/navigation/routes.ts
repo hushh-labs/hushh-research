@@ -104,6 +104,7 @@ export const ROUTES = {
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  DESIGN_SYSTEM: "/design-system",
   MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
@@ -175,9 +176,12 @@ export const ROUTES = {
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
   /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TASKS: "/one/tasks",
   ONE_TODOS: "/one/todos",
+  ONE_GOALS: "/one/goals",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
+  PKM_LOGINS: "/one/pkm/logins",
   PKM_LOCATION: "/one/pkm/location",
   PKM_LOCATION_DETAIL: "/one/pkm/location/detail",
   ONE_MARKETPLACE: "/one/marketplace",
@@ -206,8 +210,8 @@ export const ROUTES = {
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
-  /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
-  ONE_KYC: "/one/email",
+  /** The KYC request-and-review screen. It is its own screen, not a Mail tab. */
+  ONE_KYC: "/one/kyc",
   ONE_FILES: "/one/files",
   ONE_DOCUMENTS_OPEN: "/one/documents/open",
   ONE_CAREER: "/one/career",
@@ -278,10 +282,12 @@ export const ROUTES = {
 } as const;
 
 /**
- * Mail tabs a link may open directly (`/one/gmail?workspace=kyc`). Overview is
- * the page's own default, so it never needs a link.
+ * Names a link may carry in `/one/gmail?workspace=...`. Overview is the page's
+ * own default, so it never needs a link. `kyc` is not a Mail tab: personal-detail
+ * requests are answered on their own screen (`ROUTES.ONE_KYC`), and the Mail page
+ * sends every existing `workspace=kyc` link there.
  */
-export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "receipts"] as const;
+export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "followups", "receipts"] as const;
 export type GmailDeepLinkWorkspace = (typeof GMAIL_DEEP_LINK_WORKSPACES)[number];
 
 /** The Mail tab a `workspace` query names, or undefined for anything else. */
@@ -293,9 +299,12 @@ export function gmailDeepLinkWorkspace(
     : undefined;
 }
 
-/** The link that opens Mail on one tab; the tab name is the only query. */
+/**
+ * The link that opens Mail on one tab (the tab name is the only query), or, for
+ * `kyc`, the KYC screen itself.
+ */
 export function buildGmailWorkspaceRoute(workspace: GmailDeepLinkWorkspace): string {
-  return withQuery(ROUTES.GMAIL, { workspace });
+  return workspace === "kyc" ? ROUTES.ONE_KYC : withQuery(ROUTES.GMAIL, { workspace });
 }
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
@@ -456,17 +465,20 @@ export function resolveCompletedSetupCapabilityEntry({
   capabilityId,
   completedCapabilityIds,
   rootSetupResolved,
+  allowCompletedFinanceEntry = false,
 }: {
   capabilityId: string;
   completedCapabilityIds: readonly string[];
   rootSetupResolved: boolean;
+  allowCompletedFinanceEntry?: boolean;
 }): CompletedSetupCapabilityEntry {
-  if (
-    capabilityId !== "location" ||
-    !completedCapabilityIds.includes(capabilityId)
-  ) {
-    return { kind: "continue" };
+  if (!completedCapabilityIds.includes(capabilityId)) return { kind: "continue" };
+  if (capabilityId === "finance" && allowCompletedFinanceEntry) {
+    return rootSetupResolved
+      ? { kind: "redirect", target: ROUTES.KAI_HOME }
+      : { kind: "redirect", target: ROUTES.ONE_SETUP };
   }
+  if (capabilityId !== "location") return { kind: "continue" };
 
   return rootSetupResolved
     ? { kind: "redirect", target: ROUTES.ONE_LOCATION }
@@ -581,6 +593,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
@@ -912,6 +925,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.MANISH_SAINANI ||
     isInvitationPreviewRoute(normalizedPathname) ||
     // Both prefixes. `/view/` is where public live-location links point now;
@@ -937,6 +951,7 @@ export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
     normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
@@ -954,6 +969,28 @@ export function isFoundationPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
+  );
+}
+
+/**
+ * Legal documents and public editorial/knowledge destinations (`/privacy`,
+ * `/terms`, `/welcome`, `/research`, `/blog`, `/developers`) are reading
+ * surfaces and never mount floating voice or vault command chrome.
+ */
+export function isPublicEditorialOrLegalRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === ROUTES.PRIVACY ||
+    normalizedPathname === ROUTES.TERMS ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname.startsWith(`${ROUTES.DEVELOPERS}/`) ||
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||

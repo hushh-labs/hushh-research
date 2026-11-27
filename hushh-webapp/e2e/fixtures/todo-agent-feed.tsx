@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TodoListPage } from "../../components/todos/todo-list-page";
+import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
 import { OneTodoPreview } from "../../components/agent/one-todo-preview";
 import { useAuth } from "../../hooks/use-auth";
 import { useVault } from "../../lib/vault/vault-context";
@@ -8,10 +9,13 @@ import { change, useFixture } from "./todo-agent-feed-boundaries";
 
 function Fixture() {
   const state = useFixture();
+  const fullProfile = new URLSearchParams(window.location.search).has("profile");
+  useEffect(() => { if (fullProfile) { const timer = setTimeout(() => { const tab = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button => button.textContent?.includes("To-do")); tab?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })); tab?.click(); }, 100); return () => clearTimeout(timer); } }, [fullProfile]);
   const [mount, setMount] = useState(0);
   const [preview, setPreview] = useState(false);
   const { user, userId } = useAuth();
   const vault = useVault();
+  if (fullProfile) return <OneAgentProfileSheet open onOpenChange={() => {}} />;
   return (
     <>
       <nav aria-label="Test controls">

@@ -54,6 +54,14 @@ const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   "/kai/dashboard/analysis": ROUTES.KAI_ANALYSIS,
   "/one/kai/portfolio": ROUTES.KAI_PORTFOLIO,
   "/one/kai/analysis": ROUTES.KAI_ANALYSIS,
+  // Canonical onboarding and hosting-setup aliases so deep links and bookmarks
+  // always land inside the governed setup and Back-navigation graph.
+  "/onboarding": ROUTES.ONE_SETUP,
+  "/one/onboarding": ROUTES.ONE_SETUP,
+  "/setup": ROUTES.ONE_SETUP,
+  "/one/setup/hosting": ROUTES.ONE_SETUP_CLOUD,
+  "/one/profile/hosting/setup": ROUTES.ONE_SETUP_CLOUD,
+  "/profile/hosting/setup": ROUTES.ONE_SETUP_CLOUD,
 };
 
 function routeRequest(request: NextRequest) {

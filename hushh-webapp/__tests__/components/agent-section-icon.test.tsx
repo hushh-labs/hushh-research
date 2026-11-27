@@ -50,11 +50,16 @@ describe("AgentSectionIcon roster palette", () => {
       expect(icon).toHaveAttribute("data-agent-icon-kind", "svg");
       expect(icon.querySelector("svg")).toHaveAttribute("viewBox", "0 0 64 64");
     }
-    expect(container.querySelectorAll("svg")).toHaveLength(4);
+    const goals = screen.getByTestId("one-agent-icon-goals");
+    expect(goals).toHaveAttribute("data-agent-icon-kind", "custom");
+    const goalsGlyph = goals.querySelector("svg");
+    expect(goalsGlyph).toHaveAttribute("viewBox", "0 0 256 256");
+    expect(container.querySelectorAll("svg")).toHaveLength(5);
     expect(container.querySelectorAll("img")).toHaveLength(18);
     const files = screen.getByTestId("one-agent-icon-files").querySelector("svg");
     expect(files).toHaveAttribute("viewBox", "0 0 256 256");
     for (const svg of container.querySelectorAll("svg")) {
+      if (svg === goalsGlyph) continue;
       expect(svg.getAttribute("viewBox")).toBe(svg === files ? "0 0 256 256" : "0 0 64 64");
     }
   });

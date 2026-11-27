@@ -117,6 +117,13 @@ describe("scope commerce review boundary", () => {
       expect(() => verifyCommerceSandbox({ ...proof, ...change }, origin)).toThrow();
     }
     expect(() => verifyCommerceSandbox(proof, "http://preview.example.com")).toThrow();
+    const localOrigin = "http://localhost:3000";
+    expect(verifyCommerceSandbox({ ...proof, app_origin: localOrigin }, localOrigin)).toBe(true);
+    for (const restrictedEnv of ["uat", "production"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", restrictedEnv);
+      expect(() => verifyCommerceSandbox({ ...proof, app_origin: localOrigin }, localOrigin)).toThrow();
+    }
+    vi.unstubAllEnvs();
   });
   beforeEach(() => vi.resetAllMocks());
   const quote = () => ({ id: requestId, request_id: documentId, scope_handle: "scope_food", machine_scope: "attr.food.preferences.*",
@@ -198,6 +205,7 @@ describe("scope commerce review boundary", () => {
   it("preserves signed micro-USD costs and distinguishes transfer from confirmed bank payout", () => {
     expect(formatCommerceMoney(parseCommerceDollarInput("0.01", 1))).toBe("1 Hussh coin ($0.01)");
     expect(formatCommerceMoney(parseCommerceDollarInput("1.00", 1))).toBe("100 Hussh coins ($1.00)");
+    expect(formatCommerceMicroUsd(240000)).toBe("24 Hussh coins ($0.24)");
     expect(formatCommerceMicroUsd(1)).toBe("0.0001 Hussh coins ($0.000001)");
     expect(formatCommerceMicroUsd(-12345)).toBe("-1.2345 Hussh coins (-$0.012345)");
     expect(commerceWithdrawalStatusCopy("transferred")).toContain("Bank payout is unconfirmed");
@@ -213,8 +221,12 @@ describe("scope commerce review boundary", () => {
     const result = { request_id: requestId, role: "owner", machine_scope: "attr.food.preferences.*", scope_handle: "scope_food",
       duration_seconds: 86400, purpose: "Approved purpose", tariff: null,
       purchase: { id: documentId, request_id: requestId, status: "active", amount_cents: 1, processing_fee_micro_usd: 12345, net_earnings_micro_usd: -2345 } };
-    fetcher.mockResolvedValueOnce(reply(result));
-    expect((await ScopeCommerceService.scopeRequest("firebase", requestId)).purchase?.net_earnings_micro_usd).toBe(-2345);
+    fetcher.mockResolvedValueOnce(reply({ ...result, counterpart_person_ref: documentId }));
+    const parsed = await ScopeCommerceService.scopeRequest("firebase", requestId);
+    expect(parsed.purchase?.net_earnings_micro_usd).toBe(-2345);
+    expect(parsed.counterpart_person_ref).toBe(documentId);
+    fetcher.mockResolvedValueOnce(reply({ ...result, counterpart_person_ref: "https://foreign.invalid" }));
+    await expect(ScopeCommerceService.scopeRequest("firebase", requestId)).rejects.toThrow();
     fetcher.mockResolvedValueOnce(reply({ ...result, purchase: { ...result.purchase, net_earnings_micro_usd: -0.5 } }));
     await expect(ScopeCommerceService.scopeRequest("firebase", requestId)).rejects.toThrow();
   });
@@ -288,9 +300,22 @@ describe("server-authored sharing readiness", () => {
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer firebase");
     expect(fetcher.mock.calls[0][1].cache).toBe("no-store");
   });
+  it("keeps held approvals and earnings setup available while refusing unqualified new liabilities", () => {
+    const historical = { ...freeOnly(), enabled: true,
+      platform: { status: "ready", reason_code: "provider_residual_resolution_unqualified", verification_scope: "configured_and_persisted" },
+      seller: { status: "eligible", reason_code: null },
+      capabilities: { ...freeOnly().capabilities, approve_paid_request: true, start_onboarding: true } };
+    expect(parseCommerceReadiness(historical).capabilities.approve_paid_request).toBe(true);
+    for (const capability of ["set_paid_tariff", "reserve_paid_purchase", "start_funding"]) {
+      expect(() => parseCommerceReadiness({ ...historical, capabilities: { ...historical.capabilities, [capability]: true } })).toThrow();
+    }
+  });
   it("uses allowlisted setup guidance while suppressing unknown server diagnostics", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "seller_onboarding_required", message: "private account secret" } }, { status: 409 }));
     await expect(ScopeCommerceService.readiness("firebase")).rejects.toMatchObject({ name: "CommerceActionError", code: "seller_onboarding_required", message: "Open Payments and earnings → Set up information-access payouts before charging for information." });
+    fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "request_price_changed" } }, { status: 409 }));
+    await expect(ScopeCommerceService.approveInactive("owner", requestId, 86400, documentId))
+      .rejects.toMatchObject({ code: "request_price_changed", message: "The price changed. Ask for a new request with the current price." });
     fetcher.mockResolvedValueOnce(Response.json({ detail: { code: "private account secret", message: "private account secret" } }, { status: 500 }));
     try { await ScopeCommerceService.readiness("firebase"); throw new Error("expected rejection"); } catch (error) {
       expect(error).toBeInstanceOf(CommerceActionError);

@@ -61,7 +61,7 @@ test("owner AI identifies its provider in the header and a sheet-sized frame", a
     }
     return route.fulfill({ contentType: "application/json", body: "{}" });
   });
-  const label = "One's AI: Azure AI · a-long-private-deployment-name · Not verified";
+  const label = "One's AI: Azure AI · a-long-private-deployment-name";
   await page.setViewportSize({ width: 768, height: 844 });
   await page.goto("http://localhost/new-chat-fixture?model=1");
   const headerModel = page.getByRole("group", { name: label });
@@ -74,7 +74,6 @@ test("owner AI identifies its provider in the header and a sheet-sized frame", a
   await expect(sheetModel).toBeVisible();
   const modelText = sheetModel.getByText("Azure AI · a-long-private-deployment-name");
   expect(await modelText.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-  await expect(sheetModel.getByText("Not verified")).toBeVisible();
 });
 
 for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, true, "Start new chat"], [1440, false, "Start new chat"]] as const) {
@@ -176,3 +175,102 @@ for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, 
     await page.screenshot({ path: testInfo.outputPath("new-chat-recovered.png") });
   });
 }
+
+test("market gainers open Market stock details without leaving One chat", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  const quoteTime = "2026-11-19T20:00:00Z";
+  const selectedReads: string[] = [];
+  let marketReads = 0;
+  let chatTurns = 0;
+  const gainer = {
+    symbol: "DEMO",
+    company_name: "Sample Company",
+    price: 18.25,
+    change_pct: 9.5,
+    as_of: quoteTime,
+  };
+  const json = (payload: unknown) => ({
+    contentType: "application/json",
+    body: JSON.stringify(payload),
+  });
+  await page.route("http://localhost/**", async route => {
+    const { pathname, searchParams } = new URL(route.request().url());
+    if (pathname === "/new-chat-fixture") {
+      return route.fulfill({ contentType: "text/html", body: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${script.replace(/<\/script/gi, "<\\/script")}</script>` });
+    }
+    if (pathname === "/api/one/personal-agent/status") return route.fulfill(json({ hostingMode: "shared" }));
+    if (pathname.startsWith("/api/kai/market/insights/baseline/")) {
+      marketReads += 1;
+      if (marketReads === 1) return route.fulfill({ status: 503, ...json({}) });
+      return route.fulfill(json({ movers: { gainers: [gainer], losers: [], active: [], stale: true } }));
+    }
+    if (pathname === "/api/market/quotes") {
+      return route.fulfill(json({ quotes: [{ ...gainer, quoted_at: quoteTime }] }));
+    }
+    if (pathname.startsWith("/api/kai/market/history/")) {
+      selectedReads.push("history:" + searchParams.get("symbol"));
+      const date = Date.parse(quoteTime) / 1000;
+      return route.fulfill(json({ points: [14, 3, 0].map((days, i) => ({ t: date - days * 86400, p: 16 + i })) }));
+    }
+    if (pathname.startsWith("/api/kai/market/news/")) {
+      selectedReads.push("news:" + searchParams.get("symbols"));
+      return route.fulfill(json({ items: [{
+        symbol: "DEMO", title: "Sample Company reports quarterly results", url: "https://example.test/sample",
+        source_name: "Sample News", published_at: quoteTime,
+      }] }));
+    }
+    if (pathname === "/api/one/agent-chat" && route.request().method() === "POST") {
+      chatTurns += 1;
+      const { threadId } = route.request().postDataJSON();
+      const runId = "gainers-run";
+      const toolCallId = "gainers-call";
+      const events = [
+        { type: "RUN_STARTED", threadId, runId },
+        { type: "TOOL_CALL_START", toolCallId, toolCallName: "show_market_gainers" },
+        { type: "TOOL_CALL_ARGS", toolCallId, delta: "{}" },
+        { type: "TOOL_CALL_END", toolCallId },
+        { type: "TOOL_CALL_RESULT", toolCallId, messageId: "gainers-result", role: "tool",
+          content: JSON.stringify({ status: "card_offered", structured: { type: "one.finance_top_gainers.v1" } }) },
+        { type: "TEXT_MESSAGE_START", messageId: "gainers-answer", role: "assistant" },
+        { type: "TEXT_MESSAGE_CONTENT", messageId: "gainers-answer", delta: "I opened the Top Gainers card in Chat." },
+        { type: "TEXT_MESSAGE_END", messageId: "gainers-answer" },
+        { type: "RUN_FINISHED", threadId, runId },
+      ];
+      return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+    }
+    return route.fulfill(json({}));
+  });
+
+  await page.goto("http://localhost/new-chat-fixture?vault=1");
+  const chatUrl = page.url();
+  const composer = page.getByRole("textbox", { name: "Message One" });
+  await composer.fill("Show me today's top gainers");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+
+  const transcript = page.getByRole("region", { name: "Agent conversation history" });
+  await expect(transcript.getByRole("heading", { name: "Top Gainers" })).toBeVisible();
+  await expect(transcript.getByText("Market gainers are unavailable right now.", { exact: true })).toBeVisible();
+  await transcript.getByRole("button", { name: "Retry market gainers", exact: true }).click();
+  await expect(transcript.getByText(/Saved prices/)).toBeVisible();
+  expect(marketReads).toBe(2);
+  expect(chatTurns).toBe(1);
+  const row = transcript.getByRole("button", { name: /DEMO/ });
+  await expect(row).toContainText("+9.50%");
+  expect(selectedReads).toEqual([]);
+  await row.click();
+  const detail = page.getByRole("dialog", { name: "Sample Company", exact: true });
+  await expect(detail.getByRole("region", { name: "Stock quote" })).toContainText("$18.25");
+  await expect(detail.getByRole("region", { name: "Price history" })).toBeVisible();
+  await detail.getByRole("button", { name: "1W", exact: true }).click();
+  await expect(detail.getByRole("button", { name: "1W", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(detail.getByRole("heading", { name: "Company facts" })).toBeVisible();
+  await expect(detail.getByRole("region", { name: "Company news" })).toContainText("Sample Company reports quarterly results");
+  expect(selectedReads.sort()).toEqual(["history:DEMO", "news:DEMO"]);
+  await expect(page).toHaveURL(chatUrl);
+
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeHidden();
+  await expect(transcript.getByRole("heading", { name: "Top Gainers" })).toBeVisible();
+  await expect(composer).toBeVisible();
+  await expect(page).toHaveURL(chatUrl);
+});

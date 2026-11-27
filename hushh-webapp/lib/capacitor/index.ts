@@ -933,6 +933,8 @@ export interface HushhLocationPlugin {
   getCurrentPosition(options?: {
     enableHighAccuracy?: boolean;
     timeoutMs?: number;
+    /** Let an urgent web capture start its fresh network fallback earlier. */
+    fastNetworkFallback?: boolean;
   }): Promise<{
     latitude: number;
     longitude: number;

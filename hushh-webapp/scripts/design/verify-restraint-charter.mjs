@@ -83,6 +83,21 @@ const REGRESSION_ASSERTIONS = [
     absent: "takeoverHeading",
     law: "law 1 (one title per screen): the setup hub's two-title takeover path (a PageHeader stacked over a story screen) must not return",
   },
+  {
+    path: "components/profile/agent-settings-panel.tsx",
+    absent: "currentHostingTrailing",
+    law: "narrow-row budget: Current hosting must never stack multiple pill badges in trailing or truncate tier identity",
+  },
+  {
+    path: "components/connections/byoc-cloud-setup-page.tsx",
+    present: "<HusshPodsActiveCard deploymentTarget={agentTarget} compactBelowPicker />",
+    law: "zero back-to-back identity duplication: active sandbox strip beneath HostingChoiceCards must use compactBelowPicker",
+  },
+  {
+    path: "components/connections/private-plaid-connector-group.tsx",
+    absent: "Live scope projection",
+    law: "consumer copy contract: Plaid drawer must use plain-language Account summary instead of developer scope-projection jargon",
+  },
 ];
 
 const failures = [];

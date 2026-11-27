@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBrowserActivationModel } from "@/components/computer-use/browser-activation-panel";
 import { useAzureHostingNoticeModel } from "./azure-hosting-notice";
+import { cloudHostingHealthSentence } from "./cloud-hosting-health";
 import { NO_UPDATE, useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { canInstallUpdate, updateCheckMessage, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
@@ -12,7 +13,12 @@ import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
-import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import {
+  hostedPodDisplayLabel,
+  isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
+  ownerCloudProvider,
+} from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
@@ -27,19 +33,42 @@ export const HOST_LABELS = {
 
 type HostingMode = keyof typeof HOST_LABELS;
 
+export function hostModeLabel(mode: HostingMode): string {
+  if (mode === "shared" && isPooledSandboxSwitchAvailable()) {
+    return "Confidential Sandbox transition";
+  }
+  return HOST_LABELS[mode];
+}
+
+const RAW_BUILD_SHA_PATTERN = /^(?:(?:dev|uat|prod|main)-)?[0-9a-f]{12,}$/i;
+
+function isRawBuildIdentifier(value: string | null | undefined): boolean {
+  const trimmed = (value ?? "").trim();
+  return trimmed.length > 0 && RAW_BUILD_SHA_PATTERN.test(trimmed);
+}
+
 export function agentSettingsSummary(model: Pick<AgentSettingsController, "status" | "mode" | "update" | "awaitingMicrosoft" | "isPod">) {
   const { status, mode, update, awaitingMicrosoft, isPod } = model;
+  const isPersonalSandbox = mode === "hussh_pods" && status?.deploymentTarget === "ace";
   const activity = awaitingMicrosoft ? AZURE_UPDATE_AWAITING_LABEL : updateActivityLabel(update);
   const stateLabel = !status ? "Checking update status…" : mode === "shared" ? "Updated automatically by Hussh" :
+    isPersonalSandbox ? "Managed automatically" :
     mode === "pending" || mode === "unplaced" ? "Available after setup finishes" : mode === "unknown" ? "Hosting status unavailable" :
     activity ?? (update.presentationState === "deferred" && !canInstallUpdate(status) ? "Update reminder saved" :
       update.available === true && canInstallUpdate(status) ? "Update ready for your approval" :
       update.available === true ? updateCheckMessage(status) : status.installedReleaseVerified === true && update.available === false ? "Up to date" : "Running version not verified");
-  const release = isPod ? status?.availableRelease : null;
+  const release = isPod && !isPersonalSandbox ? status?.availableRelease : null;
   const version = status?.installedRelease?.version;
   const releasedAt = version && version === release?.version ? release.releasedAt : null;
-  const versionLabel = mode === "shared" ? version?.replace(/^Managed service /, "Managed build ") : version ? releaseLabel(version, releasedAt) : null;
-  return { stateLabel, release, versionLabel };
+  const rawBuildLabel = version ?? null;
+  const versionLabel = mode === "shared"
+    ? version?.replace(/^Managed service /, "Managed build ")
+    : isPersonalSandbox
+      ? (version && !isRawBuildIdentifier(version) ? releaseLabel(version, releasedAt) : "Confidential Sandbox · Latest")
+      : version
+        ? (isRawBuildIdentifier(version) ? "Current build" : releaseLabel(version, releasedAt))
+        : null;
+  return { stateLabel, release, versionLabel, rawBuildLabel, isPersonalSandbox };
 }
 
 function isHostingMode(value: unknown): value is HostingMode {
@@ -97,7 +126,7 @@ export function useAgentSettingsController({
     ? (status.hostingMode as HostingMode)
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
-  const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
+  const needsLinkRecovery = isPod && status?.state === "failed";
   // An approved Azure update starts only with the owner's Microsoft sign-in.
   const awaitingMicrosoft = useAzureUpdateAwaitingSignIn({
     deploymentTarget: kind === "software-updates" ? status?.deploymentTarget : null,
@@ -108,11 +137,22 @@ export function useAgentSettingsController({
     update.presentationState !== "blocked" &&
     (update.inProgress || ["scheduled", "updating"].includes(update.presentationState ?? ""));
   function notify<T>(request: Promise<T>, copy: { loading: string; success: string | ((value: T) => string | null); error: string | ((error: unknown) => string | null) }, admitted = current) {
-    const success = (value: T) => admitted() ? typeof copy.success === "function" ? copy.success(value) : copy.success : null;
-    const error = (cause: unknown) => admitted() ? typeof copy.error === "function" ? copy.error(cause) : copy.error : null;
+    const success = (value: T) => {
+      if (!admitted()) return null;
+      const message = typeof copy.success === "function" ? copy.success(value) : copy.success;
+      const text = typeof message === "string" && message.trim() ? message : null;
+      setNotice(text);
+      return text;
+    };
+    const error = (cause: unknown) => {
+      if (!admitted()) return null;
+      const message = typeof copy.error === "function" ? copy.error(cause) : copy.error;
+      const text = typeof message === "string" && message.trim() ? message : null;
+      setNotice(text);
+      return text;
+    };
     if (admitted()) setNotice(copy.loading);
-    const observed = request.then(value => { if (admitted()) setNotice(success(value)); return value; }, cause => { if (admitted()) setNotice(error(cause)); throw cause; });
-    return morphyToast.promise(observed, { ...copy, success, error });
+    return morphyToast.promiseText(request, { ...copy, success, error, isCurrent: admitted });
   }
   const browser = useBrowserActivationModel({ userId: userId ?? "", disabled: busy || working,
     enabled: enabled && kind === "software-updates" && mode === "byoc" && isOwnerCloudTarget(status?.deploymentTarget) && !!status?.browserActivationAvailable,
@@ -126,6 +166,7 @@ export function useAgentSettingsController({
     setBusy(true);
     const owner = snapshotValidatedAuthSessionOwner();
     const operationCurrent = () => current() && !!owner && isValidatedAuthSessionOwnerCurrent(owner);
+    let inspectedHealth: Awaited<ReturnType<typeof ApiService.inspectPersonalAgentHosting>> | null = null;
     const request = ApiService.getPersonalAgentStatus().then(async (next) => {
       if (!isHostingMode(next.hostingMode) || next.hostingMode === "unknown") {
         throw new Error("Hosting status unavailable");
@@ -134,6 +175,7 @@ export function useAgentSettingsController({
       if (kind === "hosting" && isOwnerCloudTarget(next.deploymentTarget)) {
         const checked = await ApiService.inspectPersonalAgentHosting();
         if (!operationCurrent()) throw new DOMException("Session changed", "AbortError");
+        inspectedHealth = checked;
         setInspection({ value: checked, current: operationCurrent });
       }
       return next;
@@ -144,7 +186,11 @@ export function useAgentSettingsController({
             kind === "hosting" ? "Checking hosting…" : "Checking for updates…",
           success: (next) =>
             kind === "hosting"
-              ? isOwnerCloudTarget(next.deploymentTarget) ? "Cloud resources checked." : `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
+              ? inspectedHealth
+                ? cloudHostingHealthSentence(inspectedHealth.status)
+                : isOwnerCloudTarget(next.deploymentTarget)
+                  ? "Cloud resources checked."
+                  : `Hosting confirmed: ${next.hostingMode === "hussh_pods" ? hostedPodDisplayLabel(next.deploymentTarget) : hostModeLabel(next.hostingMode as HostingMode)}.`
               : updateCheckMessage(next),
           error:
             kind === "hosting"
@@ -246,7 +292,7 @@ export function useAgentSettingsController({
     if (!isEffectCurrent()) return;
     busyRef.current = true;
     setBusy(true);
-    let recoveryToast: ReturnType<typeof morphyToast.promise> | undefined;
+    let recoveryToast: ReturnType<typeof morphyToast.promiseText> | undefined;
     try {
       recoveryToast = notify(
         ApiService.adoptOrphanPod({ isEffectCurrent }).then((result) => {
@@ -276,10 +322,192 @@ export function useAgentSettingsController({
     }
   }
 
+  function resolvePaneOrigin(): string | null {
+    return typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("profile_pane") === "1"
+      ? `${window.location.pathname}${window.location.search}`
+      : null;
+  }
+
+  function chooseHosting() {
+    if (!current()) return;
+    router.push(profileHostingSetupHref(resolvePaneOrigin()));
+  }
+
+  function syncLocalPodDisconnectInBackground() {
+    if (!userId) return;
+    const targetOwnerId = userId;
+    void import("@/lib/services/owner-pod-endpoint")
+      .then((mod) => mod.clearPinnedPodEndpoint?.(targetOwnerId))
+      .catch(() => undefined);
+    void import("@/lib/services/pre-vault-user-state-service")
+      .then((mod) => mod.PreVaultUserStateService?.bootstrapState?.(targetOwnerId, { force: true }))
+      .catch(() => undefined);
+  }
+
+  async function switchToSharedHosting(): Promise<boolean> {
+    if (busyRef.current || !current() || typeof ApiService.switchHostingMode !== "function") {
+      return false;
+    }
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await notify(
+        ApiService.switchHostingMode({ target: "shared", isEffectCurrent }),
+        {
+          loading: "Switching to Hussh Shared…",
+          success: "Switched to Hussh Shared.",
+          error: (err) =>
+            err instanceof Error && err.message
+              ? err.message
+              : "Could not switch to Hussh Shared. Your existing setup is unchanged.",
+        },
+        isEffectCurrent,
+      ).unwrap();
+      if (isEffectCurrent()) {
+        syncLocalPodDisconnectInBackground();
+        refresh();
+        dispatchFeedStateChanged();
+        return true;
+      }
+      return false;
+    } catch {
+      // Promise toast reports failure.
+      return false;
+    } finally {
+      if (current()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function switchToOwnCloud(): Promise<boolean> {
+    if (busyRef.current || !current()) return false;
+    if (
+      mode !== "hussh_pods" ||
+      (isPooledSandboxSwitchAvailable() && status?.deploymentTarget === "ace")
+    ) {
+      router.push(
+        profileHostingSetupHref(
+          resolvePaneOrigin(),
+          mode === "shared" || mode === "hussh_pods" ? { intent: "own" } : undefined,
+        ),
+      );
+      return true;
+    }
+    if (typeof ApiService.switchHostingMode !== "function") {
+      router.push(profileHostingSetupHref(resolvePaneOrigin(), { intent: "own" }));
+      return true;
+    }
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await notify(
+        ApiService.switchHostingMode({ target: "own_cloud", isEffectCurrent }),
+        {
+          loading: "Preparing cloud setup…",
+          success: "Ready to connect your cloud.",
+          error: (err) =>
+            err instanceof Error && err.message
+              ? err.message
+              : "Could not switch from Hussh Pods right now. Your existing setup is unchanged.",
+        },
+        isEffectCurrent,
+      ).unwrap();
+      if (isEffectCurrent()) {
+        syncLocalPodDisconnectInBackground();
+        refresh();
+        dispatchFeedStateChanged();
+        router.push(profileHostingSetupHref(resolvePaneOrigin(), { intent: "own" }));
+        return true;
+      }
+      return false;
+    } catch {
+      // Promise toast reports failure.
+      return false;
+    } finally {
+      if (current()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function switchToPersonalSandbox(options?: {
+    removePriorCloudResources?: boolean;
+  }): Promise<boolean> {
+    if (busyRef.current || !current() || typeof ApiService.adoptPooledSandbox !== "function") {
+      return false;
+    }
+    const owner = snapshotValidatedAuthSessionOwner();
+    const isEffectCurrent = () => Boolean(
+      current() && owner?.userId === userId && owner && isValidatedAuthSessionOwnerCurrent(owner),
+    );
+    if (!isEffectCurrent()) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await notify(
+        ApiService.adoptPooledSandbox({
+          allowCleanSlate: true,
+          ...(options?.removePriorCloudResources ? { removePriorCloudResources: true } : {}),
+          isEffectCurrent,
+        }),
+        {
+          loading: isPod
+            ? "Switching to Hussh Confidential Sandbox…"
+            : "Starting Hussh Confidential Sandbox…",
+          success: "Your Hussh Confidential Sandbox is ready.",
+          error: (err) =>
+            err instanceof Error && err.message
+              ? err.message
+              : "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
+        },
+        isEffectCurrent,
+      ).unwrap();
+      if (isEffectCurrent()) {
+        refresh();
+        dispatchFeedStateChanged();
+        const targetOwnerId = userId;
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          void ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
+        if (targetOwnerId) {
+          void import("@/lib/services/pre-vault-user-state-service")
+            .then((mod) =>
+              mod.PreVaultUserStateService?.bootstrapState?.(targetOwnerId, { force: true }),
+            )
+            .catch(() => undefined);
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      // Promise toast reports failure.
+      return false;
+    } finally {
+      if (current()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
   return { kind, userId: userId ?? "", status, update, refresh, azureUpdate, busy, browser, azureHosting, notice: current() ? notice : null,
     inspection, mode, isPod, needsLinkRecovery, awaitingMicrosoft, working,
     checkStatus, act, reconnectDirectPod, sendFailureReport, recoverExistingPod, current,
-    chooseHosting: () => { if (current()) router.push(profileHostingSetupHref()); } };
+    chooseHosting, switchToSharedHosting, switchToOwnCloud, switchToPersonalSandbox };
 }
 
 export type AgentSettingsController = ReturnType<typeof useAgentSettingsController>;

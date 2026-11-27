@@ -67,6 +67,7 @@ from hushh_mcp.services.account_recovery_erasure import recovery_erasure_queries
 from hushh_mcp.services.connection_graph_service import (
     list_connection_graph_viewer_ids,
     lock_connection_graph_users,
+    publish_connection_graph_events,
 )
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
@@ -76,6 +77,25 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Spent occupied-number deletion proofs outlive either account's erasure; see
+# AccountService._retain_spent_phone_deletion_proofs. Static SQL only.
+_PHONE_DELETION_RECEIPTS_LOCK_SQL = """SELECT 1 FROM account_phone_linked_deletions
+    WHERE requester_user_id=:user_id OR target_user_id=:user_id FOR UPDATE"""
+# An erased requester can never read its receipts again. Configured test-code
+# proofs are scoped to one operation, and an SMS event authorizes for at most
+# 300 s, so only recently dispatched SMS receipts still guard against replay.
+_PHONE_DELETION_REQUESTER_DROP_SQL = """DELETE FROM account_phone_linked_deletions
+    WHERE requester_user_id=:user_id AND proof_event_digest IS NOT NULL
+      AND (transport='configured_test' OR dispatched_at<clock_timestamp()-INTERVAL '10 minutes')"""
+_PHONE_DELETION_REQUESTER_DETACH_SQL = """UPDATE account_phone_linked_deletions
+    SET requester_user_id=NULL
+    WHERE requester_user_id=:user_id AND proof_event_digest IS NOT NULL"""
+# The live requester still reads this receipt; the erased holder keeps no raw
+# UID and no phone pseudonym in it.
+_PHONE_DELETION_TARGET_DETACH_SQL = """UPDATE account_phone_linked_deletions
+    SET target_user_id=NULL, phone_digest='hmac-sha256:'||repeat('0',64)
+    WHERE target_user_id=:user_id AND proof_event_digest IS NOT NULL"""
 
 DeleteAccountTarget = Literal["investor", "ria", "both"]
 # Emitted when the erasure transaction raised and was rolled back. A commit that
@@ -117,6 +137,7 @@ TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
         "personal_agent_registry",
         "one_location_visibility_preferences",
         "one_location_visibility_exclusions",
+        "one_location_chat_plans",
         "kai_location_referrals",
         "pod_lifecycle_events",
     }
@@ -459,6 +480,10 @@ class AccountService:
             ),
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
+            ),
+            "one_location_chat_plans": text(
+                """DELETE FROM one_location_chat_plans
+                WHERE user_id = :user_id OR person_user_id = :user_id"""
             ),
             "one_location_access_requests": text(
                 """
@@ -1054,11 +1079,20 @@ class AccountService:
             results[table_name] = True
 
     def _assert_personal_agent_external_resources_absent(
-        self, conn, *, params: dict[str, Any], finalize_erasure: bool = False
+        self,
+        conn,
+        *,
+        params: dict[str, Any],
+        finalize_erasure: bool = False,
+        erased_ace_hushh_ids_out: list[str] | None = None,
     ) -> dict[str, bool]:
         """Verify absence under this account transaction's existing owner locks."""
         return assert_external_resources_absent(
-            conn, params=params, table_exists=self._table_exists, finalize_erasure=finalize_erasure
+            conn,
+            params=params,
+            table_exists=self._table_exists,
+            finalize_erasure=finalize_erasure,
+            erased_ace_hushh_ids_out=erased_ace_hushh_ids_out,
         )
 
     def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
@@ -1075,13 +1109,22 @@ class AccountService:
             self._assert_personal_agent_external_resources_absent(conn, params={"user_id": user_id})
 
     def _delete_personal_agent_state(
-        self, conn, *, params: dict[str, Any], results: dict[str, bool]
-    ) -> None:
+        self, conn, *, params: dict[str, Any], results: dict[str, Any]
+    ) -> list[str]:
         """Keep absence assertion and account-state deletion in one transaction."""
+        ace_hushh_ids: list[str] = []
         table_presence = self._assert_personal_agent_external_resources_absent(
-            conn, params=params, finalize_erasure=True
+            conn,
+            params=params,
+            finalize_erasure=True,
+            erased_ace_hushh_ids_out=ace_hushh_ids,
         )
-        results["personal_agent_external_resources_absent"] = True
+        from hushh_mcp.services.account_cloud_retirement import local_erasure_ready
+
+        deferred = local_erasure_ready(conn, params["user_id"])
+        results["personal_agent_external_resources_absent"] = not deferred
+        if deferred:
+            results["personal_agent_cloud_cleanup_deferred"] = True
         for table_name, present in table_presence.items():
             if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
@@ -1089,6 +1132,7 @@ class AccountService:
         self._delete_optional_user_tables(
             conn, table_names=["personal_agent_cloud_removals"], params=params, results=results
         )
+        return ace_hushh_ids
 
     @staticmethod
     def _lock_fabric_receipt_users(conn, *, user_ids: Iterable[str]) -> None:
@@ -1420,6 +1464,7 @@ class AccountService:
         *,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Delete either the whole account or one persona.
@@ -1451,6 +1496,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
 
@@ -1794,6 +1844,7 @@ class AccountService:
             "connections",
             "trusted_connections",
             "one_location_access_requests",
+            "one_location_chat_plans",
             "one_location_envelopes",
             "one_location_share_grants",
             "one_location_recipient_keys",
@@ -1907,6 +1958,7 @@ class AccountService:
                 # Reset setup progress so the user re-runs setup. Keeps the
                 # vault row (identity + unlock methods) intact; only clears the
                 # setup/tour flags carried on it.
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
                 conn.execute(
                     text(
                         """
@@ -1916,6 +1968,11 @@ class AccountService:
                             setup_completed_at = NULL,
                             nav_setup_completed_at = NULL,
                             nav_setup_skipped_at = NULL,
+                            setup_capability_ids = NULL,
+                            setup_capability_declined_ids = NULL,
+                            setup_capabilities_updated_at = NULL,
+                            one_chat_onboarding = NULL,
+                            one_runtime_setup_choice = NULL,
                             onboarding_journey_version = NULL,
                             onboarding_phase = NULL,
                             onboarding_active_capability = NULL,
@@ -1927,11 +1984,45 @@ class AccountService:
                         WHERE user_id = :user_id
                         """
                     ),
-                    {
-                        "user_id": user_id,
-                        "now_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
-                    },
+                    {"user_id": user_id, "now_ms": now_ms},
                 )
+                if self._column_exists(
+                    conn, "vault_keys", "one_hosting_choice"
+                ) and self._column_exists(conn, "vault_keys", "one_hosting_choice_at"):
+                    conn.execute(
+                        text(
+                            "UPDATE vault_keys SET one_hosting_choice = NULL, one_hosting_choice_at = NULL WHERE user_id = :user_id"
+                        ),
+                        {"user_id": user_id},
+                    )
+                for optional_col, optional_stmt in (
+                    (
+                        "onboarding_callback_attempt_id",
+                        text(
+                            "UPDATE vault_keys SET onboarding_callback_attempt_id = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_source",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_source = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_welcome_acknowledged",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_welcome_acknowledged = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_circle_id",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_circle_id = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                ):
+                    if self._column_exists(conn, "vault_keys", optional_col):
+                        conn.execute(optional_stmt, {"user_id": user_id})
                 results["onboarding_reset"] = True
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=False)
 
@@ -1969,6 +2060,7 @@ class AccountService:
         backend_only: bool = False,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
@@ -1984,6 +2076,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         if admission_check is not None:
@@ -2002,13 +2099,21 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
 
+        from hushh_mcp.services.account_cloud_retirement import CloudRetirementReviewRequired
         from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
 
         try:
+            if reviewed_cloud_plan_sha256 is not None:
+                from hushh_mcp.services.account_cloud_retirement import verify_reviewed_authority
+
+                await settle_cleanup_database_call(
+                    verify_reviewed_authority, user_id, reviewed_cloud_plan_sha256
+                )
             prepared = await settle_cleanup_database_call(
                 prepare_full_account_cleanup_transaction,
                 self,
@@ -2017,6 +2122,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         except AccountDeletionAdmissionRefused as refused:
@@ -2028,7 +2138,7 @@ class AccountService:
                 "error_code": "PHONE_TRANSFER_IN_PROGRESS",
                 "error": "PHONE_TRANSFER_IN_PROGRESS",
             }
-        except ProviderCleanupReviewChanged as changed:
+        except (ProviderCleanupReviewChanged, CloudRetirementReviewRequired) as changed:
             return changed.result()
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.account_personal_agent_erasure import (
@@ -2050,6 +2160,12 @@ class AccountService:
             "success": True,
             "account_deleted": False,
             "cleanup_pending": True,
+            "ready_to_start_fresh": False,
+            **(
+                {"cloud_cleanup": prepared.cloud_cleanup}
+                if prepared.cloud_cleanup is not None
+                else {}
+            ),
             "requested_target": requested_target,
             "cleanup_operation": {
                 "id": prepared.cleanup_id,
@@ -2080,6 +2196,15 @@ class AccountService:
                 backend_only=backend_only,
                 **extra,
             )
+            if result["success"]:
+                erased_ace_ids = (result.get("details") or {}).pop("_erased_ace_hushh_ids", None)
+                if erased_ace_ids:
+                    from hushh_mcp.services.account_personal_agent_erasure import (
+                        purge_pooled_ace_storage_prefixes_best_effort,
+                    )
+
+                    await purge_pooled_ace_storage_prefixes_best_effort(list(erased_ace_ids))
+                    result["details"]["pooled_ace_storage_prefix_purged"] = True
             if result["success"] and provider_cleanup is not None:
                 result["details"]["provider_grant_release"] = {
                     "status": "cleanup_qualified_before_erasure"
@@ -2119,11 +2244,38 @@ class AccountService:
         cleanup = await self._erase_shared_files_if_present(claim.owner_id, backend_only=False)
         if cleanup is not None:
             return cleanup
+        from hushh_mcp.services.account_deletion_firebase_erasure import ensure_identity_absent
+
+        await ensure_identity_absent(claim)
         return await self._settle_full_account_transaction(
             claim.owner_id,
             requested_target=self._normalized_target(claim.requested_target),
             provider_cleanup=claim,
         )
+
+    def _retain_spent_phone_deletion_proofs(self, conn, params: Dict[str, Any]) -> None:
+        """Keep every spent linked-deletion proof single-use through erasure.
+
+        Migration 436 cascades a linked-deletion receipt with either account, but
+        a consumed receipt holds the only record of its spent SMS event (the
+        UNIQUE proof_event_digest) and the requester's read-back of the outcome.
+        Detach it instead: clear this owner's raw reference, which the identity
+        write guard allows only after this owner's tombstone exists, and blank an
+        erased holder's phone digest. Receipts that can no longer be replayed or
+        read are deleted, unconsumed rows still cascade, and the shared bounded
+        prune ages retained receipts out without waiting for a new prepare().
+        """
+        if not self._table_exists(conn, "account_phone_linked_deletions"):
+            return
+        from hushh_mcp.services.phone_linked_deletion import RECEIPT_PRUNE_SQL
+
+        # Lock this owner's receipts first: an in-flight admission either commits
+        # its spent-proof digest before the detach reads it, or finds the row gone.
+        conn.execute(text(_PHONE_DELETION_RECEIPTS_LOCK_SQL), params)
+        conn.execute(text(RECEIPT_PRUNE_SQL))
+        conn.execute(text(_PHONE_DELETION_REQUESTER_DROP_SQL), params)
+        conn.execute(text(_PHONE_DELETION_REQUESTER_DETACH_SQL), params)
+        conn.execute(text(_PHONE_DELETION_TARGET_DETACH_SQL), params)
 
     def _delete_full_account_transaction(
         self,
@@ -2134,6 +2286,7 @@ class AccountService:
         provider_cleanup: ProviderCleanupClaim | None = None,
     ) -> tuple[Dict[str, Any], ProviderCredentialSnapshot]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
+        cloud_cleanup = None
         results = {
             "actor_identity_cache": False,
             "actor_verified_email_aliases": False,
@@ -2219,6 +2372,7 @@ class AccountService:
             "one_location_referrals": False,
             "kai_location_referrals": False,
             "one_location_access_requests": False,
+            "one_location_chat_plans": False,
             "one_location_envelopes": False,
             "one_location_public_invite_submissions": False,
             "one_location_public_invites": False,
@@ -2260,7 +2414,9 @@ class AccountService:
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
         backend_cleanup = None
+        erased_ace_hushh_ids: list[str] = []
         graph_viewer_ids: set[str] = set()
+        graph_hint_committed = False
         try:
             with get_db_connection() as conn:
                 # Apply before acquiring any lifecycle/domain lock. A blocked
@@ -2315,11 +2471,14 @@ class AccountService:
                 # before destructive statements, including bounded recovery batches.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
                 guard_answer_erasure(conn, user_id=user_id)
-                self._delete_personal_agent_state(
+                erased_ace_hushh_ids = self._delete_personal_agent_state(
                     conn,
                     params=params,
                     results=results,
                 )
+                # After the erasure guards, before actor_profiles cascades: the
+                # tombstone above permits detaching this owner's references.
+                self._retain_spent_phone_deletion_proofs(conn, params)
                 # Copy encrypted provider credentials before their rows go, so
                 # the grants can be released at the provider after commit.
                 if not backend_only and provider_cleanup is None:
@@ -2336,6 +2495,7 @@ class AccountService:
                     conn,
                     user_id=user_id,
                     include_pending_requests=True,
+                    include_location_audiences=True,
                     table_exists=lambda table_name: self._table_exists(conn, table_name),
                 )
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)
@@ -2601,6 +2761,7 @@ class AccountService:
                     "connections",
                     "trusted_connections",
                     "one_location_access_requests",
+                    "one_location_chat_plans",
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
@@ -2666,6 +2827,28 @@ class AccountService:
                     from hushh_mcp.services import account_deletion_provider_journal as journal
 
                     journal.settle_local_erasure(conn, backend_cleanup)
+                if results.get("personal_agent_cloud_cleanup_deferred"):
+                    from hushh_mcp.services.account_cloud_retirement import summary_in_transaction
+
+                    cloud_cleanup = summary_in_transaction(conn, user_id)
+
+                if graph_viewer_ids:
+                    try:
+                        with conn.begin_nested():
+                            publish_connection_graph_events(conn, graph_viewer_ids)
+                    except Exception:  # noqa: BLE001 - preserve erasure if the hint fails
+                        logger.warning("account.graph_commit_hint_failed", exc_info=True)
+                    else:
+                        graph_hint_committed = True
+
+                if graph_viewer_ids:
+                    try:
+                        with conn.begin_nested():
+                            publish_connection_graph_events(conn, graph_viewer_ids)
+                    except Exception:  # noqa: BLE001 - preserve erasure if the hint fails
+                        logger.warning("account.graph_commit_hint_failed", exc_info=True)
+                    else:
+                        graph_hint_committed = True
 
             logger.info("✅ FULL ACCOUNT DELETION completed for %s", user_id)
         except PersonalAgentDeprovisioningRequiredError:
@@ -2701,11 +2884,15 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
+        if erased_ace_hushh_ids:
+            results["_erased_ace_hushh_ids"] = erased_ace_hushh_ids
         if graph_viewer_ids:
             try:
                 from hushh_mcp.services.connections_service import _notify_connection_graph_changed
 
-                _notify_connection_graph_changed(user_ids=graph_viewer_ids)
+                _notify_connection_graph_changed(
+                    user_ids=graph_viewer_ids, publish_live=not graph_hint_committed
+                )
             except Exception:  # a failed doorbell cannot undo committed erasure
                 logger.warning("account.graph_sync_failed", exc_info=True)
         return {
@@ -2713,6 +2900,11 @@ class AccountService:
             "requested_target": requested_target,
             "deleted_target": "both",
             "account_deleted": True,
+            **(
+                {"cloud_cleanup": cloud_cleanup, "ready_to_start_fresh": True}
+                if cloud_cleanup is not None
+                else {}
+            ),
             "remaining_personas": [],
             "details": results,
         }, provider_credentials

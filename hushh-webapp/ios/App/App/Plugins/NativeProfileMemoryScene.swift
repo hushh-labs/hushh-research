@@ -38,6 +38,8 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
 @available(iOS 26.0, *) struct NativeProfilePrivateText<Projection: NativeProfileEditorProjection>: UIViewRepresentable {
     @ObservedObject var model: NativeProfileEditorModel<Projection>
     let name: String; let label: String; let maximum: Int; let identifier: String
+    var restoreSelection: ((String, String, NSRange) -> NSRange)? = nil
+    var autocorrection: UITextAutocorrectionType = .default
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(); view.delegate = context.coordinator
         view.backgroundColor = .clear; view.font = .preferredFont(forTextStyle: .body); view.adjustsFontForContentSizeCategory = true
@@ -46,17 +48,24 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
         model.register(view, name: name); return view
     }
     func updateUIView(_ view: UITextView, context: Context) {
-        context.coordinator.owner = self; view.isEditable = model.canEdit; view.textColor = .label; view.tintColor = model.accent
+        context.coordinator.owner = self; view.autocorrectionType = autocorrection; view.isEditable = model.canEdit; view.textColor = .label; view.tintColor = model.accent
         let value = model.draft[name]
         if view.markedTextRange == nil && view.text != value {
-            let selection = view.selectedRange; view.text = value
+            let previous = view.text ?? "", selection = view.selectedRange
+            view.text = value
             let start = min(selection.location, value.utf16.count)
-            view.selectedRange = NSRange(location: start, length: min(selection.length, value.utf16.count - start))
+            view.selectedRange = restoreSelection?(previous, value, selection) ?? NSRange(location: start, length: min(selection.length, value.utf16.count - start))
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     static func dismantleUIView(_ view: UITextView, coordinator: Coordinator) {
-        coordinator.owner.model.capture(); view.delegate = nil; view.unmarkText(); view.resignFirstResponder(); view.text = ""; view.undoManager?.removeAllActions()
+        let model = coordinator.owner.model
+        model.capture()
+        model.scrubEditor(view) {
+            model.unregister(view, name: coordinator.owner.name)
+            view.unmarkText(); view.resignFirstResponder(); view.text = ""; view.undoManager?.removeAllActions()
+            if !model.detachEditor(view) { view.delegate = nil }
+        }
     }
     final class Coordinator: NSObject, UITextViewDelegate {
         var owner: NativeProfilePrivateText; init(_ owner: NativeProfilePrivateText) { self.owner = owner }
@@ -64,7 +73,9 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
         func textViewDidEndEditing(_ textView: UITextView) { owner.model.capture() }
         func textView(_ textView: UITextView, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { owner.model.editMenuPresented(textView) }
         func textView(_ textView: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-            let model = owner.model; animator.addCompletion { model.editMenuDismissed(textView) }
+            let model = owner.model
+            guard let token = model.beginEditorMenuDismissal(textView) else { return }
+            animator.addCompletion { model.editMenuDismissed(textView, token: token) }
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let current = textView.text ?? ""

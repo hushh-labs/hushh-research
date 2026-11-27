@@ -31,6 +31,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
       ...["@/components/account/use-marketing-preference", "@/components/onboarding/initial-contacts-bridge", "@/lib/services/initial-contacts-onboarding-service", "@/lib/services/personal-knowledge-model-service", "@/lib/one/ai-selection-vault", "@/components/onboarding/setup/local-first-vault-sequence", "@/lib/services/onboarding-buffer-migration-service", "@/lib/feed/personal-agent-readiness", "@/lib/services/account-identity-service", "@/lib/services/api-service", "@/lib/onboarding/use-capability-setup-states", "@/components/dashboard/one-agent-presence", "@/components/profile/public-profile-discovery-card", "@/lib/services/kai-profile-service", "next/navigation", "next/image", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/components/vault/vault-unlock-dialog", "@/components/app-ui/native-test-beacon", "@/lib/services/pre-vault-user-state-service", "@/lib/services/cache-service", "@/lib/services/one-setup-exit-service", "@/lib/services/pre-vault-sensitive-draft-service", "@/lib/services/finance-setup-draft-service", "@/lib/services/post-unlock-sync-service", "@/lib/connections/gemini-runtime-configuration", "@/lib/agent/one-conversation-session", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") })),
+      { find: "@/lib/agent/chat-memory-owner", replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") },
       { find: "@", replacement: root },
     ] },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
@@ -85,21 +86,22 @@ for (const { width, height } of [
       await page.setViewportSize({width,height});
       await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
       await page.addScriptTag({content:script});
-      const subtitle = page.locator('[data-slot="page-header-description"]');
-      await expect(subtitle).toHaveText("Finish your agent setup.");
+      const heading = page.getByRole("heading", {name:"Set up One", exact:true});
+      await expect(heading).toBeVisible();
+      await expect(page.locator('[data-slot="page-header-description"]')).toHaveCount(0);
       await awaitProductFont(page);
       const card = page.getByTestId("one-setup-foundation");
-      const finish = page.getByRole("button", {name:"Finish setup",exact:true});
+      const finish = page.getByRole("button", {name:"Continue",exact:true});
       await expect(finish).toBeDisabled();
       await expect(page.getByRole("progressbar")).toHaveCount(0);
       await expect(page.getByRole("button", {name:/Choose your AI/})).toHaveCount(0);
       await expect(page.getByText("Set up the rest later.",{exact:true})).toHaveCount(0);
-      const subBox = (await subtitle.boundingBox())!;
+      const headingBox = (await heading.boundingBox())!;
       const cardBox = (await card.boundingBox())!;
       const buttonBox = (await finish.boundingBox())!;
       expect(buttonBox.width).toBeCloseTo(width >= 640 ? 320 : cardBox.width, 0);
       expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(cardBox.x + cardBox.width / 2, 0);
-      expect(cardBox.y - subBox.y - subBox.height).toBeCloseTo(24, 0);
+      expect(cardBox.y - headingBox.y - headingBox.height).toBeCloseTo(24, 0);
       expect(buttonBox.y + buttonBox.height).toBeCloseTo(height - 16, 0);
       expect(buttonBox.y).toBeGreaterThan(cardBox.y + cardBox.height);
       await page.evaluate(() => document.documentElement.style.setProperty("--app-safe-area-bottom-effective", "34px"));
@@ -112,7 +114,7 @@ for (const { width, height } of [
         await expect(finish).toHaveCSS(property,expected);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-      const preferences = page.getByRole("region", { name: "Optional One email updates" });
+      const preferences = page.getByRole("form", { name: "Email updates" });
       await expect(preferences.getByRole("combobox")).toBeVisible();
       await preferences.scrollIntoViewIfNeeded();
       await preferences.hover();

@@ -147,7 +147,7 @@ export function selectPanelResult(state: VoiceSessionState): PanelResultSlot {
     return {
       result: last,
       tool: item?.tool ?? "",
-      ok: item ? item.ok === true : undefined,
+      ok: last.status === "proposal_ready" ? undefined : item ? item.ok === true : undefined,
     };
   }
   if (resolved?.resolvedResult) {

@@ -60,6 +60,12 @@ def test_account_identifiers_never_enter_an_export(path):
         "attr.financial.portfolio.*",
         "attr.financial.summary.*",
         "attr.financial.summary.allocation_bands",
+        "attr.financial.accounts.*",
+        "attr.financial.accounts.cash_in_bank",
+        "attr.financial.liabilities.*",
+        "attr.financial.liabilities.total_owed",
+        "attr.financial.cashflow.*",
+        "attr.financial.cashflow.net_worth",
     ],
 )
 def test_derived_and_summary_branches_stay_shareable(scope):
@@ -87,6 +93,7 @@ def test_vault_branches_are_registered_financial_subintents():
         assert branch in FINANCIAL_INTENT_MAP
         assert f"financial.{branch}" in registered
         assert branch in denied
-    assert "summary" in FINANCIAL_INTENT_MAP
-    assert "financial.summary" in registered
-    assert "summary" not in denied
+    for shareable_branch in ("summary", "accounts", "liabilities", "cashflow"):
+        assert shareable_branch in FINANCIAL_INTENT_MAP
+        assert f"financial.{shareable_branch}" in registered
+        assert shareable_branch not in denied

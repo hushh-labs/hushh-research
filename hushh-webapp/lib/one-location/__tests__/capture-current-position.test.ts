@@ -21,6 +21,7 @@ vi.mock("@/lib/capacitor", () => ({
   },
 }));
 
+import { LocationBus } from "@/lib/one-location/location-bus";
 import {
   CAPTURE_DEFAULT_MAX_AGE_MS,
   OneLocationService,
@@ -148,6 +149,34 @@ describe("OneLocationService.captureCurrentPosition", () => {
 
     resolveCapture(point());
     await expect(Promise.all([cached, fresh])).resolves.toHaveLength(2);
+  });
+
+  it("uses the same measured fix when SMS confirmation joins capture started during the hold", async () => {
+    let resolveCapture!: (value: ReturnType<typeof point>) => void;
+    getCurrentPosition.mockImplementation(() => new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+
+    const preparation = LocationBus.ensure({
+      maxAgeMs: 25_000,
+      requireMeasurement: true,
+      fastNetworkFallback: true,
+    });
+    vi.advanceTimersByTime(2_000);
+    const confirmed = OneLocationService.captureCurrentPosition({
+      maxAgeMs: 0,
+      requireMeasurement: true,
+      fastNetworkFallback: true,
+    });
+    resolveCapture(point());
+
+    await expect(preparation).resolves.toMatchObject({ accuracyM: 12 });
+    await expect(confirmed).resolves.toEqual(point());
+    expect(getCurrentPosition).toHaveBeenCalledExactlyOnceWith({
+      enableHighAccuracy: true,
+      timeoutMs: 15_000,
+      fastNetworkFallback: true,
+    });
   });
 
   it("propagates a failure to every coalesced caller", async () => {
