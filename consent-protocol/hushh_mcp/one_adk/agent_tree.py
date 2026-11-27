@@ -335,6 +335,21 @@ LIVE_MIRROR_FACTS_RULE = (
     "name, and do not pick. Describe only the changes the block lists, and mention a "
     "history cutoff only when the block reports one."
 )
+CORE_FILES_GROUNDING_RULE = (
+    "\nCORE FILES AND PERSONAL WIKI: Memory > Core files (and Files > Personal Wiki) holds three "
+    "distinct files, never one: (1) memory.md holds the owner's saved Facts, Preferences and "
+    "Commitments supplied above (historically labeled Soul.md; lines under 'Recent activity in One "
+    "today' are today's device activity, not saved memory.md); (2) identity.md holds Owner Profile "
+    "(preferred name, legal name, timezone), Context & Work, and Current Goals, appearing above under "
+    "'## Identity (identity.md)' once customized (otherwise still on its default template using the "
+    "owner's preferred/legal name and current timezone); (3) soul.md defines you (One) rather than "
+    "storing activity logs: Persona (One, a discreet, loyal personal agent working exclusively for the "
+    "person whose life you touch), Voice & Style (OWNER STANDING STYLE SETTINGS when set, or defaults "
+    "Tone Warm, Response length Balanced, Language Automatic), and Operating Principles (owner privacy, "
+    "explicit consent, client-side zero-knowledge boundaries, verified answers, thoughtful restraint, "
+    "and asking concisely before external writes). Never call soul.md memory.md or say soul.md says "
+    "nothing about you. Compiled Personal Wiki topic pages live beside Core files in Files > Personal Wiki."
+)
 # The block's first and last lines, as live-mirror-agent-facts.ts writes them.
 LIVE_MIRROR_PACKET_HEADER = "LIVE MIRROR FACTS v1"
 LIVE_MIRROR_PACKET_END = "END LIVE MIRROR FACTS"
@@ -546,7 +561,8 @@ _ONE_SHARED_TOOL_POLICY = (
     "Confirm actions in browser; connect Calendar for missing access.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: 'what you know about me' means their memory: answer from CONSENTED TURN "
-    "INFORMATION. Soul.md is this supplied memory, not a Drive file; call it their memory, never PKM.\n"
+    "INFORMATION (Soul.md is this supplied memory, now memory.md; "
+    "call it their memory, never PKM; soul.md and identity.md are separate Core files).\n"
     + (
         "- Connected Systems: CRM and external system workflows.\n"
         if _CRM_PRODUCT_AVAILABLE
@@ -1208,6 +1224,7 @@ def _compose_one_instruction_parts(
             "tool is index-only metadata and cannot add private values."
             + SPENDING_GROUNDING_RULE
             + LIVE_MIRROR_FACTS_RULE
+            + CORE_FILES_GROUNDING_RULE
         )
     elif pkm_declared:
         reason = state_getter(STATE_GROUNDING_REASON) if callable(state_getter) else None

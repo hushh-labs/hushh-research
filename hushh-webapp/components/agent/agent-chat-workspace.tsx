@@ -926,6 +926,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const oneScrollTopRef = useRef(0);
   const [recoveryScrollTop, setRecoveryScrollTop] = useState<number | null>(null);
+  const recoveryScrollTopRef = useRef<number | null>(null);
+  recoveryScrollTopRef.current = recoveryScrollTop;
   // Programmatic history/anchor restoration must not be interpreted as a
   // person's scroll gesture. Chat's transcript is nested inside the app
   // shell, so this distinction is what keeps the shared bottom chrome visible
@@ -937,6 +939,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // The last follow left the latest turn in view; growth keeps following it.
   const transcriptStuckToEndRef = useRef(true);
   const scrollToSubmittedTurnRef = useRef(false);
+  const wasPuppySurfaceRef = useRef(false);
+  const initialBottomPinPendingRef = useRef(true);
+  const initialBottomPinHoldUntilRef = useRef(0);
 
   const clearTranscriptProgrammaticScroll = useCallback(() => {
     transcriptProgrammaticScrollRef.current = false;
@@ -2219,7 +2224,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // The browser clamps to scrollHeight, which is the right failure mode if the
   // transcript shrank while Puppy was on screen.
   useLayoutEffect(() => {
-    if (isPuppySurface) return;
+    if (isPuppySurface) {
+      wasPuppySurfaceRef.current = true;
+      return;
+    }
+    if (!wasPuppySurfaceRef.current) return;
+    wasPuppySurfaceRef.current = false;
     const element = transcriptRef.current;
     if (!element) return;
     const target = Math.min(
@@ -2232,6 +2242,49 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       behavior: "instant" as ScrollBehavior,
     });
   }, [beginTranscriptProgrammaticScroll, isPuppySurface]);
+
+  useLayoutEffect(() => {
+    if (
+      isPuppySurface ||
+      recoveryScrollTop !== null ||
+      transcriptUserScrollRef.current ||
+      !initialBottomPinPendingRef.current
+    ) {
+      return;
+    }
+    const element = transcriptRef.current;
+    if (!element) return;
+    const hasRealHistory = messages.some((m) => m.id !== "agent-greeting");
+    if (!hasRealHistory) return;
+    initialBottomPinPendingRef.current = false;
+    transcriptStuckToEndRef.current = true;
+    const snapToEnd = () => {
+      if (transcriptUserScrollRef.current || isPuppySurface) return;
+      const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      if (Math.abs(maxTop - element.scrollTop) >= 1) {
+        beginTranscriptProgrammaticScroll(maxTop);
+        element.scrollTo({ top: maxTop, behavior: "instant" as ScrollBehavior });
+        oneScrollTopRef.current = element.scrollTop;
+      } else {
+        oneScrollTopRef.current = maxTop;
+      }
+    };
+    snapToEnd();
+    initialBottomPinHoldUntilRef.current =
+      (typeof performance !== "undefined" ? performance.now() : Date.now()) + 900;
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (now > initialBottomPinHoldUntilRef.current || transcriptUserScrollRef.current) {
+        observer.disconnect();
+        return;
+      }
+      snapToEnd();
+    });
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, [beginTranscriptProgrammaticScroll, isPuppySurface, messages, recoveryScrollTop]);
 
   useLayoutEffect(() => {
     if (recoveryScrollTop === null || isPuppySurface) return;
@@ -2478,7 +2531,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     displayName: formatAgentDisplayName(user?.displayName, user?.email),
     vaultKey,
     vaultOwnerToken,
-    isVaultUnlocked,
+    isVaultUnlocked:
+      isVaultUnlocked &&
+      (historyReadyForSlot ||
+        Boolean(initialHistorySnapshot) ||
+        skipInitialHistoryLoadRef.current ||
+        Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) ||
+        Boolean(postSetupWelcomeContext)),
     startSignal: Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) || Boolean(postSetupWelcomeContext),
     messages,
     conversationId,
@@ -2565,6 +2624,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           );
           if (canonicalMainId && targetConversationId === canonicalMainId) {
             setIsOneStreamDraft(true);
+          }
+          if (!transcriptUserScrollRef.current && recoveryScrollTopRef.current === null) {
+            initialBottomPinPendingRef.current = true;
+            transcriptStuckToEndRef.current = true;
           }
           updateConversationId(targetConversationId, false);
           setMessages((current) =>
@@ -4343,6 +4406,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (canonicalMainId && targetConversationId === canonicalMainId) {
         setIsOneStreamDraft(true);
       }
+      if (!transcriptUserScrollRef.current && recoveryScrollTopRef.current === null) {
+        initialBottomPinPendingRef.current = true;
+        transcriptStuckToEndRef.current = true;
+      }
       updateConversationId(targetConversationId, false);
       setMessages((current) =>
         mergePendingConsentMessages(
@@ -4515,6 +4582,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           : message,
       );
       latestVisibleTurnIdRef.current = null;
+      if (!transcriptUserScrollRef.current && recoveryScrollTopRef.current === null) {
+        initialBottomPinPendingRef.current = true;
+        transcriptStuckToEndRef.current = true;
+      }
       updateConversationId(nextConversationId);
       const nextMessages = restored.length > 0 ? restored : [createGreetingMessage()];
       const keepOneStreamCards =
@@ -9193,6 +9264,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? redactReceiptAnswer(message) : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
       if (
+        message.role === "assistant" &&
+        message.status === "done" &&
+        !message.text.trim() &&
+        !message.ephemeral &&
+        !message.thinkingSummary?.trim() &&
+        !(message.streamEvents ?? []).some(
+          (event) => event.label !== "Memory" && event.label !== "Add to Memory",
+        ) &&
+        !message.sources?.length &&
+        !message.structuredExperience &&
+        !message.structuredExperiences?.length &&
+        !message.specialistDirective &&
+        !message.consentAccessEnded &&
+        !message.locationChatProposal &&
+        !message.calendarMeeting &&
+        !message.memoryCapture
+      ) {
+        return false;
+      }
+      if (
         pendingSpecialistDirective &&
         message.id !== calendarConnectAnchorId &&
         message.role === "assistant" &&
@@ -9682,7 +9773,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!stack || !transcript || typeof ResizeObserver === "undefined") return;
     const publish = () => {
       const atEnd =
-        transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 24;
+        transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 120 ||
+        (transcriptStuckToEndRef.current && !transcriptUserScrollRef.current);
       transcript.style.setProperty(
         "--agent-chat-composer-stack-height",
         `${Math.ceil(isCanonicalChatRoute && nativeDockPorts?.layout ? nativeDockPorts.layout.frame.height : stack.getBoundingClientRect().height)}px`,
@@ -10433,12 +10525,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     return;
                   }
 
-                  // When the reader scrolls up or moves noticeably away from the bottom,
-                  // immediately clear any programmatic lock and mark active reader control.
-                  if (scrollTop < previousScrollTop - 2 || distanceFromBottom > 64) {
+                  // When the reader scrolls up, immediately clear any programmatic lock
+                  // and mark active reader control. Content growth alone must not
+                  // be misread as an upward scroll gesture.
+                  if (scrollTop < previousScrollTop - 2) {
                     clearTranscriptProgrammaticScroll();
                     transcriptUserScrollRef.current = true;
-                  } else if (distanceFromBottom <= 16) {
+                  } else if (distanceFromBottom <= 96) {
                     // Re-enable following when the reader returns to the latest message
                     transcriptUserScrollRef.current = false;
                   }
@@ -10577,25 +10670,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {chatOnboarding.turns.length ? (
                 renderChatOnboarding({ kind: "top" })
               ) : !hasStartedConversation && !voiceActive ? (
-                <>
-                  <AgentWelcomePanel
-                    name={displayName}
-                    prompts={welcomePrompts}
-                    disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
-                    onPromptSelect={handleWelcomePromptSelect}
-                  />
-                  {!isPuppySurface ? <MailAttentionStack onAskOne={handleWelcomePromptSelect}
-                    briefDisabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
-                    onEmpty={() => composerTextareaRef.current?.focus()}
-                    onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} /> : null}
-                  {chatOnboarding.dailyTip ? (
-                    <ChatOnboardingDailyTip
-                      tip={chatOnboarding.dailyTip}
-                      onUse={handlePromptDraftSelect}
-                      onDismiss={chatOnboarding.dismissDailyTip}
+                !(hasChatAccess && isVaultUnlocked && !historyReadyForSlot && !slotHistoryFailed) ? (
+                  <>
+                    <AgentWelcomePanel
+                      name={displayName}
+                      prompts={welcomePrompts}
+                      disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+                      onPromptSelect={handleWelcomePromptSelect}
                     />
-                  ) : null}
-                </>
+                    {!isPuppySurface ? <MailAttentionStack onAskOne={handleWelcomePromptSelect}
+                      briefDisabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+                      onEmpty={() => composerTextareaRef.current?.focus()}
+                      onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} /> : null}
+                    {chatOnboarding.dailyTip ? (
+                      <ChatOnboardingDailyTip
+                        tip={chatOnboarding.dailyTip}
+                        onUse={handlePromptDraftSelect}
+                        onDismiss={chatOnboarding.dismissDailyTip}
+                      />
+                    ) : null}
+                  </>
+                ) : null
               ) : null}
 
               {loadingOlderHistory ? (
