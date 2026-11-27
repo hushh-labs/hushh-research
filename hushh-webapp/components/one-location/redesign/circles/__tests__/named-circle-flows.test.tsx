@@ -10,9 +10,12 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startTransition } from "react";
+import { createElement, startTransition } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
+import * as observability from "@/lib/observability/client";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 
 import {
@@ -93,6 +96,52 @@ function createProps() {
   };
 }
 
+// Exercise the production save owner through the real flow, without mounting
+// the unrelated map/account tree or making any provider/contact requests.
+function pageCircleOwner(createNamedCircle: ReturnType<typeof vi.fn>) {
+  const file = ts.createSourceFile("page.tsx", readFileSync("app/one/location/page.tsx", "utf8"),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(file) === "handleCreateNamedCircle"
+      && node.initializer && ts.isCallExpression(node.initializer)) callback = node.initializer.arguments[0];
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  if (!callback) throw new Error("Missing production Circle save owner");
+  const updateNamedCircle = vi.fn(async ({ name }: { name: string }) => circle("new-circle", name));
+  const ports = {
+    vaultOwnerToken: "synthetic-owner-token", setBusy: vi.fn(),
+    OneLocationService: { createNamedCircle, updateNamedCircle },
+    scheduleNamedCircleStateRefresh: vi.fn(), trackEvent: observability.trackEvent,
+    trackLocationFunnelStepCompleted: vi.fn(), toast,
+    oneLocationErrorMessage: () => "Synthetic save failure",
+  };
+  const javascript = ts.transpileModule(`const callback = ${callback.getText(file)};`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const onSubmit = new Function(...Object.keys(ports), `${javascript}\nreturn callback;`)(...Object.values(ports)) as
+    (name: string, kind: "family" | "friends" | "other", existingId?: string) => Promise<OneLocationCircleDetail>;
+  const hub = ts.createSourceFile("hub.tsx", readFileSync("components/one-location/redesign/location-redesign-hub.tsx", "utf8"),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let view: ts.JsxSelfClosingElement | undefined;
+  const findView = (node: ts.Node) => {
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(hub) === "CreateCircleFlow") view = node;
+    ts.forEachChild(node, findView);
+  };
+  findView(hub);
+  if (!view) throw new Error("Missing production Circle creation binding");
+  const props = createProps(), complete = vi.fn();
+  const viewPorts = { React: { createElement }, CreateCircleFlow, vm: {
+    userId: "synthetic-owner", circleSessionScope: "synthetic-session", busy: null,
+    onCreateNamedCircle: onSubmit, onLoadNamedCircleEligibleConnectionsPage: props.onLoadPeople,
+    onInviteNamedCircleConnections: props.onAddPeople,
+  }, openCircleDetail: complete };
+  const renderScript = ts.transpileModule(`const renderFlow = () => (${view.getText(hub)});`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const renderFlow = new Function(...Object.keys(viewPorts), `${renderScript}\nreturn renderFlow;`)(...Object.values(viewPorts)) as () => import("react").ReactNode;
+  return { onSubmit, updateNamedCircle, renderFlow, complete };
+}
+
 function detailProps(
   onLoad: (circleId: string) => Promise<OneLocationCircleDetail>,
 ) {
@@ -123,6 +172,66 @@ function detailProps(
 }
 
 describe("named Circle flows", () => {
+  describe("Circle creation observations", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("records one confirmed create through Next and Add people later", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      const create = vi.fn(async () => circle("new-circle", "Synthetic circle"));
+      const owner = pageCircleOwner(create);
+      render(owner.renderFlow());
+      fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Synthetic circle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Add people later" }));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(owner.complete).toHaveBeenCalledTimes(1);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toEqual([
+        ["one_location_circle_created", { route_id: "one_location", result: "success", circle_kind: "family" }],
+      ]);
+    });
+
+    it("does not invent a successful creation on rejection and records its retry once", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      const create = vi.fn().mockRejectedValueOnce(new Error("Synthetic save failure"))
+        .mockResolvedValueOnce(circle("new-circle", "Synthetic circle"));
+      const owner = pageCircleOwner(create);
+      render(owner.renderFlow());
+      fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Synthetic circle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(0);
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("button", { name: "Add people later" });
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(1);
+    });
+
+    it("retains one creation when the saved Circle is renamed before finishing", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      const create = vi.fn(async () => circle("new-circle", "Synthetic circle"));
+      const owner = pageCircleOwner(create);
+      const { result } = renderHook(() => useCreateCircleFlow({ ...createProps(), onSubmit: owner.onSubmit, creationObservedByOwner: true }));
+      act(() => result.current.setName("Synthetic circle"));
+      await act(async () => { expect(await result.current.prepare()).toBe(true); });
+      act(() => { result.current.advance(); result.current.backToDetails(); });
+      act(() => result.current.setName("Synthetic renamed circle"));
+      await act(async () => { expect(await result.current.prepare()).toBe(true); });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(owner.updateNamedCircle).toHaveBeenCalledTimes(1);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(1);
+    });
+
+    it("preserves the flow observation for a save owner without its own reporter", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      render(<CreateCircleFlow {...createProps()} />);
+      fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Synthetic circle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("button", { name: "Add people later" });
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(1);
+    });
+  });
+
   it.each([false, true])("uses the SMS text-style Add people entry for named circles (living=%s)", async (livingCircleExperience) => {
     render(<CircleDetailFlow circleId="family" livingCircleExperience={livingCircleExperience} {...detailProps(async () => circle("family", "Family"))} />);
     const add = await screen.findByRole("button", { name: "Add people", exact: true });
