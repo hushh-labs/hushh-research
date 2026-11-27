@@ -16,6 +16,34 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it.each(["success", "error", "expected_error"])("carries only explicit %s with wire support", async result => {
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST"
+      ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012", resultVersion: 1 })));
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body).result).toBe(result);
+    expect(JSON.stringify(posts())).not.toContain("owner-a");
+  });
+
+  it.each([undefined, null, "PRIVATE_RESULT", { secret: "PRIVATE_RESULT" }])("leaves nonliteral results unknown: %j", async result => {
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST"
+      ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012", resultVersion: 1 })));
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_RESULT");
+  });
+
+  it("omits explicit result for an older strict server", async () => {
+    const f = await fixture();
+    f.observeProductEvent("one_memory_action", "detail_edited", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
+  });
+
+
   it("refreshes admission for new operations after a remote reset without rebinding pending terminal reports", async () => {
     const f = await fixture();
     const now = Date.now();

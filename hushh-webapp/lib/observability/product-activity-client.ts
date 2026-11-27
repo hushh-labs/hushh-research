@@ -8,7 +8,8 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 type Phase = "started" | "returned" | "failed" | "cancelled" | "blocked";
-type Admission = { enabled: boolean; generation?: string };
+type EventResult = "success" | "error" | "expected_error";
+type Admission = { enabled: boolean; generation?: string; resultVersion?: number };
 type Observation = { scope: ProductActivityScope | null; admitted: Promise<Admission> };
 let admission: { scope: ProductActivityScope; capturedAt: number; value: Promise<Admission> } | null = null;
 let pending = 0;
@@ -32,7 +33,7 @@ function observation(scope: ProductActivityScope | null): Observation {
   return { scope, admitted: admission.value };
 }
 
-async function send(actionId: string, phase: Phase, operationId: string, captured: Observation) {
+async function send(actionId: string, phase: Phase, operationId: string, captured: Observation, result?: EventResult) {
   const { scope } = captured;
   if (!scope || !isProductActivityScopeCurrent(scope) || pending >= 4) return;
   pending++;
@@ -44,7 +45,8 @@ async function send(actionId: string, phase: Phase, operationId: string, capture
     const options = { headers: { Authorization: `Bearer ${token}` },
       isEffectCurrent: () => isProductActivityScopeCurrent(scope) };
     await ApiService.apiFetch("/api/one/plg/activity", { ...options, method: "POST",
-      body: JSON.stringify({ generation: allowed.generation, actionId, phase, operationId }) });
+      body: JSON.stringify({ generation: allowed.generation, actionId, phase, operationId,
+        ...(allowed.resultVersion === 1 && result ? { result } : {}) }) });
   } catch {
     // Collection failure never affects execution. New operations can discover
     // admission again after the bounded cache expires; old reports are lost.
@@ -66,7 +68,8 @@ export function observeProductEvent(event: string, action: unknown, result: unkn
   const phase = result === "error" || result === "expected_error" ? "failed"
     : event.endsWith("_started") ? "started" : "returned";
   const id = globalThis.crypto?.randomUUID?.();
-  if (id && typeof window !== "undefined") void send(key, phase, id, observation(scope));
+  if (id && typeof window !== "undefined") void send(key, phase, id, observation(scope),
+    result === "success" || result === "error" || result === "expected_error" ? result : undefined);
 }
 
 /** Wrap a completed dispatch without delaying a trusted browser activation. */

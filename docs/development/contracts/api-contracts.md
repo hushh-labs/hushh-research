@@ -555,11 +555,21 @@ have no activity. Collection disabled or not started remains unknown. Disabling
 collection also hides retained observations from export.
 
 `GET /api/one/plg/activity` admits an observation epoch; `POST` reports only
-`generation`, random `operationId`, registered `actionId` and phase. These hidden
+`generation`, random `operationId`, registered `actionId`, phase and the negotiated
+optional result below. These hidden
 routes require read-only verified Firebase identity; the UID and client source
 are derived by the server. Extra fields and client attempts to report SDK
 identifiers fail. Browser and native callers use the existing API transport and
 One catch-all proxy. Reporting never bootstraps an account or sends a campaign.
+
+Private product activity admission advertises optional `resultVersion: 1` wire
+support. Only governed client event observations may provide nullable `result`
+(`success`, `error`, `expected_error`); other values are rejected. The optional
+`one_product_activity_observations.event_result` expansion preserves old rows as
+unknown. Missing expansion or rollback uses the legacy insert without interrupting
+capture. Result never changes receipt identity or overwrites an existing receipt.
+Neither phase nor result proves a domain-confirmed effect; retention, enrollment,
+owner admission and access remain unchanged.
 
 `ONE_PLG_ACTIVITY_ENABLED=true` additionally gates collection to production and
 the same explicit pilot UID allowlist. It defaults false. SDK plugins observe
