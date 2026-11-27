@@ -1512,20 +1512,28 @@ async function streamAgentChatAttempt(input: {
     return { mcpConfigurations };
   };
   const nativeResume = recovered?.transport === "native-adk-v1";
+  const officialNative = process.env.NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT === "1";
+  // A Dev browser may try Finance visuals only against a private runtime that
+  // advertises the installed preview. Ordinary releases still use the SDK gate.
+  const devFinanceVisuals = !officialNative && process.env.NEXT_PUBLIC_APP_ENV === "dev" &&
+    input.mainChat === true && Boolean(handlers.onNativeOutput);
   // Candidate rollout: existing placements and unsupported continuation types
   // keep their current transport until their native contracts are available.
-  const nativeFreshTurn = process.env.NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT === "1" &&
+  const nativeFreshTurn = (officialNative || devFinanceVisuals) &&
     !recovered && !input.attachments?.length && !input.consentContinuation && !input.financeShare &&
     !input.feedAttention && !input.personSelectionHandle && !input.gmailInformationRequestWorkflowId &&
     !input.driveSearchSelection && !input.pendingEmailDraft && !input.emailMemoryProjection &&
     !input.emailMemoryCommit;
   if (nativeResume || nativeFreshTurn) {
-    const { admitsNativeCloudChat, streamNativeCloudChat, NATIVE_CLOUD_CHAT_TRANSPORT } =
-      await import("./native-cloud-chat");
+    const {
+      admitsNativeCloudChat, streamNativeCloudChat, NATIVE_CLOUD_CHAT_TRANSPORT, DEV_FINANCE_VISUAL_MODE,
+    } = await import("./native-cloud-chat");
+    const visualMode = devFinanceVisuals ? DEV_FINANCE_VISUAL_MODE : undefined;
     const headers = { Authorization: `Bearer ${input.vaultOwnerToken}`, "Content-Type": "application/json",
       ...(await oneChatKeyHeaders(input.vaultKey)) };
     const admitted = await admitsNativeCloudChat(headers, turnSessionCurrent, input.signal,
       !nativeResume && input.locationChatReview, !nativeResume && Boolean(input.locationChatReview && input.locationChatConversation),
+      visualMode,
     ).catch(() => false);
     assertTurnSessionCurrent();
     if (nativeResume && !admitted) throw new Error("Reconnect to resume the connector review.");
@@ -1535,6 +1543,7 @@ async function streamAgentChatAttempt(input: {
       const approval = recovered?.approval;
       const body = JSON.stringify({
         transport: NATIVE_CLOUD_CHAT_TRANSPORT,
+        ...(visualMode ? { visualMode } : {}),
         threadId,
         runId: crypto.randomUUID(),
         ...(recovered ? { decision: { interruptId: recovered.interruptId, confirmed: Boolean(approval) } }

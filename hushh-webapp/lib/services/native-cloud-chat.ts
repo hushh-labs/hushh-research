@@ -5,12 +5,14 @@ import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import type { AgentChatStreamHandlers } from "./agent-chat-client";
 
 export const NATIVE_CLOUD_CHAT_TRANSPORT = "native-adk-v1" as const;
+export const DEV_FINANCE_VISUAL_MODE = "finance-dev" as const;
 
 /** Contact the owner's pod directly. A caller decides compatibility before sending a turn. */
 export async function admitsNativeCloudChat(
   headers: HeadersInit, isCurrent: () => boolean, signal?: AbortSignal,
   locationChatReview = false,
   locationChatConversation = false,
+  visualMode?: typeof DEV_FINANCE_VISUAL_MODE,
 ): Promise<boolean> {
   const response = await ApiService.ownerPodRequest("agent-chat/capabilities", {
     headers, signal, cache: "no-store",
@@ -20,11 +22,14 @@ export async function admitsNativeCloudChat(
     return false;
   }
   const payload = await response.json().catch(() => null) as {
-    nativeAdkChatVersion?: unknown; nativeLocationChatReview?: unknown; nativeLocationChatConversation?: unknown;
+    nativeAdkChatVersion?: unknown; nativeFinanceVisualVersion?: unknown;
+    nativeLocationChatReview?: unknown; nativeLocationChatConversation?: unknown;
   } | null;
-  return isCurrent() && payload?.nativeAdkChatVersion === 1 &&
-    (!locationChatReview || payload.nativeLocationChatReview === true) &&
-    (!locationChatConversation || payload.nativeLocationChatConversation === true);
+  const version = visualMode === DEV_FINANCE_VISUAL_MODE
+    ? payload?.nativeFinanceVisualVersion : payload?.nativeAdkChatVersion;
+  return isCurrent() && version === 1 &&
+    (!locationChatReview || payload?.nativeLocationChatReview === true) &&
+    (!locationChatConversation || payload?.nativeLocationChatConversation === true);
 }
 
 export async function streamNativeCloudChat(input: {

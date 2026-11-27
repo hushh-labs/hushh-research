@@ -448,8 +448,10 @@ owner-keyed history and sends that decision back to the same conversation.
 Encrypted history retains the A2UI call identity and redacted receipt.
 Raw layout arguments and rendered values stay in the admitted turn.
 An explicitly admitted Dev owner turn can set `visualMode: "finance-dev"`.
-Dev advertises this separately as `nativeFinanceVisualVersion`. Its ADK
-Finance tool returns a catalog surface from a closed selection. The tool
+Dev advertises this separately as `nativeFinanceVisualVersion`. The Dev web
+main Chat client checks that capability on the authenticated owner pod
+before selecting the preview. Its ADK Finance tool returns a catalog
+surface from a closed selection. The tool
 does not accept layouts, portfolio records, recipients, or confirmation.
 The browser's app-owned Finance controllers still load the unlocked
 portfolio and perform any reviewed actions.

@@ -188,6 +188,33 @@ describe("native Cloud chat", () => {
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
   });
 
+  it("uses Dev Finance A2UI only when its private runtime advertises the preview", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT", "0");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+
+    const ownerPod = vi.mocked(ApiService.ownerPodRequest);
+    const handlers = { onNativeOutput: vi.fn() };
+    ownerPod.mockReset().mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1 }));
+    await streamAgentChat({ ...input, mainChat: true, handlers });
+    expect(ownerPod.mock.calls.map(([path]) => path)).toEqual(["agent-chat/capabilities"]);
+    expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+
+    ownerPod.mockReset()
+      .mockResolvedValueOnce(Response.json({ nativeFinanceVisualVersion: 1, nativeLocationChatReview: true }))
+      .mockResolvedValueOnce(new Response(
+        'event: start\ndata: {"sessionId":"native-thread"}\n\n' +
+        'data: {"author":"one","content":{"parts":[{"text":"Finance preview"}]}}\n\n' +
+        'event: done\ndata: {}\n\n',
+        { headers: { "Content-Type": "text/event-stream" } },
+      ));
+    await streamAgentChat({ ...input, mainChat: true, locationChatReview: true, handlers });
+    expect(JSON.parse(String(ownerPod.mock.calls[1]?.[1]?.body))).toMatchObject({
+      transport: "native-adk-v1", visualMode: "finance-dev", message: input.message,
+    });
+    expect(handlers.onNativeOutput).toHaveBeenCalled();
+    expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+  });
+
   it("preserves the original conversation for recovery when native streaming ends early", async () => {
     vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
       `event: start\ndata: {"sessionId":"native-thread"}\n\n`,

@@ -226,7 +226,11 @@ async def capabilities(owner: PodChatContext = Depends(context)):
             "nativeLocationChatConversation": True,
         }
     if dev_finance_presentation_enabled():
-        native["nativeFinanceVisualVersion"] = 1
+        native.update(
+            nativeFinanceVisualVersion=1,
+            nativeLocationChatReview=True,
+            nativeLocationChatConversation=True,
+        )
 
     return {
         **_authenticated_capabilities,
