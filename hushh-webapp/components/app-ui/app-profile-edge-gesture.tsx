@@ -156,7 +156,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         reset();
         return;
       }
-      if (gesture.axis !== "horizontal") return;
+      if (gesture.axis !== "horizontal" || (gesture.link && horizontal < COMMIT_DISTANCE_PX)) return;
 
       consume(event);
       previewProfilePane({ phase: "drag", distance: Math.abs(deltaX) });
@@ -190,9 +190,9 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         deltaX < 0 &&
         horizontal > vertical * DIRECTION_RATIO &&
         (horizontal >= COMMIT_DISTANCE_PX ||
-          velocity >= COMMIT_VELOCITY_PX_PER_MS);
+          (!current.link && velocity >= COMMIT_VELOCITY_PX_PER_MS));
 
-      if (current.axis === "horizontal") consume(event);
+      if (current.axis === "horizontal" && (!current.link || shouldOpen)) consume(event);
       gesture = null;
       setIndicator(root, { active: false });
       previewProfilePane({ phase: shouldOpen ? "commit" : "cancel", distance: horizontal });
