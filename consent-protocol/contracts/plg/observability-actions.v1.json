@@ -49,7 +49,8 @@
     "one_calendar_action": [
       "connected",
       "disconnected",
-      "chat_opened"
+      "chat_opened",
+      "booking_create"
     ],
     "one_career_action": [
       "resume_parse",
@@ -132,6 +133,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "f61139bed6fa55e308ac5ce5969a08f25faf6cb34e91b5d66462c2cb313ca6f5",
+  "sourceDigest": "7b2243e77282e7d7518352a70883a655de6dd8bd1005bfcac343f5996db5e61f",
   "version": 1
 }

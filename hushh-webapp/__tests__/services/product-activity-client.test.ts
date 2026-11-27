@@ -413,4 +413,15 @@ describe("private product observation lifecycle", () => {
     expect(posts().map(call => JSON.parse(call[1].body).phase)).toEqual(["started"]);
     expect(JSON.stringify(posts())).not.toMatch(/PRIVATE_ABORT|PRIVATE_TIMEOUT/);
   });
+  it("records the declared Calendar booking result through the private projection", async () => {
+    const client = await fixture();
+    client.observeProductEvent("one_calendar_action", "booking_create", "success");
+    client.observeProductEvent("one_calendar_action", "PRIVATE_MEETING_TITLE", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({
+      actionId: "observation:one_calendar_action:booking_create",
+      phase: "returned",
+    });
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_MEETING_TITLE");
+  });
 });

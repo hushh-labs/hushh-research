@@ -376,3 +376,15 @@ it does not prove installation, consent, GA4 processing or historical coverage.
   live evidence to installed package, native version/build, installer, reporting
   stream, backend environment and exact measurement dates. No device was attached
   during the 7 October local audit.
+
+## Calendar booking result observations
+
+`one_calendar_action` / `booking_create` carries only route ID and finite action/result.
+`success` requires a provider-confirmed create response with a nonempty event ID;
+that ID and all meeting/account/attendee content remain private. Known authoritative
+prewrite blocks are `expected_error`; a definite failed review before execution is
+`error`. An unknown post-execution outcome is neither a failed nor a confirmed
+booking and emits no result KPI. Owner generation, vault epoch and current account
+context fence attribution; one attempt emits at most one result. Failure coverage
+is therefore partial. The nearest component and governed transport tests prove
+these source semantics; runtime capture and GA4 availability need release evidence.
