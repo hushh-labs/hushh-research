@@ -199,6 +199,53 @@ def test_observation_projection_follows_split_literals_and_rejects_expressions()
     assert "export_saved" in contract["events"]["one_memory_action"]
     assert contract["events"]["hushh_mail_signin_screen_view"] == []
     assert "account_reset_requested" not in contract["events"]
+    reviewed = {
+        "gmail_connect_started",
+        "gmail_connect_result",
+        "gmail_disconnect_result",
+        "gmail_sync_requested",
+        "gmail_sync_result",
+        "gmail_receipts_loaded",
+        "import_upload_started",
+        "import_parse_completed",
+        "import_quality_gate_passed",
+        "import_quality_gate_failed",
+        "import_save_completed",
+        "consent_action_submitted",
+        "consent_action_result",
+    }
+    assert generator["REVIEWED_SYSTEM_FEATURE_EVENTS"] == reviewed
+    assert reviewed <= contract["events"].keys()
+    assert contract["events"]["gmail_connect_started"] == ["incremental", "full"]
+    assert contract["events"]["gmail_connect_result"] == ["start", "complete"]
+    assert contract["events"]["gmail_sync_requested"] == ["manual"]
+    assert contract["events"]["consent_action_result"] == ["approve", "deny", "revoke"]
+    assert contract["events"]["import_save_completed"] == []
+    for excluded in (
+        "auth_started",
+        "auth_succeeded",
+        "auth_failed",
+        "vault_unlock_result",
+        "account_delete_completed",
+        "api_request_completed",
+    ):
+        assert excluded not in contract["events"]
+    unreviewed = compile_contract(
+        source.replace(
+            '  auth_started: "system",',
+            '  unreviewed_private_system_event: "system",\n  auth_started: "system",',
+        ),
+        actions_source=actions,
+    )
+    assert "unreviewed_private_system_event" not in unreviewed["events"]
+    with pytest.raises(ValueError, match="literal enums"):
+        compile_contract(
+            source.replace(
+                'export type ConsentAction = "approve" | "deny" | "revoke";',
+                "export type ConsentAction = string;",
+            ),
+            actions_source=actions,
+        )
     changed = compile_contract(
         source, actions_source=actions.replace('"export_saved"', '"export_changed"')
     )

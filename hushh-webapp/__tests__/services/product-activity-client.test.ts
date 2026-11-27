@@ -43,6 +43,51 @@ describe("private product observation lifecycle", () => {
     expect(JSON.parse(posts()[0][1].body)).not.toHaveProperty("result");
   });
 
+
+  it.each([
+    ["gmail_connect_started", "full", "started"],
+    ["gmail_connect_result", "complete", "returned"],
+    ["gmail_disconnect_result", undefined, "returned"],
+    ["gmail_sync_requested", "manual", "returned"],
+    ["gmail_sync_result", "queue", "returned"],
+    ["gmail_receipts_loaded", undefined, "returned"],
+    ["import_upload_started", undefined, "started"],
+    ["import_parse_completed", undefined, "returned"],
+    ["import_quality_gate_passed", undefined, "returned"],
+    ["import_quality_gate_failed", undefined, "blocked"],
+    ["import_save_completed", undefined, "returned"],
+    ["consent_action_submitted", "approve", "returned"],
+    ["consent_action_result", "revoke", "returned"],
+  ] as const)("records reviewed feature observation %s through the existing private path", async (event, action, phase) => {
+    const client = await fixture();
+    client.observeProductEvent(event, action, event === "import_quality_gate_failed" ? "expected_error" : "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    const body = JSON.parse(posts()[0][1].body);
+    expect(body).toMatchObject({ actionId: `observation:${event}${action ? `:${action}` : ""}`, phase });
+    expect(Object.keys(body).sort()).toEqual(["actionId", "generation", "operationId", "phase"]);
+  });
+
+  it.each([
+    ["expected_error", "blocked"], ["error", "failed"], [undefined, "returned"],
+  ] as const)("keeps %s as the recorded %s phase without claiming business success", async (result, phase) => {
+    const client = await fixture();
+    client.observeProductEvent("gmail_sync_result", "queue", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({ actionId: "observation:gmail_sync_result:queue", phase });
+    expect(JSON.stringify(posts())).not.toMatch(/succeeded|confirmed|technical_failed/);
+  });
+
+  it("excludes auth/system families and private undeclared action text before admission", async () => {
+    const client = await fixture();
+    client.observeProductEvent("auth_started", "google", "success");
+    client.observeProductEvent("api_request_completed", undefined, "success");
+    client.observeProductEvent("gmail_connect_result", "PRIVATE_CONTACT", "success");
+    client.observeProductEvent("consent_action_result", "PRIVATE_QUESTION", "success");
+    await Promise.resolve();
+    expect(mocks.token).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
   it("records the Mail connection prompt under its governed identifier", async () => {
     const client = await fixture();
     client.observeProductEvent("hushh_mail_signin_screen_view", undefined, "success");
