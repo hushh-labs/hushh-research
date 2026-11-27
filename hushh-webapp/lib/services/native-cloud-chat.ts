@@ -11,6 +11,7 @@ export const NATIVE_CLOUD_CHAT_TRANSPORT = "native-adk-v1" as const;
 export async function admitsNativeCloudChat(
   headers: HeadersInit, isCurrent: () => boolean, signal?: AbortSignal,
   locationChatReview = false,
+  locationChatConversation = false,
 ): Promise<boolean> {
   const response = await ApiService.ownerPodRequest("agent-chat/capabilities", {
     headers, signal, cache: "no-store",
@@ -19,8 +20,12 @@ export async function admitsNativeCloudChat(
     await response.body?.cancel().catch(() => undefined);
     return false;
   }
-  const payload = await response.json().catch(() => null) as { nativeAdkChatVersion?: unknown; nativeLocationChatReview?: unknown } | null;
-  return isCurrent() && payload?.nativeAdkChatVersion === 1 && (!locationChatReview || payload.nativeLocationChatReview === true);
+  const payload = await response.json().catch(() => null) as {
+    nativeAdkChatVersion?: unknown; nativeLocationChatReview?: unknown; nativeLocationChatConversation?: unknown;
+  } | null;
+  return isCurrent() && payload?.nativeAdkChatVersion === 1 &&
+    (!locationChatReview || payload.nativeLocationChatReview === true) &&
+    (!locationChatConversation || payload.nativeLocationChatConversation === true);
 }
 
 export async function streamNativeCloudChat(input: {

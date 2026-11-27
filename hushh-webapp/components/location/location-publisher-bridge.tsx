@@ -33,6 +33,7 @@ import {
   type LocationOsPermissionReported,
 } from "@/lib/location/account-settings";
 import {
+  coarsenPoint,
   resolvePublishPrecision,
   type LocationPublishPrecision,
 } from "@/lib/location/coarsen";
@@ -65,6 +66,9 @@ import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { isFixedLocationGrant, isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";
+import { LIVE_LOCATION_UPDATE_INTERVAL_MS, liveHeartbeatPoint } from "@/lib/one-location/live-heartbeat";
+import { ROUTES } from "@/lib/navigation/routes";
+import { apiErrorCode } from "@/lib/services/api-client";
 import {
   clearSosIncident,
   loadSosIncident,
@@ -305,6 +309,52 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     if (!owner) return;
     OneLocationStateResource.invalidate(owner);
   }, []);
+
+  // The Location workspace maintains its own public link while it is open.
+  // In Chat an active link needs updates even when there are no private grants.
+  const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing"
+    ? state?.publicInvites?.find((invite) => invite.ownerUserId === uid && invite.status === "active" &&
+      invite.expiresAt && Date.parse(invite.expiresAt) > Date.now()) : undefined;
+  const publicId = publicLink?.id;
+  const publicEnd = publicLink?.expiresAt;
+  const publicLinkRef = useRef(publicLink);
+  publicLinkRef.current = publicLink;
+  useEffect(() => {
+    if (!uid || !vaultOwnerToken || !publicId || !publicEnd) return;
+    const ownerToken = vaultOwnerToken;
+    const inviteId = publicId;
+    const expiresAt = Date.parse(publicEnd);
+    let closed = false;
+    let pending = false;
+    const current = () => !closed && uidRef.current === uid && tokenRef.current === ownerToken &&
+      publicLinkRef.current?.id === inviteId && publicLinkRef.current.expiresAt === publicEnd &&
+      document.visibilityState === "visible" && expiresAt > Date.now();
+    async function publishPublicPosition() {
+      if (pending || !current()) return;
+      pending = true;
+      try {
+        const point = await liveHeartbeatPoint();
+        if (!point || !current()) return;
+        const allowsPrecise = () => sharingRef.current.precision === "precise" && sharingRef.current.osPrecise !== false;
+        const precise = allowsPrecise() && (point.accuracyM ?? 0) < 1000;
+        await OneLocationService.refreshPublicInviteLocation({
+          vaultOwnerToken: ownerToken, inviteId,
+          locationSnapshot: coarsenPoint(point, precise ? "precise" : "approximate"),
+          isEffectCurrent: () => current() && (!precise || allowsPrecise()),
+        });
+      } catch (error) {
+        if (current() && apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
+          closed = true;
+          invalidateState();
+        }
+      } finally {
+        pending = false;
+      }
+    }
+    void publishPublicPosition();
+    const interval = window.setInterval(publishPublicPosition, LIVE_LOCATION_UPDATE_INTERVAL_MS);
+    return () => { closed = true; window.clearInterval(interval); };
+  }, [invalidateState, publicEnd, publicId, uid, vaultOwnerToken]);
 
   // ---------------------------------------------------------------------
   // 1. Continuous publish loop

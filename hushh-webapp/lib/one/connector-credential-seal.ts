@@ -17,7 +17,7 @@
  */
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { agentRecipientFromBinding, type AiSelectionSealContext } from "./ai-selection-recipient";
-import { isHostedWebOAuthOrigin, UAT_MAIL_ORIGIN } from "./google-web-oauth-origin-policy";
+import { isHostedWebOAuthOrigin, UAT_MAIL_ORIGIN } from "./hosted-web-oauth-origins";
 import { base64AnyDecode, base64UrlEncode, type AiSelectionRecipient } from "./ai-selection-seal";
 
 export const CONNECTOR_SEAL_ALG = "X25519-HKDF-SHA256-AES256GCM" as const;

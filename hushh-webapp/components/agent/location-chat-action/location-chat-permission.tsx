@@ -23,6 +23,18 @@ export function chatLocationPermissionIssue(error: unknown) {
 }
 export type ChatLocationPermissionIssue = ReturnType<typeof chatLocationPermissionIssue>;
 
+export async function enableChatDeviceLocation(current: () => boolean) {
+  const permission = await OneLocationService.getPermissionState().catch(() => null);
+  const blocked = locationBlockReason(permission);
+  if (blocked) throw new ChatLocationBlocked(blocked);
+  if (permission?.state === "granted" || !current()) return;
+  const observed = await OneLocationService.requestLocationPermission();
+  const issue = locationBlockReason(observed);
+  if (issue) throw new ChatLocationBlocked(issue);
+  if (observed.state === "denied") throw new Error("Location permission was not granted.");
+  if (observed.state !== "granted") throw new Error("Device location permission is still pending. Try again.");
+}
+
 export async function captureChatLocation() {
   const permission = await OneLocationService.getPermissionState().catch(() => null);
   const blocked = locationBlockReason(permission);

@@ -2,8 +2,9 @@ import {
   getGoogleIdentityServices,
   preloadGoogleIdentityServices,
 } from "@/lib/contacts/google-contacts-token";
-import { isHostedWebOAuthOrigin } from "./google-web-oauth-origin-policy";
-export { UAT_MAIL_ORIGIN, HOSTED_WEB_OAUTH_ORIGINS, isHostedWebOAuthOrigin } from "./google-web-oauth-origin-policy";
+import { isHostedWebOAuthOrigin } from "./hosted-web-oauth-origins";
+
+export { HOSTED_WEB_OAUTH_ORIGINS, isHostedWebOAuthOrigin, UAT_MAIL_ORIGIN } from "./hosted-web-oauth-origins";
 
 const CONNECTOR_DIALOG_HEADINGS: Record<string, string> = {
   gmail: "Connect Gmail",

@@ -1444,11 +1444,13 @@ export class OneLocationService {
     vaultOwnerToken: string;
     inviteId: string;
     locationSnapshot: PlainLocationPoint;
+    isEffectCurrent?: () => boolean;
   }): Promise<{ invite: OneLocationPublicInvite }> {
     return apiJson(
       `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}/location`,
       {
         method: "POST",
+        isEffectCurrent: params.isEffectCurrent,
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({ locationSnapshot: params.locationSnapshot }),
       },
