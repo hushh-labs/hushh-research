@@ -65,5 +65,5 @@ it("uses recognizable members for identically named Circles and withholds option
     targets: [{ detail: expect.stringContaining("includes Maya") }, { detail: expect.stringContaining("includes Ravi") }] });
   directory.listCircleMembersPage.mockResolvedValue(page("Maya"));
   expect((await resolve([], ["NM"]))[0]).toMatchObject({ requiresSelection: true, exactMatch: false,
-    targets: [], unavailableReason: expect.stringContaining("distinct name") });
+    targets: [], unavailableReason: expect.stringContaining("Which connection or differently named Circle") });
 });

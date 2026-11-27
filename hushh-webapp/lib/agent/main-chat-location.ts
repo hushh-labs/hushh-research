@@ -166,7 +166,7 @@ async function distinguishDuplicateCircles(choices: MainLocationChoice[], circle
       if (!item.circleId) continue;
       const display = JSON.stringify([normalize(item.label), normalize(item.detail ?? "")]);
       if (known.has(display)) return { ...choice, targets: [], requiresSelection: true, exactMatch: false,
-        unavailableReason: `I found multiple Circles called ${item.label} with the same visible details. Give the intended Circle a distinct name in Location and ask again.` };
+        unavailableReason: `I found several Circles named ${item.label} with the same visible details. Which connection or differently named Circle did you mean?` };
       known.add(display);
     }
     return { ...choice, targets };
