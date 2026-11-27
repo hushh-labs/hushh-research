@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -575,6 +576,7 @@ async function resolveConnectionForVoice({
 }
 
 export default function ConnectPageClient() {
+  useInterfaceRevision();
   const { user, userId, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
   const router = useRouter();
 

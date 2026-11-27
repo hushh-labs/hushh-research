@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 /**
@@ -156,6 +157,7 @@ function readCustomVar(style: CSSProperties, key: string): string {
 }
 
 function AppShellFrame({ children }: ProvidersProps) {
+  const interfaceRevision = useInterfaceRevision();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -698,8 +700,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                   {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
                   {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
-                  <AppBottomShell model={bottomShellModel} />
-                  <ProfilePane
+                  <AppBottomShell key={interfaceRevision} model={bottomShellModel} />
+                  <ProfilePane key={interfaceRevision}
                     owner={userId}
                     open={profilePaneOpen}
                     onOpenChange={handleProfilePaneOpenChange}
@@ -731,9 +733,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                             signedInShellContentOffset.mode
                           }
                         >
+                          {interfaceRevision < 0 && <div role="status" className="fixed inset-0 z-[9999] grid place-items-center bg-background">Applying interface…</div>}
                           <NativeWorkspaceSeat />
                           {!hidesPersistentChrome && !isCanonicalChatRoute ? (
-                            <AppTopShell model={topShellModel} />
+                            <AppTopShell key={interfaceRevision} model={topShellModel} />
                           ) : null}
                           <Suspense
                             fallback={

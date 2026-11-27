@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { marketNewsArticleUrl } from "@/lib/kai/market-news-diversity";
 import { Browser } from "@capacitor/browser";
 import { usePathname } from "next/navigation";
@@ -121,6 +122,7 @@ export function KaiMarketNewsPage() {
 }
 
 function UsMarketNewsPage() {
+  useInterfaceRevision();
   const { user, userId: ownerId, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
   const nativeFrame = useRef<HTMLDivElement | null>(null);

@@ -1,5 +1,6 @@
 "use client"
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useSyncExternalStore, type CSSProperties } from "react"
 import {
   CircleAlertIcon,
@@ -14,6 +15,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { nativeWorkspacePresentationActive, nativeShellFeedbackAvailable, subscribeNativeWorkspacePresentation } from "@/lib/capacitor/native-workspace-presence"
 
 const Toaster = ({ style: suppliedStyle, ...props }: ToasterProps) => {
+  useInterfaceRevision();
   const { theme = "system" } = useTheme()
   const nativeWorkspaceActive = useSyncExternalStore(subscribeNativeWorkspacePresentation, nativeWorkspacePresentationActive, () => false)
   const nativeShellAvailable = useSyncExternalStore(subscribeNativeWorkspacePresentation, nativeShellFeedbackAvailable, () => false)

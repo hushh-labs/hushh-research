@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import * as React from "react";
 import { NativeChatChrome } from "./native-chat-chrome";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -12,9 +13,10 @@ type NativeMapAction = { kind: "map-close" | "map-locate" | "map-check-in"; owne
  * renderer-neutral primitive; native operations always use an authored port. */
 export const ShellActionSurface = React.forwardRef<HTMLButtonElement, ShellActionSurfaceProps & { nativeAction?: NativeMapAction }>(
   function ShellActionSurface({ nativeAction, ...props }, ref) {
+    useInterfaceRevision();
     const button = React.useRef<HTMLButtonElement>(null);
     React.useImperativeHandle(ref, () => button.current!, []);
-    const [native] = React.useState(() => customNativePresentationEnabled());
+    const native = customNativePresentationEnabled();
     const surface = <ShellActionSurfaceBase {...props} ref={button} />;
     if (!native || !nativeAction) return surface;
     const shared = { owner: nativeAction.owner, context: nativeAction.context, eligible: true, enabled: !props.disabled, focusRef: button,

@@ -1,5 +1,6 @@
 "use client"
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import * as React from "react"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "@/components/icons"
 import { Select as SelectPrimitive } from "radix-ui"
@@ -16,13 +17,15 @@ import { NativeChoiceController, type NativeChoiceControl } from "@/lib/capacito
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
+  const interfaceRevision = useInterfaceRevision();
   const { value: authoredValue, onValueChange, open, onOpenChange } = props
-  // The trigger/form renderer stays React. Freeze family capability here;
+  // The trigger/form stays React. Resolve capability for the active interface;
   // authorize each popup on its user intent, after auth/vault restoration.
-  const [native] = React.useState(() => nativeOwnedChoicesEnabled() &&
+  const [supportsNativeChoices] = React.useState(() =>
     (props.value !== undefined || props.defaultValue !== undefined) &&
     props.open === undefined && props.onOpenChange === undefined && props.defaultOpen !== true && props.dir === undefined &&
     immediateChoices(props.children) !== null)
+  const native = interfaceRevision >= 0 && nativeOwnedChoicesEnabled() && supportsNativeChoices
   const [localValue, setLocalValue] = React.useState(props.defaultValue ?? "")
   const initialValue = React.useRef(props.defaultValue ?? "")
   const [fallback, setFallback] = React.useState(false)

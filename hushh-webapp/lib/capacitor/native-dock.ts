@@ -1,5 +1,7 @@
 "use client";
 
+import { interfacePresentationSnapshot } from "./native-interface-revision";
+
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "./session-privacy";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
@@ -102,13 +104,13 @@ export function nativeDockRestingFrame(seat: HTMLElement) {
   }
   return { x: bounds.x, y: bounds.y - offset, width: bounds.width, height: bounds.height };
 }
-let capability: { documentId: string; promise: Promise<NativeDockCapabilities | null> } | undefined;
+let capability: { documentId: string; generation: number; promise: Promise<NativeDockCapabilities | null> } | undefined;
 export function getNativeDockCapabilities() {
   if (!customNativePresentationEnabled()) return Promise.resolve(null);
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
   const documentId = nativeDocumentId();
-  if (capability?.documentId === documentId) return capability.promise;
-  capability = { documentId, promise: boundedDock(nativeDock.getCapabilities()).catch(() => null) };
+  if (capability?.documentId === documentId && capability.generation === interfacePresentationSnapshot()) return capability.promise;
+  capability = { documentId, generation: interfacePresentationSnapshot(), promise: boundedDock(nativeDock.getCapabilities()).catch(() => null) };
   return capability.promise;
 }
 export function boundedDock<T>(operation: Promise<T>): Promise<T> {

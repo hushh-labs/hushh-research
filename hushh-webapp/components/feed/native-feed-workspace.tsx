@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode } from "react";
@@ -63,6 +64,7 @@ function recordPerson(record: NativeFeedRecord) {
 /** A whole route body. Rich pricing/file readers explicitly retire this owner
  * before their existing React presentation; native receives only values/handles. */
 export function NativeFeedWorkspace(props: { model: NativeFeedModel; fallback: ReactNode }) {
+  useInterfaceRevision();
   if (!customNativePresentationEnabled()) return props.fallback;
   return <NativeFeedPresentation {...props} />;
 }

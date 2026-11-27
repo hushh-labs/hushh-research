@@ -9,6 +9,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "HushhNativeDrawers"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyInterfacePreference", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "applyWalletCardScene", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmWalletCardAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleWalletCardAction", returnType: CAPPluginReturnPromise),
@@ -241,9 +242,46 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func retireOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.retire(call) } }
     @objc func getOwnedChoiceState(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.readState(call) } }
 
+    @objc func applyInterfacePreference(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let host = self.bridge?.viewController as? MyViewController,
+                  let document = call.getString("documentId"), host.committedNativeDocumentId == document,
+                  let enabled = call.getBool("enabled"), NativeDrawerQualificationPolicy.experimentalInterfaceAvailable,
+                  self.container != nil, NativeDrawerQualificationPolicy.requestedNativeInterface() == enabled else {
+                call.reject("NATIVE_INTERFACE_UNAVAILABLE"); return
+            }
+            let previous = HushhSessionPrivacyShield.shared.snapshot()
+            guard previous.appIsActive, !previous.shielded else { call.reject("NATIVE_INTERFACE_SESSION_CHANGED"); return }
+            self.retireAll()
+            let deadline = ProcessInfo.processInfo.systemUptime + 2
+            @MainActor func finish() {
+                let privacy = HushhSessionPrivacyShield.shared.snapshot()
+                guard host.committedNativeDocumentId == document, privacy.appIsActive, !privacy.shielded, privacy.generation == previous.generation else {
+                    call.reject("NATIVE_INTERFACE_SESSION_CHANGED"); return
+                }
+                if self.controllers.isEmpty && self.retiringControllers.isEmpty && self.form == nil &&
+                    self.retiringForms.isEmpty && self.workspace == nil && self.retiringWorkspaces.isEmpty &&
+                    self.walletCard.concealed && self.ownedChoices.concealed && self.container?.interactionIsolated == false {
+                    guard NativeDrawerQualificationPolicy.applySavedInterface(enabled) else {
+                        call.reject("NATIVE_INTERFACE_PREFERENCE_CHANGED"); return
+                    }
+                    host.refreshRendererBootstrap()
+                    call.resolve(["documentId": document, "enabled": enabled])
+                } else if ProcessInfo.processInfo.systemUptime < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { finish() }
+                } else {
+                    call.reject("NATIVE_INTERFACE_STILL_COVERED")
+                }
+            }
+            finish()
+        }
+    }
+
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
+            call.resolve(["contractVersion": 1, "interfaceDocumentId": (self?.bridge?.viewController as? MyViewController)?.committedNativeDocumentId ?? "",
+                "interfaceEnabled": NativeDrawerQualificationPolicy.coherentPresentationEnabled,
+                "supported": self?.supported == true, "wholePresentation": self?.supported == true,
                 "walletCardForms": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "ownedChoices": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "shellFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,

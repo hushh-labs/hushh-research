@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import {
   createContext,
   useContext,
@@ -73,6 +74,7 @@ export function RiaPrimaryWorkspaceShell({
 }: {
   children: ReactNode;
 }) {
+  useInterfaceRevision();
   const pathname = usePathname();
 
   const frame = useRef<HTMLDivElement>(null);
