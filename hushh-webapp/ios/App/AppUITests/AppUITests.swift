@@ -3693,6 +3693,28 @@ final class AppUITests: XCTestCase {
         print("PROFILE_PHOTO_PREVIEW_CONTINUITY open_close_without_mutation")
     }
 
+    func testLocalSessionNativeConnectTabRoundTrip() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires an unlocked local session with the experimental interface enabled.")
+        }
+        let app = XCUIApplication()
+        guard app.state == .runningForeground || app.state == .runningBackground else {
+            throw XCTSkip("Requires the running app.")
+        }
+        app.activate()
+        defer { perfTapNav(app, label: "Chat") }
+        perfTapNav(app, label: "Connect")
+        let strips = app.segmentedControls.matching(identifier: "native-workspace-tabs")
+        for label in ["Circles", "Circles", "Connections"] {
+            let choice = strips.firstMatch.buttons[label].firstMatch
+            guard waitForAdmittedControl(choice) else { return XCTFail("Connect option unavailable: \(label)") }
+            choice.tap()
+            let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: choice)
+            XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+            XCTAssertEqual(strips.count, 1)
+        }
+    }
+
     func testLocalSessionMailPagerAndSoftwareKeyboardKeepTheSession() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in warm Mail pager and software-keyboard regression")
@@ -3736,11 +3758,16 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(softwareKeyboardIsOnscreen(keyboard, in: app), "SOFTWARE_KEYBOARD_NOT_DISMISSED")
         XCTAssertTrue((composer.value as? String) == draft, "KEYBOARD_CHANGED_UNSENT_DRAFT")
         perfTapNav(app, label: "One")
-        let mail = web.links.matching(NSPredicate(format: "label == %@", "Open Mail")).firstMatch
-        XCTAssertTrue(mail.waitForExistence(timeout: 15) && mail.isHittable, "MAIL_ENTRY_UNAVAILABLE")
+        let nativeMail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "native-launcher-agent-", "Open Mail")).firstMatch
+        let webMail = web.links["Open Mail"].firstMatch
+        let launcher = app.descendants(matching: .any).matching(identifier: "native-workspace-tabs").firstMatch
+        let mail = launcher.waitForExistence(timeout: 3) ? nativeMail : webMail
+        for _ in 0..<4 where !mail.exists || !mail.isHittable { app.swipeUp() }
+        guard mail.exists && mail.isHittable else { return XCTFail("MAIL_ENTRY_UNAVAILABLE") }
         mail.tap()
         func tab(_ name: String) -> XCUIElement {
-            web.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
+            let strip = app.segmentedControls["native-workspace-tabs"].firstMatch
+            return strip.exists ? strip.buttons[name].firstMatch : web.buttons[name].firstMatch
         }
         func settled(_ name: String) {
             let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: tab(name))
