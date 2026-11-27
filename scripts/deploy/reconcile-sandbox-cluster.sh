@@ -83,9 +83,25 @@ if [[ -z "${IMAGE_REF}" ]]; then
   fi
 fi
 if [[ -z "${IMAGE_REF}" ]]; then
+  LATEST_TAG_DIGEST="$(gcloud artifacts docker images describe "${POD_REPO}:latest" \
+    --project="${PROJECT_ID}" --format='value(image_summary.digest)' 2>/dev/null || true)"
+  if [[ "${LATEST_TAG_DIGEST}" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+    IMAGE_REF="${POD_REPO}@${LATEST_TAG_DIGEST}"
+  fi
+fi
+if [[ -z "${IMAGE_REF}" ]]; then
   LATEST_DIGEST="$(gcloud artifacts docker images list "${POD_REPO}" \
-    --project="${PROJECT_ID}" --sort-by="~UPDATE_TIME" --limit=1 \
-    --format='value(version)' 2>/dev/null || true)"
+    --project="${PROJECT_ID}" --include-tags --sort-by="~UPDATE_TIME" --limit=15 \
+    --format=json 2>/dev/null | python3 -c '
+import json, sys
+items = json.loads(sys.stdin.read() or "[]")
+for it in items:
+    tags = [str(t) for t in (it.get("tags") or [])]
+    ver = str(it.get("version") or "").strip()
+    if ver.startswith("sha256:") and tags and "buildcache" not in tags:
+        print(ver)
+        break
+' || true)"
   if [[ -z "${LATEST_DIGEST}" ]]; then
     echo "Sandbox cluster reconcile (${DEPLOY_ENV}): no signed pod image digest found in ${POD_REPO}; skipping." >&2
     exit 0
