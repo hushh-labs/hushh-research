@@ -15,6 +15,7 @@
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
+    "hushh-webapp/app/one/pkm/logins/page.voice-action-contract.json",
     "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
@@ -496,6 +497,35 @@
         "context_policy": null,
         "trust_boundary": "consent",
         "delegation_policy": "one_action_gate"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "pkm_logins",
+      "surface_title": "Website logins",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/pkm/logins/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/pkm/logins"
+          ],
+          "screens": [
+            "pkm_logins"
+          ],
+          "hidden_navigable": false
+        },
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ]
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -15809,6 +15839,1079 @@
             "type": "action",
             "action_id": "one.scheduled_tasks.open",
             "label": "Scheduled tasks",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_pkm_logins",
+      "surface_id": "pkm_logins",
+      "label": "Open website logins",
+      "aliases": [
+        "open website logins",
+        "manage saved website passwords"
+      ],
+      "search_keywords": [
+        "website",
+        "login",
+        "password",
+        "credentials"
+      ],
+      "meaning": "Open the owner encrypted website login settings. This navigation never reveals, saves, uses or shares a credential.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm/logins"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_pkm_logins",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open secure website login settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm/logins",
+              "screen": "pkm_logins"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.add",
+      "surface_id": "pkm_logins",
+      "label": "Add a website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Add a website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-add"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.add",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.add",
+            "label": "Add a website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.edit",
+      "surface_id": "pkm_logins",
+      "label": "Edit a website login privately",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Edit a website login privately through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-edit"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.edit",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.edit",
+            "label": "Edit a website login privately",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.save",
+      "surface_id": "pkm_logins",
+      "label": "Save a website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Save a website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.save",
+            "label": "Save a website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.cancel",
+      "surface_id": "pkm_logins",
+      "label": "Cancel the current website login edit",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Cancel the current website login edit through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-cancel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.cancel",
+            "label": "Cancel the current website login edit",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.remove",
+      "surface_id": "pkm_logins",
+      "label": "Remove a saved website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Remove a saved website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-remove",
+        "website-login-remove-confirm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.remove",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.remove",
+            "label": "Remove a saved website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.refresh",
+      "surface_id": "pkm_logins",
+      "label": "Refresh saved website logins",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Refresh saved website logins through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-refresh"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.refresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.refresh",
+            "label": "Refresh saved website logins",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.renew",
+      "surface_id": "pkm_logins",
+      "label": "Renew saved login access",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Renew saved login access through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-renew"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.renew",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.renew",
+            "label": "Renew saved login access",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.share",
+      "surface_id": "pkm_logins",
+      "label": "Review sharing a selected website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Review sharing a selected website login through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share",
+        "website-login-share-review"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.share",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.share",
+            "label": "Review sharing a selected website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.share_confirm",
+      "surface_id": "pkm_logins",
+      "label": "Approve sharing a selected website login",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Approve sharing a selected website login through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share-confirm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.share_confirm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.share_confirm",
+            "label": "Approve sharing a selected website login",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.share_cancel",
+      "surface_id": "pkm_logins",
+      "label": "Cancel website login sharing",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "meaning": "Cancel website login sharing through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/logins"
+        ],
+        "screens": [
+          "pkm_logins"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share-cancel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm/logins"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.credentials.share_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "credentials.share_cancel",
+            "label": "Cancel website login sharing",
             "failure_behavior": "stop"
           }
         ],

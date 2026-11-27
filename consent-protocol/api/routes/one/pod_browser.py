@@ -13,6 +13,7 @@ from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused, StrictContract
 from hushh_mcp.services.pod_browser.delivery import BrowserDelivery
 from hushh_mcp.services.pod_browser.information import InformationField
+from hushh_mcp.services.pod_browser.information_export import BrowserExportSelection
 from hushh_mcp.services.pod_browser.task_contracts import (
     BrowserCapability,
     BrowserOwnerAccess,
@@ -200,6 +201,17 @@ class SessionRequest(StrictContract):
     account_id: str = Field(min_length=1, max_length=256, repr=False)
 
 
+class CredentialUseRequest(StrictContract):
+    operation_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
+    handle: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
+    control_epoch: int = Field(ge=1)
+
+
+class TransientCredentialUseRequest(CredentialUseRequest):
+    envelope: dict = Field(repr=False)
+    selection: BrowserExportSelection = Field(repr=False)
+
+
 class SaveDownload(StrictContract):
     name: str = Field(min_length=1, max_length=255, repr=False)
     parent: str = Field(default="root", pattern=r"^(?:root|[a-f0-9]{32})$")
@@ -334,6 +346,47 @@ async def task_input(request: Request, task_id: str, body: InputRequest, owner: 
 async def task_review(request: Request, task_id: str, body: ReviewRequest, owner: ControlOwner):
     try:
         return await runtime(request).confirm_review(owner, task_id, body.review_id, body.receipt)
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
+@router.get("/tasks/{task_id}/credentials")
+async def task_credentials(request: Request, task_id: str, origin: str, owner: ControlOwner):
+    try:
+        return await runtime(request).credential_catalog(owner, task_id, origin)
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
+@router.post(
+    "/tasks/{task_id}/credentials/use", response_model=BrowserTaskSnapshot, status_code=202
+)
+async def use_credential(
+    request: Request, task_id: str, body: CredentialUseRequest, owner: ControlOwner
+):
+    try:
+        return await runtime(request).use_credential(owner, task_id, **body.model_dump())
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
+@router.post(
+    "/tasks/{task_id}/credentials/transient", response_model=BrowserTaskSnapshot, status_code=202
+)
+async def use_transient_credential(
+    request: Request, task_id: str, body: TransientCredentialUseRequest, owner: ControlOwner
+):
+    try:
+        if len(str(body.envelope)) > 40000:
+            raise BrowserRefused("BROWSER_CREDENTIAL_TRANSIENT_REFUSED")
+        return await runtime(request).use_credential(
+            owner,
+            task_id,
+            handle=body.handle,
+            operation_id=body.operation_id,
+            control_epoch=body.control_epoch,
+            transient=(body.envelope, body.selection.model_dump(mode="json")),
+        )
     except BrowserRefused as exc:
         raise refusal(exc) from None
 

@@ -103,6 +103,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/files/workspaces/forget",
         "/api/one/pod/status",
         "/api/one/pod/config",
+        "/api/one/pod/credentials",
         "/api/one/pod/turn",
         "/api/one/pod/turn/stream",
         "/api/one/pod/turn/cancel",
@@ -206,6 +207,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
         rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/(?:settle|dispatch))?",
         r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
+        r"/api/one/pod/credentials/cred_[a-f0-9]{32}",
         r"/api/one/pod/connectors/gmail/accounts(?:/[a-f0-9]{32})?",
         r"/api/one/pod/connectors/gmail/accounts/[a-f0-9]{32}/receipts/(?:scan|detail|notice|notice-source)",
         r"/api/one/pod/circle-rules/rule_[a-z0-9][a-z0-9_-]{7,63}(?:/toggle)?",
@@ -213,6 +215,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"/api/one/pod/actions/(?:gmod|gcal)_[A-Za-z0-9_-]{16,64}/status",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}(?:/(?:frame|control|input|review|session))?",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}/downloads/[a-f0-9]{32}",
+        r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}/credentials(?:/(?:use|transient))?",
     )
 )
 

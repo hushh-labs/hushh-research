@@ -88,6 +88,9 @@ export function nativeMemorySaved({ model, commerce, handle, handoff, openPaymen
     );
   }), "Core files");
 
+  group("website-logins", [row("website-logins-open", "Website logins", "Private sign-in for approved Browser tasks.",
+    hand("navigation", () => model.navigate(ROUTES.PKM_LOGINS)), { chevron: true })], "Private sign-in");
+
   if (commerce.user) {
     const earnings = commerce.data?.earnings;
     const hasEarnings = !!earnings && (earnings.pending_cents !== 0 || earnings.available_cents !== 0 || (earnings.debt_cents ?? 0) > 0 || (earnings.withdrawing_cents ?? 0) > 0);

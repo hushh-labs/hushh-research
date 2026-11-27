@@ -4908,15 +4908,23 @@ class TestReadMyPkmDomainSummary:
         assert "health" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_never_reads_back_runtime_secrets_even_if_asked_by_that_exact_key(self):
+    @pytest.mark.parametrize("domain", ["runtime_secrets", "credentials"])
+    async def test_never_reads_back_runtime_secrets_even_if_asked_by_that_exact_key(self, domain):
         # Credential-shaped domain: excluded regardless of what the model
         # passes, not filtered after the fact -- see the module-level
         # _VOICE_UNREADABLE_PKM_DOMAINS comment for why.
         state = self._authorized_state()
-        with self._auth_patch():
-            result = await read_my_pkm_domain_summary("runtime_secrets", _tool_context(state))
+        index = _FakePkmIndex(
+            available_domains=[domain],
+            domain_summaries={domain: {"readable_summary": "SYNTHETIC_PRIVATE_CANARY"}},
+        )
+        with self._auth_patch(), self._pkm_patch(index) as service:
+            result = await read_my_pkm_domain_summary(domain, _tool_context(state))
         assert result["status"] == "failed"
-        assert "runtime_secrets" not in result["message"].split("Available domains: ")[-1]
+        assert domain not in result["message"].split("Available domains: ")[-1]
+        assert "SYNTHETIC_PRIVATE_CANARY" not in str(result)
+        service.return_value.get_index_v2.assert_not_awaited()
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
 
     @pytest.mark.asyncio
     async def test_a_db_hiccup_fails_clean_instead_of_killing_the_session(self):

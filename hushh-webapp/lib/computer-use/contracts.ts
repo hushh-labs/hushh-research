@@ -1,3 +1,4 @@
+export type TransientCredentialUse = Awaited<ReturnType<typeof import("@/lib/pkm/credentials-vault-service").sealTransientCredentialUse>>;
 export type ComputerUseEnvironment = "development" | "uat";
 
 /** Private, in-memory view of an admitted browser task. No hub transcript payloads. */
@@ -24,6 +25,10 @@ export type ComputerUseSnapshot = Readonly<{
   code?: string;
   inputPending?: boolean;
   goalCompleted?: boolean;
+  savedLoginsAvailable?: boolean;
+  credentialEntryActive?: boolean;
+  authorizationExpiresAt?: number;
+  credentialRequest?: Readonly<{ operationId: string; handle: string; origin: string }>;
   /** Owner-only task result; never insert into One's transcript or telemetry. */
   summary?: string;
   review?: ComputerUseReview;
@@ -36,7 +41,7 @@ export type ComputerUseSnapshot = Readonly<{
 
 export type ComputerUseReview = Readonly<{
   id: string;
-  purpose: "model_process" | "disclose" | "session_remember" | "session_restore" | "provider_safety";
+  purpose: "model_process" | "disclose" | "session_remember" | "session_restore" | "provider_safety" | "credential_fill";
   model?: string;
   taskGoal?: string;
   resultStorage?: "owner_encrypted_log";
@@ -69,6 +74,9 @@ export type ComputerUseSessionReceipt =
 
 /** The adapter uses existing signed direct admission. This port never chooses an endpoint. */
 export interface ComputerUseTransport {
+  credentials?(binding: ComputerUseBinding, origin: string, signal: AbortSignal): Promise<readonly { handle: string; origin: string }[]>;
+  useTransientCredential?(binding: ComputerUseBinding, handle: string, operationId: string, epoch: number, payload: TransientCredentialUse, signal: AbortSignal): Promise<ComputerUseSnapshot>;
+  useCredential?(binding: ComputerUseBinding, handle: string, operationId: string, epoch: number, signal: AbortSignal): Promise<ComputerUseSnapshot>;
   saveDownload?(binding: ComputerUseBinding, id: string, name: string, parent: string,
     signal: AbortSignal): Promise<{ fileId: string; bytes: number; sha256: string }>;
   read(binding: ComputerUseBinding, signal: AbortSignal): Promise<ComputerUseSnapshot>;
@@ -105,11 +113,11 @@ export function isComputerUseTerminal(phase: ComputerUsePhase): boolean {
 
 export function manualBrowserInputAllowed(snapshot: ComputerUseSnapshot | null): boolean {
   return Boolean(snapshot?.capability === "ready" && snapshot.controlOwner === "owner"
-    && !snapshot.review && !isComputerUseTerminal(snapshot.phase));
+    && !snapshot.review && !snapshot.credentialEntryActive && !isComputerUseTerminal(snapshot.phase));
 }
 
 export function isComputerUseActivelyStreaming(snapshot: ComputerUseSnapshot | null): boolean {
-  if (!snapshot || snapshot.capability !== "ready" || isComputerUseTerminal(snapshot.phase)) {
+  if (!snapshot || snapshot.credentialEntryActive || snapshot.capability !== "ready" || isComputerUseTerminal(snapshot.phase)) {
     return false;
   }
   return snapshot.phase === "running" || snapshot.controlOwner === "owner";

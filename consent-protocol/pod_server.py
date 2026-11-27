@@ -80,6 +80,7 @@ from api.routes.one.pod_session import router as pod_session_router  # noqa: E40
 from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
 from api.routes.one.pod_todo_sources import router as pod_todo_sources_router
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
+from api.routes.one.pod_website_credentials import router as pod_website_credentials_router
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_providers.azure_openai import model_probe  # noqa: E402
@@ -146,6 +147,7 @@ _POD_ROUTERS = (
     pod_memory_router,
     pod_ai_selection_router,  # the owner's sealed "Bring your own AI"; same two doors
     pod_connectors_router,
+    pod_website_credentials_router,
     pod_todo_sources_router,
     pod_mail_followups_router,
     pod_actions_router,

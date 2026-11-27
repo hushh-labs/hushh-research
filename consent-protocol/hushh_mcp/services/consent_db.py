@@ -2468,13 +2468,17 @@ class ConsentDBService:
             connection=connection,
         )
 
-    async def _export_is_admitted(self, export: Dict[str, Any]) -> bool:
+    async def _export_is_admitted(
+        self, export: Dict[str, Any], *, allow_stale_source: bool = False
+    ) -> bool:
         """Keep all existing export readers behind the same admission authority."""
         from hushh_mcp.consent.paid_exports import export_is_admitted
 
-        return await export_is_admitted(self, export)
+        return await export_is_admitted(self, export, allow_stale_source=allow_stale_source)
 
-    async def get_consent_export(self, consent_token: str) -> Optional[Dict]:
+    async def get_consent_export(
+        self, consent_token: str, *, _refresh_metadata: bool = False
+    ) -> Optional[Dict]:
         """
         Retrieve encrypted export data for a consent token.
 
@@ -2498,7 +2502,11 @@ class ConsentDBService:
 
             if response.data and len(response.data) > 0:
                 export = self._normalize_export_row(response.data[0])
-                return export if await self._export_is_admitted(export) else None
+                return (
+                    export
+                    if await self._export_is_admitted(export, allow_stale_source=_refresh_metadata)
+                    else None
+                )
             return None
         except Exception as exc:
             logger.error("Failed to get consent export error_type=%s", type(exc).__name__)
@@ -2532,11 +2540,13 @@ class ConsentDBService:
             logger.error("Failed to resolve app-bound consent export: %s", type(exc).__name__)
             return None
 
-    async def get_consent_export_metadata(self, consent_token: str) -> Optional[Dict[str, Any]]:
-        export = await self.get_consent_export(consent_token)
+    async def get_consent_export_metadata(
+        self, consent_token: str, *, _include_grant_metadata: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        export = await self.get_consent_export(consent_token, _refresh_metadata=True)
         if not export:
             return None
-        return {
+        metadata = {
             "scope": export.get("scope"),
             "export_revision": export.get("export_revision"),
             "export_generated_at": export.get("export_generated_at"),
@@ -2561,6 +2571,9 @@ class ConsentDBService:
             "is_strict_zero_knowledge": export.get("is_strict_zero_knowledge"),
             "legacy_export_key_present": export.get("legacy_export_key_present"),
         }
+        if _include_grant_metadata:
+            metadata["_grant_metadata"] = export.get("_grant_metadata")
+        return metadata
 
     async def get_continuous_refresh_candidates_for_domain(
         self, user_id: str, domain: str
@@ -2883,6 +2896,12 @@ class ConsentDBService:
 
         if is_paid_grant(grant_metadata):
             return await complete_paid_refresh(params, grant_metadata)
+        from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope
+
+        if is_owner_item_grant_scope(str(envelope_aad.get("machine_scope") or "")):
+            from hushh_mcp.services.owner_item_refresh import complete_owner_item_refresh
+
+            return await complete_owner_item_refresh(params, grant_metadata)
         db = self._get_db()
 
         def complete_refresh():
