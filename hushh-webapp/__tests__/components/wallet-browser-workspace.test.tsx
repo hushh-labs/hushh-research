@@ -371,7 +371,7 @@ describe("Wallet video browser workspace", () => {
     serviceMock.getCard.mockClear();
     fireEvent.click(remaining);
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1001"));
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: "card_1" })));
   });
@@ -637,7 +637,7 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1001"));
     fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Card 1", exact: true })).toHaveFocus());
   });

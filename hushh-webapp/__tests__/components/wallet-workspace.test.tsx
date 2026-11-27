@@ -670,7 +670,8 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
 
-  it("keeps owner details masked and decrypts the full number only on copy", async () => {
+  it("shows the selected owner number while keeping copying explicit", async () => {
+    serviceMock.getCardNumber.mockResolvedValue("4242424242421000");
     serviceMock.getCard.mockResolvedValue({
       summary: makeCards(1)[0],
       secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Alex Rivera" },
@@ -682,13 +683,13 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByTestId("wallet-card-browser").textContent).not.toContain("4242 4242 4242 1000");
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000"));
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("4242424242421000"));
-    expect(document.body).not.toHaveTextContent("4242 4242 4242 1000");
+    expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Card number 4242 4242 4242 1000");
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
-    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000");
   });
 });
