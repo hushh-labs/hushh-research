@@ -866,7 +866,7 @@ describe("TodoListPage row actions", () => {
       expect(screen.getByRole("button", { name: "Add item" })).toHaveFocus(),
     );
   });
-  it("counts only today's scheduled cohort in daily progress", async () => {
+  it("shows today's completion count as text", async () => {
     mocks.events = [];
     const date = new Date();
     const today = [
@@ -897,25 +897,22 @@ describe("TodoListPage row actions", () => {
       fullBlob: {},
     });
     render(<TodoListPage />);
-    const progress = await screen.findByRole("progressbar", {
-      name: "Today's completion",
-    });
-    expect(progress).toHaveAttribute("aria-valuemax", "2");
-    expect(progress).toHaveAttribute("aria-valuenow", "1");
+    expect(await screen.findByText("1 of 2 done today")).toBeVisible();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("checkbox", { name: "Mark Today's item as completed" }),
     );
-    await waitFor(() => expect(progress).toHaveAttribute("aria-valuenow", "2"));
+    expect(await screen.findByText("2 of 2 done today")).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "Today's item" }),
     ).not.toBeInTheDocument();
   });
 
-  it("keeps task titles and daily progress hidden while the vault is locked", () => {
+  it("keeps task titles and the daily completion count hidden while the vault is locked", () => {
     mocks.unlocked = false;
     render(<TodoListPage />);
     expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
-    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+ of \d+ done today/)).not.toBeInTheDocument();
     expect(TodoListPkmService.load).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Add item" })).toBeDisabled();
   });
