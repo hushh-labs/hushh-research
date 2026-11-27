@@ -231,7 +231,14 @@ ALTER TABLE one_location_events
       'location_sms_contact_removed',
       'location_place_rating_saved',
       'location_place_rating_updated',
-      'location_place_rating_withdrawn'
+      'location_place_rating_withdrawn',
+      'location_emergency_override',
+      'location_pause_timed',
+      'location_geofence_created',
+      'location_geofence_triggered',
+      'location_geofence_cancelled',
+      'location_peer_blocked',
+      'location_peer_unblocked'
     )
   ) NOT VALID;
 

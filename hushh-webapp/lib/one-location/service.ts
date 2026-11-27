@@ -53,6 +53,11 @@ import type {
   OneLocationSosVoicePreference,
   OneLocationGrant,
   OneLocationMapPreferences,
+  OneLocationGeofenceRule,
+  OneLocationRequestBlock,
+  RevokeAllGrantsResponse,
+  EmergencyOverrideResponse,
+  TriggerGeofenceResponse,
   OneLocationMapState,
   OneLocationNetworkConnection,
   OneLocationPublicInvite,
@@ -2413,6 +2418,195 @@ export class OneLocationService {
           referredUserId: params.referredUserId,
           message: params.message,
         }),
+      },
+    );
+  }
+
+  static async revokeAllOwnerGrants(params: {
+    vaultOwnerToken: string;
+    includeSos?: boolean;
+    includePublicLinks?: boolean;
+  }): Promise<RevokeAllGrantsResponse> {
+    const response = await apiJson<RevokeAllGrantsResponse>(
+      "/api/one/location/grants/revoke-all",
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          includeSos: params.includeSos ?? false,
+          includePublicLinks: params.includePublicLinks ?? true,
+        }),
+      },
+    );
+    announceFeedActivity();
+    return response;
+  }
+
+  static async startEmergencyOverride(params: {
+    vaultOwnerToken: string;
+    initialEnvelopes?: Record<string, OneLocationEncryptedEnvelope>;
+    durationHours?: number;
+  }): Promise<EmergencyOverrideResponse> {
+    const response = await apiJson<EmergencyOverrideResponse>(
+      "/api/one/location/emergency-override",
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          initialEnvelopes: params.initialEnvelopes,
+          durationHours: params.durationHours ?? 2.0,
+        }),
+      },
+    );
+    announceFeedActivity();
+    return response;
+  }
+
+  static async listGeofences(params: {
+    vaultOwnerToken: string;
+    status?: "armed" | "triggered" | "cancelled" | "expired";
+    limit?: number;
+  }): Promise<{ rules: OneLocationGeofenceRule[] }> {
+    const search = new URLSearchParams();
+    if (params.status) search.set("status", params.status);
+    if (params.limit) search.set("limit", String(params.limit));
+    const qs = search.toString();
+    return apiJson<{ rules: OneLocationGeofenceRule[] }>(
+      `/api/one/location/geofences${qs ? `?${qs}` : ""}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async createGeofence(params: {
+    vaultOwnerToken: string;
+    triggerType: "share_on_arrival" | "stop_on_arrival";
+    placeKind: "public_place" | "saved_home";
+    placeLabel: string;
+    publicPlaceId?: string | null;
+    publicLat?: number | null;
+    publicLng?: number | null;
+    radiusMeters?: number;
+    recipientUserIds?: string[];
+    recipientNames?: string[];
+    shareDurationHours?: number | null;
+    precision?: "precise" | "approximate" | "city" | null;
+    ttlHours?: number;
+  }): Promise<{ rule: OneLocationGeofenceRule }> {
+    return apiJson<{ rule: OneLocationGeofenceRule }>(
+      "/api/one/location/geofences",
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          triggerType: params.triggerType,
+          placeKind: params.placeKind,
+          placeLabel: params.placeLabel,
+          publicPlaceId: params.publicPlaceId ?? null,
+          publicLat: params.placeKind === "saved_home" ? null : (params.publicLat ?? null),
+          publicLng: params.placeKind === "saved_home" ? null : (params.publicLng ?? null),
+          radiusMeters: params.radiusMeters ?? 250,
+          recipientUserIds: params.recipientUserIds ?? [],
+          recipientNames: params.recipientNames ?? [],
+          shareDurationHours: params.shareDurationHours ?? 1.0,
+          precision: params.precision ?? null,
+          ttlHours: params.ttlHours ?? 72.0,
+        }),
+      },
+    );
+  }
+
+  static async cancelGeofence(params: {
+    vaultOwnerToken: string;
+    ruleId: string;
+  }): Promise<{ rule: OneLocationGeofenceRule }> {
+    return apiJson<{ rule: OneLocationGeofenceRule }>(
+      `/api/one/location/geofences/${encodeURIComponent(params.ruleId)}`,
+      {
+        method: "DELETE",
+        cache: "no-store",
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
+  static async triggerGeofence(params: {
+    vaultOwnerToken: string;
+    ruleId: string;
+    initialEnvelopes?: Record<string, OneLocationEncryptedEnvelope>;
+  }): Promise<TriggerGeofenceResponse> {
+    const response = await apiJson<TriggerGeofenceResponse>(
+      `/api/one/location/geofences/${encodeURIComponent(params.ruleId)}/trigger`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          initialEnvelopes: params.initialEnvelopes,
+        }),
+      },
+    );
+    announceFeedActivity();
+    return response;
+  }
+
+  static async listBlockedLocationPeers(
+    vaultOwnerToken: string,
+  ): Promise<{ blocks: OneLocationRequestBlock[] }> {
+    return apiJson<{ blocks: OneLocationRequestBlock[] }>(
+      "/api/one/location/request-blocks",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: authHeaders(vaultOwnerToken),
+      },
+    );
+  }
+
+  static async blockLocationPeer(params: {
+    vaultOwnerToken: string;
+    blockedUserId: string;
+    reason?: string;
+  }): Promise<{
+    blockedUserId: string;
+    blocked: boolean;
+    revokedGrantIds: string[];
+    deniedRequestIds: string[];
+  }> {
+    const response = await apiJson<{
+      blockedUserId: string;
+      blocked: boolean;
+      revokedGrantIds: string[];
+      deniedRequestIds: string[];
+    }>("/api/one/location/request-blocks", {
+      method: "POST",
+      cache: "no-store",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        blockedUserId: params.blockedUserId,
+        reason: params.reason,
+      }),
+    });
+    announceFeedActivity();
+    return response;
+  }
+
+  static async unblockLocationPeer(params: {
+    vaultOwnerToken: string;
+    blockedUserId: string;
+  }): Promise<{ blockedUserId: string; blocked: boolean; changed: boolean }> {
+    return apiJson<{ blockedUserId: string; blocked: boolean; changed: boolean }>(
+      `/api/one/location/request-blocks/${encodeURIComponent(params.blockedUserId)}`,
+      {
+        method: "DELETE",
+        cache: "no-store",
+        headers: authHeaders(params.vaultOwnerToken),
       },
     );
   }

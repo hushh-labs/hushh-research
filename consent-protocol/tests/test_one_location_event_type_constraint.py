@@ -31,6 +31,7 @@ MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 SERVICE_PATHS = (
     REPO_ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py",
     REPO_ROOT / "hushh_mcp" / "services" / "one_location_circle_service.py",
+    REPO_ROOT / "hushh_mcp" / "services" / "one_location_geofence_service.py",
 )
 
 # Every migration that replaces the constraint. Later declarations may add
@@ -45,6 +46,7 @@ CONSTRAINT_MIGRATIONS = (
     "180_one_location_circle_feed_durability.sql",
     "187_one_location_sms_contact_events.sql",
     "190_one_location_place_ratings.sql",
+    "467_one_location_chat_e2e.sql",
 )
 
 # Only these two ADD the constraint without NOT VALID, so only these two

@@ -19,13 +19,19 @@
 
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
-export type LocationPublishPrecision = "precise" | "approximate";
+export type LocationPublishPrecision = "precise" | "approximate" | "city";
 
 /** Grid pitch in degrees (~1.1 km of latitude). */
 export const APPROXIMATE_GRID_DEGREES = 0.01;
 
 /** Reported accuracy floor so an approximate point never claims to be exact. */
 export const APPROXIMATE_MIN_ACCURACY_M = 1000;
+
+/** City-level grid pitch in degrees (~11 km of latitude, US-029). */
+export const CITY_GRID_DEGREES = 0.1;
+
+/** Reported accuracy floor for city-level sharing (~10 km). */
+export const CITY_MIN_ACCURACY_M = 10_000;
 
 /**
  * Decimal places kept after a snap. Six is well below a metre and, more
@@ -59,9 +65,14 @@ export function resolvePublishPrecision(params: {
   purpose?: string | null;
 }): LocationPublishPrecision {
   if (params.sos || params.purpose === "sos") return "precise";
-  if (params.override === "precise" || params.override === "approximate") {
+  if (
+    params.override === "precise" ||
+    params.override === "approximate" ||
+    params.override === "city"
+  ) {
     return params.override;
   }
+  if (params.preference === "city") return "city";
   return params.preference === "approximate" ? "approximate" : "precise";
 }
 
@@ -69,9 +80,9 @@ export function resolvePublishPrecision(params: {
  * Coarsen a point according to the resolved precision and tag it.
  *
  * Precise returns the point unchanged apart from the tag. Approximate snaps
- * both axes to the grid, floors the accuracy at 1 km, and drops the Drive-To
- * payload (a destination plus a live ETA would leak the exact route). A
- * Check-In note is authored text and is kept.
+ * both axes to a 0.01° (~1.1 km) grid, city snaps to a 0.1° (~11 km) grid,
+ * floors accuracy, and drops the Drive-To payload (a destination plus a live
+ * ETA would leak the exact route). A Check-In note is authored text and is kept.
  */
 export function coarsenPoint(
   point: PlainLocationPoint,
@@ -84,16 +95,20 @@ export function coarsenPoint(
   if (effective === "precise") {
     return { ...point, precision: "precise" };
   }
+  const grid =
+    effective === "city" ? CITY_GRID_DEGREES : APPROXIMATE_GRID_DEGREES;
+  const accuracyFloor =
+    effective === "city" ? CITY_MIN_ACCURACY_M : APPROXIMATE_MIN_ACCURACY_M;
   return {
     ...point,
-    latitude: snapToGrid(point.latitude),
-    longitude: snapToGrid(point.longitude),
+    latitude: snapToGrid(point.latitude, grid),
+    longitude: snapToGrid(point.longitude, grid),
     accuracyM: Math.max(
       Number.isFinite(point.accuracyM ?? NaN) ? (point.accuracyM as number) : 0,
-      APPROXIMATE_MIN_ACCURACY_M,
+      accuracyFloor,
     ),
     drive: null,
-    precision: "approximate",
+    precision: effective,
   };
 }
 

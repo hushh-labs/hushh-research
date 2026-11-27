@@ -370,6 +370,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM trusted_connections",
         "DELETE FROM one_location_access_requests",
         "DELETE FROM one_location_chat_plans",
+        "DELETE FROM one_location_geofence_rules",
+        "DELETE FROM one_location_request_blocks",
         "DELETE FROM one_location_envelopes",
         "DELETE FROM one_location_share_grants",
         "DELETE FROM one_location_recipient_keys",
@@ -969,6 +971,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["one_location_chat_plans"] is True
+    assert result["details"]["one_location_geofence_rules"] is True
+    assert result["details"]["one_location_request_blocks"] is True
     assert result["details"]["one_location_map_preferences"] is True
     assert result["details"]["one_location_network_connections"] is True
     assert result["details"]["connection_origins"] is True

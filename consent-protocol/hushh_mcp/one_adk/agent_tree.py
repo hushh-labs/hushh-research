@@ -3164,6 +3164,10 @@ _LOCATION_CHAT_REPLACED_READS = frozenset(
         "list_my_outgoing_location_requests",
     }
 )
+# In main owner chat, handle every Location request inline via
+# propose_location_action and direct read tools — never transfer to
+# ask_location_agent.
+_LOCATION_CHAT_EXCLUDED_TOOLS = _LOCATION_CHAT_REPLACED_READS | {"ask_location_agent"}
 
 
 def _scope_location_chat_review(callback_context: Any, llm_request: Any) -> None:
@@ -3172,7 +3176,7 @@ def _scope_location_chat_review(callback_context: Any, llm_request: Any) -> None
         return
     state = getattr(callback_context, "state", None)
     excluded = (
-        _LOCATION_CHAT_REPLACED_READS
+        _LOCATION_CHAT_EXCLUDED_TOOLS
         if state is not None and state.get(STATE_LOCATION_CHAT_REVIEW) is True
         else {LOCATION_CHAT_TOOL_NAME}
     )
@@ -3223,7 +3227,7 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     location_review = tool_context.state.get(STATE_LOCATION_CHAT_REVIEW) is True
     if name == LOCATION_CHAT_TOOL_NAME and not location_review:
         return {"status": "unavailable", "code": "location_chat_review_unavailable"}
-    if name in _LOCATION_CHAT_REPLACED_READS and location_review:
+    if name in _LOCATION_CHAT_EXCLUDED_TOOLS and location_review:
         return {"status": "chat_review_required", "next_tool": LOCATION_CHAT_TOOL_NAME}
     follow_ups = getattr(tool, "func", None) is suggest_follow_ups
     if follow_ups and is_consent_answer_turn(tool_context):

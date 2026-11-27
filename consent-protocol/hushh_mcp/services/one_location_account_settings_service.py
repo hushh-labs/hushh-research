@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -38,7 +38,7 @@ OS_PERMISSION_STATES = ("unknown", "prompt", "granted", "denied")
 _SETTINGS_COLUMNS = """
     user_id, sharing_state, precision, sharing_consent_version, sharing_consent_accepted_at,
     sharing_enabled_at, sharing_disabled_at, os_permission_reported, os_permission_reported_at,
-    created_at, updated_at
+    paused_until, created_at, updated_at
 """
 
 
@@ -59,14 +59,28 @@ class AccountSettings:
     sharing_disabled_at: str | None = None
     os_permission_reported: str = "unknown"
     os_permission_reported_at: str | None = None
+    paused_until: str | None = None
 
     @property
     def sharing_enabled(self) -> bool:
         return self.sharing_state == "on"
 
+    @property
+    def is_paused(self) -> bool:
+        if not self.paused_until:
+            return False
+        try:
+            parsed = datetime.fromisoformat(self.paused_until.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed > datetime.now(timezone.utc)
+
     def as_payload(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["sharing_enabled"] = self.sharing_enabled
+        payload["is_paused"] = self.is_paused
         return payload
 
 
@@ -101,6 +115,7 @@ def _row_to_settings(user_id: str, row: dict[str, Any] | None) -> AccountSetting
         sharing_disabled_at=_iso(row.get("sharing_disabled_at")),
         os_permission_reported=str(row.get("os_permission_reported") or "unknown"),
         os_permission_reported_at=_iso(row.get("os_permission_reported_at")),
+        paused_until=_iso(row.get("paused_until")),
     )
 
 
@@ -161,6 +176,52 @@ class OneLocationAccountSettingsService:
             )
         return self._upsert(
             user_id=user_id, assignments="precision = :precision", params={"precision": precision}
+        )
+
+    def set_timed_pause(self, *, user_id: str, duration_hours: float) -> AccountSettings:
+        """Pause outbound location updates for a bounded window without revoking active grants (US-030)."""
+        try:
+            hours = float(duration_hours)
+        except (TypeError, ValueError) as exc:
+            raise OneLocationAgentError(
+                "LOCATION_PAUSE_DURATION_INVALID",
+                "Pause duration must be between 15 minutes and 24 hours.",
+                status_code=422,
+            ) from exc
+        if hours < 0.25 or hours > 24.0:
+            raise OneLocationAgentError(
+                "LOCATION_PAUSE_DURATION_INVALID",
+                "Pause duration must be between 15 minutes and 24 hours.",
+                status_code=422,
+            )
+        paused_until = datetime.now(timezone.utc) + timedelta(hours=round(hours, 2))
+        settings = self._upsert(
+            user_id=user_id,
+            assignments="paused_until = :paused_until",
+            params={"paused_until": paused_until},
+        )
+        try:
+            agent = self._agent_service or OneLocationAgentService()
+            agent._insert_event(
+                owner_user_id=user_id,
+                actor_user_id=user_id,
+                event_type="location_pause_timed",
+                metadata={
+                    "duration_hours": round(hours, 2),
+                    "paused_until": paused_until.isoformat(),
+                },
+                required=False,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("one_location.settings.timed_pause_audit_failed")
+        return settings
+
+    def clear_timed_pause(self, *, user_id: str) -> AccountSettings:
+        """Resume paused location updates immediately."""
+        return self._upsert(
+            user_id=user_id,
+            assignments="paused_until = NULL",
+            params={},
         )
 
     def record_os_permission(self, *, user_id: str, state: str) -> AccountSettings:

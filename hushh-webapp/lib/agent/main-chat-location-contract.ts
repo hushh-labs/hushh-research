@@ -3,9 +3,9 @@ import { splitSpokenNames } from "@/lib/one-location/resolve-spoken-names";
 
 export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED === "true" || isSharedDevIosSimulator();
 
-export const locationRecoveryActions = ["setup_location", "enable_location", "enable_device_location", "resume_updates"] as const;
-export const locationSafetyActions = ["sos_review", "sos_stop", "sms_contacts"] as const;
-export const locationWorkspaceActions = ["manage_circles", "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "enable_auto_approve", "disable_auto_approve", "manage_links", "check_in", "nearby_check_in", "view_self"] as const;
+export const locationRecoveryActions = ["setup_location", "enable_location", "enable_device_location", "resume_updates", "pause_updates"] as const;
+export const locationSafetyActions = ["sos_review", "sos_stop", "sms_contacts", "emergency_share"] as const;
+export const locationWorkspaceActions = ["manage_circles", "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "enable_auto_approve", "disable_auto_approve", "manage_links", "check_in", "nearby_check_in", "view_self", "sharing_history", "set_geofence", "manage_geofences", "block_location_peer"] as const;
 export type LocationRecoveryAction = typeof locationRecoveryActions[number];
 export type LocationSafetyAction = typeof locationSafetyActions[number];
 export type LocationWorkspaceAction = typeof locationWorkspaceActions[number];
@@ -27,6 +27,17 @@ export type MainLocationProposal = {
   durationHours?: number;
   durationMode?: "timed" | "until_stopped";
   direction?: "incoming" | "outgoing" | "all";
+  shareMode?: "live" | "static_pin" | "task_bound";
+  precision?: "precise" | "approximate" | "city";
+  startsAt?: string;
+  endsAt?: string;
+  taskLabel?: string;
+  includeEta?: boolean;
+  geofenceTrigger?: "share_on_arrival" | "stop_on_arrival";
+  geofencePlace?: string;
+  geofencePlaceKind?: "public_place" | "saved_home";
+  stopAll?: boolean;
+  historyDays?: number;
 };
 export type MainLocationContinuation = {
   step: "visibility" | "audience" | "duration" | "review" | "receipt";
@@ -184,10 +195,28 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
       (input.durationHours != null && (typeof input.durationHours !== "number" || !Number.isFinite(input.durationHours) ||
         input.durationHours < 0.25 || input.durationHours > 24)) ||
       input.durationMode != null || input.direction != null)) return null;
-  const dedicatedReview = [...locationRecoveryActions, ...locationSafetyActions, "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "disable_auto_approve", "manage_links", "nearby_check_in", "view_self"]
-    .some((entry) => entry === action);
+  const dedicatedReview = [
+    "setup_location", "enable_location", "enable_device_location", "resume_updates",
+    ...locationSafetyActions,
+    "manage_places", "manage_ratings", "manage_contacts", "manage_settings",
+    "disable_auto_approve", "manage_links", "nearby_check_in", "view_self", "manage_geofences",
+  ].some((entry) => entry === action);
   if (dedicatedReview && (people?.length || circles?.length || input.durationHours != null ||
       input.durationMode != null || input.direction != null)) return null;
+  const shareMode = input.shareMode === "live" || input.shareMode === "static_pin" || input.shareMode === "task_bound"
+    ? input.shareMode : undefined;
+  const precision = input.precision === "precise" || input.precision === "approximate" || input.precision === "city"
+    ? input.precision : undefined;
+  const startsAt = typeof input.startsAt === "string" && input.startsAt.trim() ? input.startsAt.trim().slice(0, 64) : undefined;
+  const endsAt = typeof input.endsAt === "string" && input.endsAt.trim() ? input.endsAt.trim().slice(0, 64) : undefined;
+  const taskLabel = typeof input.taskLabel === "string" && input.taskLabel.trim() ? input.taskLabel.trim().slice(0, 120) : undefined;
+  const geofenceTrigger = input.geofenceTrigger === "share_on_arrival" || input.geofenceTrigger === "stop_on_arrival"
+    ? input.geofenceTrigger : undefined;
+  const geofencePlace = typeof input.geofencePlace === "string" && input.geofencePlace.trim() ? input.geofencePlace.trim().slice(0, 140) : undefined;
+  const geofencePlaceKind = input.geofencePlaceKind === "public_place" || input.geofencePlaceKind === "saved_home"
+    ? input.geofencePlaceKind : undefined;
+  const historyDays = typeof input.historyDays === "number" && Number.isInteger(input.historyDays) && input.historyDays >= 1 && input.historyDays <= 30
+    ? input.historyDays : undefined;
   return {
     id: input.id, action, people, circles,
     ...(input.conversation === true ? { conversation: true as const } : {}),
@@ -195,5 +224,16 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
       ? { durationHours: input.durationHours } : {}),
     ...(input.durationMode === "timed" || input.durationMode === "until_stopped" ? { durationMode: input.durationMode } : {}),
     ...(input.direction === "incoming" || input.direction === "outgoing" || input.direction === "all" ? { direction: input.direction } : {}),
+    ...(shareMode ? { shareMode } : {}),
+    ...(precision ? { precision } : {}),
+    ...(startsAt ? { startsAt } : {}),
+    ...(endsAt ? { endsAt } : {}),
+    ...(taskLabel ? { taskLabel } : {}),
+    ...(input.includeEta === true ? { includeEta: true } : {}),
+    ...(geofenceTrigger ? { geofenceTrigger } : {}),
+    ...(geofencePlace ? { geofencePlace } : {}),
+    ...(geofencePlaceKind ? { geofencePlaceKind } : {}),
+    ...(input.stopAll === true ? { stopAll: true } : {}),
+    ...(historyDays ? { historyDays } : {}),
   };
 }

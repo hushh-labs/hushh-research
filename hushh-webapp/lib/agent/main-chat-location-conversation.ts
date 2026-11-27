@@ -70,7 +70,8 @@ const circleName = (value: string) => value.replace(/\s+circle$/u, "");
 // missing term, alternate mode or edited recipient keeps the review step.
 export function directLocationShareTerms(text: string, proposal: MainLocationProposal): Omit<DirectLocationShare, "current"> | null {
   if (!proposal.conversation || proposal.action !== "share_live" || proposal.durationMode === "until_stopped" ||
-      proposal.direction || proposal.attemptId || /[\p{Cc}\p{Cf}]/u.test(text)) return null;
+      proposal.direction || proposal.attemptId || proposal.shareMode || proposal.precision ||
+      proposal.startsAt || proposal.endsAt || proposal.taskLabel || /[\p{Cc}\p{Cf}]/u.test(text)) return null;
   const command = /^(?:please )?share my (?:live )?location (?:privately )?with (.+?) for ((?:\d+(?:\.\d+)?|one|an?)\s*(?:minutes?|mins?|hours?|hrs?))(?: please)?[.!]?$/u.exec(canonicalName(text));
   if (!command) return null;
   const hours = locationDurationReply(command[2]!.replace(/^(?:one|an?)\s+/u, "1 "));

@@ -138,6 +138,8 @@ TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
         "one_location_visibility_preferences",
         "one_location_visibility_exclusions",
         "one_location_chat_plans",
+        "one_location_geofence_rules",
+        "one_location_request_blocks",
         "kai_location_referrals",
         "pod_lifecycle_events",
     }
@@ -484,6 +486,13 @@ class AccountService:
             "one_location_chat_plans": text(
                 """DELETE FROM one_location_chat_plans
                 WHERE user_id = :user_id OR person_user_id = :user_id"""
+            ),
+            "one_location_geofence_rules": text(
+                "DELETE FROM one_location_geofence_rules WHERE owner_user_id = :user_id"
+            ),
+            "one_location_request_blocks": text(
+                """DELETE FROM one_location_request_blocks
+                WHERE owner_user_id = :user_id OR blocked_user_id = :user_id"""
             ),
             "one_location_access_requests": text(
                 """
@@ -1845,6 +1854,8 @@ class AccountService:
             "trusted_connections",
             "one_location_access_requests",
             "one_location_chat_plans",
+            "one_location_geofence_rules",
+            "one_location_request_blocks",
             "one_location_envelopes",
             "one_location_share_grants",
             "one_location_recipient_keys",
@@ -2373,6 +2384,8 @@ class AccountService:
             "kai_location_referrals": False,
             "one_location_access_requests": False,
             "one_location_chat_plans": False,
+            "one_location_geofence_rules": False,
+            "one_location_request_blocks": False,
             "one_location_envelopes": False,
             "one_location_public_invite_submissions": False,
             "one_location_public_invites": False,
@@ -2762,6 +2775,8 @@ class AccountService:
                     "trusted_connections",
                     "one_location_access_requests",
                     "one_location_chat_plans",
+                    "one_location_geofence_rules",
+                    "one_location_request_blocks",
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",

@@ -285,10 +285,17 @@ DELETE /api/one/location/circles/{circle_id}/members/me
 DELETE /api/one/location/circles/{circle_id}/members/{member_user_id}
 GET /api/one/location/circles/{circle_id}/overview
 POST /api/one/location/grants
+POST /api/one/location/grants/revoke-all
 DELETE /api/one/location/grants/{grant_id}
 PATCH /api/one/location/grants/{grant_id}/duration
 POST /api/one/location/grants/{grant_id}/refer
 PATCH /api/one/location/grants/{grant_id}/shorten
+POST /api/one/location/emergency-override
+GET,POST /api/one/location/geofences
+DELETE /api/one/location/geofences/{rule_id}
+POST /api/one/location/geofences/{rule_id}/trigger
+GET,POST /api/one/location/request-blocks
+DELETE /api/one/location/request-blocks/{blocked_user_id}
 GET,PATCH /api/one/location/map-preferences
 GET /api/one/location/map-state
 POST /api/one/location/maps/autocomplete

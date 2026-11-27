@@ -64,7 +64,14 @@ ALTER TABLE one_location_events
       -- forever. Same failure as 'location_share_shortened' above.
       'location_sms_contact_added',
       'location_sms_contact_removed',
-      'circle_member_added'
+      'circle_member_added',
+      'location_emergency_override',
+      'location_pause_timed',
+      'location_geofence_created',
+      'location_geofence_triggered',
+      'location_geofence_cancelled',
+      'location_peer_blocked',
+      'location_peer_unblocked'
     )
   );
 
