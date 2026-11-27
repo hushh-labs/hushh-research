@@ -1,0 +1,11 @@
+{
+  "active": true,
+  "train": "train-2026-11-49-one-agentic-os",
+  "live_baseline_sha": "686d7431c832db203ef8dea64d41100356a976ab",
+  "dark_stage_tag": "stage",
+  "dark_stage_urls": [
+    "https://stage.one.hussh.ai",
+    "https://stage.api.hussh.ai"
+  ],
+  "guidance": "A dark-staged Release Train is currently held at 0% public traffic. Use traffic_posture=stage_dark to update 0% dark staging, supply emergency_source_ref and emergency_reason off live_baseline_sha for an isolated live hotfix, or set promote_dark_train=true for intentional Stage 2d cutover."
+}

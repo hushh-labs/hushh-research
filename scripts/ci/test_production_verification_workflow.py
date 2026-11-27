@@ -210,6 +210,84 @@ class ProductionVerificationWorkflowTests(unittest.TestCase):
             with self.assertRaises(maintenance.retention.UnsafeState):
                 maintenance.latest_deploy_observation("hushh-labs/hushh-research", "production")
 
+    def test_dark_stage_hold_blocks_default_live_promotion_but_admits_stage_and_hotfixes(self):
+        import json
+        import tempfile
+
+        base_inputs = {
+            "operation": "deploy",
+            "sha": "a" * 40,
+            **verify.VERIFY_DEFAULTS,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            hold_path = Path(tmp) / "hold.json"
+            hold_path.write_text(
+                json.dumps(
+                    {
+                        "active": True,
+                        "train": "train-test",
+                        "live_baseline_sha": "b" * 40,
+                        "guidance": "Use traffic_posture=stage_dark.",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(verify.VerificationError, "dark_stage_hold_active"):
+                verify.validate_dispatch(
+                    dict(base_inputs),
+                    event_name="workflow_dispatch",
+                    ref="refs/heads/main",
+                    repository="hushh-labs/hushh-research",
+                    hold_path=hold_path,
+                )
+
+            self.assertEqual(
+                verify.validate_dispatch(
+                    {**base_inputs, "traffic_posture": "stage_dark"},
+                    event_name="workflow_dispatch",
+                    ref="refs/heads/main",
+                    repository="hushh-labs/hushh-research",
+                    hold_path=hold_path,
+                ),
+                "deploy",
+            )
+            self.assertEqual(
+                verify.validate_dispatch(
+                    {
+                        **base_inputs,
+                        "emergency_source_ref": "hotfix/live-metrics",
+                        "emergency_reason": "INC-101 isolated hotfix off live baseline",
+                    },
+                    event_name="workflow_dispatch",
+                    ref="refs/heads/main",
+                    repository="hushh-labs/hushh-research",
+                    hold_path=hold_path,
+                ),
+                "deploy",
+            )
+            self.assertEqual(
+                verify.validate_dispatch(
+                    {**base_inputs, "promote_dark_train": "true"},
+                    event_name="workflow_dispatch",
+                    ref="refs/heads/main",
+                    repository="hushh-labs/hushh-research",
+                    hold_path=hold_path,
+                ),
+                "deploy",
+            )
+            with self.assertRaisesRegex(verify.VerificationError, "dark_stage_conflicting_posture"):
+                verify.validate_dispatch(
+                    {
+                        **base_inputs,
+                        "traffic_posture": "stage_dark",
+                        "promote_dark_train": "true",
+                    },
+                    event_name="workflow_dispatch",
+                    ref="refs/heads/main",
+                    repository="hushh-labs/hushh-research",
+                    hold_path=hold_path,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

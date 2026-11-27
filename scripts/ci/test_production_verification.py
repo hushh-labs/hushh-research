@@ -109,6 +109,8 @@ def verify_inputs(operation: str) -> dict[str, str]:
         "phone_schema_origin_attempt": "",
         "nearby_check_in_cohort": "all",
         "frontend_auth_domain_refresh": "false",
+        "traffic_posture": "live",
+        "promote_dark_train": "false",
     }
 
 
@@ -120,7 +122,11 @@ def validate_dispatch(
     repository=REPOSITORY,
 ):
     return verify.validate_dispatch(
-        inputs, event_name=event_name, ref=ref, repository=repository
+        inputs,
+        event_name=event_name,
+        ref=ref,
+        repository=repository,
+        hold_path=Path("/nonexistent/production-dark-stage-hold.json"),
     )
 
 
@@ -280,6 +286,8 @@ class ProductionVerificationTests(unittest.TestCase):
             "phone_schema_origin_run_id": "123",
             "phone_schema_origin_attempt": "1",
             "nearby_check_in_cohort": "account-1",
+            "traffic_posture": "stage_dark",
+            "promote_dark_train": "true",
         }
         for field, value in mutations.items():
             with self.subTest(field=field):
