@@ -87,6 +87,8 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "document_delivery_bucket_identity": "DOCUMENT_DELIVERY_BUCKET_IDENTITY",
     "one_plg_export_enabled": "ONE_PLG_EXPORT_ENABLED",
     "one_plg_activity_enabled": "ONE_PLG_ACTIVITY_ENABLED",
+    "one_metrics_feature_observations_binding_json": "ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON",
+    "one_metrics_uat_feature_observations_binding_json": "ONE_METRICS_UAT_FEATURE_OBSERVATIONS_BINDING_JSON",
     "one_plg_activity_all_registered": "ONE_PLG_ACTIVITY_ALL_REGISTERED",
     "one_plg_audience_enabled": "ONE_PLG_AUDIENCE_ENABLED",
     "one_plg_subscription_enabled": "ONE_PLG_SUBSCRIPTION_ENABLED",

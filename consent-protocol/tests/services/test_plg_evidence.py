@@ -20,6 +20,7 @@ from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
 from hushh_mcp.services import marketing_preferences
 from hushh_mcp.services import metrics_adoption as _metrics_source
+from hushh_mcp.services import metrics_feature_observations as _feature_source
 from hushh_mcp.services import plg_audience as audience
 from hushh_mcp.services import plg_customer_cohort as cohort
 from hushh_mcp.services import plg_evidence as evidence
@@ -2564,3 +2565,465 @@ async def test_value_summaries_with_subagents_batches_all_specialists_in_single_
     assert summary["bySubagent"]["agent_personal_information"]["count"] == 1
     assert summary["bySubagent"]["agent_email"]["count"] == 1
     assert summary["bySubagent"]["agent_calendar"]["count"] == 0
+
+
+# All-account feature observations share native identity/deletion authority, but
+# never promote a client/execution return to a confirmed domain outcome.
+
+
+def _feature_request(binding, now, days=7):
+    return {
+        "reportKind": "feature_observations",
+        "definitionVersion": "1",
+        "period": {
+            "startDate": (now - timedelta(days=days - 1)).date().isoformat(),
+            "endDate": now.date().isoformat(),
+            "timezone": "UTC",
+        },
+        "cutoffAt": int(now.timestamp() * 1000) - 1000,
+        "sourceGeneration": binding["sourceGeneration"],
+        "scopeDigest": binding["scopeDigest"],
+    }
+
+
+def _feature_sql_result():
+    result = {
+        "sourceRows": 9,
+        "unmappedObservations": 1,
+        "dailyCappedAccounts": 0,
+        "observedAccounts": 2,
+        "observations": 8,
+        "correlatedAttempts": 3,
+        "byAgent": {
+            "agent_email": {"observedAccounts": 2, "observations": 5, "correlatedAttempts": 3},
+            "agent_personal_information": {
+                "observedAccounts": 2,
+                "observations": 3,
+                "correlatedAttempts": 0,
+            },
+        },
+        "features": [
+            {
+                "action_id": "email.chat.turn",
+                "agent_id": "agent_email",
+                "source": "client_reported",
+                "accounts": 2,
+                "all_source_accounts": 2,
+                "observations": 5,
+                "uncorrelated": 0,
+                "correlated": 3,
+                "phases": {
+                    "started": {"accounts": 2, "observations": 2},
+                    "returned": {"accounts": 1, "observations": 2},
+                    "failed": {"accounts": 1, "observations": 1},
+                },
+                "attempts": {
+                    "started": 2,
+                    "returned": 2,
+                    "failed": 1,
+                    "cancelled": 0,
+                    "blocked": 0,
+                    "possibleIncomplete": 0,
+                    "inProgress": 0,
+                },
+            },
+            {
+                "action_id": "observation:one_memory_action:detail_edited",
+                "agent_id": "agent_personal_information",
+                "source": "client_reported",
+                "accounts": 2,
+                "all_source_accounts": 2,
+                "observations": 2,
+                "uncorrelated": 2,
+                "correlated": 0,
+                "phases": {"returned": {"accounts": 2, "observations": 2}},
+                "attempts": {},
+            },
+            {
+                "action_id": "observation:one_memory_action:detail_deleted",
+                "agent_id": "agent_personal_information",
+                "source": "client_reported",
+                "accounts": 1,
+                "all_source_accounts": 1,
+                "observations": 1,
+                "uncorrelated": 1,
+                "correlated": 0,
+                "phases": {"returned": {"accounts": 1, "observations": 1}},
+                "attempts": {},
+            },
+        ],
+    }
+
+    for row in result["features"]:
+        row["results"] = {
+            "unclassified": {"accounts": row["accounts"], "observations": row["observations"]}
+        }
+    return result
+
+
+@pytest.fixture
+def feature_aggregate_database(metrics_aggregate_setup, metrics_aggregate_database, monkeypatch):
+    db = metrics_aggregate_database
+    binding = {**metrics_aggregate_setup.binding, "reportKind": "feature_observations"}
+    binding["coverageFrom"] = (_METRICS_NOW - timedelta(days=90)).date().isoformat()
+    monkeypatch.setenv("ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON", json.dumps(binding))
+    db.guard.ids = db.data.ids = ["customer", "second", "staff"]
+    identity = (
+        {
+            owner: {"firebase_uid": owner, "emails": (email,)}
+            for owner, email in [
+                ("customer", "one@outside.invalid"),
+                ("second", "two@outside.invalid"),
+                ("staff", "staff@company.invalid"),
+            ]
+        },
+        {
+            owner: {"email": email}
+            for owner, email in [
+                ("customer", "one@outside.invalid"),
+                ("second", "two@outside.invalid"),
+                ("staff", "staff@company.invalid"),
+            ]
+        },
+        {},
+    )
+    db.identity.return_value = identity
+    monkeypatch.setattr(
+        _metrics_source.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value=set(db.guard.ids)),
+    )
+    monkeypatch.setattr(
+        _feature_source.product_activity, "enabled_for", lambda owner: owner != "staff"
+    )
+    db.raw = _feature_sql_result()
+    db.result_column = None
+    db.observation_query = None
+    calls = []
+
+    async def fetch(conn, query, *args, **options):
+        assert query == _feature_source.FEATURE_CANDIDATES_SQL and options == {"timeout": 5}
+        return [{"user_id": owner, "observation_overflow": False} for owner in conn.ids]
+
+    async def fetchval(conn, query, *args, **options):
+        assert options == {"timeout": 5}
+        if "row_security_active" in query:
+            return conn.restricted
+        if query == "SELECT transaction_timestamp()":
+            return _METRICS_NOW
+        if query == _feature_source.FEATURE_RESULT_COLUMN_SQL:
+            return db.result_column
+        assert query in {
+            _feature_source.FEATURE_OBSERVATIONS_SQL,
+            _feature_source.FEATURE_OBSERVATIONS_WITH_RESULTS_SQL,
+        }
+        db.observation_query = query
+        assert args[0] == ["customer", "second"]
+        calls.append(args)
+        return json.dumps(db.raw)
+
+    for conn in (db.guard, db.data):
+        monkeypatch.setattr(
+            conn,
+            "fetch",
+            lambda query, *args, _conn=conn, **kwargs: fetch(_conn, query, *args, **kwargs),
+        )
+        monkeypatch.setattr(
+            conn,
+            "fetchval",
+            lambda query, *args, _conn=conn, **kwargs: fetchval(_conn, query, *args, **kwargs),
+        )
+
+    def summary():
+        return {
+            "supported": True,
+            "limited": False,
+            "count": 2,
+            "bySubagent": {
+                agent: {
+                    "supported": True,
+                    "limited": False,
+                    "count": 1
+                    if agent in {"agent_kai", "agent_personal_information", "agent_email"}
+                    else 0,
+                }
+                for agent in outcomes.SUBAGENT_OUTCOME_IDS
+            },
+        }
+
+    confirmed = AsyncMock(return_value={owner: summary() for owner in ["customer", "second"]})
+    monkeypatch.setattr(outcomes, "value_summaries_with_subagents", confirmed)
+    return SimpleNamespace(db=db, binding=binding, calls=calls, confirmed=confirmed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["production", "uat"])
+@pytest.mark.parametrize("days", [7, 14, 30, 90])
+async def test_feature_aggregate_distinct_all_accounts_and_retention_separate_from_confirmed(
+    feature_aggregate_database, monkeypatch, environment, days
+):
+    fixture = feature_aggregate_database
+    binding = fixture.binding
+    if environment == "uat":
+        binding = {**binding, "databaseName": "fixture", "databaseUser": "fixture"}
+        monkeypatch.setenv("ONE_METRICS_UAT_FEATURE_OBSERVATIONS_BINDING_JSON", json.dumps(binding))
+        monkeypatch.setattr(
+            _feature_source.metrics_uat_authority, "runtime_authority", lambda binding: None
+        )
+        monkeypatch.setattr(_feature_source.metrics_uat_authority, "verify_database", AsyncMock())
+        monkeypatch.setattr(
+            _feature_source.metrics_uat_authority,
+            "policy",
+            _feature_source.plg_reporting.reporting_policy,
+        )
+        monkeypatch.setattr(
+            _feature_source.metrics_uat_authority,
+            "auth_app",
+            _feature_source.plg_reporting.reporting_auth_app,
+        )
+    request = _feature_source.FeatureObservationRequest.model_validate(
+        _feature_request(binding, _METRICS_NOW, days)
+    )
+    result = await _feature_source.aggregate(
+        request, binding, pool=fixture.db.pool, now=_METRICS_NOW, environment=environment
+    )
+    assert (
+        result["period"] == request.period.model_dump() and result["cutoffAt"] == request.cutoffAt
+    )
+    assert result["totals"] == {"observedAccounts": 2, "observations": 8, "correlatedAttempts": 3}
+    assert result["byAgent"]["agent_email"]["observedAccounts"] == 2
+    assert sum(v["observedAccounts"] for v in result["byAgent"].values()) == 4
+    assert result["byAgent"]["agent_personal_information"]["observedAccounts"] == 2
+    assert (
+        sum(
+            row["observedAccounts"]
+            for row in result["features"]
+            if row["agentId"] == "agent_personal_information"
+        )
+        == 3
+    )
+    assert result["features"][0]["observedAccounts"] == 2  # phase-distinct counts sum to four
+    assert result["features"][1]["uncorrelatedObservations"] == 2
+    assert set(result["features"][1]["attempts"].values()) == {0}
+    assert result["confirmed"]["confirmedOutcomes"] == 4  # subagent sum six is non-additive
+    assert sum(v["confirmedOutcomes"] for v in result["confirmed"]["bySubagent"].values()) == 6
+    assert result["coverage"]["windowFullyRetained"] is (days == 7)
+    assert result["coverage"]["retentionDays"] == 7 and result["coverage"]["mode"] == "best_effort"
+    assert (
+        result["coverage"]["eligibleAccounts"] == result["coverage"]["captureEnabledAccounts"] == 2
+    )
+    assert len(fixture.calls) == 1 and fixture.calls[0][1] >= _METRICS_NOW - timedelta(days=7)
+    assert fixture.db.data.transactions == [{"isolation": "repeatable_read", "readonly": True}]
+    assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)
+    assert "success" not in result["features"][0]["attempts"]
+    assert result["features"][0]["results"]["unclassified"]["observations"] == 5
+    assert result["features"][0]["results"]["success"]["observations"] == 0
+    assert result["features"][0]["results"]["error"]["observations"] == 0
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "overlap-forgery",
+        "raw-overflow",
+        "row-overflow",
+        "unknown-owner",
+        "phase-total",
+        "attempt-total",
+    ],
+)
+def test_feature_aggregate_rejects_invalid_or_truncated_sql_results(fault):
+    raw = _feature_sql_result()
+    catalog = {row["id"]: row for row in activity_catalog()["actions"]}
+    if fault == "overlap-forgery":
+        raw["features"][0]["accounts"] = 5
+    elif fault == "raw-overflow":
+        raw["sourceRows"] = 100001
+        raw["unmappedObservations"] = 99993
+    elif fault == "row-overflow":
+        raw["features"] *= 129
+    elif fault == "unknown-owner":
+        raw["features"][0]["agent_id"] = "agent_documents"
+    elif fault == "phase-total":
+        raw["features"][0]["phases"]["returned"]["observations"] = 3
+    else:
+        raw["features"][0]["attempts"]["returned"] = 3
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        _feature_source._observations(raw, catalog, ["one", "two"])
+
+
+def test_feature_route_requires_own_opt_in_and_reuses_exact_signed_environment(
+    metrics_aggregate_setup, monkeypatch
+):
+    f = metrics_aggregate_setup
+    body = _feature_request(f.binding, _METRICS_NOW)
+    run = AsyncMock(return_value={"synthetic": True})
+    monkeypatch.setattr(_feature_source, "bounded_aggregate", run)
+    raw, headers = _metrics_signed(f, body)
+    assert (
+        f.client.post("/api/one/metrics/adoption", content=raw, headers=headers).status_code == 503
+    )
+    run.assert_not_awaited()
+    binding = {**f.binding, "reportKind": "feature_observations"}
+    monkeypatch.setenv("ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON", json.dumps(binding))
+    response = f.client.post("/api/one/metrics/adoption", content=raw, headers=headers)
+    assert response.status_code == 200 and response.json() == {"synthetic": True}
+    assert run.await_args.kwargs == {"environment": "production"}
+    assert run.await_args.args[0].model_dump() == body
+    raw, headers = _metrics_signed(f, {**body, "userId": "other-owner"})
+    assert (
+        f.client.post("/api/one/metrics/adoption", content=raw, headers=headers).status_code == 400
+    )
+    assert run.await_count == 1
+
+
+def test_feature_period_explicit_cutoff_and_native_closed_day_contract_unchanged(
+    metrics_aggregate_setup,
+):
+    binding, now = metrics_aggregate_setup.binding, _METRICS_NOW
+    raw = _feature_request(binding, now)
+    for change in [
+        {"cutoffAt": int(now.timestamp() * 1000) + 1},
+        {"cutoffAt": int(now.timestamp() * 1000) - 60001},
+        {"period": {**raw["period"], "timezone": "Asia/Kolkata"}},
+        {"sourceGeneration": "e" * 64},
+    ]:
+        with pytest.raises(ValueError):
+            request = _feature_source.FeatureObservationRequest.model_validate({**raw, **change})
+            _feature_source.period_bounds(request, binding, now)
+    closed = {
+        **raw,
+        "period": {
+            "startDate": (now - timedelta(days=7)).date().isoformat(),
+            "endDate": (now - timedelta(days=1)).date().isoformat(),
+            "timezone": "UTC",
+        },
+        "cutoffAt": int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000),
+    }
+    first, cutoff, retained = _feature_source.period_bounds(
+        _feature_source.FeatureObservationRequest.model_validate(closed), binding, now
+    )
+    assert cutoff.hour == 0 and retained >= first
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(
+            _metrics_source.AdoptionRequest.model_validate(
+                {key: value for key, value in raw.items() if key not in {"reportKind", "cutoffAt"}}
+            ),
+            binding,
+            now,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["rls", "overflow", "deletion", "identity", "confirmed-limit"])
+async def test_feature_aggregate_never_publishes_partial_or_changed_authority(
+    feature_aggregate_database, monkeypatch, fault
+):
+    f = feature_aggregate_database
+    if fault == "rls":
+        f.db.guard.restricted = True
+    elif fault == "overflow":
+        f.db.guard.ids = [str(i) for i in range(5001)]
+    elif fault == "deletion":
+        monkeypatch.setattr(
+            _metrics_source.AccountDeletionLifecycleService,
+            "active_projection_user_ids",
+            AsyncMock(side_effect=[set(f.db.guard.ids), {"staff"}]),
+        )
+    elif fault == "identity":
+        f.db.identity.side_effect = [f.db.identity.return_value, ({}, {}, {})]
+    else:
+        f.confirmed.return_value["customer"]["limited"] = True
+    request = _feature_source.FeatureObservationRequest.model_validate(
+        _feature_request(f.binding, _METRICS_NOW)
+    )
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _feature_source.aggregate(request, f.binding, pool=f.db.pool, now=_METRICS_NOW)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("column", [None, "text", "integer"])
+async def test_feature_explicit_result_column_is_optional_and_never_inferred(
+    feature_aggregate_database, column
+):
+    f = feature_aggregate_database
+    f.db.result_column = column
+    if column == "text":
+        f.db.raw["features"][1]["results"] = {
+            "success": {"accounts": 1, "observations": 1},
+            "error": {"accounts": 1, "observations": 1},
+        }
+    request = _feature_source.FeatureObservationRequest.model_validate(
+        _feature_request(f.binding, _METRICS_NOW)
+    )
+    if column == "integer":
+        with pytest.raises(_metrics_source.AggregateUnavailable, match="result schema"):
+            await _feature_source.aggregate(request, f.binding, pool=f.db.pool, now=_METRICS_NOW)
+        assert not f.calls
+        return
+    result = await _feature_source.aggregate(request, f.binding, pool=f.db.pool, now=_METRICS_NOW)
+    feature = result["features"][1]
+    if column == "text":
+        assert f.db.observation_query == _feature_source.FEATURE_OBSERVATIONS_WITH_RESULTS_SQL
+        assert (
+            feature["results"]["success"]
+            == feature["results"]["error"]
+            == {"accounts": 1, "observations": 1}
+        )
+    else:
+        assert f.db.observation_query == _feature_source.FEATURE_OBSERVATIONS_SQL
+        assert feature["results"]["unclassified"] == {"accounts": 2, "observations": 2}
+    # Legacy failed can mean a block; it never manufactures explicit error.
+    assert result["features"][0]["phases"]["failed"]["observations"] == 1
+    assert result["features"][0]["results"]["error"]["observations"] == 0
+
+
+@pytest.mark.parametrize("environment", ["production", "uat"])
+def test_feature_binding_hydrates_optionally_from_existing_runtime_config(monkeypatch, environment):
+    from hushh_mcp import runtime_settings
+
+    env_name = (
+        "ONE_METRICS_UAT_FEATURE_OBSERVATIONS_BINDING_JSON"
+        if environment == "uat"
+        else "ONE_METRICS_FEATURE_OBSERVATIONS_BINDING_JSON"
+    )
+    key = (
+        "one_metrics_uat_feature_observations_binding_json"
+        if environment == "uat"
+        else "one_metrics_feature_observations_binding_json"
+    )
+    monkeypatch.delenv(env_name, raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", "{}")
+    runtime_settings.hydrate_runtime_environment()
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        _feature_source.approved_binding(environment)
+    binding = {
+        "approved": True,
+        "reportKind": "feature_observations",
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "populationPolicyRevision": "c" * 64,
+        "reconciliationDigest": "d" * 64,
+        "coverageFrom": "2026-11-19",
+    }
+    if environment == "uat":
+        binding.update(databaseName="postgres", databaseUser="fixture")
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: binding}))
+    runtime_settings.hydrate_runtime_environment()
+    assert _feature_source.approved_binding(environment) == binding
+    # Existing explicitly mounted configuration remains authoritative.
+    changed = {**binding, "sourceGeneration": "e" * 64}
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: changed}))
+    runtime_settings.hydrate_runtime_environment()
+    assert _feature_source.approved_binding(environment) == binding
+
+
+def test_feature_candidate_native_branch_matches_reviewed_population_projection():
+    native_branch = _metrics_source.CANDIDATES_SQL.split("WITH candidates AS (", 1)[1].rsplit(
+        ")", 1
+    )[0]
+    extended_branch = _feature_source.FEATURE_CANDIDATES_SQL.split("), candidates AS (", 1)[
+        1
+    ].split(" UNION SELECT user_id FROM observed_candidates", 1)[0]
+    assert " ".join(native_branch.split()) == " ".join(extended_branch.split())
