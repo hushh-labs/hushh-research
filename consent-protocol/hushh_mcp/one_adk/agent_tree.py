@@ -2332,6 +2332,9 @@ async def open_gmail_email_draft(
     recipient_names: str = "",
     cc_names: str = "",
     recipient_choices: str = "",
+    to_self: bool = False,
+    primary_action: str = "send",
+    scheduled_send_at: str = "",
 ) -> dict[str, Any]:
     """Open an editable Gmail draft for an explicit personal-email request.
 
@@ -2341,11 +2344,15 @@ async def open_gmail_email_draft(
     active connections, never guesses an address, and reports an ambiguous or
     unknown name instead of opening the draft. When that question offers
     choices, put the refs of the ones the owner picks in recipient_choices,
-    comma-separated, for To. A selected Drive file goes in
-    drive_file_id exactly; the app reviews it before Send. The result says whether
-    Gmail can send. This client-only draft never contacts Gmail or sends; its
-    recipients, subject and body never enter persisted state, and only the owner's
-    Send tap sends.
+    comma-separated, for To. Set to_self=True when the owner asks to email
+    themselves (resolves their connected Gmail address server-side). Pass
+    primary_action="save_draft" when they ask to save as a Gmail draft without
+    sending, or pass scheduled_send_at (owner-local ISO-8601, e.g.
+    "2026-11-28T09:00:00") when they ask to schedule the send for later. A
+    selected Drive file goes in drive_file_id exactly; the app reviews it before
+    Send. The result says whether Gmail can send. This client-only draft never
+    contacts Gmail or sends; its recipients, subject and body never enter
+    persisted state, and only the owner's explicit tap sends, saves, or schedules.
     """
 
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
@@ -2363,13 +2370,49 @@ async def open_gmail_email_draft(
     # with the session; no draft values or recipients are persisted by it. Bounded
     # optional fields are accepted for the active client tool event only, where
     # the owner can edit them before the existing prepare/send confirmation boundary.
+    from datetime import datetime, timezone
+
+    from hushh_mcp.agents.email.chat_tools import resolve_owner_gmail_address
     from hushh_mcp.one_adk.email_draft_tool import (
         draft_envelope,
         draft_field_refusal,
         draft_opened_result,
     )
+    from hushh_mcp.services.gmail_sensitive_content import detect_outbound_credentials
+    from hushh_mcp.services.owner_time import (
+        ScheduleTimeError,
+        format_schedule_echo,
+        resolve_send_at,
+    )
 
-    fields = {"to": to, "cc": cc, "bcc": bcc, "subject": subject, "body": body}
+    resolved_to = str(to or "").strip()
+    if to_self and not resolved_to:
+        owner_addr = resolve_owner_gmail_address(user_id)
+        if not owner_addr:
+            return {
+                "status": "connect_required",
+                "message": "Connect your Gmail account before emailing yourself.",
+            }
+        resolved_to = owner_addr
+
+    action_mode = str(primary_action or "send").strip().lower()
+    if action_mode not in {"send", "save_draft", "schedule"}:
+        action_mode = "send"
+    cleaned_schedule = str(scheduled_send_at or "").strip()
+    scheduled_iso = ""
+    scheduled_display = ""
+    if cleaned_schedule:
+        tz_name = str(tool_context.state.get("hussh:timezone") or "UTC").strip() or "UTC"
+        now_utc = datetime.now(timezone.utc)
+        try:
+            send_at_utc = resolve_send_at(cleaned_schedule, owner_zone=tz_name, now=now_utc)
+        except ScheduleTimeError as exc:
+            return {"status": "invalid_schedule_time", "message": exc.message}
+        scheduled_iso = send_at_utc.isoformat()
+        scheduled_display = format_schedule_echo(send_at_utc, tz_name, now=now_utc)
+        action_mode = "schedule"
+
+    fields = {"to": resolved_to, "cc": cc, "bcc": bcc, "subject": subject, "body": body}
     fields |= {"recipient_names": recipient_names, "cc_names": cc_names}
     fields |= {"recipient_choices": recipient_choices}
     refusal = draft_field_refusal(fields, drive_file_id)
@@ -2380,17 +2423,41 @@ async def open_gmail_email_draft(
         # Ambiguous, unknown or address-less people, and names an older app can't
         # show, park no directive: One asks one question or looks the address up.
         return envelope
-    payload = {"kind": "gmail_email_draft", "instruction": instruction[:12_000]}
+    payload: dict[str, Any] = {"kind": "gmail_email_draft", "instruction": instruction[:12_000]}
     file_id = str(drive_file_id or "").strip()
     if file_id:
         # A model-selected ID is only an untrusted draft hint. The owner must
         # review the server-resolved file metadata before any Gmail send.
         payload["drive_file_id"] = file_id
+    if action_mode != "send":
+        payload["primary_action"] = action_mode
+    if scheduled_iso:
+        payload["scheduled_send_at"] = scheduled_iso
+        payload["scheduled_send_display"] = scheduled_display
     tool_context.state[f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft"] = {
         "kind": "prompt",
         "payload": payload,
     }
-    return await draft_opened_result(user_id, envelope, prefilled=bool(body.strip()))
+    result = await draft_opened_result(user_id, envelope, prefilled=bool(body.strip()))
+    if action_mode != "send":
+        result["primary_action"] = action_mode
+        if action_mode == "save_draft":
+            result["message"] = (
+                "An editable draft is open. Nothing saves or sends until the person "
+                "reviews it and taps Save draft."
+            )
+    if scheduled_iso:
+        result["scheduled_send_at"] = scheduled_iso
+        result["scheduled_send_display"] = scheduled_display
+        result["message"] = (
+            f"An editable draft is ready to schedule for {scheduled_display}. "
+            "Nothing schedules or sends until the person reviews it and taps Schedule."
+        )
+    cred_categories = detect_outbound_credentials(f"{subject}\n{body}")
+    if cred_categories:
+        result["credential_warning"] = True
+        result["credential_categories"] = cred_categories
+    return result
 
 
 async def open_gmail_information_request_reply(

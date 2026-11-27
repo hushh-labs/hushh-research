@@ -48,6 +48,7 @@ function renderedEmailDraft(input: {
     emailDraftInstruction: "Review the reply", emailDraftAutoDraft: false,
     closeEmailDraft: vi.fn(), handleEmailSendStarted: vi.fn(), handleEmailDraftChange: vi.fn(),
     setIsEmailDrafting: vi.fn(), openConnectorSurface: vi.fn(), emailDraftGmailSend: null,
+    emailDraftOptions: {}, runDirectiveConnect: vi.fn(),
     gmailSendConnect: { pending: null }, createSourceBoundEmailReply,
   };
   const tree = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as {

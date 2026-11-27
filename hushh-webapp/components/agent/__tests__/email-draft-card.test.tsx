@@ -21,6 +21,10 @@ vi.mock("@/lib/services/email-delivery-service", async () => {
       send: vi.fn(),
       sendStatus: vi.fn(),
       saveGmailDraft: vi.fn(),
+      scheduleSend: vi.fn(),
+      listScheduledSends: vi.fn(),
+      cancelScheduledSend: vi.fn(),
+      revealEphemeralCode: vi.fn(),
     },
   };
 });
@@ -1215,5 +1219,78 @@ describe("EmailDraftCard", () => {
     expect(screen.queryByTestId("one-email-draft-connect-gmail")).not.toBeInTheDocument();
     fireEvent.click(reconnect);
     expect(onOpenConnections).toHaveBeenCalledWith("gmail", reconnect);
+  });
+
+  it("shows verified Cc on reply-all, inline compose CTA, outbound credential warning, and schedule + cancel", async () => {
+    const onEnableGmailCompose = vi.fn();
+    vi.mocked(EmailDeliveryService.saveGmailDraft).mockRejectedValueOnce(
+      new EmailDeliveryError(
+        "Enable Gmail drafts to save drafts directly to Gmail.",
+        403,
+        "GMAIL_COMPOSE_PERMISSION_REQUIRED",
+      ),
+    );
+    vi.mocked(EmailDeliveryService.scheduleSend).mockResolvedValueOnce({
+      actionId: "sched-card-1",
+      state: "scheduled",
+      sendAt: "2026-12-05T03:30:00Z",
+      sendAtDisplay: "5 Dec, 9:00 AM IST",
+      recipientDisplay: "ravi@example.com",
+      subject: "Re: Launch",
+      created: true,
+    });
+    vi.mocked(EmailDeliveryService.cancelScheduledSend).mockResolvedValueOnce({
+      actionId: "sched-card-1",
+      cancelled: true,
+      state: "cancelled",
+      sentAt: null,
+    });
+
+    render(
+      <EmailDraftCard
+        initialInstruction="Reply all and schedule"
+        initialDraft={{
+          to: "ravi@example.com",
+          cc: "maya@example.com",
+          bcc: "",
+          subject: "Re: Launch",
+          body: "FYI password: SecretValue123",
+          sourceMailRef: "rs1." + "a".repeat(40),
+        }}
+        sourceBoundReply={{ send: vi.fn(), reportsSendStart: true }}
+        sourceBoundEnvelope={{
+          to: "ravi@example.com",
+          cc: "maya@example.com",
+          subject: "Re: Launch",
+        }}
+        primaryAction="schedule"
+        initialScheduledSendAt="2026-12-05T03:30:00Z"
+        initialScheduledSendDisplay="5 Dec, 9:00 AM IST"
+        onEnableGmailCompose={onEnableGmailCompose}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("one-email-draft-source-bound-cc")).toHaveValue("maya@example.com");
+    expect(screen.getByTestId("one-email-draft-credential-warning")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("one-email-draft-save-gmail"));
+    const composeBtn = await screen.findByTestId("one-email-draft-enable-compose");
+    fireEvent.click(composeBtn);
+    expect(onEnableGmailCompose).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("one-email-draft-schedule-confirm"));
+    await screen.findByTestId("one-email-draft-scheduled-card");
+    expect(screen.getByTestId("one-email-draft-scheduled-card")).toHaveTextContent("5 Dec, 9:00 AM IST");
+
+    fireEvent.click(screen.getByTestId("one-email-draft-schedule-cancel"));
+    await waitFor(() =>
+      expect(screen.getByTestId("one-email-draft-scheduled-card")).toHaveTextContent(
+        "Scheduled email cancelled",
+      ),
+    );
   });
 });

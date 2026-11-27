@@ -34,6 +34,7 @@ import { PersonProfileService, mergePersonScopePage, type InformationRequestBund
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt, TurnLocationPermissionCard, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import { MailChatCard } from "@/components/agent/mail-chat-card";
+import { SensitiveCodeRevealCard } from "@/components/agent/sensitive-code-reveal-card";
 import { ExperienceShell } from "@/components/agent/agent-experience-shell";
 import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
@@ -168,6 +169,8 @@ export function AgentStructuredExperienceView({
     case "one.turn_location_permission.v1":
       return <TurnLocationPermissionCard experience={experience} />;
     case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;
+    case "one.sensitive_code_reveal.v1":
+      return <SensitiveCodeRevealCard experience={experience} />;
     case "one.custom_connector_probe.v1":
       return <CustomConnectorProbeCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":

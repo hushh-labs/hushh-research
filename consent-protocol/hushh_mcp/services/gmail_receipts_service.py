@@ -1528,6 +1528,41 @@ class GmailReceiptsService:
         self._assert_send_row_ready(row)
         return self._send_grant_identity(row or {})
 
+    def _assert_compose_row_ready(self, row: dict[str, Any] | None) -> None:
+        """Compose admission shared by save-draft preparation and draft creation."""
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError(
+                "Connect Gmail first",
+                status_code=409,
+                code="GMAIL_NOT_CONNECTED",
+            )
+        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Enable Gmail drafts before saving a draft.",
+                status_code=409,
+                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
+            )
+
+    def _compose_grant_identity(self, row: dict[str, Any]) -> dict[str, Any]:
+        self._assert_compose_row_ready(row)
+        sub = _clean_text(row.get("google_sub"))
+        label = _clean_text(row.get("google_email"))
+        raw_generation = row.get("send_grant_generation")
+        generation = 0 if raw_generation is None else raw_generation
+        if not sub or not label or type(generation) is not int or generation < 0:
+            raise GmailApiError(
+                "Review the connected Gmail account before saving a draft.",
+                status_code=409,
+                code="GMAIL_SENDER_UNAVAILABLE",
+            )
+        return {"google_sub": sub, "grant_generation": generation, "account_label": label}
+
+    async def compose_grant_identity(self, *, user_id: str) -> dict[str, Any]:
+        """Review identity for saving Gmail drafts using compose authority only."""
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        self._assert_compose_row_ready(row)
+        return self._compose_grant_identity(row or {})
+
     async def get_send_access_token(
         self, *, user_id: str, expected_sender: dict[str, Any] | None = None
     ) -> str:
@@ -1549,10 +1584,14 @@ class GmailReceiptsService:
                 )
         return access_token
 
-    async def get_compose_access_token(self, *, user_id: str) -> str:
+    async def get_compose_access_token(
+        self, *, user_id: str, expected_sender: dict[str, Any] | None = None
+    ) -> str:
         from hushh_mcp.services.gmail_execution_grants import get_compose_access_token
 
-        return await get_compose_access_token(self, user_id=user_id)
+        return await get_compose_access_token(
+            self, user_id=user_id, expected_sender=expected_sender
+        )
 
     async def get_modify_access_token(self, *, user_id: str, expected_google_sub: str) -> str:
         """Resolve a mailbox-organization token only for the connected owner."""

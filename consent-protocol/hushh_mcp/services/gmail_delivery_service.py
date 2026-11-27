@@ -79,7 +79,9 @@ _CRLF_RE = re.compile(r"[\r\n]")
 _SCHEDULE_WINDOW = timedelta(hours=24)
 _SCHEDULE_PAYLOAD_INFO = b"gmail-owner-schedule-payload-v1"
 _SCHEDULE_PAYLOAD_PREFIX = "sp1."
+_SCHEDULE_PAYLOAD_PREFIX_V2 = "sp2."
 _SCHEDULE_PAYLOAD_KEYS = frozenset({"to", "subject", "body", "recipient_user_id", "sender_sub"})
+_SCHEDULE_RECIPIENT_KINDS = frozenset({"connection", "explicit_address", "self"})
 _SCHEDULE_SEALED_MAX_CHARS = 256 * 1024
 # v2 adds the sending account to the key material.
 _SCHEDULE_IDEMPOTENCY_PREFIX = "one-voice-schedule-mail-v2"
@@ -274,7 +276,12 @@ def _message_for(
 
 
 async def create_reviewed_gmail_draft(
-    *, user_id: str, draft_payload: dict[str, Any], connections: Any = None
+    *,
+    user_id: str,
+    draft_payload: dict[str, Any],
+    reply_context: GmailReplyContext | None = None,
+    connections: Any = None,
+    expected_sender: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Save an explicitly reviewed, attachment-free draft through the Gmail REST API.
 
@@ -287,13 +294,22 @@ async def create_reviewed_gmail_draft(
     """
     draft = normalize_draft(draft_payload)
     service = connections or get_gmail_receipts_service()
-    token = await service.get_compose_access_token(user_id=user_id)
-    raw = base64.urlsafe_b64encode(_message_for(draft).as_bytes()).decode("ascii")
+    token = (
+        await service.get_compose_access_token(user_id=user_id, expected_sender=expected_sender)
+        if expected_sender is not None
+        else await service.get_compose_access_token(user_id=user_id)
+    )
+    raw = base64.urlsafe_b64encode(
+        _message_for(draft, reply_context=reply_context).as_bytes()
+    ).decode("ascii")
+    body_message: dict[str, Any] = {"raw": raw}
+    if reply_context is not None:
+        body_message["threadId"] = reply_context.thread_id
     async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0)) as client:
         response = await client.post(
             _GMAIL_DRAFTS_URL,
             headers={"Authorization": f"Bearer {token}"},
-            json={"message": {"raw": raw}},
+            json={"message": body_message},
         )
     if response.status_code in {401, 403}:
         raise GmailApiError("Gmail draft permission is required", status_code=403)
@@ -371,6 +387,58 @@ def _safe_attachment_descriptor(
         "source_account_label": source_account_label,
         "revision": descriptor.revision,
         "sha256": descriptor.sha256,
+    }
+
+
+def _schedule_payload_fields_v2(payload: Any) -> dict[str, Any]:
+    """V2 scheduled payload supporting multi-recipient explicit addresses & replies."""
+    if not isinstance(payload, dict):
+        raise ValueError("scheduled payload shape is invalid")
+    raw_to = payload.get("to")
+    to_list = (
+        [str(x).strip() for x in raw_to if isinstance(x, str) and str(x).strip()]
+        if isinstance(raw_to, list)
+        else ([str(raw_to).strip()] if isinstance(raw_to, str) and raw_to.strip() else [])
+    )
+    cc_list = [
+        str(x).strip() for x in (payload.get("cc") or []) if isinstance(x, str) and str(x).strip()
+    ]
+    bcc_list = [
+        str(x).strip() for x in (payload.get("bcc") or []) if isinstance(x, str) and str(x).strip()
+    ]
+    if not to_list:
+        raise ValueError("scheduled payload needs at least one recipient")
+    sender_sub = str(payload.get("sender_sub") or "").strip()
+    if not sender_sub:
+        raise ValueError("scheduled payload needs a sending account")
+    subject = str(payload.get("subject") or "")
+    body = str(payload.get("body") or "")
+    recipient_user_id = str(payload.get("recipient_user_id") or "").strip()
+    recipient_kind = str(
+        payload.get("recipient_kind") or ("connection" if recipient_user_id else "explicit_address")
+    ).strip()
+    if recipient_kind not in _SCHEDULE_RECIPIENT_KINDS:
+        raise ValueError("scheduled payload recipient_kind is invalid")
+    if recipient_kind == "connection" and not recipient_user_id:
+        raise ValueError("scheduled payload needs recipient_user_id for connection")
+    reply_raw = payload.get("reply_context")
+    reply_context: dict[str, Any] | None = None
+    if isinstance(reply_raw, dict) and str(reply_raw.get("thread_id") or "").strip():
+        reply_context = {
+            "thread_id": str(reply_raw["thread_id"]).strip(),
+            "in_reply_to": str(reply_raw.get("in_reply_to") or "").strip() or None,
+            "references": str(reply_raw.get("references") or "").strip() or None,
+        }
+    return {
+        "to": to_list,
+        "cc": cc_list,
+        "bcc": bcc_list,
+        "subject": subject,
+        "body": body,
+        "recipient_kind": recipient_kind,
+        "recipient_user_id": recipient_user_id,
+        "sender_sub": sender_sub,
+        "reply_context": reply_context,
     }
 
 
@@ -479,12 +547,15 @@ class GmailDeliveryService:
         grant_binding: str | None = None,
         source_account_label: str | None = None,
         sender_review: dict[str, Any] | None = None,
+        intent: str = "send",
     ) -> str:
         # Keep the text-only HMAC shape unchanged for existing prepared actions.
         envelope: dict[str, Any] = {
             "draft": json.loads(draft.canonical_json()),
             "reply_context": json.loads(reply_context.canonical_json()) if reply_context else None,
         }
+        if intent and intent != "send":
+            envelope["intent"] = intent
         if attachment is not None:
             envelope["drive_attachment"] = asdict(attachment)
             envelope["owner_user_id"] = owner_user_id
@@ -815,13 +886,20 @@ class GmailDeliveryService:
         draft_payload: dict[str, Any],
         idempotency_key: str,
         reply_context: GmailReplyContext | None = None,
+        intent: str = "send",
     ) -> dict[str, Any]:
+        clean_intent = "save_draft" if intent == "save_draft" else "send"
         draft = normalize_draft(draft_payload)
         idempotency_key = _text(idempotency_key)
         if not 16 <= len(idempotency_key) <= 256:
             raise GmailDeliveryError("INVALID_IDEMPOTENCY_KEY", "Use a valid confirmation key.")
+        sender_identity = (
+            await self.gmail_service.compose_grant_identity(user_id=user_id)
+            if clean_intent == "save_draft"
+            else await self.gmail_service.send_grant_identity(user_id=user_id)
+        )
         sender_review = {
-            "sender": await self.gmail_service.send_grant_identity(user_id=user_id),
+            "sender": sender_identity,
             "revision": self._review_revision(draft_payload),
         }
         recipient_checks = await self._connection_recipient_checks(
@@ -856,6 +934,7 @@ class GmailDeliveryService:
             grant_binding=grant_binding,
             source_account_label=source_account_label,
             sender_review=sender_review,
+            intent=clean_intent,
         )
         idempotency_hmac = self._idempotency_hmac(idempotency_key)
         action_id = str(uuid.uuid4())
@@ -1431,36 +1510,39 @@ class GmailDeliveryService:
         ).encode("utf-8")
 
     def seal_schedule_payload(
-        self, *, user_id: str, action_id: str, payload: dict[str, Any]
+        self, *, user_id: str, action_id: str, payload: dict[str, Any], version: int = 1
     ) -> str:
         """Seal a scheduled send's envelope for exactly this owner and action.
 
-        The ciphertext opens only with the same ``user_id`` and ``action_id``, so
-        a row copied to another owner, or a payload swapped between two of one
-        owner's rows, fails authentication instead of sending.
+        v1 (``sp1.``) holds the 5-key single-connection shape; v2 (``sp2.``)
+        supports multi-recipient explicit addresses, self-email, and replies.
         """
-        fields = _schedule_payload_fields(payload)
+        if version == 2:
+            fields: dict[str, Any] = _schedule_payload_fields_v2(payload)
+            prefix = _SCHEDULE_PAYLOAD_PREFIX_V2
+        else:
+            fields = _schedule_payload_fields(payload)
+            prefix = _SCHEDULE_PAYLOAD_PREFIX
         aad = self._schedule_payload_aad(user_id=user_id, action_id=action_id)
         nonce = secrets.token_bytes(12)
         plaintext = json.dumps(fields, separators=(",", ":"), sort_keys=True).encode("utf-8")
         ciphertext = AESGCM(self._schedule_payload_key()).encrypt(nonce, plaintext, aad)
         packed = base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii").rstrip("=")
-        return _SCHEDULE_PAYLOAD_PREFIX + packed
+        return prefix + packed
 
     def open_schedule_payload(self, *, user_id: str, action_id: str, sealed: str) -> dict[str, Any]:
-        """Open a sealed scheduled envelope, or raise ``ValueError``.
-
-        Every failure is the same opaque ``ValueError``: the caller fails the
-        send closed and never learns, or logs, what was inside.
-        """
+        """Open a sealed scheduled envelope (``sp1.`` or ``sp2.``), or raise ``ValueError``."""
         try:
-            if (
-                not isinstance(sealed, str)
-                or not sealed.startswith(_SCHEDULE_PAYLOAD_PREFIX)
-                or len(sealed) > _SCHEDULE_SEALED_MAX_CHARS
-            ):
+            if not isinstance(sealed, str) or len(sealed) > _SCHEDULE_SEALED_MAX_CHARS:
                 raise ValueError("sealed")
-            token = sealed[len(_SCHEDULE_PAYLOAD_PREFIX) :]
+            if sealed.startswith(_SCHEDULE_PAYLOAD_PREFIX_V2):
+                version = 2
+                token = sealed[len(_SCHEDULE_PAYLOAD_PREFIX_V2) :]
+            elif sealed.startswith(_SCHEDULE_PAYLOAD_PREFIX):
+                version = 1
+                token = sealed[len(_SCHEDULE_PAYLOAD_PREFIX) :]
+            else:
+                raise ValueError("sealed")
             packed = base64.b64decode(
                 token + "=" * (-len(token) % 4), altchars=b"-_", validate=True
             )
@@ -1471,25 +1553,146 @@ class GmailDeliveryService:
                 packed[12:],
                 self._schedule_payload_aad(user_id=user_id, action_id=action_id),
             )
-            return dict(_schedule_payload_fields(json.loads(plaintext)))
+            decoded = json.loads(plaintext)
+            if version == 2:
+                return _schedule_payload_fields_v2(decoded)
+            return dict(_schedule_payload_fields(decoded))
         except (ValueError, TypeError, binascii.Error, InvalidTag):
             raise ValueError("scheduled payload is unavailable") from None
 
     @staticmethod
     def scheduled_draft_payload(payload: dict[str, Any]) -> dict[str, Any]:
-        """The draft a scheduled send hashes at confirmation and sends when due.
-
-        The single source of truth for both ends: confirmation computes the
-        envelope HMAC over this draft exactly as ``prepare`` would for an
-        immediate send, and the drain passes this same dict to ``execute``.
-        """
+        """The draft a scheduled send hashes at confirmation and sends when due."""
+        raw_to = payload.get("to")
+        to_list = [str(x) for x in raw_to] if isinstance(raw_to, list) else [str(raw_to or "")]
         return {
-            "to": [str(payload.get("to") or "")],
-            "cc": [],
-            "bcc": [],
+            "to": to_list,
+            "cc": [str(x) for x in (payload.get("cc") or [])]
+            if isinstance(payload.get("cc"), list)
+            else [],
+            "bcc": [str(x) for x in (payload.get("bcc") or [])]
+            if isinstance(payload.get("bcc"), list)
+            else [],
             "subject": str(payload.get("subject") or ""),
             "body": str(payload.get("body") or ""),
         }
+
+    @staticmethod
+    def scheduled_reply_context(payload: dict[str, Any]) -> GmailReplyContext | None:
+        raw = payload.get("reply_context")
+        if not isinstance(raw, dict) or not str(raw.get("thread_id") or "").strip():
+            return None
+        return GmailReplyContext(
+            thread_id=str(raw["thread_id"]).strip(),
+            in_reply_to=str(raw.get("in_reply_to") or "").strip() or None,
+            references=str(raw.get("references") or "").strip() or None,
+        )
+
+    async def execute_save_draft(
+        self,
+        *,
+        user_id: str,
+        action_id: str,
+        draft_payload: dict[str, Any],
+        reply_context: GmailReplyContext | None = None,
+    ) -> dict[str, str]:
+        """Verify 10-min TTL HMAC prepared envelope for save_draft, then save to Gmail Drafts."""
+        draft = normalize_draft(draft_payload)
+        action_id = _text(action_id)
+        if not action_id:
+            raise GmailDeliveryError("MISSING_ACTION", "Choose the prepared draft confirmation.")
+        sender_token = draft_payload.get("sender_token")
+        sender_review = (
+            self._open_sender_review(sender_token, user_id=user_id, action_id=action_id)
+            if sender_token is not None
+            else None
+        )
+        if sender_review is not None and sender_review["revision"] != self._review_revision(
+            draft_payload
+        ):
+            raise GmailDeliveryError(
+                "DRAFT_CHANGED",
+                "The draft changed after review. Review it again before saving.",
+                status_code=409,
+            )
+        envelope_hmac = self._envelope_hmac(
+            draft,
+            reply_context=reply_context,
+            sender_review=sender_review,
+            intent="save_draft",
+        )
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT action_id, state, expires_at, envelope_hmac
+                    FROM gmail_owner_send_actions
+                    WHERE action_id = $1 AND user_id = $2
+                    FOR UPDATE
+                    """,
+                    action_id,
+                    user_id,
+                )
+                if row is None:
+                    raise GmailDeliveryError(
+                        "ACTION_NOT_FOUND", "Draft confirmation was not found.", status_code=404
+                    )
+                if str(row["state"]) != "prepared":
+                    raise GmailDeliveryError(
+                        "ACTION_ALREADY_USED",
+                        "This draft confirmation was already used or expired.",
+                        status_code=409,
+                    )
+                if row["expires_at"] is not None and row["expires_at"] <= _utcnow():
+                    await conn.execute(
+                        "UPDATE gmail_owner_send_actions SET state = 'expired', updated_at = NOW() "
+                        "WHERE action_id = $1 AND user_id = $2",
+                        action_id,
+                        user_id,
+                    )
+                    raise GmailDeliveryError(
+                        "ACTION_EXPIRED",
+                        "This draft confirmation expired. Review the draft again.",
+                        status_code=409,
+                    )
+                if not hmac.compare_digest(_text(row.get("envelope_hmac")), envelope_hmac):
+                    raise GmailDeliveryError(
+                        "DRAFT_CHANGED",
+                        "The draft changed after review. Review it again before saving.",
+                        status_code=409,
+                    )
+                if sender_review is None:
+                    raise GmailDeliveryError(
+                        "SENDER_REVIEW_REQUIRED",
+                        "Review the connected Gmail account before saving this draft.",
+                        status_code=409,
+                    )
+                current_sender = await self.gmail_service.compose_grant_identity(user_id=user_id)
+                if current_sender != sender_review["sender"]:
+                    raise GmailDeliveryError(
+                        "GMAIL_SENDER_CHANGED",
+                        "The Gmail account or draft permission changed. Review the draft again.",
+                        status_code=409,
+                    )
+                # Mark as cancelled/draft_saved so migration 252 never emits a false
+                # mail_message_sent Feed event while keeping single-use replay immunity.
+                await conn.execute(
+                    """
+                    UPDATE gmail_owner_send_actions
+                    SET state = 'cancelled', safe_error_code = 'draft_saved', updated_at = NOW()
+                    WHERE action_id = $1 AND user_id = $2
+                    """,
+                    action_id,
+                    user_id,
+                )
+        return await create_reviewed_gmail_draft(
+            user_id=user_id,
+            draft_payload=draft_payload,
+            reply_context=reply_context,
+            connections=self.gmail_service,
+            expected_sender=sender_review["sender"],
+        )
 
     async def current_sender_sub(self, *, user_id: str) -> str | None:
         """The Google account id of the Gmail connection that would send now.
@@ -1547,42 +1750,75 @@ class GmailDeliveryService:
         too_soon = send_at <= now + timedelta(seconds=SCHEDULE_MIN_LEAD_SECONDS)
         if too_soon or send_at > now + timedelta(days=SCHEDULE_HORIZON_DAYS):
             raise GmailDeliveryError("INVALID_SEND_AT", "Choose a valid send time.")
+        is_v2 = (
+            isinstance(payload.get("to"), list)
+            or bool(payload.get("cc"))
+            or bool(payload.get("bcc"))
+            or bool(payload.get("reply_context"))
+            or payload.get("recipient_kind") in {"explicit_address", "self"}
+            or not str(payload.get("recipient_user_id") or "").strip()
+        )
         try:
-            fields = _schedule_payload_fields(payload)
+            if is_v2:
+                fields_v2 = _schedule_payload_fields_v2(payload)
+                draft = normalize_draft(self.scheduled_draft_payload(fields_v2))
+                reply_ctx = self.scheduled_reply_context(fields_v2)
+                recipient_user_id = fields_v2["recipient_user_id"]
+                sender_sub = fields_v2["sender_sub"]
+                sealed_fields: dict[str, Any] = {
+                    "to": list(draft.to),
+                    "cc": list(draft.cc),
+                    "bcc": list(draft.bcc),
+                    "subject": draft.subject,
+                    "body": draft.body,
+                    "recipient_kind": fields_v2["recipient_kind"],
+                    "recipient_user_id": recipient_user_id,
+                    "sender_sub": sender_sub,
+                    "reply_context": fields_v2["reply_context"],
+                }
+                seal_version = 2
+            else:
+                fields = _schedule_payload_fields(payload)
+                draft = normalize_draft(self.scheduled_draft_payload(fields))
+                if len(draft.to) != 1 or draft.cc or draft.bcc:
+                    raise GmailDeliveryError(
+                        "INVALID_RECIPIENTS", "A scheduled email goes to exactly one person."
+                    )
+                reply_ctx = None
+                recipient_user_id = fields["recipient_user_id"]
+                sender_sub = fields["sender_sub"]
+                sealed_fields = {
+                    "to": draft.to[0],
+                    "subject": draft.subject,
+                    "body": draft.body,
+                    "recipient_user_id": recipient_user_id,
+                    "sender_sub": sender_sub,
+                }
+                seal_version = 1
         except ValueError:
             raise GmailDeliveryError(
                 "INVALID_SCHEDULED_EMAIL", "Review the scheduled email again."
             ) from None
-        draft = normalize_draft(self.scheduled_draft_payload(fields))
-        if len(draft.to) != 1 or draft.cc or draft.bcc:
-            raise GmailDeliveryError(
-                "INVALID_RECIPIENTS", "A scheduled email goes to exactly one person."
-            )
-        recipient_user_id = fields["recipient_user_id"]
-        sealed_fields = {
-            "to": draft.to[0],
-            "subject": draft.subject,
-            "body": draft.body,
-            "recipient_user_id": recipient_user_id,
-            "sender_sub": fields["sender_sub"],
-        }
         # Exactly prepare()'s envelope for this draft: no schedule fields in it.
-        envelope_hmac = self._envelope_hmac(draft)
+        envelope_hmac = self._envelope_hmac(draft, reply_context=reply_ctx)
         idempotency_hmac = self._idempotency_hmac(
             ":".join(
                 (
                     _SCHEDULE_IDEMPOTENCY_PREFIX,
                     envelope_hmac,
                     send_at.isoformat(),
-                    recipient_user_id,
-                    fields["sender_sub"],
+                    recipient_user_id or ",".join(draft.to),
+                    sender_sub,
                 )
             )
         )
         action_id = str(uuid.uuid4())
         try:
             payload_sealed = self.seal_schedule_payload(
-                user_id=user_id, action_id=action_id, payload=sealed_fields
+                user_id=user_id,
+                action_id=action_id,
+                payload=sealed_fields,
+                version=seal_version,
             )
         except Exception as exc:  # noqa: BLE001 - never persist what could not be sealed
             logger.warning("gmail.schedule.seal_failed error=%s", type(exc).__name__)
@@ -1602,26 +1838,49 @@ class GmailDeliveryService:
             async with conn.transaction():
                 existing = await conn.fetchrow(select_existing, user_id, idempotency_hmac)
                 if existing is None:
-                    inserted = await conn.fetchrow(
-                        """
-                        INSERT INTO gmail_owner_send_actions (
-                            action_id, user_id, envelope_hmac, idempotency_hmac,
-                            recipient_count, state, expires_at, send_at,
-                            payload_sealed, recipient_display, subject
-                        ) VALUES ($1, $2, $3, $4, 1, 'scheduled', $5, $6, $7, $8, $9)
-                        ON CONFLICT (user_id, idempotency_hmac) DO NOTHING
-                        RETURNING action_id, state, send_at
-                        """,
-                        action_id,
-                        user_id,
-                        envelope_hmac,
-                        idempotency_hmac,
-                        send_at + _SCHEDULE_WINDOW,
-                        send_at,
-                        payload_sealed,
-                        _schedule_display(recipient_display),
-                        draft.subject,
-                    )
+                    if draft.recipient_count == 1:
+                        inserted = await conn.fetchrow(
+                            """
+                            INSERT INTO gmail_owner_send_actions (
+                                action_id, user_id, envelope_hmac, idempotency_hmac,
+                                recipient_count, state, expires_at, send_at,
+                                payload_sealed, recipient_display, subject
+                            ) VALUES ($1, $2, $3, $4, 1, 'scheduled', $5, $6, $7, $8, $9)
+                            ON CONFLICT (user_id, idempotency_hmac) DO NOTHING
+                            RETURNING action_id, state, send_at
+                            """,
+                            action_id,
+                            user_id,
+                            envelope_hmac,
+                            idempotency_hmac,
+                            send_at + _SCHEDULE_WINDOW,
+                            send_at,
+                            payload_sealed,
+                            _schedule_display(recipient_display),
+                            draft.subject,
+                        )
+                    else:
+                        inserted = await conn.fetchrow(
+                            """
+                            INSERT INTO gmail_owner_send_actions (
+                                action_id, user_id, envelope_hmac, idempotency_hmac,
+                                recipient_count, state, expires_at, send_at,
+                                payload_sealed, recipient_display, subject
+                            ) VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10)
+                            ON CONFLICT (user_id, idempotency_hmac) DO NOTHING
+                            RETURNING action_id, state, send_at
+                            """,
+                            action_id,
+                            user_id,
+                            envelope_hmac,
+                            idempotency_hmac,
+                            draft.recipient_count,
+                            send_at + _SCHEDULE_WINDOW,
+                            send_at,
+                            payload_sealed,
+                            _schedule_display(recipient_display),
+                            draft.subject,
+                        )
                     if inserted is not None:
                         row = dict(inserted)
                         return {

@@ -99,6 +99,7 @@ _PRIVATE_DRAFT_TOOLS = frozenset(
         "propose_calendar_reschedule",
         "propose_calendar_cancellation",
         "open_gmail_email_draft",
+        "open_gmail_forward_draft",
         "open_gmail_information_request_reply",
         "open_gmail_reply_draft",
     }
