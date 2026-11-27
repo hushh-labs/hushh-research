@@ -51,15 +51,38 @@ VERIFY_DEFAULTS = {
     "phone_schema_origin_run_id": "",
     "phone_schema_origin_attempt": "",
     "nearby_check_in_cohort": "all",
+    "traffic_posture": "live",
+    "promote_dark_train": "false",
 }
+DARK_STAGE_HOLD_PATH = (
+    Path(__file__).resolve().parents[2] / "deploy" / "production-dark-stage-hold.json"
+)
 
 
 class VerificationError(ValueError):
     """A closed, content-free reason the live serving state is not qualified."""
 
 
+def load_dark_stage_hold(path: Path = DARK_STAGE_HOLD_PATH) -> dict[str, Any]:
+    """Read the checked-in dark-stage hold state without trusting external state."""
+    if not path.exists():
+        return {"active": False}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise VerificationError("dark_stage_hold_invalid") from error
+    if not isinstance(payload, dict) or not isinstance(payload.get("active", False), bool):
+        raise VerificationError("dark_stage_hold_invalid")
+    return payload
+
+
 def validate_dispatch(
-    inputs: dict[str, str], *, event_name: str, ref: str, repository: str
+    inputs: dict[str, str],
+    *,
+    event_name: str,
+    ref: str,
+    repository: str,
+    hold_path: Path = DARK_STAGE_HOLD_PATH,
 ) -> str:
     """Fail closed before credentials; preserve deploy as the legacy default."""
     operation = inputs.get("operation") or "deploy"
@@ -72,6 +95,24 @@ def validate_dispatch(
     if operation == "deploy":
         if not SHA_PATTERN.fullmatch(inputs.get("sha", "")):
             raise VerificationError("deployment_sha_invalid")
+        posture = inputs.get("traffic_posture") or "live"
+        promote_dark = inputs.get("promote_dark_train") or "false"
+        if posture not in {"live", "stage_dark"}:
+            raise VerificationError("dispatch_traffic_posture_invalid")
+        if promote_dark not in {"false", "true"}:
+            raise VerificationError("dispatch_promote_dark_train_invalid")
+        if posture == "stage_dark" and promote_dark == "true":
+            raise VerificationError("dark_stage_conflicting_posture")
+        hold = load_dark_stage_hold(hold_path)
+        if hold.get("active") is True and posture == "live":
+            isolated_hotfix = bool(inputs.get("emergency_source_ref", "").strip()) and bool(
+                inputs.get("emergency_reason", "").strip()
+            )
+            if not isolated_hotfix and promote_dark != "true":
+                guidance = str(hold.get("guidance") or "").strip()
+                if guidance:
+                    print(guidance, file=sys.stderr)
+                raise VerificationError("dark_stage_hold_active")
         return operation
 
     expected_keys = {"operation", "sha", *VERIFY_DEFAULTS}

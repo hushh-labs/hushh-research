@@ -141,6 +141,7 @@ def plan_cleanup(
     revisions: list[dict[str, Any]],
     keep_count: int,
     explicit_protected: set[str],
+    preserve_tags: frozenset[str] = frozenset(),
 ) -> Plan:
     traffic = traffic_state(service)
     serving = {revision for revision, percent, _ in traffic if percent > 0}
@@ -188,7 +189,13 @@ def plan_cleanup(
     # URLs. A zero-traffic tag can still serve requests and bypass the service
     # instance cap, even when its revision is retained for rollback.
     remove_tags = tuple(
-        sorted({tag for _, percent, tag in traffic if percent == 0 and tag})
+        sorted(
+            {
+                tag
+                for _, percent, tag in traffic
+                if percent == 0 and tag and tag not in preserve_tags
+            }
+        )
     )
     tagged_after_cleanup = {
         revision for revision, _, tag in traffic if tag and tag not in remove_tags
@@ -680,7 +687,16 @@ def main() -> int:
         action="store_true",
         help="drain each UAT revision on its own clock while it provably stays unrouted",
     )
+    parser.add_argument(
+        "--preserve-tag",
+        action="append",
+        default=[],
+        help="preserve a named zero-traffic tag (e.g. dark staging 'stage') and its target revision",
+    )
     args = parser.parse_args()
+    preserve_tags = frozenset(t.strip() for t in (args.preserve_tag or []) if t and t.strip())
+    if any(not TAG_RE.fullmatch(t) for t in preserve_tags):
+        parser.error("preserved tag name is invalid")
     pending_context = retention_admission.cleanup_arguments(args, parser)
     protected = {
         name
@@ -700,7 +716,7 @@ def main() -> int:
     before = service_state(args.service, args.project, args.region)
     expected = traffic_fingerprint(before)
     revisions = revision_state(args.service, args.project, args.region)
-    plan = plan_cleanup(before, revisions, args.keep_count, protected)
+    plan = plan_cleanup(before, revisions, args.keep_count, protected, preserve_tags)
     if pending_context is not None:
         retention_admission.pending_plan(sys.modules[__name__], pending_context, before, revisions, plan)
     drain_seconds = (
@@ -803,6 +819,7 @@ def main() -> int:
             current,
             args.keep_count,
             protected,
+            preserve_tags,
         )
         if pending_context is not None:
             retention_admission.pending_plan(sys.modules[__name__], pending_context, current_service, current, current_plan)

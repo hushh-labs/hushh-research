@@ -129,6 +129,22 @@ on:
         required: false
         default: "all"
         type: string
+      traffic_posture:
+        description: "Traffic target: live (100% public traffic) or stage_dark (0% public traffic tagged stage, cold sandbox pool)"
+        required: true
+        default: "live"
+        type: choice
+        options:
+          - live
+          - stage_dark
+      promote_dark_train:
+        description: "Explicitly promote an active dark-staged release train to 100% live public traffic (Stage 2d cutover)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   pull-requests: read
@@ -145,6 +161,7 @@ env:
   # This explicitly authorized production lane requires immutable status proof.
   HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
   PHONE_DEPLOY_PHASE: ${{ inputs.phone_phase || 'standard' }}
+  TRAFFIC_POSTURE: ${{ inputs.traffic_posture || 'live' }}
   GCP_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
@@ -220,6 +237,8 @@ jobs:
           INPUT_PHONE_SCHEMA_ORIGIN_RUN_ID: ${{ inputs.phone_schema_origin_run_id }}
           INPUT_PHONE_SCHEMA_ORIGIN_ATTEMPT: ${{ inputs.phone_schema_origin_attempt }}
           INPUT_NEARBY_CHECK_IN_COHORT: ${{ inputs.nearby_check_in_cohort }}
+          INPUT_TRAFFIC_POSTURE: ${{ inputs.traffic_posture || 'live' }}
+          INPUT_PROMOTE_DARK_TRAIN: ${{ inputs.promote_dark_train || 'false' }}
         run: python3 scripts/ci/verify-current-production.py validate-dispatch
 
   deployment-security:
@@ -503,6 +522,9 @@ jobs:
           for recipe in frontend-image.cloudbuild.yaml frontend.cloudbuild.yaml pod-image.cloudbuild.yaml; do
             cp "deploy/$recipe" "${RUNNER_TEMP}/release-tools/$recipe"
           done
+          if [ -f deploy/production-dark-stage-hold.json ]; then
+            cp deploy/production-dark-stage-hold.json "${RUNNER_TEMP}/release-tools/production-dark-stage-hold.json"
+          fi
           # The current YAML invokes extracted helpers even for an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
           for tool in backend-deploy.sh backend-phone-rollback.sh backend-app-surface-settings.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-search-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
@@ -653,6 +675,9 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           mkdir -p deploy/drive
           cp "${RUNNER_TEMP}/release-tools/rollback_after_worker_failure.sh" deploy/drive/
+          if [ -f "${RUNNER_TEMP}/release-tools/production-dark-stage-hold.json" ]; then
+            cp "${RUNNER_TEMP}/release-tools/production-dark-stage-hold.json" deploy/production-dark-stage-hold.json
+          fi
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
             scripts/ci/account-deletion-fence-decision.py
           mkdir -p deploy/account-deletion
@@ -2546,7 +2571,7 @@ jobs:
 
       - name: Deploy and attest private production Drive worker
         id: deploy-drive-worker
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && ((steps.drive-mode.outputs.active == 'true' || (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) == 'true') && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && ((steps.drive-mode.outputs.active == 'true' || (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) == 'true') && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')
         continue-on-error: true
         shell: bash
         env:
@@ -2609,11 +2634,31 @@ jobs:
 
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success')) && (inputs.restoration_validation_run != '' || steps.dispatch-authority.outputs.mode == 'manual-emergency' || steps.main-source-recheck.outcome == 'success')
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (env.TRAFFIC_POSTURE == 'stage_dark' || steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success')) && (inputs.restoration_validation_run != '' || steps.dispatch-authority.outputs.mode == 'manual-emergency' || steps.main-source-recheck.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+            if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+              gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
+                --project="${{ env.GCP_PROJECT_ID }}" \
+                --region="${{ env.GCP_REGION }}" \
+                --update-tags="stage=${{ steps.candidate-state.outputs.backend_revision }}"
+              bash scripts/ci/cloudrun-http-health.sh "https://stage.api.hussh.ai" "/health" 3 30 5 200
+              if [ -x scripts/deploy/reconcile-sandbox-cluster.sh ]; then
+                HUSSH_SANDBOX_WARM_REPLICAS=0 SANDBOX_HUB_TAG=stage bash scripts/deploy/reconcile-sandbox-cluster.sh
+              fi
+            fi
+            if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+              gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
+                --project="${{ env.GCP_PROJECT_ID }}" \
+                --region="${{ env.GCP_REGION }}" \
+                --update-tags="stage=${{ steps.candidate-state.outputs.frontend_revision }}"
+              bash scripts/ci/cloudrun-http-health.sh "https://stage.one.hussh.ai" "/" 3 30 5 200
+            fi
+            exit 0
+          fi
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
@@ -2629,7 +2674,7 @@ jobs:
 
       - name: Quarantine production Drive jobs after disabling live Drive
         id: pause-drive-worker
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2648,7 +2693,7 @@ jobs:
 
       - name: Verify production backend deployment provenance
         id: verify-backend-provenance
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2665,7 +2710,7 @@ jobs:
 
       - name: Verify production frontend deployment provenance
         id: verify-frontend-provenance
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2682,7 +2727,7 @@ jobs:
 
       - name: Post-deploy backend runtime health gate
         id: health-backend
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2696,7 +2741,7 @@ jobs:
 
       - name: Post-deploy frontend runtime health gate
         id: health-frontend
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2709,7 +2754,7 @@ jobs:
 
       - name: Verify production account-session contract
         id: health-account-session-contract
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2724,7 +2769,7 @@ jobs:
 
       - name: Verify production native passkey domain associations
         id: verify-passkey-associations
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2735,7 +2780,7 @@ jobs:
 
       - name: Classify production release outcome
         id: classify
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
         env:
           RECOVERY_MODE: ${{ inputs.restoration_validation_run != '' && 'true' || 'false' }}
@@ -2901,7 +2946,7 @@ jobs:
 
       - name: Roll back backend revision
         id: rollback-backend
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.phone-rollback-qualified.outputs.revision != '')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.phone-rollback-qualified.outputs.revision != '')
         shell: bash
         run: |
           set -euo pipefail
@@ -3003,7 +3048,7 @@ jobs:
 
       - name: Roll back frontend revision
         id: rollback-frontend
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) != '')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) != '')
         shell: bash
         run: |
           set -euo pipefail
@@ -3012,7 +3057,7 @@ jobs:
 
       - name: Restore production Drive worker after paired release failure
         id: rollback-drive-worker
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.release_failed == 'true' && steps.deploy-drive-worker.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.release_failed == 'true' && steps.deploy-drive-worker.outcome == 'success')
         shell: bash
         run: |
           set -euo pipefail
@@ -3022,7 +3067,7 @@ jobs:
 
       - name: Restore production Drive jobs after disabled release failure
         id: rollback-paused-drive-worker
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.release_failed == 'true' && steps.pause-drive-worker.outputs.snapshot != '' && steps.rollback-backend.outcome == 'success')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always() && steps.classify.outputs.release_failed == 'true' && steps.pause-drive-worker.outputs.snapshot != '' && steps.rollback-backend.outcome == 'success')
         shell: bash
         run: |
           set -euo pipefail
@@ -3032,7 +3077,7 @@ jobs:
 
       - name: Restore cleanup only on the verified original recovery pair
         id: restore-recovery-cleanup
-        if: always() && inputs.restoration_validation_run != '' && steps.classify.outputs.release_failed == 'true' && (steps.install-account-deletion-fence.outcome == 'success' || steps.install-account-deletion-fence.outcome == 'failure')
+        if: always() && env.TRAFFIC_POSTURE != 'stage_dark' && inputs.restoration_validation_run != '' && steps.classify.outputs.release_failed == 'true' && (steps.install-account-deletion-fence.outcome == 'success' || steps.install-account-deletion-fence.outcome == 'failure')
         shell: bash
         run: |
           set -euo pipefail
@@ -3042,7 +3087,7 @@ jobs:
 
       - name: Activate tombstone-aware account deletion
         id: activate-account-deletion
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true')
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -3074,7 +3119,7 @@ jobs:
 
       - name: Resolve final Cloud Run state
         id: final-state
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && always() && steps.gcp-auth.outcome == 'success'
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && always() && steps.gcp-auth.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -3108,7 +3153,7 @@ jobs:
 
       - name: Write production release status artifact
         id: release-status
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
         run: |
           set -euo pipefail
@@ -3282,7 +3327,7 @@ jobs:
           esac
 
       - name: Deployment Summary
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
         run: |
           {
@@ -3343,7 +3388,7 @@ jobs:
 
       - name: Tag this release as last known good
         id: tag-last-known-good
-        if: always() && env.PHONE_DEPLOY_PHASE != 'cold' && steps.release-status.outputs.status == 'healthy'
+        if: always() && env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && steps.release-status.outputs.status == 'healthy'
         # Advisory annotation, not a release-health signal: the deploy above
         # already succeeded and classified healthy by this point. A tagging
         # failure (e.g. a transient push conflict) must never turn a healthy
@@ -3376,7 +3421,7 @@ jobs:
           bash "${RUNNER_TEMP}/release-tools/tag-last-known-good.sh"
 
       - name: Upload production deploy artifacts
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         uses: actions/upload-artifact@v6
         with:
           name: prod-release-${{ github.run_id }}
@@ -3432,13 +3477,14 @@ jobs:
             ${{ runner.temp }}/qualified-worker-stage/
 
       - name: Retire unused production tags after a healthy release
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always()) && !inputs.frontend_auth_domain_refresh
+        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always()) && !inputs.frontend_auth_domain_refresh
         shell: bash
         env:
           BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_serving }}
           FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_serving }}
           BACKEND_ROLLBACK: ${{ steps.phone-rollback-qualified.outputs.revision }}
           FRONTEND_ROLLBACK: ${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}
+          PROMOTE_DARK_TRAIN: ${{ inputs.promote_dark_train || 'false' }}
         run: |
           set -euo pipefail
           status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
@@ -3446,12 +3492,18 @@ jobs:
             echo "Skipping revision cleanup for release status $status"
             exit 0
           fi
+          preserve_stage_args=()
+          if [ "$PROMOTE_DARK_TRAIN" != "true" ] && [ -f deploy/production-dark-stage-hold.json ]; then
+            if python3 -c "import json,sys; from pathlib import Path; sys.exit(0 if json.loads(Path('deploy/production-dark-stage-hold.json').read_text()).get('active') is True else 1)"; then
+              preserve_stage_args=(--preserve-tag stage)
+            fi
+          fi
           bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
             "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
-            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only
+            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only "${preserve_stage_args[@]}"
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
-            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
+            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only "${preserve_stage_args[@]}"
           timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
@@ -3462,6 +3514,13 @@ jobs:
           SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
+          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+            if [ "${{ steps.promote-traffic.outcome }}" != "success" ]; then
+              echo "Zero-traffic dark staging deploy did not pass stage tag promotion and health verification." >&2
+              exit 1
+            fi
+            exit 0
+          fi
           STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
           if [ "$AUTH_DOMAIN_REPAIR" = true ]; then
             if [ "$STATUS" != healthy ]; then
