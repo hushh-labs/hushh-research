@@ -176,9 +176,15 @@ async function json<T>(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok) {
+    const podState = response.headers.get("x-hussh-pod-state")?.trim().toLowerCase();
     const result = await response.json().catch(() => ({}));
+    if (podState === "waking" || result?.code === "SANDBOX_WAKING") {
+      throw new Error("SANDBOX_WAKING");
+    }
     throw new Error(
-      result?.detail?.code ?? `FILES_UNAVAILABLE:${response.status}`,
+      result?.detail?.code ??
+        (typeof result?.code === "string" ? result.code : undefined) ??
+        `FILES_UNAVAILABLE:${response.status}`,
     );
   }
   return response.json() as Promise<T>;

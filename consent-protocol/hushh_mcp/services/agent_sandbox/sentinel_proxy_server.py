@@ -712,7 +712,13 @@ class SentinelProxyRuntime:
                 return refused
         else:
             return refused
-        encoded = urllib.parse.urlencode({**form, "client_secret": secret}).encode("utf-8")
+        upstream_form: dict[str, str] = {**form, "client_secret": secret}
+        if grant_type == "authorization_code":
+            # Browser GIS initCodeClient(ux_mode="popup") binds issued codes to
+            # "postmessage" when bare origins are registered as JS origins only;
+            # form["redirect_uri"] already proved the caller's allowed hussh origin above.
+            upstream_form["redirect_uri"] = "postmessage"
+        encoded = urllib.parse.urlencode(upstream_form).encode("utf-8")
         try:
             status_code, _headers, raw_body = self._upstream(
                 "https://oauth2.googleapis.com/token",

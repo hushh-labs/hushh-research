@@ -97,7 +97,7 @@ export async function beforeTurnIsSent<T>(step: () => Promise<T>): Promise<T> {
 }
 
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
-const WAKING_REFUSAL = /^(?:POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):(?:502|503|504)$/;
+const WAKING_REFUSAL = /^(?:POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):(?:502|503|504|SANDBOX_WAKING)$/;
 
 /**
  * Whether an outcome only says the agent is still starting. The agent's own

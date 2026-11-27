@@ -1096,6 +1096,7 @@ async def test_sentinel_shared_oauth_and_plaid_gate_keeps_pod_single_container(
             assert exch_body["access_token"] == "ya29.test_access"
             assert "internal_debug" not in exch_body
             assert b"test_sentinel_oauth_secret_fixture" in captured_upstreams[-1][2]
+            assert b"redirect_uri=postmessage" in captured_upstreams[-1][2]
 
             # Negative control 2: contacts scope or untrusted origin refused before upstream
             bad_origin = await client.post(
