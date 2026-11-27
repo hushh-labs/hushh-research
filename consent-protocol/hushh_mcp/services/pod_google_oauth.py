@@ -37,14 +37,58 @@ PROVIDER_REFUSED = "PROVIDER_REFUSED"
 ACCOUNT_UNVERIFIED = "ACCOUNT_UNVERIFIED"
 CLIENT_PROFILE_UNSUPPORTED = "CLIENT_PROFILE_UNSUPPORTED"
 _CLIENT_ID = re.compile(r"^([0-9]{4,32})-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$")
+UAT_MAIL_ORIGIN = "https://uat.one.hussh.ai"
+HOSTED_WEB_ORIGINS_BY_ENV: dict[str, frozenset[str]] = {
+    "dev": frozenset(
+        {
+            "https://dev.one.hussh.si",
+            "https://dev.one.hushh.si",
+            "https://dev.one.hussh.ai",
+            "https://dev.one.hushh.ai",
+        }
+    ),
+    "uat": frozenset(
+        {
+            "https://uat.one.hussh.si",
+            "https://uat.one.hushh.si",
+            "https://uat.one.hussh.ai",
+            "https://uat.one.hushh.ai",
+        }
+    ),
+    "production": frozenset(
+        {
+            "https://one.hussh.si",
+            "https://one.hushh.si",
+            "https://one.hussh.ai",
+            "https://one.hushh.ai",
+        }
+    ),
+}
 _NATIVE_CLIENT_ENV = {
+    "hussh_web": "GOOGLE_WEB_OAUTH_CLIENT_ID",
+    "hussh_uat_mail_web": "GOOGLE_UAT_MAIL_WEB_CLIENT_ID",
     "hussh_ios": "GOOGLE_IOS_CONNECTOR_CLIENT_ID",
     "hussh_android": "GOOGLE_ANDROID_CONNECTOR_CLIENT_ID",
 }
 
 
+def _resolved_deploy_env() -> str:
+    raw = (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "").strip().lower()
+    return "production" if raw == "prod" else raw
+
+
 def native_client_id(profile: str) -> str:
     """An operator-configured public client, never an id supplied by a request."""
+    if profile == "hussh_web":
+        for env_key in (
+            "GOOGLE_WEB_OAUTH_CLIENT_ID",
+            "GOOGLE_UAT_MAIL_WEB_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_ID",
+        ):
+            val = os.getenv(env_key, "").strip()
+            if _CLIENT_ID.fullmatch(val):
+                return val
+        return ""
     value = os.getenv(_NATIVE_CLIENT_ENV.get(profile, ""), "").strip()
     return value if _CLIENT_ID.fullmatch(value) else ""
 
@@ -64,14 +108,25 @@ def oauth_project_id(client_id: str) -> Optional[str]:
 def validate_native_client(
     profile: str, client_id: str, redirect_uri: Optional[str] = None
 ) -> None:
-    """Pin public native profiles and their exact callbacks; Android is a dev pilot."""
+    """Pin public native and Sentinel-mediated web profiles and their exact callbacks."""
     configured = native_client_id(profile)
     if not configured or configured != client_id:
         raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
     reversed_id = (
         f"com.googleusercontent.apps.{configured.removesuffix('.apps.googleusercontent.com')}"
     )
-    if profile == "hussh_ios":
+    if profile == "hussh_web":
+        allowed = HOSTED_WEB_ORIGINS_BY_ENV.get(_resolved_deploy_env())
+        if not allowed:
+            raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+        if redirect_uri is not None and redirect_uri not in allowed:
+            raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+        return
+    if profile == "hussh_uat_mail_web":
+        if os.getenv("HUSHH_DEPLOY_ENV") != "uat":
+            raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+        expected = UAT_MAIL_ORIGIN
+    elif profile == "hussh_ios":
         expected = f"{reversed_id}:/oauth2redirect"
     else:
         environment = (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "").lower()
@@ -120,6 +175,103 @@ async def http_post(url: str, form: Mapping[str, str]) -> tuple[int, Optional[di
     except ValueError:
         body = None
     return response.status_code, body if isinstance(body, dict) else None
+
+
+def _sentinel_gateway_auth() -> tuple[str, str]:
+    gateway_url = (
+        (os.getenv("HUSSH_MODEL_GATEWAY_URL") or os.getenv("SENTINEL_MODEL_GATEWAY_URL") or "")
+        .strip()
+        .rstrip("/")
+    )
+    token = (os.getenv("HUSSH_MODEL_GATEWAY_TOKEN") or "").strip()
+    return gateway_url, token
+
+
+async def ready_browser_web_client(profile: str = "hussh_web") -> Optional[str]:
+    """Check out-of-sandbox Sentinel first (1-container pod), with legacy UAT loopback fallback."""
+    import httpx  # noqa: PLC0415
+
+    expected = native_client_id(profile)
+    gateway_url, surrogate = _sentinel_gateway_auth()
+    if gateway_url and surrogate:
+        try:
+            async with httpx.AsyncClient(
+                timeout=2.0, trust_env=False, follow_redirects=False
+            ) as http:
+                resp = await http.get(
+                    f"{gateway_url}/v1/oauth/google/ready",
+                    headers={"Authorization": f"Bearer {surrogate}"},
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                client_id = data.get("clientId") if isinstance(data, dict) else None
+                if isinstance(client_id, str) and _CLIENT_ID.fullmatch(client_id):
+                    if not expected or client_id == expected:
+                        return client_id
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    uat_expected = expected or native_client_id("hussh_uat_mail_web")
+    if not uat_expected:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=1.0, trust_env=False, follow_redirects=False) as http:
+            response = await http.get("http://127.0.0.1:8764/ready")
+        if response.status_code == 200 and response.json() == {"clientId": uat_expected}:
+            return uat_expected
+    except (httpx.HTTPError, ValueError):
+        pass
+    return None
+
+
+async def ready_mail_web_client() -> Optional[str]:
+    return await ready_browser_web_client("hussh_uat_mail_web")
+
+
+async def hosted_web_oauth_exchange(
+    url: str, form: Mapping[str, str]
+) -> tuple[int, Optional[dict[str, Any]]]:
+    """Redeem or refresh browser Google OAuth via out-of-sandbox Sentinel (or legacy loopback)."""
+    import httpx  # noqa: PLC0415
+
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime  # noqa: PLC0415
+
+    if not hosted_ace_runtime() or url != TOKEN_URL:
+        raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+    payload = {k: v for k, v in form.items() if not (k == "code_verifier" and v == "")}
+    gateway_url, surrogate = _sentinel_gateway_auth()
+    if gateway_url and surrogate:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT_S, trust_env=False, follow_redirects=False
+        ) as http:
+            response = await http.post(
+                f"{gateway_url}/v1/oauth/google/exchange",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {surrogate}",
+                    "Content-Type": "application/json",
+                },
+            )
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        return response.status_code, body if isinstance(body, dict) else None
+
+    if os.getenv("HUSHH_DEPLOY_ENV") != "uat":
+        raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+    async with httpx.AsyncClient(
+        timeout=_TIMEOUT_S, trust_env=False, follow_redirects=False
+    ) as http:
+        response = await http.post("http://127.0.0.1:8764/exchange", json=payload)
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    return response.status_code, body if isinstance(body, dict) else None
+
+
+hosted_mail_exchange = hosted_web_oauth_exchange
 
 
 async def _call(post: Optional[Post], url: str, form: Mapping[str, str]) -> tuple[int, dict]:

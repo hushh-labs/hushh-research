@@ -189,6 +189,8 @@ async def run_connector_put(
         native = opened.kind == "authorization_code" and opened.client_profile in {
             "hussh_ios",
             "hussh_android",
+            "hussh_web",
+            "hussh_uat_mail_web",
         }
         authority = dict(
             consent_token=consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
@@ -319,9 +321,22 @@ async def run_connector_get(
             raise HTTPException(
                 status_code=503, detail={"code": "CONNECTOR_CREDENTIALS_UNAVAILABLE"}
             ) from None
+    from hushh_mcp.services import pod_google_oauth as google  # noqa: PLC0415
+    from hushh_mcp.services.pod_connector_credential_seal import (  # noqa: PLC0415
+        HOSTED_WEB_GOOGLE_CONNECTORS,
+    )
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime  # noqa: PLC0415
+
+    browser = {}
+    if connector_id in HOSTED_WEB_GOOGLE_CONNECTORS and hosted_ace_runtime():
+        client_id = await google.ready_browser_web_client("hussh_web")
+        if client_id is None and connector_id == "gmail" and os.getenv("HUSHH_DEPLOY_ENV") == "uat":
+            client_id = await google.ready_mail_web_client()
+        browser["browserClientId"] = client_id
     return {
         "connectorId": connector_id,
         "status": held.status if held else store.STATUS_ABSENT,
+        **browser,
         **store.connector_permissions(held, connector_id=connector_id),
     }
 
