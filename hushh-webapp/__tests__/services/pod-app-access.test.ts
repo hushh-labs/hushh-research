@@ -6,8 +6,12 @@ import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access
 import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-preparation";
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 import { RECEIPT_TOOL_DECLARATIONS } from "@/lib/mail/receipt-analysis";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
-const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn(), pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" })) }));
+const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn(),
+  pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 })),
+  refreshEndpointFromHub: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 })),
+}));
 const memory = vi.hoisted(() => ({ fetch: vi.fn(), shared: vi.fn() }));
 
 const legacyChatCapabilities = {
@@ -94,6 +98,7 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: (
 vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: pod.pin,
   currentPodConnection: pod.currentPodConnection,
+  refreshEndpointFromHub: pod.refreshEndpointFromHub,
 }));
 
 it("requires owner app authority for scheduled work and permits only exact read/control methods", async () => {
@@ -409,4 +414,92 @@ it("keeps exact credential catalog and use routes behind browser.control", async
   }
   expect(fetch).toHaveBeenCalledTimes(3);
   await expect(ownerPodRequest(root + "/unreviewed", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});
+
+const credentialCatalogRoute = `browser/tasks/browser_${"a".repeat(32)}/credentials`;
+const credentialFloorRoute = `credentials/cred_${"a".repeat(32)}`;
+function credentialReadmissionConnection(role = "app", scopes = ["browser.control", "pod.config"], hushhId = "ha1_owner", endpointVersion = 2) {
+  return { endpoint: { hushhId, url: `https://${hushhId}.a.run.app`, endpointVersion },
+    session: { session: `synthetic-session-${endpointVersion}`, role, scopes } };
+}
+function prepareCredentialReadmission(next = credentialReadmissionConnection(), afterAdmission?: () => void, refreshedVersion = 2) {
+  const first = credentialReadmissionConnection("app", ["browser.control", "pod.config"], "ha1_owner", 1);
+  pod.pin.mockResolvedValue(first.endpoint);
+  pod.refreshEndpointFromHub.mockReset().mockResolvedValue({ ...first.endpoint, endpointVersion: refreshedVersion });
+  pod.currentPodConnection.mockReset().mockResolvedValueOnce(first).mockImplementationOnce(async () => {
+    afterAdmission?.();
+    return next;
+  });
+}
+
+it.each([401, 404])("retries same-pod credential GETs once after a newer endpoint answers %s", async status => {
+  for (const route of [credentialCatalogRoute, credentialFloorRoute]) {
+    prepareCredentialReadmission();
+    const sessions: (string | null)[] = [];
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      sessions.push(new Headers(init.headers).get("Authorization"));
+      return Response.json({}, { status: sessions.length === 1 ? status : 200 });
+    });
+    const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+    expect((await ownerPodRequest(route, { method: "GET" }, ports, "ha1_owner")).ok).toBe(true);
+    expect(sessions).toEqual(["Bearer synthetic-session-1", "Bearer synthetic-session-2"]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(pod.refreshEndpointFromHub).toHaveBeenCalledOnce();
+  }
+});
+
+it.each([
+  { label: "Browser role", route: credentialCatalogRoute, next: credentialReadmissionConnection("device"), error: "POD_BROWSER_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "Browser control", route: credentialCatalogRoute, next: credentialReadmissionConnection("app", ["browser.observe"]), error: "POD_BROWSER_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "custody role", route: credentialFloorRoute, next: credentialReadmissionConnection("device"), error: "POD_CREDENTIAL_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "custody config", route: credentialFloorRoute, next: credentialReadmissionConnection("app", ["pod.status"]), error: "POD_CREDENTIAL_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "expected pod", route: credentialCatalogRoute, next: credentialReadmissionConnection("app", ["browser.control"], "ha1_other"), error: "POD_DIRECT_OWNER_MISMATCH", expectedPod: "ha1_owner" },
+  { label: "original pod", route: credentialCatalogRoute, next: credentialReadmissionConnection("app", ["browser.control"], "ha1_other"), error: "POD_DIRECT_OWNER_MISMATCH", expectedPod: undefined },
+])("refuses changed $label before a second credential GET", async ({ route, next, error, expectedPod }) => {
+  prepareCredentialReadmission(next);
+  const fetch = vi.fn(async () => Response.json({}, { status: 401 }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  await expect(ownerPodRequest(route, { method: "GET" }, ports, expectedPod)).rejects.toThrow(error);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each(["caller", "owner", "vault", "cancel"] as const)("refuses %s retirement during credential GET re-admission", async retired => {
+  let current = true;
+  const cancellation = new AbortController();
+  prepareCredentialReadmission(credentialReadmissionConnection(), () => {
+    if (retired === "caller") current = false;
+    if (retired === "owner") publishValidatedAuthSessionPrincipal({ firebaseUid: "other", ownerId: "other", accountGeneration: 1 });
+    if (retired === "vault") advanceVaultSessionEpoch();
+    if (retired === "cancel") cancellation.abort();
+  });
+  const fetch = vi.fn(async () => Response.json({}, { status: 404 }));
+  const ports = { transport: async () => ({}), fetch, isCurrent: () => current } as Parameters<typeof ownerPodRequest>[2];
+  const response = ownerPodRequest(credentialCatalogRoute, { method: "GET", signal: cancellation.signal }, ports, "ha1_owner");
+  if (retired === "cancel") await expect(response).rejects.toMatchObject({ name: "AbortError" });
+  else await expect(response).rejects.toThrow(/POD_(OWNER|VAULT_SESSION)_CHANGED/);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { route: credentialCatalogRoute, method: "GET", status: 401, version: 1 },
+  { route: credentialFloorRoute, method: "GET", status: 404, version: 1 },
+  { route: credentialCatalogRoute + "/use", method: "POST", status: 401, version: 2 },
+])("does not expand UAT retry policy for $method/$status at endpoint version $version", async ({ route, method, status, version }) => {
+  prepareCredentialReadmission(credentialReadmissionConnection(), undefined, version);
+  const fetch = vi.fn(async () => Response.json({}, { status }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  expect((await ownerPodRequest(route, { method, ...(method === "POST" ? { body: "{}" } : {}) }, ports)).status).toBe(status);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(pod.currentPodConnection).toHaveBeenCalledOnce();
+  if (method === "POST") expect(pod.refreshEndpointFromHub).not.toHaveBeenCalled();
+});
+
+it("returns the second credential GET refusal without another retry", async () => {
+  prepareCredentialReadmission();
+  const fetch = vi.fn(async () => Response.json({}, { status: 401 }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  expect((await ownerPodRequest(credentialFloorRoute, { method: "GET" }, ports)).status).toBe(401);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(pod.currentPodConnection).toHaveBeenCalledTimes(2);
+  expect(pod.refreshEndpointFromHub).toHaveBeenCalledOnce();
 });

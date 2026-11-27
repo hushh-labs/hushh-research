@@ -313,37 +313,40 @@ export async function ownerPodRequest(
       throw new Error("SCHEDULE_GRANT_REFUSED");
     }
   }
-  if (route.startsWith("browser/")) {
-    const read =
-      route === "browser/capability" ||
-      (route === "browser/tasks" && method === "GET") ||
-      /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
-    const credentialCatalog = /^browser\/tasks\/browser_[a-f0-9]{32}\/credentials$/.test(route);
-    const isDownloadSave =
-      /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/.test(
-        route,
-      );
-    const scope = read
-      ? "browser.observe"
-      : route === "browser/tasks"
-        ? "browser.invoke"
-        : "browser.control";
-    if (
-      session.role !== "app" ||
-      !session.scopes.includes(scope) ||
-      (isDownloadSave &&
-        (!session.scopes.includes("files.read") ||
-          !session.scopes.includes("files.manage"))) ||
-      method !== (read || credentialCatalog ? "GET" : "POST")
-    ) {
-      throw new Error("POD_BROWSER_REQUEST_REFUSED");
+  const validateBrowserSession = (session: OwnerPodConnection["session"]) => {
+    if (route.startsWith("browser/")) {
+      const read =
+        route === "browser/capability" ||
+        (route === "browser/tasks" && method === "GET") ||
+        /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
+      const credentialCatalog = /^browser\/tasks\/browser_[a-f0-9]{32}\/credentials$/.test(route);
+      const isDownloadSave =
+        /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/.test(
+          route,
+        );
+      const scope = read
+        ? "browser.observe"
+        : route === "browser/tasks"
+          ? "browser.invoke"
+          : "browser.control";
+      if (
+        session.role !== "app" ||
+        !session.scopes.includes(scope) ||
+        (isDownloadSave &&
+          (!session.scopes.includes("files.read") ||
+            !session.scopes.includes("files.manage"))) ||
+        method !== (read || credentialCatalog ? "GET" : "POST")
+      ) {
+        throw new Error("POD_BROWSER_REQUEST_REFUSED");
+      }
     }
-  }
-  if (route === "credentials" || /^credentials\/cred_[a-f0-9]{32}$/.test(route)) {
-    const allowedMethod = route === "credentials" ? method === "POST" : method === "GET" || method === "DELETE";
-    if (!allowedMethod || session.role !== "app" || !session.scopes.includes("pod.config") ||
-        (method === "GET" && body != null)) throw new Error("POD_CREDENTIAL_REQUEST_REFUSED");
-  }
+    if (route === "credentials" || /^credentials\/cred_[a-f0-9]{32}$/.test(route)) {
+      const allowedMethod = route === "credentials" ? method === "POST" : method === "GET" || method === "DELETE";
+      if (!allowedMethod || session.role !== "app" || !session.scopes.includes("pod.config") ||
+          (method === "GET" && body != null)) throw new Error("POD_CREDENTIAL_REQUEST_REFUSED");
+    }
+  };
+  validateBrowserSession(session);
   if (
     route.startsWith("actions/") &&
     (session.role !== "app" ||
@@ -521,6 +524,14 @@ export async function ownerPodRequest(
         ownerPod.currentPodConnection(uid, transport),
         init.signal,
       );
+      refuseCancelled();
+      refuseRetiredOwner(ports.isCurrent);
+      if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
+      if (!isVaultSessionEpochCurrent(vaultEpoch)) throw new Error("POD_VAULT_SESSION_CHANGED");
+      if (next.endpoint.hushhId !== endpoint.hushhId ||
+          (expectedHushhId && next.endpoint.hushhId !== expectedHushhId))
+        throw new Error("POD_DIRECT_OWNER_MISMATCH");
+      validateBrowserSession(next.session);
       ({ endpoint, session, directVerifiedAt } = next);
       headers.set("Authorization", `Bearer ${session.session}`);
       response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
