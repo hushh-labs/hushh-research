@@ -26,6 +26,7 @@ import {
 } from "@/lib/services/drive-sharing-service";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
+import { observeDocumentRequestOperation } from "@/lib/observability/one-owner-operation";
 
 export type DocumentRequestRequesterPanelProps = {
   requestId: string;
@@ -300,6 +301,7 @@ export function DocumentRequestRequesterPanel({
   const askForReview = async () => {
     const token = getVaultOwnerToken();
     if (asking || !token) return;
+    const observe = observeDocumentRequestOperation("review_request");
     const epoch = snapshotVaultSessionEpoch();
     const guard = () => {
       if (!alive.current || !isVaultSessionEpochCurrent(epoch) || getVaultOwnerToken() !== token)
@@ -309,11 +311,14 @@ export function DocumentRequestRequesterPanel({
     setAskError(null);
     try {
       await DriveRequestRequesterService.reviewRequest(token, requestId, guard);
+      guard();
+      observe("success");
       onChanged();
     } catch (cause) {
       if (!alive.current) return;
       const code = cause instanceof DriveSharingError ? cause.code : "";
       if (code === "session_changed") return;
+      observe("error");
       setAskError(
         code === "review_limit_reached"
           ? "You've already asked three times."

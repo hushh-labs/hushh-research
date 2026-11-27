@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { observeDocumentRequestOperation } from "@/lib/observability/one-owner-operation";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { AuthService } from "@/lib/services/auth-service";
 import { useVault } from "@/lib/vault/vault-context";
@@ -94,6 +95,7 @@ export function useFileRequest({
       attempt.current.quoteVersion = quoteVersion;
     }
     const clientRequestId = attempt.current.id;
+    const observe = observeDocumentRequestOperation("file_request_send", userId);
     const linkGoogle = needsGoogle;
     inFlight.current = true;
     setError(null);
@@ -120,6 +122,7 @@ export function useFileRequest({
           recipientKeyId: connector.connector_key_id, recipientKeyFingerprint: (await connectorKeyFingerprint(connector.connector_public_key)).replace(/^sha256:/, ""),
         }, undefined, firebaseToken);
         guard(); attempt.current = null;
+        observe("success");
         window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }));
         return result.requestId;
       }
@@ -152,6 +155,7 @@ export function useFileRequest({
       );
       guard();
       setNeedsGoogle(false);
+      observe("success");
       attempt.current = null;
       CacheSyncService.onConsentMutated(userId);
       window.dispatchEvent(
@@ -162,6 +166,7 @@ export function useFileRequest({
       return result.requestId;
     } catch (cause) {
       if (!current()) return null;
+      observe("error");
       const code =
         cause instanceof DriveSharingError
           ? cause.code

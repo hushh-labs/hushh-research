@@ -14,9 +14,12 @@ import type {
 
 const state = vi.hoisted(() => ({
   reviewRequest: vi.fn(),
+  track: vi.fn(),
   token: "vault-token" as string | null,
   paymentProps: null as Record<string, unknown> | null,
 }));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: state.track }));
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ getVaultOwnerToken: () => state.token }),
@@ -89,6 +92,8 @@ const live = () => screen.getByTestId("requester-recovery-announcement");
 describe("DocumentRequestRequesterPanel recovery row", () => {
   beforeEach(() => {
     state.reviewRequest.mockReset();
+    state.track.mockClear();
+    publishValidatedAuthSessionOwner("requester-owner");
     state.token = "vault-token";
   });
 
@@ -177,6 +182,7 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Request review" }));
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(state.track).toHaveBeenCalledExactlyOnceWith("one_document_request_action", { action: "review_request", result: "success" });
     expect(state.reviewRequest).toHaveBeenCalledExactlyOnceWith(
       "vault-token",
       REQUEST_ID,
@@ -203,6 +209,7 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
     fireEvent.click(screen.getByRole("button", { name: "Request review" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("You've already asked three times.");
+    expect(state.track).toHaveBeenCalledExactlyOnceWith("one_document_request_action", { action: "review_request", result: "error" });
     expect(row()).not.toContainElement(alert);
     expect(live()).not.toContainElement(alert);
 
