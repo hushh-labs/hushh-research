@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MouseEvent, ReactNode } from "react";
 import { expect, test, vi } from "vitest";
-import { executeMainLocationPlan, expandMainLocationTarget, prepareMainLocationPlan, resolveMainLocationChoices, restoreMainLocationPlans } from "@/lib/agent/main-chat-location";
+import { executeMainLocationPlan, expandMainLocationTarget, inspectMainLocationPlan, prepareMainLocationPlan, resolveMainLocationChoices, restoreMainLocationPlans } from "@/lib/agent/main-chat-location";
 import { getLocationAccountSettings, updateLocationAccountSettings } from "@/lib/location/account-settings";
 import { parseMainLocationProposal } from "@/lib/agent/main-chat-location-contract";
 import { directLocationShareTerms, locationPlanGroups, locationPlanSentence, locationReviewText, typedLocationEnableAuthority, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
@@ -25,6 +25,7 @@ vi.mock("@/lib/services/api-client", async (original) => ({
 }));
 
 vi.mock("@/lib/agent/main-chat-location", () => ({
+  inspectMainLocationPlan: vi.fn(),
   restoreMainLocationPlans: vi.fn(async () => [{
     planId: "plan-1", action: "share_live", status: "executed", personDisplayLabel: "Priya",
     receipt: { grantId: "grant-1" }, nextExpiresAt: "2090-01-01T11:00:00.000Z",
@@ -169,6 +170,157 @@ test("retrying a denied live share keeps its recipient, time and prepared plan",
     expect.objectContaining({ action: "share_live", durationHours: 1 }), target);
 });
 
+test.each(["paused after review", "revoked after encryption", "reduced after encryption", "account off after encryption",
+  "account approximate after encryption", "already delivered", "pending but paused", "pending but denied", "pending and approximate",
+  "pending and fresh", "expired measurement", "unreadable web permission", "expired plan"] as const)(
+  "a staged share validates publication and reconciles its exact attempted plan: %s", async scenario => {
+    vi.clearAllMocks();
+    const ownerId = "staged-owner";
+    forgetOneLocationControlPreference(ownerId);
+    const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+    const publicKeyJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    const target = { label: "Maya", personUserId: "maya" };
+    const plan = { planId: "staged-plan", action: "share_live" as const, status: "pending" as const,
+      personDisplayLabel: "Maya", personUserId: "maya", durationHours: 1, durationMode: "timed" as const,
+      expiresAt: new Date(Date.now() + 600_000).toISOString(), recipientKey: { keyId: "maya-key", publicKeyJwk } };
+    const receipt = { ...plan, status: "executed" as const, receipt: { grantId: "grant" } };
+    const settings = { sharing_state: "on", precision: "precise" } as Awaited<ReturnType<typeof getLocationAccountSettings>>;
+    const granted = { state: "granted", precise: true } as Awaited<ReturnType<typeof OneLocationService.getPermissionState>>;
+    const permission = vi.mocked(OneLocationService.getPermissionState);
+    permission.mockResolvedValue(granted);
+    vi.mocked(getLocationAccountSettings).mockResolvedValue(settings);
+    vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+    vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Maya", targets: [target] }]);
+    vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce(plan);
+    const execute = vi.mocked(executeMainLocationPlan);
+    execute.mockReset();
+    const text = vi.fn();
+    let reply: LocationConversationReply | null = null;
+    render(<LocationChatActionPanel proposal={{ id: "origin", action: "share_live", people: ["Maya"], durationHours: 1 }}
+      ownerId={ownerId} token="token" allowReview onUnlock={() => {}} onConversationText={text}
+      onConversationReply={(_id, handler) => { reply = handler; }} />);
+    try {
+      await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Reply yes to share"));
+      if (scenario === "paused after review" || scenario.endsWith("after encryption")) {
+        if (scenario === "paused after review") updateOneLocationControlState(ownerId, current => ({ ...current, paused: true }));
+        else if (scenario.startsWith("account")) vi.mocked(getLocationAccountSettings)
+          .mockResolvedValueOnce(settings).mockResolvedValueOnce(settings).mockResolvedValueOnce(
+            scenario === "account off after encryption" ? { ...settings, sharing_state: "off" } : { ...settings, precision: "approximate" });
+        else permission.mockResolvedValueOnce(granted).mockResolvedValueOnce(granted).mockResolvedValueOnce(
+          scenario === "revoked after encryption" ? { ...granted, state: "denied" } : { ...granted, precise: false });
+        act(() => { expect(reply!("yes")).toBe(true); });
+        await waitFor(() => expect(text.mock.lastCall?.[1]).toMatch(/paused|sharing is off|permission was (denied|not granted)|accuracy or measurement changed/i));
+        expect(execute).not.toHaveBeenCalled();
+        act(() => { expect(reply!("cancel")).toBe(true); });
+        await waitFor(() => expect(text.mock.lastCall?.[1]).toBe("Cancelled."));
+        return;
+      }
+      execute.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValueOnce(receipt);
+      act(() => { expect(reply!("yes")).toBe(true); });
+      await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("I couldn’t confirm delivery."));
+      const firstEnvelope = execute.mock.calls[0]![2];
+      const gps = vi.mocked(OneLocationService.captureCurrentPosition);
+      gps.mockClear();
+      permission.mockClear();
+      vi.mocked(getLocationAccountSettings).mockClear();
+      vi.mocked(inspectMainLocationPlan).mockResolvedValueOnce(scenario === "already delivered" ? receipt
+        : scenario === "expired plan" ? { ...plan, expiresAt: new Date(0).toISOString() } : plan);
+      if (scenario === "already delivered" || scenario === "pending but paused")
+        updateOneLocationControlState(ownerId, current => ({ ...current, paused: true }));
+      if (scenario === "already delivered" || scenario === "pending but denied") permission.mockResolvedValue({ ...granted, state: "denied" });
+      if (scenario === "pending and approximate") permission.mockResolvedValue({ ...granted, precise: false });
+      if (scenario === "unreadable web permission") permission.mockResolvedValue({ ...granted, state: "prompt", precise: null });
+      if (scenario === "expired measurement") firstEnvelope!.capturedAt = new Date(Date.now() - 60_000).toISOString();
+      act(() => { expect(reply!("yes")).toBe(true); });
+      await waitFor(() => expect(text.mock.lastCall?.[1]).toMatch(/shared your live location|paused|permission was denied|no longer available/i));
+      expect(inspectMainLocationPlan).toHaveBeenCalledExactlyOnceWith("token", plan.planId);
+      if (["pending and approximate", "pending and fresh", "expired measurement", "unreadable web permission"].includes(scenario)) {
+        expect(execute).toHaveBeenCalledTimes(2);
+        if (scenario === "pending and fresh") { expect(execute.mock.calls[1]![2]).toBe(firstEnvelope); expect(gps).not.toHaveBeenCalled(); }
+        else {
+          expect(execute.mock.calls[1]![2]?.metadata?.precision).toBe(scenario === "pending and approximate" ? "approximate" : "precise");
+          expect(execute.mock.calls[1]![2]?.ciphertext).not.toBe(firstEnvelope?.ciphertext);
+          expect(gps).toHaveBeenCalledOnce();
+        }
+      } else {
+        expect(execute).toHaveBeenCalledOnce();
+        expect(gps).not.toHaveBeenCalled();
+        if (scenario === "already delivered" || scenario === "expired plan") {
+          expect(permission).not.toHaveBeenCalled();
+          expect(getLocationAccountSettings).not.toHaveBeenCalled();
+        }
+      }
+    } finally {
+      forgetOneLocationControlPreference(ownerId);
+      permission.mockResolvedValue(granted);
+      execute.mockReset();
+    }
+  });
+
+test.each(["never", "off without consent", "off", "on", "device denied"] as const)("only a never-onboarded private share opens the Location subagent (%s)", async posture => {
+  vi.clearAllMocks();
+  const onFirstUse = vi.fn(async () => true);
+  const text = vi.fn();
+  const proposal = { id: "setup-origin", action: "share_live" as const, conversation: true as const };
+  vi.mocked(getLocationAccountSettings).mockResolvedValue({
+    sharing_state: posture === "never" ? "unset" : posture.startsWith("off") ? "off" : "on",
+    sharing_consent_accepted_at: posture === "never" || posture === "off without consent" ? null : "2026-01-01T00:00:00Z",
+    os_permission_reported: posture === "device denied" ? "denied" : "unknown",
+  } as Awaited<ReturnType<typeof getLocationAccountSettings>>);
+  const needsSetup = posture === "never" || posture === "off without consent";
+  if (!needsSetup) vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  render(<LocationChatActionPanel proposal={proposal} ownerId="owner" token="token" allowReview onUnlock={() => {}}
+    onFirstUse={onFirstUse} onConversationText={text} />);
+  if (needsSetup) {
+    await waitFor(() => expect(onFirstUse).toHaveBeenCalledExactlyOnceWith(proposal));
+    expect(restoreMainLocationPlans).not.toHaveBeenCalled();
+  } else {
+    await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Which person or circle"));
+    expect(onFirstUse).not.toHaveBeenCalled();
+  }
+  expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
+  expect(executeMainLocationPlan).not.toHaveBeenCalled();
+});
+
+test("returning from setup resolves the audience again and requires new consent", async () => {
+  vi.clearAllMocks();
+  vi.mocked(getLocationAccountSettings).mockResolvedValue({ sharing_state: "on", precision: "precise" } as Awaited<ReturnType<typeof getLocationAccountSettings>>);
+  const target = { label: "Maya", personUserId: "maya" };
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([{ planId: "stale", action: "share_live",
+    status: "pending", personUserId: "unintended", personDisplayLabel: "Old match", durationHours: 1 }]);
+  vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Maya", targets: [target] }]);
+  vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce({ planId: "fresh", action: "share_live", status: "pending",
+    personUserId: "maya", personDisplayLabel: "Maya", durationHours: 1 });
+  const claim = vi.fn();
+  const text = vi.fn();
+  let reply: LocationConversationReply | null = null;
+  render(<LocationChatActionPanel proposal={{ id: "setup-origin", action: "share_live", conversation: true, people: ["Maya"], durationHours: 1 }}
+    ownerId="owner" token="token" allowReview afterSetup onUnlock={() => {}} claimDirectShare={claim} claimEnable={claim}
+    onConversationText={text} onConversationReply={(_id, handle) => { reply = handle; }} />);
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Share your live location with Maya for 1 hour?"));
+  expect(prepareMainLocationPlan).toHaveBeenCalledWith("token", expect.objectContaining({ durationHours: 1 }), target);
+  expect(claim).not.toHaveBeenCalled();
+  act(() => { expect(reply!("cancel")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toBe("Cancelled."));
+  expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
+  expect(executeMainLocationPlan).not.toHaveBeenCalled();
+});
+
+test.each(["sos_review", "check_in", "nearby_check_in"] as const)("first-use %s enters Location before loading the action", async action => {
+  vi.clearAllMocks();
+  vi.mocked(getLocationAccountSettings).mockResolvedValue({ sharing_state: "unset" } as Awaited<ReturnType<typeof getLocationAccountSettings>>);
+  const onFirstUse = vi.fn(async () => true);
+  const nearby = vi.fn();
+  const proposal = { id: "first-use", action, conversation: true as const };
+  render(<LocationChatActionPanel proposal={proposal} ownerId="owner" token="token" allowReview onUnlock={() => {}}
+    onFirstUse={onFirstUse} onNearbyReady={nearby} />);
+  await waitFor(() => expect(onFirstUse).toHaveBeenCalledExactlyOnceWith(proposal));
+  expect(nearby).not.toHaveBeenCalled();
+  expect(loadChatSosReview).not.toHaveBeenCalled();
+  expect(sendChatSos).not.toHaveBeenCalled();
+  expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
+});
+
 test("requesting someone else's location works without enabling sharing or capturing a device position", async () => {
   vi.clearAllMocks();
   location.receivedGrants = [];
@@ -177,24 +329,28 @@ test("requesting someone else's location works without enabling sharing or captu
   const plan = { planId: "request", action: "ask" as const, status: "pending" as const };
   vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce(plan);
   vi.mocked(executeMainLocationPlan).mockResolvedValueOnce({ ...plan, status: "executed" });
+  const onFirstUse = vi.fn(async () => true);
   render(<LocationChatActionPanel proposal={{ id: "ask", action: "ask", people: ["Kushal"], durationHours: 1 }}
-    ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
+    ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} onFirstUse={onFirstUse} />);
   fireEvent.click(await screen.findByRole("button", { name: "Ask for location" }));
   await waitFor(() => expect(executeMainLocationPlan).toHaveBeenCalledExactlyOnceWith("owner-token", "request", undefined));
   expect(getLocationAccountSettings).not.toHaveBeenCalled();
+  expect(onFirstUse).not.toHaveBeenCalled();
   expect(OneLocationService.getPermissionState).not.toHaveBeenCalled();
   expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
 });
 
 test("the pending visibility choice is exposed as a follow-up hint and cleared on unmount", async () => {
+  vi.clearAllMocks();
   vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
   const onContinuationChange = vi.fn();
   const view = render(<LocationChatActionPanel
     proposal={{ id: "share-proposal", action: "share_options" }}
     ownerId="owner" token="owner-token" allowReview onUnlock={() => {}}
-    onContinuationChange={onContinuationChange}
+    onContinuationChange={onContinuationChange} onFirstUse={vi.fn()}
   />);
   await screen.findByText("Share your location");
+  expect(getLocationAccountSettings).not.toHaveBeenCalled();
   await waitFor(() => expect(onContinuationChange).toHaveBeenLastCalledWith("share-proposal", expect.objectContaining({
     step: "visibility", action: "share_options", people: [], circles: [],
   })));
@@ -202,16 +358,17 @@ test("the pending visibility choice is exposed as a follow-up hint and cleared o
   expect(onContinuationChange).toHaveBeenLastCalledWith("share-proposal", null);
 });
 
-test("turning sharing back on when fresh consent is required opens setup in Chat and can be cancelled", async () => {
+test("an owner who explicitly turns sharing back on is sent to Location when the server requires new consent", async () => {
   vi.clearAllMocks();
   vi.mocked(getLocationAccountSettings).mockResolvedValue({ sharing_state: "off" } as Awaited<ReturnType<typeof getLocationAccountSettings>>);
   vi.mocked(updateLocationAccountSettings).mockRejectedValueOnce(new ApiError("Consent required", 409, { detail: { code: "LOCATION_SHARING_CONSENT_REQUIRED" } }));
-  render(<LocationChatActionPanel proposal={{ id: "enable", action: "enable_location" }} ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
+  const openLocation = vi.fn();
+  render(<LocationChatActionPanel proposal={{ id: "enable", action: "enable_location" }} ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} onOpenLocation={openLocation} />);
   expect(updateLocationAccountSettings).not.toHaveBeenCalled();
+  expect(openLocation).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "Turn on sharing" }));
-  expect(await screen.findByRole("region", { name: "Inline Location setup" })).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Cancel setup" }));
-  expect(await screen.findByText("Cancelled", { exact: false })).toBeVisible();
+  await waitFor(() => expect(openLocation).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("region", { name: "Inline Location setup" })).toBeNull();
   expect(updateLocationAccountSettings).toHaveBeenCalledTimes(1);
   expect(prepareMainLocationPlan).not.toHaveBeenCalled();
   expect(executeMainLocationPlan).not.toHaveBeenCalled();

@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { locationReviewActionForLegacyDirective, MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
 import { directLocationShareTerms, ownsLocationTranscript, typedLocationEnableAuthority, usesLocationChildConversation, usesLocationConversation, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
 import { LocationChatConversationText } from "@/components/agent/location-chat-action/location-chat-conversation-text";
+import { beginLocationChatSetup, consumeLocationChatSetup, getPendingLocationChatSetupId } from "@/lib/agent/location-chat-setup-handoff";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
@@ -2807,13 +2808,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const appendMessage = appendWorkspaceMessage;
   const receivedVoiceLocationProposals = useRef(new Set<string>());
   const openedNearbyCheckIns = useRef(new Set<string>());
-  function openLiveNearbyCheckIn(proposal: { id: string; action: string }) {
+  const openLiveNearbyCheckIn = useCallback((proposal: { id: string; action: string }) => {
     if (proposal.action !== "nearby_check_in" || !locationChatScreenActive.current || !isOneLocationNearbyCheckInAvailable() ||
         !isWorkspaceMountedRef.current || window.location.pathname !== ROUTES.HOME ||
         !isVaultSessionEpochCurrent(vaultSessionEpoch) || openedNearbyCheckIns.current.has(proposal.id)) return;
     openedNearbyCheckIns.current.add(proposal.id);
     router.push(ROUTES.ONE_LOCATION_CHECK_IN);
-  }
+  }, [router, vaultSessionEpoch]);
   const locationChatContinuation = useRef<{ proposalId: string; context: MainLocationContinuation } | null>(null);
   const locationReply = useRef<{ proposalId: string; handle: LocationConversationReply } | null>(null);
   const rememberLocationReply = useCallback((proposalId: string, handle: LocationConversationReply | null) => {
@@ -2835,6 +2836,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return ticket.share.current() ? ticket.share : null;
   }, []);
   const liveLocationOrigin = useRef<{ id: string; current: () => boolean } | null>(null);
+  const openingLocationSetup = useRef<symbol | null>(null);
+  const [locationSetupReturn, setLocationSetupReturn] = useState<{
+    ownerId: string; epoch: number; chatEpoch: number; conversationId: string; messageId: string;
+    proposal: NonNullable<AgentMessage["locationChatProposal"]>; outcome: "completed" | "cancelled";
+  } | null>(null);
   const handlingLocationReply = useRef<string | null>(null);
   const claimLocationEnable = useCallback((proposalId: string) => {
     const ticket = liveLocationEnable.current;
@@ -2860,6 +2866,39 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   }, [applicationOwnerId, vaultSessionEpoch]);
   const lastCachedLocationText = useRef("");
+  const openLocationHub = useCallback(() => router.push(ROUTES.ONE_LOCATION), [router]);
+  const openFirstLocationSetup = useCallback(async (proposal: NonNullable<AgentMessage["locationChatProposal"]>) => {
+    const origin = liveLocationOrigin.current;
+    const thread = conversationIdRef.current;
+    const anchor = messagesRef.current.findLast(message => message.locationChatProposal?.id === proposal.id);
+    if (!applicationOwnerId || !thread || !vaultKey || !anchor || anchor.receiptRedacted ||
+        !anchor.locationComposerProposal || anchor.restoredFromHistory || origin?.id !== proposal.id || !origin.current() ||
+        window.location.pathname !== ROUTES.HOME || document.visibilityState === "hidden") return false;
+    if (openingLocationSetup.current) return true;
+    const attempt = Symbol();
+    openingLocationSetup.current = attempt;
+    try {
+      const url = await beginLocationChatSetup({ ownerId: applicationOwnerId, vaultKey, vaultEpoch: vaultSessionEpoch,
+        conversationId: thread, messageId: anchor.id, proposal: { ...proposal, conversation: true } });
+      if (!url || openingLocationSetup.current !== attempt || !origin.current() || window.location.pathname !== ROUTES.HOME) return false;
+      writeLocationConversationText(proposal.id, "Opening Location setup…");
+      upsertAgentChatHistoryConversation({ userId: applicationOwnerId, conversationId: thread, vaultKey,
+        messages: agentMessagesToStoredMessages(messagesRef.current, thread) });
+      liveLocationOrigin.current = null;
+      liveLocationEnable.current = null;
+      liveDirectShare.current = null;
+      shareSubmission.current = null;
+      locationReply.current = null;
+      locationChatContinuation.current = null;
+      router.push(url);
+      return true;
+    } finally {
+      if (liveLocationOrigin.current === origin && openingLocationSetup.current === attempt) openingLocationSetup.current = null;
+    }
+  }, [applicationOwnerId, router, vaultKey, vaultSessionEpoch, writeLocationConversationText]);
+  useEffect(() => {
+    if (!isCanonicalChatRoute) openingLocationSetup.current = null;
+  }, [isCanonicalChatRoute]);
   useEffect(() => {
     const last = messages.at(-1);
     const authored = last?.locationTextScope;
@@ -4939,6 +4978,77 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ],
   );
 
+  // Location returns only a reviewable request to its original Chat.
+  const setupReturnRead = useRef<{ id: string; owner: string; epoch: number; chatEpoch: number; value: ReturnType<typeof consumeLocationChatSetup> } | null>(null);
+  const handledSetupReturn = useRef<string | null>(null);
+  const setupReturnParam = searchParams?.get("locationSetupReturn") ?? null;
+  useEffect(() => {
+    if (!isCanonicalChatRoute || !isVaultUnlocked || !applicationOwnerId || !vaultKey || !vaultOwnerToken ||
+        isLoadingHistory || isChatLoading || !historyReadyForSlot || (!setupReturnParam && openingLocationSetup.current)) return;
+    const handoffId = setupReturnParam || getPendingLocationChatSetupId();
+    if (!handoffId || handledSetupReturn.current === handoffId) return;
+    let active = true;
+    const owner = applicationOwnerId;
+    const epoch = vaultSessionEpoch;
+    const requestEpoch = chatSessionRef.current.value;
+    const current = () => active && isWorkspaceMountedRef.current && workspaceOwnerIdRef.current === owner &&
+      chatSessionRef.current.isCurrent(requestEpoch) && isVaultSessionEpochCurrent(epoch) &&
+      vaultKeyRef.current === vaultKey && window.location.pathname === ROUTES.HOME;
+    const prior = setupReturnRead.current;
+    if (prior?.id === handoffId && prior.chatEpoch !== requestEpoch) {
+      handledSetupReturn.current = handoffId;
+      return;
+    }
+    const value = prior?.id === handoffId && prior.owner === owner && prior.epoch === epoch ? prior.value :
+      consumeLocationChatSetup({ ownerId: owner, vaultKey, vaultEpoch: epoch, handoffId });
+    setupReturnRead.current = { id: handoffId, owner, epoch, chatEpoch: requestEpoch, value };
+    void value.then(async result => {
+      if (!current()) return;
+      const saved = result ? storedMessagesToAgentMessages(peekAgentChatConversationMessages(owner, result.conversationId) ?? [])
+        .find(row => row.id === result.messageId && row.role === "assistant" && !row.receiptRedacted && !row.consentAccessEnded &&
+          row.locationChatProposal?.id === result.proposal.id) : undefined;
+      if (result && conversationIdRef.current !== result.conversationId) {
+        await restoreConversationMessages(result.conversationId, vaultOwnerToken, current);
+        if (!current() || conversationIdRef.current !== result.conversationId) return;
+      }
+      handledSetupReturn.current = handoffId;
+      openingLocationSetup.current = null;
+      if (setupReturnParam) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("locationSetupReturn");
+        window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+      }
+      if (!result) return;
+      const chatEpoch = chatSessionRef.current.value;
+      const sameRoom = () => isWorkspaceMountedRef.current && locationChatScreenActive.current &&
+        chatSessionRef.current.isCurrent(chatEpoch) && isVaultSessionEpochCurrent(epoch) && workspaceOwnerIdRef.current === owner &&
+        conversationIdRef.current === result.conversationId && window.location.pathname === ROUTES.HOME;
+      if (!sameRoom()) return;
+      const statusId = `location-setup-return-${handoffId}`;
+      setMessages(rows => {
+        if (!sameRoom() || rows.some(row => row.id === statusId || !row.receiptRedacted && row.locationChatProposal?.id === result.proposal.id)) return rows;
+        // A just-created chat can return before the server has indexed its last
+        // turn. Recover only its matching owner-cached row, never a removed or
+        // redacted row in an otherwise current server transcript.
+        if (saved?.sentAtMs && !rows.some(row => row.id === result.messageId || row.receiptRedacted || row.consentAccessEnded ||
+            (row.sentAtMs ?? 0) >= saved.sentAtMs!)) {
+          return [...rows, { ...saved, status: "done", restoredFromHistory: true }];
+        }
+        return [...rows, { id: statusId, role: "assistant", status: "done", ...stampNow(),
+          text: result.outcome === "completed" ? "Location setup is complete. Please send your Location request again." : "Location setup was cancelled." }];
+      });
+      liveLocationOrigin.current = { id: result.proposal.id, current: sameRoom };
+      setLocationSetupReturn({ ...result, ownerId: owner, epoch, chatEpoch });
+      if (result.outcome === "cancelled") {
+        writeLocationConversationText(result.proposal.id, "Location setup was cancelled.");
+        liveLocationOrigin.current = null;
+        locationReply.current = null;
+      }
+    }).catch(() => { if (current()) toast.error("Could not reopen the Location request."); });
+    return () => { active = false; };
+  }, [applicationOwnerId, historyReadyForSlot, isCanonicalChatRoute, isChatLoading, isLoadingHistory, isVaultUnlocked,
+    restoreConversationMessages, setupReturnParam, vaultKey, vaultOwnerToken, vaultSessionEpoch, writeLocationConversationText]);
+
   // A turn this chat stopped reading has written its answer: show it in place.
   useEffect(() => {
     return subscribeAgentTurnSettled((turn) => {
@@ -6460,7 +6570,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       updateMessage(assistantMessageId, message => ({ ...message, locationChatProposal: proposal,
         locationComposerProposal: Boolean(options.directLocationComposer) }));
-      if (conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
+      if (!options.directLocationComposer && conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
     };
     const updateTurnConversationId = (nextId: string) => {
       if (activeSessionBinding) {
@@ -9390,6 +9500,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const legacyLocationReviewAction = locationChatReviewEnabled && pendingSpecialistDirective
     ? locationReviewActionForLegacyDirective(pendingSpecialistDirective) : null;
   const latestLocationProposalMessageId = visibleMessages.findLast((message) => message.locationChatProposal)?.id;
+  const latestLocationAnswer = visibleMessages.findLast(message => message.role === "assistant");
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns
       controller={chatOnboarding}
@@ -10894,8 +11005,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 const locationConversation = locationChatReviewEnabled && Boolean(locationAction &&
                   (usesLocationConversation(locationAction) || usesLocationChildConversation(locationAction)) &&
                   (message.locationComposerProposal || message.locationChatProposal?.conversation || message.locationChatText));
-                const liveLocationConversation = locationConversation && message.locationComposerProposal && !message.restoredFromHistory &&
+                const returnedLocation = locationSetupReturn && locationSetupReturn.ownerId === applicationOwnerId &&
+                  locationSetupReturn.epoch === vaultSessionEpoch && locationSetupReturn.conversationId === conversationId &&
+                  chatSessionRef.current.isCurrent(locationSetupReturn.chatEpoch) && !message.receiptRedacted &&
+                  (message.id === locationSetupReturn.messageId || message.restoredFromHistory) &&
+                  message.locationChatProposal?.id === locationSetupReturn.proposal.id &&
+                  (latestLocationAnswer?.id === message.id || latestLocationAnswer?.locationReplyFor === locationSetupReturn.proposal.id) &&
+                  message.id === latestLocationProposalMessageId ? locationSetupReturn : null;
+                const resumedLocation = returnedLocation?.outcome === "completed";
+                const freshLocation = locationSetupReturn?.proposal.id !== message.locationChatProposal?.id &&
+                  message.locationComposerProposal && !message.restoredFromHistory &&
                   liveLocationOrigin.current?.id === message.locationChatProposal?.id && liveLocationOrigin.current?.current();
+                const liveLocationConversation = (locationConversation || resumedLocation) && (freshLocation || resumedLocation);
                 if (
                   message.role === "user" &&
                   !message.attachments?.length &&
@@ -11351,22 +11472,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
-                  {locationChatReviewEnabled && message.locationChatProposal && !(locationConversation &&
+                  {locationChatReviewEnabled && message.locationChatProposal && returnedLocation?.outcome !== "cancelled" && !(locationConversation &&
                     usesLocationChildConversation(message.locationChatProposal.action) &&
-                    (message.restoredFromHistory || message.id !== latestLocationProposalMessageId)) ? (
+                    (message.restoredFromHistory && !resumedLocation || message.id !== latestLocationProposalMessageId)) ? (
                     <LocationChatActionPanel
-                      key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}`}
+                      key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}:${resumedLocation ? "after-setup" : "original"}`}
                       ownerId={applicationOwnerId}
                       token={isVaultUnlocked ? vaultOwnerToken ?? null : null}
                       vaultKey={isVaultUnlocked ? vaultKey ?? null : null}
-                      proposal={message.locationChatProposal}
+                      proposal={resumedLocation ? returnedLocation.proposal : message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
                       allowReview={message.id === latestLocationProposalMessageId && (!locationConversation || Boolean(liveLocationConversation))}
                       onContinuationChange={rememberLocationContinuation}
-                      claimEnable={claimLocationEnable}
-                      claimDirectShare={liveLocationConversation ? claimDirectShare : undefined}
+                      claimEnable={resumedLocation ? undefined : claimLocationEnable}
+                      claimDirectShare={freshLocation && !resumedLocation ? claimDirectShare : undefined}
+                      afterSetup={resumedLocation}
+                      onFirstUse={freshLocation && !resumedLocation ? openFirstLocationSetup : undefined}
+                      onOpenLocation={openLocationHub}
+                      onNearbyReady={openLiveNearbyCheckIn}
                       onConversationReply={liveLocationConversation ? rememberLocationReply : undefined}
-                      onConversationText={locationConversation ? writeLocationConversationText : undefined}
+                      onConversationText={locationConversation || resumedLocation ? writeLocationConversationText : undefined}
                     />
                   ) : null}
                   {calendarConnectDirective && message.id === calendarConnectAnchorId

@@ -94,6 +94,10 @@ export function executeMainLocationPlan(token: string, planId: string, envelope?
   return request<MainLocationPlan>(token, `${PATH}/${encodeURIComponent(planId)}/execute`, { envelope });
 }
 
+export function inspectMainLocationPlan(token: string, planId: string) {
+  return request<MainLocationPlan>(token, `${PATH}/${encodeURIComponent(planId)}`);
+}
+
 const normalize = (name: string) => name.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 
 function matching<T extends { label: string }>(targets: T[], query: string): T[] {
