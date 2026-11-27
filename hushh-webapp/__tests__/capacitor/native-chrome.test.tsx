@@ -1494,7 +1494,8 @@ function formRetirement(state: NativeProfileNameProjection) {
 }
 
 // Keep qualification-only lifecycle coverage without enabling it in the app.
-vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
+vi.mock("@/lib/capacitor/native-presentation-policy", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/native-presentation-policy")>(),
   customNativePresentationEnabled: vi.fn(() => true),
   nativeInterfacePreferenceAvailable: vi.fn(() => false),
 }));

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import {
   memo,
   useCallback,
@@ -548,6 +549,7 @@ export function AgentTextAttachmentViewer({
   /** Offered on a sent message: open an edited copy as a new turn. */
   onEditAndResend?: () => void;
 }) {
+  useInterfaceRevision();
   const isMobile = useIsMobile();
   const contentRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);

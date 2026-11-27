@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -25,17 +26,18 @@ function supported(plugin: HushhNativeDrawersPlugin): plugin is Plugin {
   return hasNativeProfileScene(plugin, "writing-style");
 }
 export function NativeWritingStyleEditor({ model, eligible }: { model: Model; eligible: boolean }) {
+  const interfaceRevision = useInterfaceRevision();
   const [renderer, setRenderer] = useState<"checking" | "native" | "web">(() => eligible && nativeDrawersPlatformEligible() ? "checking" : "web");
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    if (!eligible || !nativeDrawersPlatformEligible()) return;
+    if (!eligible || !nativeDrawersPlatformEligible()) { setRenderer("web"); return; }
     let active = true;
     void nativeDrawerAcknowledged(nativeDrawers().getCapabilities()).then(value => {
       const enabled = value.contractVersion === 1 && value.supported && value.profileStyleScene === true && supported(nativeDrawers());
       if (active) setRenderer(enabled ? "native" : "web");
     }).catch(() => { if (active) setRenderer("web"); });
     return () => { active = false; };
-  }, [eligible]);
+  }, [eligible, interfaceRevision]);
   useEffect(() => { if (renderer === "native" && model.suggested) setOpen(true); }, [renderer, model.suggested]);
   if (renderer === "checking") return <div aria-busy="true" />;
   if (renderer === "web") return <CommunicationPreferencesGroup value={model.draft} onChange={model.changeDraft}

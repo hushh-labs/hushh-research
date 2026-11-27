@@ -1,5 +1,7 @@
 "use client";
 
+import { interfacePresentationSnapshot } from "./native-interface-revision";
+
 import { nativeChromeSizeAllowed, chromeControlId, type ChromeControlId, type ChromeFamily, type ChromeControl } from "./native-chrome-controls";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
@@ -132,16 +134,16 @@ let revision = 0;
 let canvasRevision = 0;
 // Immutable wrapper metadata only, scoped to this WebView document. Never
 // cache a lease, owner, geometry, permission or presentation admission here.
-let discovery: { documentId: string; promise: Promise<NativeChromeCapabilities>; value?: NativeChromeCapabilities } | undefined;
+let discovery: { documentId: string; generation: number; promise: Promise<NativeChromeCapabilities>; value?: NativeChromeCapabilities } | undefined;
 export function peekNativeChromeCapabilities(): NativeChromeCapabilities | undefined {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return undefined;
-  return discovery?.documentId === nativeDocumentId() ? discovery.value : undefined;
+  return discovery?.documentId === nativeDocumentId() && discovery.generation === interfacePresentationSnapshot() ? discovery.value : undefined;
 }
 export function getNativeChromeCapabilities(): Promise<NativeChromeCapabilities | null> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
   const documentId = nativeDocumentId();
-  if (discovery?.documentId === documentId) return discovery.promise;
-  const pending: NonNullable<typeof discovery> = { documentId, promise: bounded(nativeChrome.getCapabilities()).then((value) => {
+  if (discovery?.documentId === documentId && discovery.generation === interfacePresentationSnapshot()) return discovery.promise;
+  const pending: NonNullable<typeof discovery> = { documentId, generation: interfacePresentationSnapshot(), promise: bounded(nativeChrome.getCapabilities()).then((value) => {
     const snapshot = Object.freeze({ ...value, families: Object.freeze([...value.families]) });
     if (discovery === pending && nativeDocumentId() === documentId) pending.value = snapshot;
     return snapshot;
