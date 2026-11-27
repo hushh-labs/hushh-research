@@ -30,6 +30,19 @@ DEFINITIONS = {
     "agent_one": ("one.distinct_domain_effects.v1", "Distinct verified task outcomes"),
 }
 
+SUBAGENT_OUTCOME_IDS = (
+    "agent_calendar",
+    "agent_career",
+    "agent_documents",
+    "agent_email",
+    "agent_kai",
+    "agent_kyc",
+    "agent_location",
+    "agent_nav",
+    "agent_personal_information",
+    "agent_wallet",
+)
+
 
 def outcome_coverage(agent_id: str, *, public: bool) -> dict:
     if not public:
@@ -262,6 +275,76 @@ async def value_summaries(
     for uid in user_ids:
         summaries[uid] = await value_summary(conn, uid, agent_id, since, now, cache=cache)
         # Release this owner's bounded source records as soon as summarized.
+        for query in queries:
+            del cache[(uid, since, now, query)]
+        cache.pop((uid, since, now, "value_receipt_capacity"), None)
+    return summaries
+
+
+async def value_summaries_with_subagents(
+    conn,
+    user_ids: list[str],
+    since: datetime,
+    now: datetime,
+    *,
+    subagents: tuple[str, ...] = SUBAGENT_OUTCOME_IDS,
+) -> dict[str, dict]:
+    """Batch overall One outcomes plus per-subagent outcomes in one SQL pass."""
+    if len(user_ids) > 25 or len(set(user_ids)) != len(user_ids):
+        raise ValueError("Outcome page exceeds its owner bound")
+    if any(sub_id not in DEFINITIONS or sub_id == "agent_one" for sub_id in subagents):
+        raise ValueError("Unsupported outcome subagent")
+    if not user_ids:
+        return {}
+    cache: dict = {}
+    queries = [
+        MEMORY_SQL.replace("LIMIT 101", "LIMIT 1001"),
+        WALLET_SQL,
+        *(query for _, query, _ in SOURCE_QUERIES),
+    ]
+    capacity = await conn.fetch(
+        "SELECT owners.user_id AS _plg_user_id,("  # nosec B608
+        + CAPACITY_SQL.replace("$1", "owners.user_id")
+        + ") AS capped FROM unnest($1::text[]) AS owners(user_id)",
+        user_ids,
+        since,
+        now,
+        timeout=5,
+    )
+    if (
+        len(capacity) != len(user_ids)
+        or {row["_plg_user_id"] for row in capacity} != set(user_ids)
+        or any(not isinstance(row["capped"], bool) for row in capacity)
+    ):
+        raise ValueError("Outcome capacity page is incomplete")
+    for row in capacity:
+        cache[(row["_plg_user_id"], since, now, "value_receipt_capacity")] = row["capped"]
+    for query in queries:
+        for uid in user_ids:
+            cache[(uid, since, now, query)] = []
+        rows = await conn.fetch(
+            "SELECT owners.user_id AS _plg_user_id,effect.* "  # nosec B608
+            "FROM unnest($1::text[]) AS owners(user_id) CROSS JOIN LATERAL ("
+            + query.replace("$1", "owners.user_id")
+            + ") AS effect",
+            user_ids,
+            since,
+            now,
+            timeout=5,
+        )
+        for row in rows:
+            owner_rows = cache[(row["_plg_user_id"], since, now, query)]
+            owner_rows.append({key: value for key, value in row.items() if key != "_plg_user_id"})
+            if len(owner_rows) > 1001:
+                raise ValueError("Outcome source exceeds its owner bound")
+    summaries = {}
+    for uid in user_ids:
+        overall = await value_summary(conn, uid, "agent_one", since, now, cache=cache)
+        by_subagent = {
+            sub_id: await value_summary(conn, uid, sub_id, since, now, cache=cache)
+            for sub_id in subagents
+        }
+        summaries[uid] = {**overall, "bySubagent": by_subagent}
         for query in queries:
             del cache[(uid, since, now, query)]
         cache.pop((uid, since, now, "value_receipt_capacity"), None)

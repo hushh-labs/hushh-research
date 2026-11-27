@@ -139,6 +139,21 @@ async def test_schedule_recovers_outbox_and_claims_once_before_effect(scheduled_
     )["id"] == created["id"]
 
 
+async def test_one_time_cancelled_outcome_is_terminal_on_redelivery(scheduled_tasks):
+    world = scheduled_tasks
+    grant = {"subject_id": "browser", "version": 1}
+    await world.runtime.create(schedule_request(), grant=grant)
+    delivery = world.delivery.offer.call_args.args[:3]
+    other = await world.runtime.create(schedule_request(request_id="another-request"), grant=grant)
+    world.clock[0] = 1101
+    world.capability.run.return_value = "cancelled"
+    for runtime in (world.runtime, world.build()):
+        result = await runtime.run(*delivery)
+        assert result["state"] == result["last_run"]["state"] == "cancelled"
+    world.capability.run.assert_awaited_once()
+    assert (await world.runtime.get(other["id"]))["state"] == "scheduled"
+
+
 @pytest.mark.asyncio
 async def test_recurring_schedule_repairs_lost_next_delivery_without_replaying_effect(
     scheduled_tasks,
@@ -380,6 +395,46 @@ def test_schedule_delivery_is_model_independent_but_refuses_a_foreign_queue(monk
     )
     with pytest.raises(ScheduleRefused, match="SCHEDULE_DELIVERY_NOT_CONFIGURED"):
         delivery.require_ready()
+
+
+@pytest.mark.asyncio
+async def test_resident_schedule_delivery_executes_due_occurrence_and_rehydrates_from_sealed_log(
+    scheduled_tasks, monkeypatch
+):
+    from hushh_mcp.services.pod_scheduled_delivery import ResidentScheduledDelivery
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
+
+    monkeypatch.setenv("ACE_SANDBOX_ID", "sandbox-test-01")
+    monkeypatch.setenv("ACE_SANDBOX_REVISION", "rev-1")
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+
+    world = scheduled_tasks
+    world.clock[0] = 1000
+    delivery = ResidentScheduledDelivery(clock=lambda: world.clock[0])
+    runtime = ScheduledTasks(
+        access=ScheduleAccess("owner", "pod", "epoch", world.runtime.access.check),
+        log=world.log,
+        capabilities={"agent_files.organize_file.v1": world.capability},
+        delivery=delivery,
+        admission=world.runtime.admission,
+        check_grant=world.check_grant,
+        clock=lambda: world.clock[0],
+    )
+    delivery.bind_runner(runtime.run)
+
+    created = await runtime.create(
+        schedule_request(first_run_at=1001),
+        grant={"subject_id": "browser", "version": 1},
+    )
+    assert created["state"] == "scheduled"
+    world.clock[0] = 1001
+    for _ in range(200):
+        if (await runtime.get(created["id"]))["state"] == "completed":
+            break
+        await asyncio.sleep(0.01)
+    assert world.capability.run.await_count == 1
+    assert (await runtime.get(created["id"]))["state"] == "completed"
 
 
 async def test_active_schedule_renews_its_claim_without_extending_the_approved_deadline(

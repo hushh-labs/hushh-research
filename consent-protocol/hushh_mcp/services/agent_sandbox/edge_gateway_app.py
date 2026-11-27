@@ -217,6 +217,7 @@ class SandboxEdgeGatewayManager:
         deploy_env: str | None = None,
         consent_ed25519_public_keys: str | None = None,
         owner_feed_ed25519_public_keys: str | None = None,
+        ios_connector_client_id: str | None = None,
         allowed_app_origins: Sequence[str] | str | None = None,
         sentinel_model_gateway_url: str | None = None,
         sentinel_vertex_project: str | None = None,
@@ -243,6 +244,7 @@ class SandboxEdgeGatewayManager:
         self.deploy_env = (deploy_env or "").strip().lower()
         self.consent_ed25519_public_keys = (consent_ed25519_public_keys or "").strip()
         self.owner_feed_ed25519_public_keys = (owner_feed_ed25519_public_keys or "").strip()
+        self.ios_connector_client_id = (ios_connector_client_id or "").strip()
         self.allowed_app_origins = _parse_allowed_origins(allowed_app_origins)
         self.sentinel_model_gateway_url = (sentinel_model_gateway_url or "").strip().rstrip("/")
         self.sentinel_vertex_project = (sentinel_vertex_project or "").strip()
@@ -378,6 +380,8 @@ class SandboxEdgeGatewayManager:
             payload["deploy_env"] = self.deploy_env
         if self.consent_ed25519_public_keys:
             payload["consent_ed25519_public_keys"] = self.consent_ed25519_public_keys
+        if self.ios_connector_client_id:
+            payload["ios_connector_client_id"] = self.ios_connector_client_id
         if self.owner_feed_ed25519_public_keys:
             payload["owner_feed_ed25519_public_keys"] = self.owner_feed_ed25519_public_keys
         if self.allowed_app_origins:
@@ -1204,6 +1208,7 @@ def create_edge_gateway_from_env() -> FastAPI:
         scheduler_caller_emails=os.environ.get("HUSHH_SCHEDULER_CALLER_EMAILS"),
         deploy_env=os.environ.get("HUSHH_DEPLOY_ENV"),
         consent_ed25519_public_keys=os.environ.get("CONSENT_ED25519_PUBLIC_KEYS"),
+        ios_connector_client_id=os.environ.get("GOOGLE_IOS_CONNECTOR_CLIENT_ID"),
         owner_feed_ed25519_public_keys=os.environ.get("OWNER_FEED_ED25519_PUBLIC_KEYS"),
         allowed_app_origins=(
             os.environ.get("CORS_ALLOWED_ORIGINS") or os.environ.get("POD_ALLOWED_APP_ORIGINS")

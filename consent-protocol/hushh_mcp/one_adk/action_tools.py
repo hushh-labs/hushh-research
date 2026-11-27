@@ -5782,6 +5782,21 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         action_entry = all_entries.get(ra.action_id)
         if action_entry is None:
             continue
+        # Keep the authored action as a search match, but advertise the executor
+        # that this conversation actually admits. The gateway's journey or
+        # open-first route would send the owner out of the conversation.
+        if review := legacy_location_chat_action(tool_context.state, ra.action_id):
+            results.append(
+                {
+                    "action_id": ra.action_id,
+                    "label": str(action_entry.get("label") or ""),
+                    "meaning": review["message"],
+                    "policy": review["status"],
+                    "availability": "in_chat",
+                    "use_tool": review["next_tool"],
+                }
+            )
+            continue
 
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(
             str(action_entry.get("delegate_agent_id") or "")

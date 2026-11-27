@@ -25,6 +25,13 @@ deployment, rollback, or environment-promotion decision must route here through
    or runtime identity into production. Native/App Store builds follow their
    separate release contract and may intentionally target a UAT-backed binary;
    do not reinterpret that product contract as Cloud Run credential reuse.
+   Cloud Run UAT release trains (`train/YYYY.MM.NN`) and TestFlight (`ship-ios-testflight.yml`)
+   interlock without blocking each other: TestFlight preflight verifies that the
+   selected `uat` revision is currently deployed and healthy on UAT and validates
+   native signing-input digests via `scripts/ci/verify-uat-native-release-inputs.py`
+   (`scripts/ci/uat-native-release-input-review.json`) rather than freezing `uat`
+   web/backend promotions, while public App Store builds (`release-ios-appstore.yml`)
+   cut strictly from green `main` against `production`.
 
 ## State machine
 
@@ -201,7 +208,7 @@ The root checkout and unrelated work remain untouched throughout the landing.
    source, Main approval and trusted release-tooling revisions distinct.
 3. Default UAT scope to `auto`. The workflow compares the target SHA with each
    service's currently deployed SHA, so it safely includes every merge since the
-   deployed baseline—not only the latest PR or commit. Record its requested and
+   deployed baseline, not only the latest PR or commit. Record its requested and
    resolved scope. Force `frontend`, `backend`, or `all` only after comparing the
    complete target-to-deployed-service deltas and documenting why the automatic
    resolver is insufficient.
@@ -261,7 +268,7 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    [CI policy](../../../../docs/operations/releases/ci.md#managed-provider-readiness-policy)
    and [provider diagnosis](managed-provider-readiness.md). Qualify the completed
    policy-changing candidate once with retained functional/core checks plus affected
-   boundaries; reuse unchanged evidence. Measure routine 15–20-minute targets without
+   boundaries; reuse unchanged evidence. Measure routine 15 to 20 minute targets without
    turning them into permission to skip required proof.
 4. Prefer workflow artifacts as authoritative proof. Local admin work as
    `kushal@hushh.ai` uses Application Default Credentials (ADC), independently of

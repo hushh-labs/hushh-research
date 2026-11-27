@@ -304,6 +304,7 @@ class VirginStandbyRuntime:
                             "owner_feed_ed25519_public_keys",
                             ("OWNER_FEED_ED25519_PUBLIC_KEYS",),
                         ),
+                        ("ios_connector_client_id", ("GOOGLE_IOS_CONNECTOR_CLIENT_ID",)),
                         ("allowed_app_origins", ("CORS_ALLOWED_ORIGINS",)),
                         ("model_gateway_url", ("HUSSH_MODEL_GATEWAY_URL",)),
                         ("model_gateway_token", ("HUSSH_MODEL_GATEWAY_TOKEN",)),

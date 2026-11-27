@@ -682,10 +682,10 @@ function buildGmailView() {
 
 const testStoreSession = { userId: "user-123", vaultKey: "12".repeat(32), vaultOwnerToken: "vault-owner-token-123" };
 
-async function seedSavedReceipts(items: ReturnType<typeof makeReceipt>[]) {
-  const account = "akshat@example.com";
+async function seedSavedReceipts(items: ReturnType<typeof makeReceipt>[], account = "akshat@example.com", freshness?: string) {
   const result = { items, page: 1, per_page: 6, total: items.length, has_more: false, coverage: makeLiveCoverage(1) };
   const snapshot = await mergeReceiptSnapshot(null, items, account, result, [], true);
+  if (freshness) snapshot.freshness = freshness;
   await writeReceiptSnapshot({ userId: "user-123", vaultKey: "12".repeat(32), vaultOwnerToken: "vault-owner-token-123" }, snapshot, await receiptStoreVersion("user-123", account));
 }
 
@@ -1050,6 +1050,30 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByRole("button", { name: /Start sync|Refresh/ })).toBeNull();
     expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
     expect(screen.getByTestId("receipt-sync-toolbar")).toBeVisible();
+  });
+
+  it("restores a mailbox before its delayed scan and ignores its response after another switch", async () => {
+    const a = "a@example.com", b = "b@example.com", c = "c@example.com";
+    await seedSavedReceipts([makeReceipt(1, "Merchant A")], a);
+    await seedSavedReceipts([makeReceipt(2, "Merchant B")], b, new Date(Date.now() - 600_000).toISOString());
+    await seedSavedReceipts([makeReceipt(3, "Merchant C")], c);
+    let finish!: (value: Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>) => void;
+    vi.mocked(GmailReceiptsService.scanReceipts).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    gmailView.status.google_email = a;
+    const page = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    expect(await screen.findByText("Merchant A")).toBeVisible();
+    gmailView.status.google_email = b;
+    page.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    expect(screen.queryByText("Merchant A")).toBeNull();
+    expect(await screen.findByText("Merchant B")).toBeVisible();
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    gmailView.status.google_email = c;
+    page.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    expect(screen.queryByText("Merchant B")).toBeNull();
+    expect(await screen.findByText("Merchant C")).toBeVisible();
+    await act(async () => finish({ items: [makeReceipt(4, "Late B")], page: 1, per_page: 6, total: 1, has_more: false, coverage: makeLiveCoverage(1) }));
+    expect(screen.queryByText("Late B")).toBeNull();
+    expect(screen.getByText("Merchant C")).toBeVisible();
   });
 
   it.each(["akshat@example.com", ""])("keeps saved receipts readable when receipt sync is unavailable (%s)", async email => {
@@ -2302,7 +2326,10 @@ describe("ProfileReceiptsPage", () => {
   it("offers no way into KYC from Follow-ups", async () => {
     render(<ProfileReceiptsPage />);
     fireEvent.click(screen.getByRole("tab", { name: "Follow-ups" }));
+    // The tab opens the tracked board; the attention list is one tap away.
+    fireEvent.click(await screen.findByRole("button", { name: "View Overview follow-ups" }));
     expect(await screen.findByTestId("mail-followups")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open tracked conversations" })).toBeVisible();
     expect(screen.queryByTestId("open-kyc")).toBeNull();
     expect(screen.queryByText("Requests for your details")).toBeNull();
     expect(screen.queryByRole("button", { name: /review requests/i })).toBeNull();
@@ -2332,6 +2359,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(await screen.findByRole("button", { name: "View Overview follow-ups" }));
     expect(await screen.findByTestId("mail-followups")).toBeVisible();
     // The mailbox the person was in is still the one shown.
     expect(screen.getByTestId("mail-account-chip")).toHaveTextContent("akshat@example.com");

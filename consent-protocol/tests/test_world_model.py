@@ -1052,9 +1052,12 @@ def test_progress_stream_route_is_owner_only_and_private(monkeypatch, active_acc
     assert "event: result" in response.text
     assert json.loads(response.text.split("data: ")[1].splitlines()[0]) == terminal
     jobs.status.assert_awaited_once_with("owner", "fixture")
+    jobs.status.side_effect = None
+    placement.return_value = "hussh_pods"
+    assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == 200
     jobs.status.side_effect = PermissionError()
     assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == 403
-    for mode, expected in [("byoc", 409), ("hussh_pods", 409), ("unknown", 503)]:
+    for mode, expected in [("byoc", 409), ("unknown", 503)]:
         placement.return_value = mode
         jobs.status.reset_mock(side_effect=True)
         assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == expected

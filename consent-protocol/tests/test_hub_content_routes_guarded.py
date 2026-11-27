@@ -447,7 +447,6 @@ async def test_the_live_courier_is_closed_to_a_private_owner(byoc_owner, monkeyp
     [
         ("byoc", 409),
         ("pending", 409),
-        ("hussh_pods", 409),
         ("unplaced", 409),
         ("unknown", 503),
         ("something-new", 503),
@@ -479,6 +478,8 @@ async def test_shared_and_anonymous_are_admitted_and_pods_run_their_own(monkeypa
     reader = AsyncMock(return_value="shared")
     monkeypatch.setattr(guard, "get_owner_hosting_mode", reader)
     assert await guard.admit_hub_content(OWNER, "test") == "shared"
+    reader.return_value = "hussh_pods"
+    assert await guard.admit_hub_content(OWNER, "test") == "hussh_pods"
     assert await guard.admit_hub_content("", "test") == "anonymous"
     assert await guard.hub_content_owner(dict(OWNER_TOKEN)) == OWNER_TOKEN
     assert await guard.hub_content_firebase(OWNER) == OWNER

@@ -203,6 +203,10 @@ fi
 if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
   secrets="${secrets},PLAID_SECRET=$(commerce_secret_name "${_PLAID_SECRET_SECRET}"):latest"
 fi
+if [[ -z "${commerce_preview_prefix:-}" ]]; then
+  append_optional_secret PLAID_SANDBOX_SECRET PLAID_SANDBOX_SECRET
+  append_optional_secret PLAID_PRODUCTION_SECRET PLAID_PRODUCTION_SECRET
+fi
 if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
   secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=$(commerce_secret_name "${_PLAID_ACCESS_TOKEN_KEY_SECRET}"):latest"
 fi
@@ -1113,12 +1117,18 @@ append_optional_secret "${dev_consent_audit_public_keys_secret}" "CONSENT_AUDIT_
 append_optional_env "OWNER_FEED_SIGNING_ALG" "${owner_feed_signing_alg}"
 append_optional_env "OWNER_FEED_ED25519_KID" "${owner_feed_ed25519_kid}"
 append_optional_secret "${dev_owner_feed_private_secret}" "OWNER_FEED_ED25519_PRIVATE_KEY"
+if [[ "${_DEPLOY_ENV}" == "uat" && -z "${commerce_preview_prefix:-}" ]]; then
+  append_optional_secret "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" "GOOGLE_UAT_MAIL_WEB_CLIENT_ID"
+fi
 append_optional_secret "${dev_owner_feed_public_keys_secret}" "OWNER_FEED_ED25519_PUBLIC_KEYS"
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
     GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT; do
     append_optional_secret "${connector_pin}" "${connector_pin}"
   done
+fi
+if [[ "${_DEPLOY_ENV}" == "uat" && -z "${commerce_preview_prefix:-}" ]]; then
+  append_optional_secret "GOOGLE_IOS_CONNECTOR_CLIENT_ID" "GOOGLE_IOS_CONNECTOR_CLIENT_ID"
 fi
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a

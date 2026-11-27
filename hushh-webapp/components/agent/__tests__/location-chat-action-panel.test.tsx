@@ -68,10 +68,13 @@ vi.mock("@/lib/one-location/one-location-state-events", () => ({
 }));
 vi.mock("@/components/one-location/live-map", () => ({ LiveMap: () => null }));
 vi.mock("@/components/agent/location-chat-action/location-chat-action-card", () => ({
-  LocationChatActionCard: ({ model, onRecover, map }: { model: { title: string; endAt?: string; status?: string; facts?: { label: string; value: string }[]; actions?: { id: string; label: string }[] };
+  LocationChatActionCard: ({ model, onRecover, onConfirm, map }: { model: { title: string; endAt?: string; status?: string; confirmLabel?: string; description?: string; facts?: { label: string; value: string }[]; actions?: { id: string; label: string }[] };
+    onConfirm?: (input: object, event: MouseEvent<HTMLButtonElement>) => void;
     onRecover?: (action: string, event: MouseEvent<HTMLButtonElement>) => void; map?: ReactNode }) =>
     <div data-testid="location-card">
       <span>{model.title}</span>{model.status}<time dateTime={model.endAt}>{model.endAt}</time>{map}
+      {model.description && <p>{model.description}</p>}
+      {model.confirmLabel && <button onClick={() => onConfirm?.({}, { nativeEvent: { isTrusted: true } } as MouseEvent<HTMLButtonElement>)}>{model.confirmLabel}</button>}
       {model.facts?.map((item) => <p key={item.label}>{item.label} {item.value}</p>)}
       {model.actions?.map((action) => <button key={action.id} onClick={() => onRecover?.(action.id, {
         nativeEvent: { isTrusted: true },
@@ -116,6 +119,50 @@ test("a first-time live share offers the existing consent and device setup insid
   render(<LocationChatActionPanel proposal={{ id: "live-proposal", action: "share_live", people: ["Priya"], durationHours: 1 }} ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
   await screen.findByText("Set up Location");
   await waitFor(() => expect(prepareMainLocationPlan).not.toHaveBeenCalled());
+});
+
+test("retrying a denied live share keeps its recipient, time and prepared plan", async () => {
+  vi.clearAllMocks();
+  const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  const key = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const target = { label: "Kushal", personUserId: "kushal" };
+  const plan = { planId: "private-share", action: "share_live" as const, status: "pending" as const,
+    durationHours: 1, recipientKey: { keyId: "kushal-key", publicKeyJwk: key } };
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Kushal", targets: [target] }]);
+  vi.mocked(getLocationAccountSettings).mockResolvedValue({ sharing_state: "on", precision: "precise" } as Awaited<ReturnType<typeof getLocationAccountSettings>>);
+  vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce(plan);
+  vi.mocked(executeMainLocationPlan).mockResolvedValueOnce({ ...plan, status: "executed" });
+  vi.mocked(OneLocationService.captureCurrentPosition).mockRejectedValueOnce(Object.assign(new Error("Denied"), { name: "LocationPermissionDeniedError" }));
+  render(<LocationChatActionPanel proposal={{ id: "share", action: "share_live", people: ["Kushal"], durationHours: 1 }}
+    ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
+  const confirm = await screen.findByRole("button", { name: "Share live location" });
+  expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  await screen.findByText("Location permission was denied.");
+  expect(executeMainLocationPlan).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  await waitFor(() => expect(executeMainLocationPlan).toHaveBeenCalledExactlyOnceWith("owner-token", plan.planId,
+    expect.objectContaining({ recipientKeyId: "kushal-key", ciphertext: expect.any(String) })));
+  expect(prepareMainLocationPlan).toHaveBeenCalledExactlyOnceWith("owner-token",
+    expect.objectContaining({ action: "share_live", durationHours: 1 }), target);
+});
+
+test("requesting someone else's location works without enabling sharing or capturing a device position", async () => {
+  vi.clearAllMocks();
+  location.receivedGrants = [];
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Kushal", targets: [{ label: "Kushal", personUserId: "kushal" }] }]);
+  const plan = { planId: "request", action: "ask" as const, status: "pending" as const };
+  vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce(plan);
+  vi.mocked(executeMainLocationPlan).mockResolvedValueOnce({ ...plan, status: "executed" });
+  render(<LocationChatActionPanel proposal={{ id: "ask", action: "ask", people: ["Kushal"], durationHours: 1 }}
+    ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Ask for location" }));
+  await waitFor(() => expect(executeMainLocationPlan).toHaveBeenCalledExactlyOnceWith("owner-token", "request", undefined));
+  expect(getLocationAccountSettings).not.toHaveBeenCalled();
+  expect(OneLocationService.getPermissionState).not.toHaveBeenCalled();
+  expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
 });
 
 test("the pending visibility choice is exposed as a follow-up hint and cleared on unmount", async () => {

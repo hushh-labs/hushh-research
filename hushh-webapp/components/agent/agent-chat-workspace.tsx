@@ -1,6 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { locationReviewActionForLegacyDirective, MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
+import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";
@@ -918,6 +919,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
+  const locationChatReviewEnabled = MAIN_CHAT_LOCATION_ENABLED && isCanonicalChatRoute && !isPuppySurface;
+  const locationChatScreenActive = useRef(false);
+  locationChatScreenActive.current = locationChatReviewEnabled && isVaultUnlocked;
   const puppyLiveOnBuild = isPuppyLiveOnBuild();
   const chatWake = useChatAgentWake(
     applicationOwnerId ?? null,
@@ -1296,20 +1300,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         (message) =>
           message.role === "assistant" &&
           message.status === "streaming" &&
-          message.text.length > 0,
+          (message.text.length > 0 || message.locationChatProposal),
       ),
     ),
   );
-  const responseOutputRef = useRef(
-    Boolean(
-      initialActiveSession?.messages.some(
-        (message) =>
-          message.role === "assistant" &&
-          message.status === "streaming" &&
-          message.text.length > 0,
-      ),
-    ),
-  );
+  const responseOutputRef = useRef(hasResponseOutput);
   const markResponseOutput = useCallback((delta: string) => {
     if (!delta || responseOutputRef.current) return;
     responseOutputRef.current = true;
@@ -1628,7 +1623,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         (message) =>
           message.role === "assistant" &&
           message.status === "streaming" &&
-          message.text.length > 0,
+          (message.text.length > 0 || message.locationChatProposal),
       );
       responseOutputRef.current = streamingHasOutput;
       setHasResponseOutput(streamingHasOutput);
@@ -2809,6 +2804,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const appendMessage = appendWorkspaceMessage;
   const receivedVoiceLocationProposals = useRef(new Set<string>());
+  const openedNearbyCheckIns = useRef(new Set<string>());
+  function openLiveNearbyCheckIn(proposal: { id: string; action: string }) {
+    if (proposal.action !== "nearby_check_in" || !locationChatScreenActive.current || !isOneLocationNearbyCheckInAvailable() ||
+        !isWorkspaceMountedRef.current || window.location.pathname !== ROUTES.HOME ||
+        !isVaultSessionEpochCurrent(vaultSessionEpoch) || openedNearbyCheckIns.current.has(proposal.id)) return;
+    openedNearbyCheckIns.current.add(proposal.id);
+    router.push(ROUTES.ONE_LOCATION_CHECK_IN);
+  }
   const locationChatContinuation = useRef<{ proposalId: string; context: MainLocationContinuation } | null>(null);
   const rememberLocationContinuation = useCallback((proposalId: string, context: MainLocationContinuation | null) => {
     if (context) locationChatContinuation.current = { proposalId, context };
@@ -2816,7 +2819,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, []);
   useVoiceToolEffects({
     onToolResult: (tool, result) => {
-      if (!MAIN_CHAT_LOCATION_ENABLED || !isCanonicalChatRoute || isPuppySurface || tool !== "propose_location_action") return;
+      if (!locationChatReviewEnabled || tool !== "propose_location_action") return;
       const proposal = parseMainLocationProposal(result);
       if (!proposal || receivedVoiceLocationProposals.current.has(proposal.id)) return;
       receivedVoiceLocationProposals.current.add(proposal.id);
@@ -2824,6 +2827,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         id: `location-voice-${proposal.id}`, role: "assistant", text: "",
         ...stampNow(), status: "done", locationChatProposal: proposal,
       });
+      openLiveNearbyCheckIn(proposal);
     },
   });
 
@@ -6120,11 +6124,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           busyOperations,
           setAnalysisParams,
           switchPersona,
-          ...(MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn && isCanonicalChatRoute && !isPuppySurface ? {
+          ...(locationChatReviewEnabled ? {
             openMainChatLocationReview: (proposal) => {
               if (!isWorkspaceMountedRef.current || !isTurnSessionActive() || streamAbortController.signal.aborted ||
                   workspaceOwnerIdRef.current !== userId || conversationIdRef.current !== turnConversationId) return false;
               updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
+              openLiveNearbyCheckIn(proposal);
               return true;
             },
           } : {}),
@@ -6754,10 +6759,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           };
         })() as unknown as Record<string, unknown>,
         mainChat: isMainChatTurn,
-        locationChatReview: MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn,
+        locationChatReview: locationChatReviewEnabled,
         locationChatContinuation: (() => {
           const current = locationChatContinuation.current;
-          if (!isMainChatTurn || !isVaultUnlocked || !MAIN_CHAT_LOCATION_ENABLED || !current) return undefined;
+          if (!locationChatReviewEnabled || !isVaultUnlocked || !current) return undefined;
           const previousAnswer = messagesRef.current.findLast((message) =>
             message.role === "assistant" && message.id !== assistantMessageId &&
             (message.locationChatProposal || message.text.trim()),
@@ -6927,6 +6932,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             setGoalPlanReview(current => current?.assistantId === assistantMessageId ? current :
               { proposal, assistantId: assistantMessageId, ownerId: applicationOwnerId, epoch: vaultSessionEpoch });
           },
+          onLocationProposal: (proposal) => {
+            if (!locationChatReviewEnabled || streamAbortController.signal.aborted || !isTurnSessionActive() ||
+                !isVaultSessionEpochCurrent(vaultSessionEpoch) || workspaceOwnerIdRef.current !== userId) return;
+            updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
+            if (conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
+          },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
@@ -7011,13 +7022,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   })();
                 }
               }
-            }
-            if (MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn && toolEvent.raw?.toolName === "propose_location_action") {
-              const proposal = parseMainLocationProposal(toolEvent.raw.result);
-              if (proposal && isTurnSessionActive()) {
-                updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
-              }
-              return;
             }
             if (toolEvent.raw?.toolName === "propose_file_schedule") {
               const proposal = readFileScheduleProposal(toolEvent.raw.toolName, toolEvent.raw.result);
@@ -7274,7 +7278,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return {
           ...message,
           text:
-            message.text || "I couldn't generate a response. Please try again.",
+            message.text || (message.locationChatProposal ? "" : "I couldn't generate a response. Please try again."),
           status: "done",
         };
       });
@@ -9262,8 +9266,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }),
   );
   const visibleMessageIds = visibleMessages.map((message) => message.id);
-  const legacyLocationReviewAction = MAIN_CHAT_LOCATION_ENABLED && isCanonicalChatRoute && !isPuppySurface &&
-    Boolean(conversationId ? conversationId === pinnedOneConversationId : isOneStreamDraft) && pendingSpecialistDirective
+  const legacyLocationReviewAction = locationChatReviewEnabled && pendingSpecialistDirective
     ? locationReviewActionForLegacyDirective(pendingSpecialistDirective) : null;
   const latestLocationProposalMessageId = visibleMessages.findLast((message) => message.locationChatProposal)?.id;
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
@@ -11183,7 +11186,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
-                  {MAIN_CHAT_LOCATION_ENABLED && isCanonicalChatRoute && message.locationChatProposal ? (
+                  {locationChatReviewEnabled && message.locationChatProposal ? (
                     <LocationChatActionPanel
                       key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}`}
                       ownerId={applicationOwnerId}

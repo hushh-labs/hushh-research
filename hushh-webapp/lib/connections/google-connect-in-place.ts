@@ -1,6 +1,7 @@
 "use client";
+import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 
-import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { Capacitor } from "@capacitor/core";
@@ -232,7 +233,7 @@ export function connectGmailInPlace(
           if (!connection) return 'not_connected';
           if (!current()) return 'stale';
           const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
-          return settle(status, current);
+          return current() && status.connected && (purpose === "read" || purpose === "full" || granted(status)) ? "connected" : "not_connected";
         }
         if (purpose === 'modify' || purpose === 'compose' || purpose === 'settings') return 'not_connected';
         const idToken = await owner.getIdToken();
@@ -366,7 +367,7 @@ export function connectCalendarInPlace(
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
-        const privateAgent = await ownerContentIsPrivate();
+        const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
         if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) {
@@ -414,7 +415,7 @@ export function connectCalendarInPlace(
   });
   const popup = openGoogleOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
-    const privateAgent = await ownerContentIsPrivate();
+    const privateAgent = await ownerRequiresByocIsolation();
     if (!current()) return 'stale';
     if (privateAgent && accountId !== 'default') return 'not_connected';
     if (privateAgent) { const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
@@ -423,7 +424,7 @@ export function connectCalendarInPlace(
   return started("window", () =>
     fenced(input, () => popup.close(), async (current) => {
       try {
-        const privateAgent = await ownerContentIsPrivate();
+        const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
         if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) { popup.close(); const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }

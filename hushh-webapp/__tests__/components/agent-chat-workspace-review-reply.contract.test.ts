@@ -8,6 +8,16 @@ const source = readFileSync(
   "utf8",
 );
 
+describe("the Location review surface", () => {
+  it("enables the same inline capability for every conversation displayed by ONE on Home", () => {
+    expect(source).toContain("const locationChatReviewEnabled = MAIN_CHAT_LOCATION_ENABLED && isCanonicalChatRoute && !isPuppySurface;");
+    expect(source).toContain("mainChat: isMainChatTurn,");
+    expect(source).toContain("locationChatReview: locationChatReviewEnabled,");
+    expect(source).toContain("locationChatReviewEnabled && message.locationChatProposal");
+    expect(source).not.toMatch(/(?:locationChatReviewEnabled|MAIN_CHAT_LOCATION_ENABLED)\s*&&\s*isMainChatTurn/);
+  });
+});
+
 describe("chat consent review boundary", () => {
   it("routes partial notifications to Consent Center without red chat errors and seals complete requests inline", () => {
     const handler = source.slice(

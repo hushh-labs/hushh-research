@@ -301,7 +301,7 @@ Sources: [snapshot schema/projection](../../lib/mail/receipt-snapshot.ts),
 | **View sent email** | Opens that exact sent message from its `ms1.` id in the same sheet, read fresh; no list and no quote to mark. |
 | Brief states | Each section says what happened: loading skeleton while One checks; **Nothing needs a reply or a follow-up. One checked N recent messages from the last 21 days** only after a read that found nothing; **No recent mail to check yet.** for an empty window; **No changes to report.**; **Nothing sent through One in the last 30 days.**; a failed or slow check says **One couldn't check your mail just now. Try again.** or **Couldn't refresh. Showing what One found earlier.** with **Try again**, **Reconnect** or **Unlock** as the cause requires, and is never worded as an empty brief. The brief and the confirmed sends fail independently. |
 | Brief freshness | **Updated {time}** with **Refresh** under the sections: the time of the last successful read on this device, moved only by a success; **Refreshing…** while it runs, old items kept; a failure keeps them and says so. |
-| Brief isolation | Items are held in memory only, keyed by owner, Google account and vault epoch, and purged with the Overview rows. An answer for another account than the one shown is dropped; a late answer from a superseded read cannot land. One brief per owner runs at a time; the server caches a verified brief for five minutes by content. |
+| Brief isolation | Brief items and confirmed sends stay in memory, scoped to the owner, Google account and vault session. After a full restart, Overview waits for a verified read. Encrypted Tasks and receipt snapshots can restore independently. Each Overview section retains the timestamp of its own last successful read. An answer for another account than the one shown is dropped; a late answer from a superseded read cannot land. One brief per owner runs at a time; the server caches a verified brief for five minutes by content. |
 | Brief authority | Hub content routes (`CONTENT`), Shared owners, `gmail.readonly`, owner-authorized Mail reads. The model call is a tool-free, schema-only Email child (kill switch `KAI_MAIL_OVERVIEW_BRIEF_ENABLED`). Mail text never triggers a tool, a send, a label or a navigation. |
 | Secondary tools | **Search and recent mail** (toggle) opens the reader below: **Search mail**, **Recent mail**, **View more**, **Open**, **Refresh** and **Reply**. **Write with One** hands One an empty reviewed draft. They are tools, not the Overview's body. |
 | **Search mail** | An explicit query: Enter or **Search**. It calls `POST /api/one/mail/overview/search`, a Gmail `messages.list` query over **all mail except Spam and Trash**, one provider page of at most 25 rows. It is not Receipts' local filter and never searches only loaded rows. Typing alone searches nothing. A query over 512 bytes is refused in the page (**That search is too long...**) before any request. |
@@ -1588,3 +1588,29 @@ Owners: [header and list](../../components/gmail/receipts), [All receipts](../..
 - **Storage.** Tracked bills, skipped dates, review choices, reviewed insights and the last mailbox check's findings (with sealed keys that reopen their emails) are encrypted with the vault key and stored on this device beside the saved receipts. They are bound to the owner and the connected mailbox, so switching mailbox or account never shows another's choices, and Reset removes them. They do not sync to other devices. A failed save keeps the screen as it was and says so; a failed read shows **Try again** and never blocks the receipts.
 - **Filters.** The unsupported Due filter is removed; an earlier saved selection (including `due`) resolves to **All**. Overdue stays, from each receipt's own evidence.
 - **Back.** On Recurring, Back returns to All receipts, then follows the existing Mail Back hierarchy. Sheets close first.
+
+## Tracked conversations
+
+In Dev, Open Follow-ups on the connected Overview opens the board. The mailbox
+picker starts on the existing default connection. All Mail combines verified
+connections and sends each evidence or draft action back to its source mailbox.
+
+Tracking records one obligation in the encrypted shared Tasks collection.
+The source link opens the email containing the promise. An opted-in watch checks
+on vault unlock and about once a minute while One is visible, on any page. It
+checks each watched task against its own mailbox and connection. A matching
+reply completes the encrypted task and clears its watch. Locking the vault or
+hiding One pauses checks. Returning to an unlocked One checks again. Review of a
+received document requires opening the attachment and confirming review before preparing
+the next draft. An exact approved send uses the private agent's qualified
+one-time scheduler where available. Its final check can suppress delivery, and
+only a confirmed provider receipt enables the sent-email link.
+
+In a tracked conversation, **Remind me in One** lets the owner choose a local date
+and time. **Save reminder** stores that instant on the encrypted Task and turns on
+its reply watch. The owner can change the time or cancel the personal reminder.
+One checks the watched thread before showing a due reminder while the app is
+visible and the vault is unlocked. It checks overdue reminders on return. Matching
+evidence completes the Task and cancels its pending reminder in the same saved
+change. This action sends no email. An independently approved outgoing follow-up
+has its own schedule and controls.

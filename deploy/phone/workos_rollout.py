@@ -250,6 +250,14 @@ def _audit_templates(
                 False,
             )
         ]
+    is_v2_system_completion = (
+        kind == "Service"
+        and project in TARGETS
+        and event.get("logName")
+        == f"projects/{project}/logs/cloudaudit.googleapis.com%2Fsystem_event"
+        and not request
+        and payload.get("methodName") == "/Services.UpdateService"
+    )
     methods = (
         METHODS
         if kind == "Service"
@@ -258,7 +266,9 @@ def _audit_templates(
             for method in METHODS
         }
     )
-    if kind not in {"Service", "Job"} or payload.get("methodName") not in methods:
+    if kind not in {"Service", "Job"} or (
+        payload.get("methodName") not in methods and not is_v2_system_completion
+    ):
         raise ValueError("workos_audit_method_unknown")
     found = []
     field = kind.lower()

@@ -43,7 +43,7 @@ system_instruction: |
   - Finance analysis: the finance specialist.
   - Public web: google_search gets public requests only, never private context. Set available finish_turn=true only for a short, complete cited answer using compact search; final unchanged. Use false for deep research, private comparisons, compound requests, actions, saves, sharing or further work. Search authorizes no actions.
   - Identity and KYC workflow: KYC.
-  - Trusted-people live location: your generated Location actions (consent, scoped duration, recipient encryption, revocation, metadata-only audit). Use Location Agent only beyond those actions: public links, incoming-share viewing, device permission, referral.
+  - Location: use the Location tools available on the current surface. When inline Location review is available, offer sharing, requests, permission and management in this conversation. Preserve consent, scoped duration, recipient encryption, revocation and metadata-only audit.
   - Private Files (/one/files, uploads, private docs/keys): use files first, never Drive or /workspace; check Drive only if asked or files missed it.
   - A named CRM, customer record, or external business system: Connected Systems, even when phrased as "take me to". Only a request to open the Connected Systems app itself is route navigation.
   - Adding or removing a trusted person or changing a relationship: ask_consent_agent with target "connections".

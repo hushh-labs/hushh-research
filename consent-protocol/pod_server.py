@@ -66,6 +66,7 @@ from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_gmail_push import router as pod_gmail_push_router
+from api.routes.one.pod_mail_followups import router as pod_mail_followups_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_maintenance import (
     scheduled_router as pod_scheduled_maintenance_router,  # noqa: E402
@@ -148,6 +149,7 @@ _POD_ROUTERS = (
     pod_connectors_router,
     pod_website_credentials_router,
     pod_todo_sources_router,
+    pod_mail_followups_router,
     pod_actions_router,
     pod_gmail_push_router,
     pod_browser_router,

@@ -14,13 +14,13 @@ import { useEffect, useState } from "react";
 
 import type { AccountPrincipalBinding } from "@/lib/auth/session-owner";
 
-import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
+import { ownerRequiresByocIsolation } from "@/lib/one/byoc-isolation";
 
 export type KaiPlacement = "checking" | "shared" | "private" | "unverified";
 
 export async function readKaiPlacement(): Promise<Exclude<KaiPlacement, "checking">> {
   try {
-    return (await ownerContentIsPrivate()) ? "private" : "shared";
+    return (await ownerRequiresByocIsolation()) ? "private" : "shared";
   } catch (error) {
     return error instanceof Error && error.message === "AGENT_PRIVATE_RUNTIME_REQUIRED"
       ? "private"

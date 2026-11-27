@@ -306,7 +306,6 @@ def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):
     [
         ("byoc", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
         ("pending", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
-        ("hussh_pods", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
         ("unknown", 503, "AGENT_HOSTING_UNAVAILABLE"),
         ("invalid", 503, "AGENT_HOSTING_UNAVAILABLE"),
         (None, 503, "AGENT_HOSTING_UNAVAILABLE"),

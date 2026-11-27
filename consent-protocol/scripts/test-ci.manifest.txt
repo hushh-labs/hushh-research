@@ -1391,6 +1391,10 @@ tests/test_pod_drive_local.py
 tests/test_pod_external_ingress_admission_strict.py
 tests/test_pod_gmail_doorbell.py
 tests/test_pod_gmail_local.py
+tests/test_pod_mail_followups.py
+tests/test_pod_mail_receipts.py
+tests/test_pod_mail_accounts.py
+tests/test_pod_mail_account_doors.py
 tests/test_pod_gmail_push_config.py
 tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py

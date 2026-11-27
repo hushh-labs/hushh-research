@@ -2212,6 +2212,7 @@ class GmailMetadataReader:
                 "cc": (headers.get("cc") or "")[:300],
                 "reply_to": (headers.get("reply-to") or "")[:240],
                 "return_path": (headers.get("return-path") or "")[:240],
+                "auto_submitted": (headers.get("auto-submitted") or "")[:80],
                 "message_id_header": (headers.get("message-id") or "")[:200],
                 "in_reply_to": (headers.get("in-reply-to") or "")[:200],
                 "date_header": (headers.get("date") or "")[:120],

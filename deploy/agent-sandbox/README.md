@@ -28,3 +28,11 @@ rather than Terraform state files:
 1. Pin `image` to a signed immutable `@sha256:` digest before cluster apply (`sandbox-template.yaml` ships a zero-digest placeholder for repository lint safety).
 2. Never place owner tokens, vault keys, or `APP_SIGNING_KEY` inside `SandboxTemplate` or `SandboxWarmPool` (`envVarsInjectionPolicy: Disallowed`).
 3. Provision per-user workspaces only via ephemeral `SandboxClaim` (`shutdownPolicy: DeleteForeground`, `ttlSecondsAfterFinished: 0`) rendered by `consent-protocol/hushh_mcp/operons/agent_sandbox/k8s_manifests.py`.
+
+## Private Mail browser OAuth on UAT
+
+Google’s dedicated web client uses the authorized JavaScript origin `https://uat.one.hussh.ai`. The hub reads the public `GOOGLE_UAT_MAIL_WEB_CLIENT_ID` for the existing consent transition. The sandbox exchanges and refreshes Google grants through a separate container listening on loopback. Only that container receives the confidential client secret. The owner-facing process receives the public ID.
+
+After publishing and selecting the signed UAT pod digest containing `mail_web_exchange`, run `python3 scripts/deploy/enable-uat-private-mail-browser.py --image "$SIGNED_UAT_POD_IMAGE"` with the UAT GKE context. The command checks the running template and asks the API server to validate the patch. Add `--apply` to sync the two UAT Secret Manager values into the namespaced Kubernetes Secret and update the template for newly created sandboxes. Existing leases can expire normally. To roll back, restore the prior template through the same sandbox release process.
+
+Verify an unlocked owner can open Google from Mail, cancel without adding a mailbox, grant access, see the verified address, and read mail after the initial access token expires. A frontend deployment alone does not activate the private-agent image or template.

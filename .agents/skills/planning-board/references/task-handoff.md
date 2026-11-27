@@ -39,7 +39,7 @@ robotic filler in either section.
 ### For humans
 
 Write `For humans` like a calm, thoughtful teammate speaking to another person,
-aligned with `less-text-karma-ji`, never like an engineering log or spec dump:
+never like an engineering log or spec dump:
 
 - Open with **Owner**, **Lead**, **Environment**, in that order, then honest
   human-review status; link verified people. Let the Environment label state the

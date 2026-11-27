@@ -32,8 +32,8 @@ const LocationSetupFlow = dynamic(() => import("@/components/location/setup/loca
 });
 
 type SettingsView = {
-  account: LocationAccountSettings;
-  map: OneLocationMapPreferences;
+  account: LocationAccountSettings | null;
+  map: OneLocationMapPreferences | null;
   state: OneLocationState;
   circles: OneLocationCircleSummary[];
 };
@@ -56,10 +56,13 @@ function sameScope(left: AutoApproveScope | null, right: AutoApproveScope | null
   return a.length === b.length && a.every((id) => b.includes(id));
 }
 
-export function LocationChatSettings({ token, ownerId, onChanged }: {
+export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIntent, suggestedCircles, onClose }: {
   token: string;
   ownerId: string;
   onChanged?: () => void;
+  autoApprovalIntent?: "enable" | "disable";
+  suggestedCircles?: readonly string[];
+  onClose?: () => void;
 }) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [reload, setReload] = useState(0);
@@ -69,6 +72,7 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
   const [setupOpen, setSetupOpen] = useState(false);
   const [scopeEditing, setScopeEditing] = useState(false);
   const [scope, setScope] = useState<AutoApproveScope | null>(null);
+  const [directReviewDismissed, setDirectReviewDismissed] = useState(false);
   const { busy, error, notice, run } = useLocationChatMutation();
   const { paused } = useOneLocationControlState(ownerId);
   const nearbyAvailable = isOneLocationNearbyCheckInAvailable();
@@ -78,24 +82,43 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
   useEffect(() => {
     let active = true;
     void Promise.all([
-      getLocationAccountSettings(token),
-      OneLocationService.getMapPreferences(token),
+      autoApprovalIntent ? null : getLocationAccountSettings(token),
+      autoApprovalIntent ? null : OneLocationService.getMapPreferences(token),
       OneLocationService.getState(token),
-      OneLocationService.listCircles(token),
+      autoApprovalIntent === "disable" ? [] : OneLocationService.listCircles(token),
     ]).then(([account, map, state, circles]) => {
       if (!active) return;
-      if (account.user_id && account.user_id !== ownerId) throw new Error("Location settings belong to a different account.");
-      setView({ account, map, state, circles: circles.filter((circle) => circle.role === "owner" && circle.systemKind !== "trusted") });
+      if (account?.user_id && account.user_id !== ownerId) throw new Error("Location settings belong to a different account.");
+      const eligibleCircles = circles.filter((circle) => circle.role === "owner" && circle.systemKind !== "trusted");
+      setView({ account, map, state, circles: eligibleCircles });
+      if (autoApprovalIntent === "enable") {
+        const matches = (suggestedCircles ?? []).map((name) => eligibleCircles.filter(
+          (circle) => circle.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase(),
+        ));
+        // A partial or ambiguous match must never silently narrow or expand standing consent.
+        const circleIds = matches.length && matches.every((choices) => choices.length === 1)
+          ? [...new Set(matches.map((choices) => choices[0]!.id))] : [];
+        setScope(circleIds.length ? { kind: "circles", circleIds } : null);
+        setScopeEditing(!state.autoApprovePreference?.enabled || matches.length > 0);
+      }
       setLoadError("");
     }).catch((caught: unknown) => {
       if (active) setLoadError(oneLocationErrorMessage(caught, "Could not load Location settings."));
     });
     return () => { active = false; };
-  }, [token, ownerId, reload]);
+  }, [token, ownerId, reload, autoApprovalIntent, suggestedCircles]);
 
-  useBackLayer(ROUTES.HOME, review || scopeEditing || setupOpen || busy ? 3 : 0, () => {
+  const directDisableReview = autoApprovalIntent === "disable" && Boolean(view?.state.autoApprovePreference?.enabled) && !directReviewDismissed;
+  const dismissReview = () => {
+    setReview(null);
+    if (directDisableReview) {
+      setDirectReviewDismissed(true);
+      onClose?.();
+    }
+  };
+  useBackLayer(ROUTES.HOME, review || directDisableReview || scopeEditing || setupOpen || busy ? 3 : 0, () => {
     if (busy) return true;
-    if (review) setReview(null);
+    if (review || directDisableReview) dismissReview();
     else if (setupOpen) setSetupOpen(false);
     else if (scopeEditing) setScopeEditing(false);
     else return false;
@@ -144,7 +167,7 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
   };
 
   const askPrecision = () => {
-    if (!view) return;
+    if (!view?.account) return;
     const precision = view.account.precision === "precise" ? "approximate" : "precise";
     setReview({
       description: `Set Location sharing precision to ${precision}?`,
@@ -198,7 +221,7 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
   };
 
   const askGhost = () => {
-    if (!view) return;
+    if (!view?.map) return;
     const presenceMode = view.map.presenceMode === "ghost" ? "foreground_private" : "ghost";
     setReview({
       description: presenceMode === "ghost"
@@ -218,12 +241,12 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
     });
   };
 
-  const reviewAutoApproval = (next: AutoApproveScope | null) => {
-    if (!view) return;
+  const autoApprovalReview = (next: AutoApproveScope | null): Review | null => {
+    if (!view) return null;
     const enabled = next !== null;
     const circleNames = view.circles.filter((circle) => selectedCircleIds(next).includes(circle.id)).map((circle) => circle.name);
     const scopeLabel = next?.kind === "all_contacts" ? "all contacts" : circleNames.join(", ");
-    setReview({
+    return {
       description: enabled
         ? `Automatically approve new requests from ${scopeLabel}? Requests already waiting still need your answer.`
         : "Turn off automatic approval? Each new request will need your answer.",
@@ -235,6 +258,7 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
         const currentVersion = refreshed.autoApprovePreference?.ruleVersion ?? 0;
         if (expectedVersion !== currentVersion) {
           setView((current) => current && { ...current, state: refreshed });
+          setDirectReviewDismissed(true);
           setScopeEditing(false);
           throw new Error("Automatic approval changed. Review the current rule before saving.");
         }
@@ -248,7 +272,7 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
         setScopeEditing(false);
         return enabled ? "Automatic approval is on for the selected scope." : "Automatic approval is off.";
       },
-    });
+    };
   };
 
   if (setupOpen) return <LocationSetupFlow mode="setup" onSetupSkip={() => setSetupOpen(false)} onSetupComplete={() => {
@@ -261,13 +285,14 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
   const autoApproval = view?.state.autoApprovePreference;
   const autoOn = Boolean(autoApproval?.enabled);
   const activeCircleNames = view?.circles.filter((circle) => selectedCircleIds(autoApproval?.scope).includes(circle.id)).map((circle) => circle.name) ?? [];
+  const visibleReview = review ?? (directDisableReview ? autoApprovalReview(null) : null);
 
   return <div className="space-y-4" aria-busy={busy || undefined}>
-    <section aria-label="Location notifications" className="space-y-2">
+    {!autoApprovalIntent && <section aria-label="Location notifications" className="space-y-2">
       <h4 className="text-sm font-medium">Location notifications</h4>
       {pushPrompt ? <FeedPushPromptView model={pushPrompt} /> :
         <p className="text-sm text-muted-foreground">Location shares, requests and Save My Soul alerts follow your device notification settings.</p>}
-    </section>
+    </section>}
     {notice ? <p role="status" className="text-sm">{notice}</p> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     {loadError ? <div className="space-y-2">
@@ -275,18 +300,18 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
       <Button size="sm" variant="outline" disabled={busy} onClick={() => setReload((value) => value + 1)}>Retry</Button>
     </div> : null}
     {!view && !loadError ? <p role="status" className="text-sm">Getting Location settings…</p> : null}
-    {review ? <div className="space-y-3 rounded-lg border p-3">
-      <p className="text-sm">{review.description}</p>
+    {visibleReview ? <div className="space-y-3 rounded-lg border p-3">
+      <p className="text-sm">{visibleReview.description}</p>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => {
-          const reviewed = review;
+          const reviewed = visibleReview;
           setReview(null);
           void run(reviewed.run, "Could not verify the setting. Refresh before trying again.");
-        }}>{review.label}</Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => setReview(null)}>Cancel</Button>
+        }}>{visibleReview.label}</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={dismissReview}>Cancel</Button>
       </div>
     </div> : null}
-    {!review ? <section aria-label="Device location updates" className="space-y-2 border-t pt-3">
+    {!autoApprovalIntent && !review ? <section aria-label="Device location updates" className="space-y-2 border-t pt-3">
       <h4 className="text-sm font-medium">Device location updates</h4>
       {paused ? <p className="text-sm text-muted-foreground">Paused on this device.</p> : null}
       {paused ? <Button size="sm" variant="outline" disabled={busy} onClick={askDeviceResume}>Resume updates</Button> : null}
@@ -295,7 +320,8 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
         {paused ? "Check Nearby checkout" : "Pause updates"}
       </Button> : null}
     </section> : null}
-    {!review && !loadError && view ? <>
+    {!visibleReview && !loadError && view ? <>
+      {view.account && view.map && <>
       <section aria-label="Location sharing" className="space-y-2">
         <h4 className="text-sm font-medium">Location sharing</h4>
         <p className="text-sm text-muted-foreground">
@@ -319,7 +345,8 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
         <p className="text-sm text-muted-foreground">{view.map.presenceMode === "ghost" ? "On" : "Off"}</p>
         <Button size="sm" variant="outline" disabled={busy} onClick={askGhost}>Turn {view.map.presenceMode === "ghost" ? "off" : "on"} Ghost Mode</Button>
       </section>
-      <section aria-label="Auto-approve Location requests" className="space-y-2 border-t pt-3">
+      </>}
+      <section aria-label="Auto-approve Location requests" className="space-y-2">
         <h4 className="text-sm font-medium">Auto-approve requests</h4>
         <p className="text-sm text-muted-foreground">{autoOn
           ? autoApproval?.scope?.kind === "all_contacts" ? "On for all contacts" : activeCircleNames.length ? `On for ${activeCircleNames.join(", ")}` : "On · Choose a new scope"
@@ -342,17 +369,17 @@ export function LocationChatSettings({ token, ownerId, onChanged }: {
             </label>)}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={!scope || busy} onClick={() => scope && reviewAutoApproval(scope)}>Review scope</Button>
+            <Button size="sm" disabled={!scope || busy} onClick={() => scope && setReview(autoApprovalReview(scope))}>Review scope</Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setScopeEditing(false)}>Cancel</Button>
           </div>
         </fieldset> : <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+          {autoApprovalIntent !== "disable" && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
             const current = autoApproval?.scope;
             const validIds = selectedCircleIds(current).filter((id) => view.circles.some((circle) => circle.id === id));
             setScope(current?.kind === "all_contacts" ? current : validIds.length ? { kind: "circles", circleIds: validIds } : null);
             setScopeEditing(true);
-          }}>Choose approval scope</Button>
-          {autoOn ? <Button size="sm" variant="outline" disabled={busy} onClick={() => reviewAutoApproval(null)}>Turn off auto-approval</Button> : null}
+          }}>Choose approval scope</Button>}
+          {autoOn && autoApprovalIntent !== "enable" ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setReview(autoApprovalReview(null))}>Turn off auto-approval</Button> : null}
         </div>}
       </section>
     </> : null}

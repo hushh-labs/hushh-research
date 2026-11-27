@@ -2276,6 +2276,8 @@
               "manage_ratings",
               "manage_contacts",
               "manage_settings",
+              "enable_auto_approve",
+              "disable_auto_approve",
               "manage_links",
               "check_in",
               "nearby_check_in",

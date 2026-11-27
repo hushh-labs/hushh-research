@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 import { useOwnerPresentationState } from "@/hooks/use-owner-presentation-state";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
-import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
+import { ownerRequiresByocIsolation } from "@/lib/one/byoc-isolation";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 class ConnectorPlacementVisit {
@@ -35,7 +35,7 @@ export function useConnectorPlacement(open: boolean, firebaseUid: string | null,
     visit.pending = true;
     setPlacement(value => value === "shared" || value === "private" ? value : null);
     try {
-      const privateAgent = await ownerContentIsPrivate();
+      const privateAgent = await ownerRequiresByocIsolation();
       if (!current()) return false;
       setPlacement(privateAgent ? "private" : "shared");
       return true;
