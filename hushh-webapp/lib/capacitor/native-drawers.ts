@@ -67,6 +67,7 @@ export type NativeDrawerRow = {
   /** Private raster-only Profile header; never a URL or public chrome field. */
   portrait?: boolean;
   portraitData?: string;
+  historyTopic?: { label: string; custom: boolean; actionId?: string };
   renameActionId?: string;
   deleteActionId?: string;
 };
@@ -97,6 +98,7 @@ export type NativeDrawerProjection = NativeDrawerIdentity & NativeControlAppeara
   backEnabled: boolean;
   /** Keep reconciliation/Retry usable without discarding an uncertain write. */
   navigationLocked?: boolean;
+  historyCategories?: readonly string[];
   searchable?: boolean;
   loading?: boolean;
   /** Negotiated Profile drawer lifetime, not menu/body visibility. */
@@ -297,7 +299,7 @@ export function validNativeWorldModelPath(pages: readonly NativeProfilePage[]): 
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
   if (!value || !closedShape(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "appearance", "accentHex", "foregroundHex",
-      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId", "profilePreparation"]) ||
+      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "historyCategories", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId", "profilePreparation"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
       !["history", "profile", "agent-profile"].includes(value.family) ||
@@ -313,6 +315,10 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       !closedShape(value.profilePreparation, ["visitId", "formScene"]) || !validIdentifier(value.profilePreparation.visitId) ||
       value.profilePreparation.formScene !== null && (!PROFILE_PREPARATION_SCENES.includes(value.profilePreparation.formScene) ||
         !value.profileDestinationId && !value.profileSupportDestinationId))) return false;
+  const categories = value.historyCategories;
+  if (categories !== undefined && (value.family !== "history" || !Array.isArray(categories) || categories.length > 504 ||
+      !categories.every(category => validText(category, 32)) || new Set(categories).size !== categories.length)) return false;
+  const categoryNames = new Set(categories);
   const ids = new Set<string>();
   let rows = 0;
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
@@ -354,7 +360,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
         !Array.isArray(section.rows)) return false;
     ids.add(section.id);
     for (const row of section.rows) {
-      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "progress", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) ||
+      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "progress", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "historyTopic", "readOnly", "artworkId", "portrait", "portraitData"]) ||
           !validIdentifier(row.id) || ids.has(row.id) ||
           !validText(row.label, 4096) || (row.detail !== undefined && !validText(row.detail, 4096)) ||
           (row.symbol !== undefined && !validIdentifier(row.symbol)) || typeof row.enabled !== "boolean" ||
@@ -383,7 +389,10 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
           ids.add(option.id);
         }
       }
-      for (const action of [row.renameActionId, row.deleteActionId]) {
+      const topic = row.historyTopic;
+      if (topic !== undefined && (!topic || typeof topic !== "object" || !closedShape(topic, ["label", "custom", "actionId"]) ||
+          !categoryNames.has(topic.label) || typeof topic.custom !== "boolean" || !row.renameActionId)) return false;
+      for (const action of [row.renameActionId, row.deleteActionId, topic?.actionId]) {
         if (action === undefined) continue;
         if (!validIdentifier(action) || ids.has(action)) return false;
         ids.add(action);
@@ -426,9 +435,17 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (state.profileStack?.at(-1)?.memorySearch?.id === choice.rowId) return typeof choice.text === "string" && choice.text.length <= 256;
   const document = valueDocument(state);
   if (document && choice.text === undefined && nativeLegalActionIds(document).includes(choice.rowId)) return true;
-  return activeNativeDrawerSections(state).some(section => section.rows.some(row => row.enabled && !row.readOnly && !row.pending &&
-    (row.renameActionId === choice.rowId ? typeof choice.text === "string" && choice.text.trim().length > 0 && choice.text.length <= 160 :
-      (row.options ? row.options.some(option => option.id === choice.rowId && !option.selected) : row.id === choice.rowId || row.deleteActionId === choice.rowId) && choice.text === undefined)));
+  const rowId = choice.rowId;
+  return activeNativeDrawerSections(state).some(section => section.rows.some(row => {
+    if (!row.enabled || row.readOnly || row.pending) return false;
+    if (row.historyTopic?.actionId === rowId) {
+      return choice.text === undefined ? row.historyTopic.custom : validText(choice.text, 32) && choice.text.trim().length > 0;
+    }
+    if (row.renameActionId === rowId) return validText(choice.text, 160) && choice.text.trim().length > 0;
+    if (choice.text !== undefined) return false;
+    if (row.options) return row.options.some(option => option.id === rowId && !option.selected);
+    return row.id === rowId || row.deleteActionId === rowId;
+  }));
 }
 
 function valueDocument(state: NativeDrawerProjection): NativeLegalDocument | undefined {

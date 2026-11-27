@@ -307,3 +307,28 @@ def test_main_chat_review_endpoint_uses_the_authenticated_owner(monkeypatch):
 
     response = client.post(path, json={"action": "share_pin", "userId": "another_owner"})
     assert response.status_code == 422
+
+
+def test_main_chat_review_pagination_uses_owner_and_validates_cursor(monkeypatch):
+    captured = {}
+
+    class _PlanService:
+        def __init__(self, _location):
+            pass
+
+        def for_origin_page(self, **kwargs):
+            captured.update(kwargs)
+            return {"plans": [], "nextCursor": None}
+
+    monkeypatch.setattr(location_chat_plans, "_service", object)
+    monkeypatch.setattr(location_chat_plans, "LocationChatPlanService", _PlanService)
+    client = _build_app(user_id="owner_123")
+    origin = "00000000-0000-4000-8000-000000000001"
+    cursor = "00000000-0000-4000-8000-000000000002"
+    path = f"/api/one/location/chat-plans/origin/{origin}"
+    response = client.get(path, params={"cursor": cursor, "userId": "another-owner"})
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.json() == {"plans": [], "nextCursor": None}
+    assert captured == {"user_id": "owner_123", "origin_id": origin, "cursor": cursor}
+    assert client.get(path, params={"cursor": "invalid"}).status_code == 422

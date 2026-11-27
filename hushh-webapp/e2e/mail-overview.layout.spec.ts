@@ -34,8 +34,8 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         await awaitProductFont(page);
         const frame = page.locator(".app-page-shell");
         const geometry = await frame.evaluate(element => ({ width: element.getBoundingClientRect().width, gutter: parseFloat(getComputedStyle(element).paddingLeft) }));
-        expect(geometry.width).toBe(Math.min(width, 728));
-        expect(geometry.gutter).toBe(width <= 350 ? 16 : width <= 620 ? 20 : 24);
+        expect(geometry.width).toBe(Math.min(width, 864));
+        expect(geometry.gutter).toBe(await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-inline-gutter-standard"))));
         const header = page.getByTestId("top-app-bar-breadcrumb-trail");
         await expect(header).toHaveText("Mail");
         const title = await header.locator("span").last().evaluate(element => { const style = getComputedStyle(element); return [style.fontSize, style.lineHeight, style.fontWeight]; });
@@ -181,7 +181,7 @@ for (const width of [350, 351, 620, 621, 767]) {
     await page.goto("http://localhost/mail-workspace");
     await expect(page.getByRole("tablist", { name: "Gmail workspace" })).toBeVisible();
     const gutter = await page.locator(".app-page-shell").evaluate(element => parseFloat(getComputedStyle(element).paddingLeft));
-    expect(gutter).toBe(width <= 350 ? 16 : width <= 620 ? 20 : 24);
+    expect(gutter).toBe(await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-inline-gutter-standard"))));
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   });
 }
@@ -509,4 +509,59 @@ for (const width of [360, 1024]) {
       await page.screenshot({ path: testInfo.outputPath(`mail-${workspace}-${width}-long.png`) });
     });
   }
+}
+
+for (const width of [393, 1024, 1440]) {
+  test(`Mail and Location share reading edges at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: width === 393 ? 852 : 900 });
+    await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+    await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "text/javascript", body: script }));
+    await page.route("http://localhost/layout/*", route => {
+      const state = new URL(route.request().url()).pathname.split("/").pop();
+      return route.fulfill({ contentType: "text/html; charset=utf-8", body:
+        `<!doctype html><html class="light" data-workspace="overview" data-layout-proof="1" data-journey="board" data-reference="${state}" data-connection="${state}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` });
+    });
+    const edges = (locator: ReturnType<typeof page.locator>) => locator.evaluate(el => {
+      const { left, right } = el.getBoundingClientRect();
+      return [left, right].map(Math.round);
+    });
+    const tabs = page.getByRole("tablist", {name: "Gmail workspace"});
+    const panel = page.getByRole("tabpanel").filter({visible:true});
+    await page.goto("http://localhost/layout/disconnected");
+    const status = panel.getByTestId("mail-connection-status");
+    await expect(status).toBeVisible();
+    await awaitProductFont(page);
+    const expected = await edges(tabs);
+    expect(await edges(status)).toEqual(expected);
+    await info.attach("reading-edges", {body: JSON.stringify({width, left:expected[0], right:expected[1]}), contentType:"application/json"});
+    await page.screenshot({path: info.outputPath("mail.png")});
+    await page.goto("http://localhost/layout/location");
+    const locationCard = page.getByTestId("one-location-share-row");
+    await expect(locationCard).toBeVisible();
+    await awaitProductFont(page);
+    expect(await edges(locationCard)).toEqual(expected);
+    expect(await edges(page.getByRole("tablist"))).toEqual(expected);
+    await page.screenshot({path: info.outputPath("location.png")});
+    await page.goto("http://localhost/layout/connected");
+    await expect(panel.getByRole("button", {name:"Open Follow-ups"})).toBeVisible();
+    expect(await edges(tabs)).toEqual(expected);
+    await page.locator("[data-app-scroll-root]").evaluate(el => el.scrollTop = el.scrollHeight);
+    await panel.getByRole("button", {name:"Open Follow-ups"}).click();
+    await panel.getByRole("combobox", {name:"Choose mailbox"}).selectOption({label:"All Mail"});
+    await expect(panel.getByText("7 conversations", {exact:true})).toBeVisible();
+    expect(await edges(tabs)).toEqual(expected);
+    expect(await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.querySelector("[data-app-scroll-root]")!.scrollWidth))).toBeLessThanOrEqual(width);
+    const lastAction = panel.getByRole("button").last();
+    // SwipeViews publishes the active panel's height after its resize observer fires.
+    await expect.poll(async () => {
+      await page.locator("[data-app-scroll-root]").evaluate(el => el.scrollTop = el.scrollHeight);
+      const last = await lastAction.boundingBox();
+      const talk = await page.getByTestId("fixture-talk").boundingBox();
+      return last!.y + last!.height - talk!.y;
+    }).toBeLessThanOrEqual(0);
+    await lastAction.click({trial:true});
+    await page.getByRole("tab", {name:"Receipts"}).click();
+    await expect(panel.getByTestId("receipt-controls")).toBeVisible();
+    expect(await edges(tabs)).toEqual(expected);
+  });
 }

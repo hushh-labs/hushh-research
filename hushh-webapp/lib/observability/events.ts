@@ -548,7 +548,7 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   vault_unlock_result: {
-    method: "passphrase";
+    method: "passphrase" | "passkey_prf" | "native_passkey" | "native_biometric";
     result: EventResult;
     error_class?: string;
   };

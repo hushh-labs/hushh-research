@@ -241,6 +241,20 @@ describe("LocationPublisherBridge", () => {
     expect(mocks.service.watchCurrentPosition).not.toHaveBeenCalled();
   });
 
+  it("never starts a movement watch for a fixed check-in", () => {
+    const original = mocks.state.value;
+    const state = original as { ownerGrants: Record<string, unknown>[] };
+    mocks.state.value = {
+      ...state, ownerGrants: [{ ...state.ownerGrants[0], shareKind: "check_in" }],
+    };
+    try {
+      render(<LocationPublisherBridge />);
+      expect(mocks.service.watchCurrentPosition).not.toHaveBeenCalled();
+    } finally {
+      mocks.state.value = original;
+    }
+  });
+
   it("publishes a coarsened, tagged envelope for each fix the watch delivers", async () => {
     setSharing({ precision: "approximate" });
     mocks.service.storeEnvelope.mockResolvedValue({
@@ -279,6 +293,35 @@ describe("LocationPublisherBridge", () => {
     expect(stored.vaultOwnerToken).toBe("vot");
     expect(stored.envelope.metadata?.precision).toBe("approximate");
     expect(stored.envelope.publicationContext).toBe("foreground_map_visible");
+  });
+
+  it("continues a precise SOS after app sharing turns off without publishing ordinary shares", async () => {
+    const original = mocks.state.value;
+    const state = original as { ownerGrants: Record<string, unknown>[] };
+    mocks.state.value = {
+      ...state,
+      ownerGrants: [...state.ownerGrants, { ...state.ownerGrants[0], id: "sos", shareKind: "sos" }],
+    };
+    try {
+      setSharing({ appSharing: false, sharingState: "off", effective: "off", precision: "approximate" });
+      mocks.service.storeEnvelope.mockResolvedValue({ recipientAlerted: null });
+      const { rerender } = render(<LocationPublisherBridge />);
+      await waitFor(() => expect(mocks.service.watchCurrentPosition).toHaveBeenCalledTimes(1));
+      const onPoint = mocks.service.watchCurrentPosition.mock.calls[0]![0] as (point: unknown) => void;
+      await act(async () => onPoint({
+        latitude: 37.774929, longitude: -122.419416, accuracyM: 5,
+        capturedAt: new Date().toISOString(), sourcePlatform: "web",
+      }));
+      await waitFor(() => expect(mocks.service.storeEnvelope).toHaveBeenCalledTimes(1));
+      expect(mocks.service.storeEnvelope).toHaveBeenCalledWith(expect.objectContaining({
+        grantId: "sos", envelope: expect.objectContaining({ metadata: expect.objectContaining({ precision: "precise" }) }),
+      }));
+      setSharing({ os: "denied", osPermission: "denied" });
+      rerender(<LocationPublisherBridge />);
+      await waitFor(() => expect(mocks.service.clearLocationWatch).toHaveBeenCalledWith("watch-1"));
+    } finally {
+      mocks.state.value = original;
+    }
   });
 
   it("refuses request_os_permission without server-side consent and never prompts", async () => {

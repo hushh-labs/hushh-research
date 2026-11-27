@@ -322,6 +322,7 @@ class PodHubClient:
         *,
         json: Optional[dict[str, Any]] = None,
         headers: Optional[dict[str, str]] = None,
+        allow_redirects: bool | None = None,
     ) -> Any:
         """POST ``path`` on the hub with the pod's identity attached.
 
@@ -344,7 +345,13 @@ class PodHubClient:
             extra={"Content-Type": "application/json", **(headers or {})},
         )
         try:
-            return self._session.post(url, data=body, headers=merged, timeout=self._timeout)
+            return self._session.post(
+                url,
+                data=body,
+                headers=merged,
+                timeout=self._timeout,
+                **({"allow_redirects": allow_redirects} if allow_redirects is not None else {}),
+            )
         except Exception as exc:  # noqa: BLE001
             raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc
 

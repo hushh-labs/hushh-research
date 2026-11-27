@@ -30,6 +30,7 @@ import { AzureReturnBootRecovery } from "@/components/connections/azure-return-b
 
 import { InitialContactsBridge } from "@/components/onboarding/initial-contacts-bridge";
 import { ReceiptDeviceSyncBridge } from "@/lib/mail/receipt-device-sync-bridge";
+import { MailFollowupsVaultBridge } from "@/lib/mail/mail-followups-vault-bridge";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
@@ -710,6 +711,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                     <FinanceSharePublisher />
                     <InitialContactsBridge />
                     <ReceiptDeviceSyncBridge />
+                    <MailFollowupsVaultBridge />
                     <WalletProfileBootstrap />
                     <LocationBusAccountBridge />
                     <WorldModelProvider>

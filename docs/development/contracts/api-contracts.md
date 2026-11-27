@@ -360,6 +360,14 @@ Session-only lockdown pauses a due offline occurrence before its claim. An
 interrupted active claim requires review. The owner can explicitly resume a
 paused schedule after turning off lockdown.
 
+An activated Dev Confidential Sandbox can advertise `files_via_schedule`
+when its schedule worker is configured and the owner has a current action grant.
+This flag applies to reviewed Files schedules. The normal Files background queue
+still has its own availability and consent rules. The signed Sandbox publishes
+only the schedule identifier, revision, occurrence identifier and due time to
+the Hub. The queue delivers the identifiers to the owner's Sandbox, where the
+worker verifies the sealed schedule, current Files consent and approved AI binding.
+
 ## Response Format
 
 ### Circle member chat

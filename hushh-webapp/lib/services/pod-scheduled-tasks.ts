@@ -5,11 +5,14 @@ import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vau
 import { ROUTES } from "@/lib/navigation/routes";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
 
+import type { FollowupMailbox, MailFollowup } from "@/lib/mail/mail-followup-model";
+
+export const MAIL_FOLLOWUP_TEMPLATE = "agent_email.send_followup.v1";
 export const FILE_ORGANIZATION_TEMPLATE = "agent_files.organize_file.v1";
 const ONE_TASK_TEMPLATE = "agent_one.execute_task.v1";
 
 function isScheduledCapability(value: unknown): boolean {
-  return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE;
+  return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE || value === MAIL_FOLLOWUP_TEMPLATE;
 }
 
 export type ScheduleFileSelection = { id: string; name: string } & (
@@ -25,7 +28,7 @@ export function scheduledTaskHref(taskId?: string): string {
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
-  return resolveAppEnvironment() === "development";
+  return resolveAppEnvironment() !== "production";
 }
 
 const SCHEDULE_REPEATS = ["once", "daily", "weekly", "monthly"] as const;
@@ -60,7 +63,7 @@ export type ScheduledTask = {
   next_run_at: number;
   run_now_pending?: boolean;
   authorization_expires_at: number;
-  last_run: ScheduledRun | null;
+  last_run: (ScheduledRun & { sent_source?: string }) | null;
   recent_runs?: RecentScheduledRun[];
 };
 export type ScheduledTasksStatus = {
@@ -69,6 +72,7 @@ export type ScheduledTasksStatus = {
   templates: string[];
   repeat_modes?: ScheduleRepeat[];
   run_now_available?: boolean;
+  files_via_schedule?: boolean;
   tasks: ScheduledTask[];
   authorization_limit_at: number | null;
 };
@@ -152,7 +156,13 @@ function parseTask(value: unknown): ScheduledTask {
     next_run_at: row.next_run_at,
     ...(row.run_now_pending !== undefined ? { run_now_pending: row.run_now_pending } : {}),
     authorization_expires_at: row.authorization_expires_at,
-    last_run: row.last_run === null ? null : parseRun(row.last_run),
+    last_run: row.last_run === null ? null : {
+      ...parseRun(row.last_run),
+      ...(row.capability === MAIL_FOLLOWUP_TEMPLATE && row.state === "completed" &&
+          row.last_run.state === "completed" && typeof row.last_run.sent_source === "string" &&
+          /^ms1\.[A-Za-z0-9_-]{16,2044}$/.test(row.last_run.sent_source)
+        ? { sent_source: row.last_run.sent_source } : {}),
+    },
     ...(recentRuns ? { recent_runs: recentRuns } : {}),
   };
 }
@@ -262,6 +272,7 @@ export class PodScheduledTasksClient {
       !Array.isArray(body.templates) ||
       body.templates.some((value) => !isScheduledCapability(value)) ||
       (body.run_now_available !== undefined && typeof body.run_now_available !== "boolean") ||
+      (body.files_via_schedule !== undefined && typeof body.files_via_schedule !== "boolean") ||
       (body.repeat_modes !== undefined && (!Array.isArray(body.repeat_modes) ||
         body.repeat_modes.length > SCHEDULE_REPEATS.length ||
         body.repeat_modes.some(mode => !SCHEDULE_REPEATS.includes(mode)))) ||
@@ -275,6 +286,7 @@ export class PodScheduledTasksClient {
       templates: body.templates,
       ...(body.repeat_modes !== undefined ? { repeat_modes: body.repeat_modes } : {}),
       ...(body.run_now_available !== undefined ? { run_now_available: body.run_now_available } : {}),
+      ...(body.files_via_schedule !== undefined ? { files_via_schedule: body.files_via_schedule } : {}),
       tasks,
       authorization_limit_at: body.authorization_limit_at,
     };
@@ -308,6 +320,19 @@ export class PodScheduledTasksClient {
     )
       throw new Error("SCHEDULE_RESPONSE_REFUSED");
     return updated;
+  }
+
+  async sendMailFollowup(box: FollowupMailbox, item: MailFollowup, draft: NonNullable<MailFollowup["draft"]>,
+    due: number, signal: AbortSignal): Promise<ScheduledTask> {
+    if (box.account !== item.account || box.connection !== item.connection) throw new Error("Mailbox changed.");
+    const task = parseTask(await this.request("tasks", {method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({request_id:item.key, title:"Approved Mail follow-up", capability:MAIL_FOLLOWUP_TEMPLATE,
+        parameters:{account:box.account,connection:box.connection,address:box.address,source:item.source,quote:item.quote,
+          fulfilment:item.fulfilment,debtor:item.debtor,document:item.document,draft,due},
+        first_run_at:due,repeat:"once",timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        authorization_expires_at:due+300,confirmed:true})},signal));
+    if (task.capability !== MAIL_FOLLOWUP_TEMPLATE) throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
   }
 
   async organizeFile(

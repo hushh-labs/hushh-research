@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   areScheduledTasksAvailable,
+  MAIL_FOLLOWUP_TEMPLATE,
   PodScheduledTasksClient,
   SCHEDULE_WEEKDAYS,
   type ScheduleControl,
@@ -25,9 +26,9 @@ import {
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
-import { firebaseUidForOwner, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { CalendarClock } from "@/components/icons";
 
@@ -105,7 +106,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
   useBackLayer(route, open ? 2 : 0, close);
   useEffect(() => {
     if (!areScheduledTasksAvailable() || !open) return;
-    const owner = snapshotValidatedAuthSessionOwner();
+    const owner = snapshotValidatedAuthSessionPrincipal();
     if (owner?.userId !== ownerId) return;
     const client = new PodScheduledTasksClient(ownerId);
     const request = new AbortController();
@@ -114,8 +115,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
     setChecking(true);
     setMessage("");
     setPlacementMessage("");
-    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === firebaseUidForOwner(ownerId) &&
-      isValidatedAuthSessionOwnerCurrent(owner);
+    const current = () => !request.signal.aborted && isFirebaseSessionOwnerCurrent(owner);
     void ApiService.getPersonalAgentStatus({ signal: request.signal })
       .then(async (hosting) => {
         if (!current()) return null;
@@ -153,11 +153,10 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
     const client = review?.client;
     const signal = work.current?.signal;
     if (!client || !signal || active.current) return;
-    const owner = snapshotValidatedAuthSessionOwner();
+    const owner = snapshotValidatedAuthSessionPrincipal();
     const current = () =>
       !signal.aborted &&
-      owner?.userId === ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
-      AuthService.getCurrentUser()?.uid === firebaseUidForOwner(ownerId);
+      owner?.userId === ownerId && isFirebaseSessionOwnerCurrent(owner);
     if (!current()) return;
     active.current = true;
     setBusy(task.id);
@@ -362,7 +361,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: 
                     Resume
                   </Button>
                 )}
-                {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && (
+                {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && task.capability !== MAIL_FOLLOWUP_TEMPLATE && (
                   <Button variant="ghost" size="compact"
                     disabled={checking || Boolean(busy) || task.next_run_at < Date.now() / 1000 + 60}
                     onClick={() => void control(task, "run_now")}>Run now</Button>

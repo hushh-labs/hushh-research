@@ -214,6 +214,7 @@ class SandboxEdgeGatewayManager:
         pod_url_base: str | None = None,
         hub_url: str | None = None,
         scheduler_caller_emails: str | None = None,
+        schedule_worker_email: str | None = None,
         deploy_env: str | None = None,
         consent_ed25519_public_keys: str | None = None,
         owner_feed_ed25519_public_keys: str | None = None,
@@ -240,6 +241,7 @@ class SandboxEdgeGatewayManager:
         self.pod_url_base = (pod_url_base or "").strip().rstrip("/")
         self.hub_url = (hub_url or "").strip().rstrip("/")
         self.scheduler_caller_emails = (scheduler_caller_emails or "").strip()
+        self.schedule_worker_email = (schedule_worker_email or "").strip()
         self.deploy_env = (deploy_env or "").strip().lower()
         self.consent_ed25519_public_keys = (consent_ed25519_public_keys or "").strip()
         self.owner_feed_ed25519_public_keys = (owner_feed_ed25519_public_keys or "").strip()
@@ -374,6 +376,8 @@ class SandboxEdgeGatewayManager:
             payload["hub_url"] = self.hub_url
         if self.scheduler_caller_emails:
             payload["scheduler_caller_emails"] = self.scheduler_caller_emails
+        if self.deploy_env in {"dev", "development"} and self.schedule_worker_email:
+            payload["schedule_worker_email"] = self.schedule_worker_email
         if self.deploy_env in {"dev", "development", "uat"}:
             payload["deploy_env"] = self.deploy_env
         if self.consent_ed25519_public_keys:
@@ -877,18 +881,38 @@ def create_sandbox_edge_gateway_app(
             raise HTTPException(status_code=404, detail={"code": "LEASE_NOT_FOUND"})
         return released
 
-    @gateway.websocket("/u/{hushh_id}/api/one/puppy/relay")
-    async def puppy_relay_bridge(websocket: WebSocket, hushh_id: str) -> None:
+    async def _bridge_pod_websocket(
+        websocket: WebSocket,
+        hushh_id: str,
+        *,
+        upstream_path: str,
+        include_voice_headers: bool = False,
+    ) -> None:
         if not _OWNER_ID_RE.fullmatch(hushh_id):
             await websocket.close(code=1008, reason="Invalid owner identifier")
             return
         lease = await manager.ensure_owner_lease(hushh_id)
         lease.active_ws_count += 1
-        upstream_url = f"ws://{lease.pod_ip}:{lease.port}/api/one/puppy/relay"
+        upstream_url = f"ws://{lease.pod_ip}:{lease.port}{upstream_path}"
         forward_headers: dict[str, str] = {}
         auth_header = str(websocket.headers.get("authorization") or "").strip()
         if auth_header:
             forward_headers["Authorization"] = auth_header
+        if include_voice_headers:
+            for hdr_name in ("X-Consent-Token", "X-Hussh-Voice-Session"):
+                hdr_val = str(websocket.headers.get(hdr_name.lower()) or "").strip()
+                if hdr_val and len(hdr_val) <= 4096:
+                    forward_headers[hdr_name] = hdr_val
+            for raw_key, raw_val in websocket.headers.items():
+                key_lower = str(raw_key or "").lower()
+                clean_val = str(raw_val or "").strip()
+                if (
+                    key_lower.startswith("x-hussh-")
+                    and key_lower.endswith("-grant")
+                    and 0 < len(clean_val) <= 4096
+                ):
+                    canon = "-".join(part.capitalize() for part in key_lower.split("-"))
+                    forward_headers[canon] = clean_val
 
         try:
             async with websockets.connect(
@@ -954,6 +978,18 @@ def create_sandbox_edge_gateway_app(
         finally:
             lease.active_ws_count = max(0, lease.active_ws_count - 1)
             lease.last_activity_s = manager._clock_s()
+
+    @gateway.websocket("/u/{hushh_id}/api/one/puppy/relay")
+    async def puppy_relay_bridge(websocket: WebSocket, hushh_id: str) -> None:
+        await _bridge_pod_websocket(
+            websocket, hushh_id, upstream_path="/api/one/puppy/relay", include_voice_headers=False
+        )
+
+    @gateway.websocket("/u/{hushh_id}/api/one/pod/live")
+    async def pod_live_voice_bridge(websocket: WebSocket, hushh_id: str) -> None:
+        await _bridge_pod_websocket(
+            websocket, hushh_id, upstream_path="/api/one/pod/live", include_voice_headers=True
+        )
 
     def _cors_headers(request: Request) -> dict[str, str]:
         origin = str(request.headers.get("origin") or "").strip().rstrip("/")
@@ -1028,6 +1064,31 @@ def create_sandbox_edge_gateway_app(
                     },
                 )
             return Response(status_code=204, headers=_cors_headers(request))
+
+        from hushh_mcp.services.pod_sandbox_scheduled_delivery import WORKER_PATH
+
+        if clean_sub.rstrip("/") == WORKER_PATH.lstrip("/"):
+            from hushh_mcp.services.scheduler_identity import (
+                SchedulerIdentityError,
+                verify_scheduler_request,
+            )
+
+            if (
+                manager.deploy_env not in {"dev", "development"}
+                or not manager.pod_url_base
+                or not _OWNER_ID_RE.fullmatch(hushh_id)
+                or request.method != "POST"
+            ):
+                raise HTTPException(403, detail={"code": "SCHEDULE_WORKER_REFUSED"})
+            try:
+                await asyncio.to_thread(
+                    verify_scheduler_request,
+                    authorization_header=request.headers.get("authorization"),
+                    audience=f"{manager.pod_url_base}/u/{hushh_id}",
+                    allowed_emails=(manager.schedule_worker_email,),
+                )
+            except SchedulerIdentityError:
+                raise HTTPException(403, detail={"code": "SCHEDULE_WORKER_REFUSED"}) from None
 
         body = await request.body()
         req_headers = _filter_headers(request.headers)
@@ -1202,6 +1263,7 @@ def create_edge_gateway_from_env() -> FastAPI:
         pod_url_base=os.environ.get("HUSSH_SANDBOX_EDGE_PUBLIC_URL"),
         hub_url=hub_url,
         scheduler_caller_emails=os.environ.get("HUSHH_SCHEDULER_CALLER_EMAILS"),
+        schedule_worker_email=os.environ.get("HUSSH_SANDBOX_TASK_WORKER_EMAIL"),
         deploy_env=os.environ.get("HUSHH_DEPLOY_ENV"),
         consent_ed25519_public_keys=os.environ.get("CONSENT_ED25519_PUBLIC_KEYS"),
         owner_feed_ed25519_public_keys=os.environ.get("OWNER_FEED_ED25519_PUBLIC_KEYS"),

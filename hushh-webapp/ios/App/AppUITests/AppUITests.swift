@@ -1864,6 +1864,8 @@ final class AppUITests: XCTestCase {
             guard native.exists, search.exists, search.isHittable else {
                 XCTFail("PRODUCT_HISTORY_NATIVE_RENDERER_MISSING"); return
             }
+            XCTAssertTrue(app.buttons["native-history-row-one-stream"].exists, "History includes the pinned main chat on Dev")
+            XCTAssertFalse(app.buttons["native-history-row-todos"].exists, "Tasks lives in One Profile")
             XCTAssertFalse(web.buttons["Search chats"].firstMatch.isHittable)
             XCTAssertFalse(composer.isHittable, "The covered React editor must be isolated")
             let frame = native.frame

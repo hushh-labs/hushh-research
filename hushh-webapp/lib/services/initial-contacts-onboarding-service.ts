@@ -11,6 +11,7 @@ import { syncOneLocationContactSignals, type OneLocationContactSignalResult } fr
 import { OneLocationService } from "@/lib/one-location/service";
 import { AccountIdentityService } from "./account-identity-service";
 import { AuthService, type AuthResult } from "./auth-service";
+import { OneSetupCompletionHintService } from "./one-setup-completion-hint-service";
 import { PreVaultUserStateService, type PreVaultUserState } from "./pre-vault-user-state-service";
 import { RiaService, CONTACT_SYNC_MATCH_POLICY_VERSION } from "./ria-service";
 import { ConnectionsService, type ConnectionSummaryEntry } from "./connections-service";
@@ -283,6 +284,9 @@ export class InitialContactsOnboardingService {
       const idToken = await ownerUser.getIdToken();
       if (!isCurrent()) return;
       await PreVaultUserStateService.updatePreVaultState(owner.ownerId, { initialContactsWelcomeAcknowledged: true }, { idToken });
+      if (isCurrent()) {
+        OneSetupCompletionHintService.markWelcomeResolved?.(owner.ownerId);
+      }
     } finally {
       // Optional welcome failures cannot strand this authenticated session.
       // A failed durable ack may be retried on a fresh session, without refill.

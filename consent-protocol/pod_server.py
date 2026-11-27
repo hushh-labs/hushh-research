@@ -66,6 +66,7 @@ from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_gmail_push import router as pod_gmail_push_router
+from api.routes.one.pod_mail_followups import router as pod_mail_followups_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_maintenance import (
     scheduled_router as pod_scheduled_maintenance_router,  # noqa: E402
@@ -73,6 +74,7 @@ from api.routes.one.pod_maintenance import (
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_pkm_preparation import router as pod_pkm_preparation_router
+from api.routes.one.pod_plaid_vault import router as pod_plaid_vault_router
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
 from api.routes.one.pod_scheduled_tasks import router as pod_scheduled_tasks_router
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
@@ -148,6 +150,7 @@ _POD_ROUTERS = (
     pod_connectors_router,
     pod_website_credentials_router,
     pod_todo_sources_router,
+    pod_mail_followups_router,
     pod_actions_router,
     pod_gmail_push_router,
     pod_browser_router,
@@ -171,6 +174,7 @@ _POD_ROUTERS = (
     pod_scheduled_tasks_router,
     pod_commands_router,
     pod_pkm_preparation_router,
+    pod_plaid_vault_router,
     pod_answer_composition_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and

@@ -1,6 +1,6 @@
 "use client";
 
-import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { Capacitor } from "@capacitor/core";
@@ -224,7 +224,7 @@ export function connectGmailInPlace(
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
-        const privateAgent = await ownerContentIsPrivate();
+        const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
         if (privateAgent) {
           const connection = await connectPrivate('gmail', current, input);
@@ -283,7 +283,7 @@ export function connectGmailInPlace(
   );
   const popup = openGmailOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
-    const privateAgent = await ownerContentIsPrivate();
+    const privateAgent = await ownerRequiresByocIsolation();
     if (!current()) return 'stale';
     if (privateAgent) { const result = await connectPrivate('gmail', current, input); return typeof result === 'string' ? result : 'not_connected'; }
     return 'window_blocked';
@@ -291,7 +291,7 @@ export function connectGmailInPlace(
   return started("window", () =>
     fenced(input, () => popup.close(), async (current) => {
       try {
-        const privateAgent = await ownerContentIsPrivate();
+        const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
         if (privateAgent) { popup.close(); const result = await connectPrivate('gmail', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         const idToken = await owner.getIdToken();
@@ -366,7 +366,7 @@ export function connectCalendarInPlace(
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
-        const privateAgent = await ownerContentIsPrivate();
+        const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
         if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) {
@@ -414,7 +414,7 @@ export function connectCalendarInPlace(
   });
   const popup = openGoogleOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
-    const privateAgent = await ownerContentIsPrivate();
+    const privateAgent = await ownerRequiresByocIsolation();
     if (!current()) return 'stale';
     if (privateAgent && accountId !== 'default') return 'not_connected';
     if (privateAgent) { const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
@@ -423,7 +423,7 @@ export function connectCalendarInPlace(
   return started("window", () =>
     fenced(input, () => popup.close(), async (current) => {
       try {
-        const privateAgent = await ownerContentIsPrivate();
+        const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
         if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) { popup.close(); const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }

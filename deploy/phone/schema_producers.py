@@ -47,13 +47,17 @@ def _reviewed_history(sha: str, *, required: bool) -> bool:
     record = authority["qualify_recorded_source"]()
     if not required and sha != record["previousSha"]:
         return True
-    from emergency_admission import published_production_tag_shas
+    from emergency_admission import (
+        published_emergency_branch_shas,
+        published_production_tag_shas,
+    )
 
     if (
         required
         and PROJECT == "hushh-pda"
         and sha not in {record.get("sourceSha"), record.get("previousSha")}
-        and sha in published_production_tag_shas(ROOT)
+        and sha
+        in (published_production_tag_shas(ROOT) | published_emergency_branch_shas(ROOT))
     ):
         run(["git", "cat-file", "-e", SOURCE_ANCHOR])
         try:

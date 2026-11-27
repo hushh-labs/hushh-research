@@ -92,6 +92,9 @@ class ScheduledTasks:
             if previous["state"] == "pending_delivery":
                 await self._offer(previous, caller_check=caller_check)
             return await self.get(schedule_id)
+        validate = getattr(capability, "validate_request", None)
+        if validate:
+            validate(request)
         terms = await capability.prepare(request.parameters)
         await self.check()
 
@@ -203,6 +206,8 @@ class ScheduledTasks:
             if operation == "pause" and row["state"] == "running":
                 raise ScheduleRefused("SCHEDULE_ACTIVE_PAUSE_REFUSED")
             if operation == "run_now":
+                if not getattr(self.capabilities.get(row["capability"]), "allow_run_now", True):
+                    raise ScheduleRefused("SCHEDULE_RUN_NOW_REFUSED")
                 if row["state"] != "scheduled" or row.get("regular_run_at") is not None:
                     raise ScheduleRefused("SCHEDULE_RUN_NOW_REFUSED")
                 if row["incarnation"] != self.access.incarnation:

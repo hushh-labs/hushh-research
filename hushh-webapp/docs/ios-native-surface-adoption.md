@@ -1,5 +1,18 @@
 # iOS Native Surface Adoption
 
+## Shared Dev on iPhone, November 26
+
+iPhone 17 Pro Max on iOS 26.5, shared Dev Debug 1.4.1 (69). After Dev merged its new Chat Location actions at `533ac08bf8`, the installed executable `c0af9036f2d4` and all 1,914 public assets matched the combined build. The earlier Tasks, attachment and frame recordings used Dev `3db0eab658`. Both builds used Dev's registered Firebase client and backend. Appearance remains opt-in.
+
+| Journey | Implementation and observed result | Boundary |
+|---|---|---|
+| Chat sidebar | History uses Dev’s pinned One main chat, focused conversation list, category filters and existing topic actions. Puppy keeps its on-device history. Tasks opens from One Profile. | The earlier Tasks receipt exercised a shortcut that has since moved. The [current Dev simulator command](../../docs/development/mobile/README.md) checks branch ancestry, target device, packaged code and installed assets. |
+| Connect | Connections and Circles keep one native presenter. The primary rail stayed visible in all 336 slow-switch and 95 rapid-switch frames. Two taps 150 ms apart ended on Connections. New circle stayed at y387 pt as counts arrived, and Cancel returned to Circles. On the combined Dev build, Connections → Circles → Connections kept the same rail at x20, y162, width 400, height 48 pt. | The earlier iPhone 17 Pro capture lost the rail and moved New circle by 80 pt. The two simulator sizes and appearances differ. |
+| Tasks | Native Scheduled runs opens the complete scheduling dialog using the validated account on web and iOS. On Dev it reached the cloud connection message with Refresh enabled in 2.8 seconds. Close restored native Tasks. Open Files and authored Back returned to One. | Populated calendars, run history and schedule controls retain their fixture tests. The configured Dev reviewer requires a cloud connection. |
+| Chat and Location | One synthetic message carried a 275-byte, 12-line attachment. Its viewer opened and native Back returned to Chat. After the Dev merge, the production card again opened the private picker and the public review in 393 × 852 mobile WebKit. Both Back actions restored the share menu. The fixture made zero permission, capture, grant, link or external requests. | Dev returned HTTP 403 when the reviewer session tried to enroll a trusted device. History contained zero saved rows. Live saved replay, remote retrieval and a provider-generated Location card require an existing saved turn or an ordinarily signed-in Dev account with a connected private agent. |
+
+The branch includes Dev’s Confidential Sandbox file scheduling and Mail Follow-ups through `7b3881bfef`. On the combined source, 79 affected scheduling, Files and Mail checks passed with two existing skips. The iPhone observations refer to the builds identified above.
+
 ## Dev iPhone acceptance, November 25
 
 The experimental interface is Off by default. React owns navigation, actions, permissions and data. SwiftUI and UIKit own supported controls, retained presentation and geometry. An eligible rich screen can keep its complete React presentation and return to its native caller.

@@ -505,6 +505,96 @@ def test_native_output_only_projects_visible_one_parts_and_read_only_surfaces():
     assert encode_native_chat_output(event.model_copy(update={"author": "finance"})) == b""
 
 
+def test_native_location_review_only_emits_a_valid_proposal_for_an_admitted_turn():
+    from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME, propose_location_action
+
+    proposal = propose_location_action("share_live", ["Kushal"], duration_hours=1)
+    event = Event(
+        author="one",
+        content=genai_types.Content(
+            parts=[genai_types.Part.from_function_response(name=TOOL_NAME, response=proposal)]
+        ),
+    )
+    assert encode_native_chat_output(event) == b""
+    projected = json.loads(encode_native_chat_output(event, location_chat_review=True)[6:])
+    assert projected["content"]["parts"] == [
+        {"functionResponse": {"name": TOOL_NAME, "response": proposal}}
+    ]
+    assert (
+        encode_native_chat_output(
+            event.model_copy(update={"partial": True}), location_chat_review=True
+        )
+        == b""
+    )
+    malformed = Event(
+        author="one",
+        content=genai_types.Content(
+            parts=[
+                genai_types.Part.from_function_response(
+                    name=TOOL_NAME, response={**proposal, "latitude": 24}
+                )
+            ]
+        ),
+    )
+    assert encode_native_chat_output(malformed, location_chat_review=True) == b""
+
+
+@pytest.mark.parametrize("location_chat_review", [False, True])
+def test_native_browser_notice_composes_with_gated_location_and_visual_output(location_chat_review):
+    from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME, propose_location_action
+
+    event = _native_browser_receipt_event()
+    event.content.role = "model"
+    proposal = propose_location_action("share_live", ["Kushal"], duration_hours=1)
+    visual = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "native-merge-probe",
+            "catalogId": "hussh.ai:morphy-one/v1",
+            "sendDataModel": False,
+        },
+    }
+    event.content.parts.extend(
+        [
+            genai_types.Part.from_function_response(name=TOOL_NAME, response=proposal),
+            genai_types.Part.from_function_response(
+                name="send_a2ui_json_to_client", response={"validated_a2ui_json": [visual]}
+            ),
+            genai_types.Part(text="Visible answer"),
+        ]
+    )
+    encoded = encode_native_chat_output(event, location_chat_review=location_chat_review)
+    assert encoded.startswith(b"event: browser_task\ndata: ")
+    notice, visible, _ = encoded.split(b"\n\n")
+    assert json.loads(notice.removeprefix(b"event: browser_task\ndata: ")) == {
+        "invocationId": "invocation:1",
+        "toolCallId": "call:1",
+        "status": "accepted",
+        "binding": {"owner_id": "owner", "task_id": "browser_" + "a" * 32},
+    }
+    assert json.loads(visible.removeprefix(b"data: "))["content"]["parts"] == [
+        *(
+            [{"functionResponse": {"name": TOOL_NAME, "response": proposal}}]
+            if location_chat_review
+            else []
+        ),
+        {
+            "functionResponse": {
+                "name": "send_a2ui_json_to_client",
+                "response": {"validated_a2ui_json": [visual]},
+            }
+        },
+        {"text": "Visible answer"},
+    ]
+    assert (
+        encode_native_chat_output(
+            event.model_copy(update={"author": "computer_use"}),
+            location_chat_review=location_chat_review,
+        )
+        == b""
+    )
+
+
 def test_context_cache_config_targets_native_gemini_only(monkeypatch):
     from hushh_mcp.one_adk import chat_adk_app
 

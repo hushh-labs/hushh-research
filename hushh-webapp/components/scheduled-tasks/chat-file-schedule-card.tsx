@@ -41,13 +41,20 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
       try {
         const status = await client.status(request.signal);
         if (!status.available || !status.templates.includes(FILE_ORGANIZATION_TEMPLATE)) {
-          if (!request.signal.aborted) setError("File scheduling is unavailable on your private agent.");
+          if (!request.signal.aborted) {
+            setError(
+              status.code === "SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED" || status.code === "SCHEDULE_DELIVERY_NOT_CONFIGURED"
+                ? "File scheduling requires a Personal Sandbox or BYOC pod. Switch your hosting in Settings > Hosting to enable scheduled runs."
+                : "File scheduling is unavailable on your private agent.",
+            );
+          }
           return;
         }
         const entries = await withUnlockedFilesConnection({ ...credentials, signal: request.signal }, async hosting => {
           if (hosting !== "pod") throw new Error("SCHEDULE_OWNER_POD_REQUIRED");
           const settings = await FilesService.settings(request.signal);
-          if (!settings.analysis || !settings.backgroundAvailable || folderPath.some(folder => settings.excluded.includes(folder.id))) {
+          if (!settings.analysis || !(settings.backgroundAvailable || status.files_via_schedule) ||
+            folderPath.some(folder => settings.excluded.includes(folder.id))) {
             throw new Error("SCHEDULE_FILES_NOT_ELIGIBLE");
           }
           const files = await FilesService.list(parent, cursor, false, request.signal);
@@ -65,11 +72,16 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
 
   const verifySelection = async (signal: AbortSignal) => {
     if (!selection) throw new Error("SCHEDULE_FILE_REQUIRED");
+    const status = await client.status(signal);
+    if (!status.available || !status.templates.includes(FILE_ORGANIZATION_TEMPLATE)) {
+      throw new Error("SCHEDULE_FILES_NOT_ELIGIBLE");
+    }
     await withUnlockedFilesConnection({ ...credentials, signal }, async hosting => {
       if (hosting !== "pod") throw new Error("SCHEDULE_OWNER_POD_REQUIRED");
       const settings = await FilesService.settings(signal);
       const current = await FilesService.entry(selection.id, signal);
-      if (!settings.analysis || !settings.backgroundAvailable || settings.revision !== selection.analysisRevision ||
+      if (!settings.analysis || !(settings.backgroundAvailable || status.files_via_schedule) ||
+        settings.revision !== selection.analysisRevision ||
         current.kind !== "file" || current.state !== "ready" ||
         current.id !== selection.id || current.revision !== selection.revision || current.name !== selection.name ||
         [current.id, ...folderPath.map(folder => folder.id)].some(id => settings.excluded.includes(id))) {

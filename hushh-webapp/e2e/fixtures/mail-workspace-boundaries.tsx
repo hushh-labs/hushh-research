@@ -1,5 +1,6 @@
+import { AgentBarSurface } from '@/components/agent/agent-bar-surface';
 import { createContext } from 'react';
-export const usePathname = () => document.documentElement.dataset.workspace === 'setup' ? '/one/setup/gmail' : document.documentElement.dataset.workspace?.startsWith('callback') ? '/one/profile/gmail/oauth/return' : '/one/gmail';
+export const usePathname = () => document.documentElement.dataset.reference === 'location' ? '/one/location' : document.documentElement.dataset.workspace === 'setup' ? '/one/setup/gmail' : document.documentElement.dataset.workspace?.startsWith('callback') ? '/one/profile/gmail/oauth/return' : '/one/gmail';
 const params = new URLSearchParams();
 export const useSearchParams = () => params;
 const router = { push() {}, replace() {}, prefetch() {} };
@@ -56,7 +57,7 @@ export const GmailInformationRequestsService = {
 };
 // Only One's mailbox check and the email behind a finding may reach the page's own fetch, where a test answers them.
 export const ApiService = new Proxy({}, { get: (_target, name) => name === 'getPersonalAgentStatus' || name === 'getPersonalAgentStatusForRouting'
- ? async () => ({ hostingMode: 'shared' })
+ ? async () => ({ hostingMode: (document.documentElement.dataset.journey === 'board' || document.documentElement.dataset.fixturePrivateMail === 'true') ? 'byoc' : 'shared' })
  : name === 'apiFetch'
  ? async (path: string, init?: RequestInit) => {
   if (!/^\/api\/kai\/gmail\/receipts\/notice(\/source)?$/.test(path)) throw new Error('Unhandled fixture network request');
@@ -81,3 +82,7 @@ export const RecaptchaVerifier = class {};
 
 export const useConsentPendingSummaryCount = () => null;
 export const useFeedUnreadCount = () => null;
+
+export const AgentBar = () => <AgentBarSurface data-testid="fixture-talk" className="min-h-[var(--agent-dock-resting-height)] px-5">Talk to One</AgentBarSurface>;
+export const NativeAgentDock = () => null;
+export const useOptionalLocationCommand = () => null;

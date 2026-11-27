@@ -21,6 +21,11 @@ import type {
 } from "@/lib/kai/plaid-vault/types";
 
 export const PLAID_VAULT_BASE_PATH = "/api/kai/plaid/vault";
+export const POD_PLAID_VAULT_SUBPATH = "plaid/vault";
+
+function isSovereignPodPlaidVaultEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_POD_PLAID_VAULT_ENABLED === "true";
+}
 
 export type PlaidVaultEndpoint = "link-token" | "exchange" | "snapshot" | "remove";
 
@@ -88,14 +93,21 @@ async function post<T>(
   const token = requireToken(vaultOwnerToken, "A vault-owner token");
   let response: Response;
   try {
-    response = await ApiService.apiFetch(`${PLAID_VAULT_BASE_PATH}/${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const bodyJson = JSON.stringify(body);
+    response = isSovereignPodPlaidVaultEnabled()
+      ? await ApiService.ownerPodRequest(`${POD_PLAID_VAULT_SUBPATH}/${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: bodyJson,
+        })
+      : await ApiService.apiFetch(`${PLAID_VAULT_BASE_PATH}/${endpoint}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: bodyJson,
+        });
   } catch (error) {
     const message = error instanceof Error ? error.message : FALLBACK_MESSAGES[endpoint];
     throw new PlaidVaultError(endpoint, 0, message || FALLBACK_MESSAGES[endpoint]);

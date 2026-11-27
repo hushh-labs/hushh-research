@@ -1,7 +1,7 @@
 "use client";
 
 import { isNetworkOnline } from "@/lib/runtime/network-status";
-import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
@@ -44,6 +44,7 @@ import { MailConnectionStatus } from "@/components/gmail/mail-kyc-connect-entry"
 import { useMailSignInMeasurement } from "@/components/gmail/use-mail-sign-in-measurement";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { NativeMailRoute, NativeMailReactOnly, type MailNativeSection } from "@/components/gmail/native-mail-workspace";
+import { MailFollowupsEntry } from "./mail-followups-entry";
 import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
@@ -207,6 +208,7 @@ export default function GmailReceiptsPage({
   const pathname = usePathname();
   const nativeFrame = useRef<HTMLDivElement>(null);
   const { user, loading, userId } = useAuth();
+  const [followupsOpen, setFollowupsOpen] = useState(false);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
@@ -996,7 +998,7 @@ export default function GmailReceiptsPage({
     if (!user || !userId || gmailActionBusy !== null) return Promise.resolve(false);
     const operationOwner = userId;
     const privateConnect = async (): Promise<boolean | null> => {
-      const privateAgent = await ownerContentIsPrivate();
+      const privateAgent = await ownerRequiresByocIsolation();
       if (gmailOwnerIdRef.current !== operationOwner) return false;
       if (!privateAgent) return null;
       if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) { toast.error('Unlock your vault to connect Google.'); return false; }
@@ -1124,7 +1126,7 @@ export default function GmailReceiptsPage({
 
     return (async () => {
       try {
-        if (await ownerContentIsPrivate()) {
+        if (await ownerRequiresByocIsolation()) {
           popup?.close();
           gmailPopupRef.current = null; setGmailPopupAttempt(null);
           clearGmailOAuthPopupAttempt();
@@ -2012,6 +2014,10 @@ export default function GmailReceiptsPage({
     </ReceiptTrackingProvider>
   );
 
+  const openFollowups = () => {
+    setFollowupsOpen(true);
+    if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) requestVaultUnlock();
+  };
   const nativeRoot: MailNativeSection[] = [];
   if (!isConnected || journeyVariant === "onboarding") {
     nativeRoot.push({ key: "connection", rows: [
@@ -2030,6 +2036,7 @@ export default function GmailReceiptsPage({
     ] }, { key: "overview", title: "Draft with One.", rows: [
       { key: "drafts", label: "Instant drafts & replies" }, { key: "review", label: "Ready for your 1-tap review" },
       { key: "chat", label: "Chat with One", run: handleOpenOneChat },
+      { key: "followups", label: "Open Follow-ups", web: true, run: openFollowups },
     ] });
   }
   if (workspace === "receipts") {
@@ -2078,7 +2085,7 @@ export default function GmailReceiptsPage({
       as="div"
       width="reading"
       headerContentSpacing="compact"
-      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
+      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? "" : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
       nativeTest={{
         routeId:
           journeyVariant === "workspace"
@@ -2211,7 +2218,10 @@ export default function GmailReceiptsPage({
                       />
                     ) : null}
                     {isConnected ? (
-                      <MailOverview
+                      followupsOpen && userId && vaultOwnerToken && vaultKey && isVaultUnlocked ?
+                        <MailFollowupsEntry key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
+                          confirmTransition={confirmTransition} session={{ userId, vaultKey, vaultOwnerToken }} onBack={() => setFollowupsOpen(false)} /> :
+                      <><MailOverview
                         fetching={overviewReceiptsFetching}
                         receiptIssue={overviewReceiptIssue}
                         receiptCount={
@@ -2226,6 +2236,7 @@ export default function GmailReceiptsPage({
                         )}
                         onOpenChat={handleOpenOneChat}
                       />
+                      <Button onClick={openFollowups}>Open Follow-ups</Button></>
                     ) : null}
                   </>
                 ),
@@ -2349,7 +2360,7 @@ export default function GmailReceiptsPage({
     </AppPageShell>
   );
   return <NativeMailRoute frame={nativeFrame} model={{ owner: userId, onboarding: journeyVariant === "onboarding", view: workspace,
-    selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
+    selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: (followupsOpen && workspace === "overview") || showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
     confirmation: showDisconnectConfirm ? { title: "Disconnect Mail?", description: "Stops Mail access and receipt sync, and deletes Mail receipts and summaries from Hussh. Information saved to private memory stays.",
       confirm: { key: "disconnect-confirm", label: "Disconnect", destructive: true, enabled: gmailActionBusy !== "disconnect", pending: gmailActionBusy === "disconnect", run: handleDisconnectGmail },
       cancelLabel: "Keep connected", cancel: () => setShowDisconnectConfirm(false) } : undefined }}>{content}</NativeMailRoute>;

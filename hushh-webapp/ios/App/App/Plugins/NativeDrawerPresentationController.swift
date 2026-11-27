@@ -26,9 +26,10 @@ final class NativeDrawerModel: ObservableObject {
     // Motion/privacy quarantine affects hit testing, not authored appearance.
     var controlsEnabled: Bool { projection.enabled }
     @Published var search = ""
+    @Published var historyFilter: String?
     @Published var detailRow: String?
     @Published var detailMode = "actions"
-    @Published var renameDraft = ""
+    @Published var editDraft = ""
     @Published var choicePending = false
     @Published var headerInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
     @Published var panelCornerRadius: CGFloat = 0
@@ -113,6 +114,12 @@ final class NativeDrawerModel: ObservableObject {
             projection.open != self.projection.open || projection.privacyGeneration != self.projection.privacyGeneration || !projection.enabled {
             backPending = false
         }
+        if !projection.enabled || projection.title != self.projection.title {
+            search = ""
+            historyFilter = nil
+        } else if let filter = historyFilter, !projection.sections.contains(where: { $0.rows.contains { $0.historyTopic?.label == filter } }) {
+            historyFilter = nil
+        }
         self.projection = projection
         if let pages = projection.profileStack {
             pages.forEach { navigationPages[$0.id] = $0 }
@@ -125,9 +132,8 @@ final class NativeDrawerModel: ObservableObject {
             dismissMenus()
             clearDetails()
         }
-        if !projection.enabled { search = "" }
     }
-    func clearDetails() { detailRow = nil; renameDraft = ""; detailMode = "actions"; pendingSequence = nil; choicePending = false }
+    func clearDetails() { detailRow = nil; editDraft = ""; detailMode = "actions"; pendingSequence = nil; choicePending = false }
     func settle(sequence: Int, success: Bool) {
         guard pendingSequence == sequence else { return }
         if backPending {
@@ -145,19 +151,29 @@ final class NativeDrawerModel: ObservableObject {
     }
     func details(_ row: NativeDrawerRow) {
         guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
-        detailRow = row.id; detailMode = "actions"; renameDraft = row.label
+        detailRow = row.id; detailMode = "actions"; editDraft = row.label
+    }
+    private func currentMenuRow(_ row: NativeDrawerRow, in state: NativeDrawerProjection) -> Bool {
+        interactionEnabled && !choicePending && projection.identity == state.identity &&
+            projection.privacyGeneration == state.privacyGeneration && projection.updateSequence == state.updateSequence &&
+            projection.sections.contains { $0.rows.contains { $0.id == row.id && $0.enabled && $0.pending != true } }
+    }
+    func chooseTopic(_ label: String?, for row: NativeDrawerRow, from state: NativeDrawerProjection) {
+        guard currentMenuRow(row, in: state), let action = row.historyTopic?.actionId else { return }
+        choice("row", row: action, text: label)
     }
     func showDetails(_ row: NativeDrawerRow, mode: String, from state: NativeDrawerProjection) {
-        guard projection.identity == state.identity, projection.privacyGeneration == state.privacyGeneration,
-              projection.updateSequence == state.updateSequence,
-              projection.sections.contains(where: { $0.rows.contains(where: { $0.id == row.id && $0.enabled && $0.pending != true }) }) else { return }
+        guard currentMenuRow(row, in: state) else { return }
         if mode == "delete" {
             guard row.deleteActionId != nil, interactionEnabled, !choicePending else { return }
             requestDelete?(row, state)
             return
         }
         details(row)
-        if detailRow == row.id { detailMode = mode }
+        if detailRow == row.id {
+            detailMode = mode
+            if mode == "topic" { editDraft = row.historyTopic?.custom == true ? row.historyTopic?.label ?? "" : "" }
+        }
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
         guard projection.allows(action: action, row: row, text: text) else { return false }
@@ -926,7 +942,7 @@ struct NativeDrawerContent: View {
     @ScaledMetric(relativeTo: .footnote) private var profileIdentityDetailFont: CGFloat = 10.5
     @ScaledMetric(relativeTo: .body) private var historyTitleFont: CGFloat = 15
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @FocusState private var renameFocused: String?
+    @FocusState private var editFocused: String?
     var body: some View {
         if let profilePage {
             switch profilePage {
@@ -971,7 +987,12 @@ struct NativeDrawerContent: View {
                 if model.projection.backEnabled {
                     control("arrow.left", "Back") { model.choice("back") }
                 }
-                Text(model.projection.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                Text(model.projection.title).font(.title2.bold())
+                if model.projection.historyCategories != nil, focusedChatCount > 0 {
+                    Text(focusedChatCount.formatted()).font(.caption.bold()).monospacedDigit()
+                        .accessibilityLabel("\(focusedChatCount) chats")
+                }
+                Spacer(minLength: 0)
                 if model.projection.family != "history" {
                     control("xmark", model.projection.family == "agent-profile" ? "Close One profile" : "Close Profile",
                         identifier: "native-\(model.projection.family)-drawer-close") { model.close?() }
@@ -981,38 +1002,7 @@ struct NativeDrawerContent: View {
             if model.projection.family != "history" {
                 profileContent(model.projection.sections)
             } else {
-                ForEach(model.projection.sections.filter { $0.id == "create" }) { section in
-                    ForEach(section.rows) { historyRow($0) }
-                }.padding(.horizontal, 16).padding(.bottom, 8)
-                if model.projection.searchable == true {
-                    searchField.padding(.horizontal, 16).padding(.bottom, 4)
-                }
-                if model.projection.loading == true { ProgressView("Loading chats").padding() }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(model.projection.sections.filter { !["create", "footer"].contains($0.id) }) { section in
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let title = section.title {
-                                    Text(title).font(.caption).foregroundStyle(.secondary)
-                                        .padding(.horizontal, 12).padding(.top, 6)
-                                        .accessibilityAddTraits(.isHeader)
-                                }
-                                ForEach(section.rows.filter { row in row.id == model.detailRow || model.search.isEmpty || row.renameActionId == nil || row.label.localizedCaseInsensitiveContains(model.search) }) { historyRow($0) }
-                            }
-                        }
-                    }.padding(.horizontal, 16).padding(.vertical, 4)
-                }.accessibilityIdentifier("native-history-chats-scroll")
-                    .scrollDismissesKeyboard(.interactively)
-                ForEach(model.projection.sections.filter { $0.id == "footer" }) { section in
-                    VStack(spacing: 0) {
-                        Divider()
-                        ForEach(section.rows) { historyRow($0) }
-                    }.padding(.horizontal, 16).padding(.vertical, 8)
-                        // Keep this group's ID on its container, not inherited
-                        // by the authored Connectors/Drive/To-do buttons.
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("native-history-footer")
-                }
+                historyContent
             }
         }.allowsHitTesting(model.interactionEnabled)
             .accessibilityHidden(!model.interactionEnabled)
@@ -1029,29 +1019,128 @@ struct NativeDrawerContent: View {
             }
         }
     }
+    private var focusedChatCount: Int {
+        model.projection.sections.reduce(0) { count, section in
+            count + section.rows.filter { $0.historyTopic != nil }.count
+        }
+    }
+    @ViewBuilder private var historyContent: some View {
+        let projection = model.projection
+        let groups = projection.sections.filter { !["pinned", "create", "footer"].contains($0.id) }
+        let counts = groups.flatMap(\.rows).compactMap { $0.historyTopic?.label }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        let query = model.search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = groups.compactMap { section -> NativeDrawerSection? in
+            let rows = section.rows.filter { row in
+                row.id == model.detailRow || (model.historyFilter == nil || model.historyFilter == row.historyTopic?.label) &&
+                    (query.isEmpty || row.label.localizedCaseInsensitiveContains(query) || row.historyTopic?.label.localizedCaseInsensitiveContains(query) == true)
+            }
+            return rows.isEmpty ? nil : NativeDrawerSection(id: section.id, title: section.title, rows: rows)
+        }
+        ForEach(projection.sections.filter { ["pinned", "create"].contains($0.id) }) { section in
+            ForEach(section.rows) { row in
+                if section.id == "pinned" { pinnedOne(row) } else { historyRow(row) }
+            }
+        }.padding(.horizontal, 16).padding(.bottom, 4)
+        if projection.historyCategories != nil && projection.title == "Puppy chats" {
+            Text("Puppy One’s chats stay on your machine.").font(.footnote).foregroundStyle(.secondary)
+        }
+        if projection.searchable == true {
+            searchField.padding(.horizontal, 16).padding(.bottom, 4)
+        }
+        if let categories = projection.historyCategories, !counts.isEmpty {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    historyFilterButton(nil, count: focusedChatCount)
+                    ForEach(categories.filter { counts[$0] != nil }, id: \.self) { name in
+                        historyFilterButton(name, count: counts[name] ?? 0)
+                    }
+                }.padding(.horizontal, 16)
+            }.scrollIndicators(.hidden).accessibilityLabel("Chat categories")
+        }
+        if projection.loading == true { ProgressView("Loading chats").padding() }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                if projection.historyCategories != nil && projection.loading != true && visible.isEmpty {
+                    VStack(spacing: 8) {
+                        Text(counts.isEmpty ? "No chats yet" : "No matches found").font(.headline)
+                        if counts.isEmpty, let new = projection.sections.first(where: { $0.id == "create" })?.rows.first {
+                            Button("Start new chat") { model.choice("row", row: new.id) }.disabled(!new.enabled)
+                        } else {
+                            Button(query.isEmpty ? "Show all chats" : "Clear search") { model.search = ""; model.historyFilter = nil }
+                        }
+                    }.frame(maxWidth: .infinity).padding(.vertical, 20)
+                }
+                ForEach(visible) { section in
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let title = section.title {
+                            Text(title).font(.caption).foregroundStyle(.secondary)
+                                .padding(.horizontal, 12).padding(.top, 6).accessibilityAddTraits(.isHeader)
+                        }
+                        ForEach(section.rows) { historyRow($0) }
+                    }
+                }
+            }.padding(.horizontal, 16).padding(.vertical, 4)
+        }.accessibilityIdentifier("native-history-chats-scroll").scrollDismissesKeyboard(.interactively)
+        ForEach(projection.sections.filter { $0.id == "footer" }) { section in
+            VStack(spacing: 0) {
+                Divider()
+                ForEach(section.rows) { historyRow($0) }
+            }.padding(.horizontal, 16).padding(.vertical, 8)
+                .accessibilityElement(children: .contain).accessibilityIdentifier("native-history-footer")
+        }
+    }
+    private func historyFilterButton(_ category: String?, count: Int) -> some View {
+        let selected = model.historyFilter == category
+        return Button { model.historyFilter = category } label: {
+            HStack(spacing: 5) { Text(category ?? "All"); Text(count.formatted()).monospacedDigit() }
+                .font(.caption.weight(.semibold)).padding(.horizontal, 11).padding(.vertical, 6)
+                .background(selected ? Color.primary.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    private func pinnedOne(_ row: NativeDrawerRow) -> some View {
+        let accent = Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .systemOrange)
+        return Button { model.choice("row", row: row.id) } label: {
+            HStack(spacing: 6) {
+                HStack(spacing: 0) { Text("hu"); Text("ssh").foregroundStyle(accent) }.font(.headline.bold())
+                Text(row.label).font(.headline)
+                Spacer(minLength: 4)
+                if let detail = row.detail { Text(detail).font(.footnote).foregroundStyle(.secondary) }
+                if let waiting = row.trailing { Text(waiting).font(.caption.bold()).monospacedDigit().foregroundStyle(accent) }
+            }.padding(.horizontal, 14).frame(minHeight: 44)
+                .background(Color(uiColor: row.selected == true ? .secondarySystemFill : .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain).disabled(!row.enabled)
+            .accessibilityLabel(row.label).accessibilityValue([row.detail, row.trailing.map { "\($0) waiting" }].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityAddTraits(row.selected == true ? .isSelected : []).accessibilityIdentifier("native-history-row-one-stream")
+    }
     private func historyAge(_ detail: String?) -> Text {
         guard let detail, !detail.isEmpty else { return Text("") }
         return Text("  \(detail)").font(.caption2).foregroundStyle(.secondary)
     }
     @ViewBuilder private func historyRow(_ row: NativeDrawerRow) -> some View {
-        if row.id == model.detailRow, model.detailMode == "rename", let action = row.renameActionId {
+        let editingTopic = model.detailMode == "topic"
+        if row.id == model.detailRow, editingTopic || model.detailMode == "rename",
+           let action = editingTopic ? row.historyTopic?.actionId : row.renameActionId {
+            let valid = !model.editDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                model.editDraft.utf16.count <= (editingTopic ? 32 : 160)
+            let save = { if valid { _ = model.choice("row", row: action, text: model.editDraft) } }
             VStack(alignment: .leading, spacing: 4) {
-                TextField("Chat name", text: $model.renameDraft)
+                TextField(editingTopic ? "Custom topic" : "Chat name", text: $model.editDraft)
                     .textFieldStyle(.plain).font(.system(size: historyTitleFont))
                     .padding(.horizontal, 12).frame(minHeight: 44)
-                    .focused($renameFocused, equals: row.id)
-                    .accessibilityLabel("Rename chat").accessibilityIdentifier("native-history-rename")
-                    .submitLabel(.done).onSubmit { saveRename(action) }
+                    .focused($editFocused, equals: row.id)
+                    .accessibilityLabel(editingTopic ? "Custom topic" : "Rename chat").accessibilityIdentifier(editingTopic ? "native-history-topic" : "native-history-rename")
+                    .submitLabel(.done).onSubmit(save)
                 HStack(spacing: 12) {
                     Button("Cancel") { model.clearDetails() }.frame(minWidth: 44, minHeight: 44)
                     Spacer(minLength: 0)
-                    Button("Save chat name") { saveRename(action) }.frame(minWidth: 44, minHeight: 44)
-                        .disabled(!renameValid)
+                    Button(editingTopic ? "Save topic" : "Save chat name", action: save).frame(minWidth: 44, minHeight: 44)
+                        .disabled(!valid)
                 }.padding(.horizontal, 12)
             }.buttonStyle(.borderless)
                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                 .disabled(!model.controlsEnabled || model.choicePending || !row.enabled || row.pending == true)
-                .onAppear { renameFocused = row.id }
+                .onAppear { editFocused = row.id }
         } else {
         HStack(spacing: 0) {
             Button { model.choice("row", row: row.id) } label: {
@@ -1059,17 +1148,22 @@ struct NativeDrawerContent: View {
                     if let symbol = row.symbol { Image(systemName: symbol).frame(width: 22).accessibilityHidden(true) }
                     // One compact baseline at standard text sizes. Age never
                     // creates another padding track; AX retains the full label.
-                    Text("\(Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary))\(historyAge(row.detail))")
-                        .font(.system(size: historyTitleFont))
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .title))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary))\(historyAge(row.detail))")
+                            .font(.system(size: historyTitleFont))
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .title))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let topic = row.historyTopic, topic.custom {
+                            Text(topic.label).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                     if row.pending == true { ProgressView() }
                 }.padding(.leading, 12).padding(.trailing, 4)
                     .frame(minHeight: 44).contentShape(Rectangle())
             }.disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
-                .accessibilityLabel(row.label).accessibilityValue(row.detail ?? "")
+                .accessibilityLabel(row.label).accessibilityValue([row.detail, row.historyTopic?.label].compactMap { $0 }.joined(separator: ", "))
                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
                 .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
                 .modifier(NativeHistoryLayoutMeasurement(observe: historyLayoutObserver, row: row.id, part: .row))
@@ -1080,13 +1174,6 @@ struct NativeDrawerContent: View {
         }.buttonStyle(.borderless)
             .background(row.selected == true ? Color(uiColor: .tertiarySystemFill) : .clear, in: RoundedRectangle(cornerRadius: 12))
         }
-    }
-    private var renameValid: Bool {
-        !model.renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.renameDraft.utf16.count <= 160
-    }
-    private func saveRename(_ action: String) {
-        guard renameValid, model.interactionEnabled, !model.choicePending else { return }
-        _ = model.choice("row", row: action, text: model.renameDraft)
     }
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
@@ -1496,11 +1583,27 @@ struct NativeDrawerRowMenu: UIViewRepresentable {
         button.accessibilityElementsHidden = !model.interactionEnabled
         if !button.isEnabled { button.dismissOwnedMenu {} }
         let state = model.projection
-        var actions = [UIAction]()
+        var actions = [UIMenuElement]()
         if row.renameActionId != nil {
             actions.append(UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak button, weak model] _ in
                 button?.afterDismissal { model?.showDetails(row, mode: "rename", from: state) }
             })
+        }
+        if let topic = row.historyTopic, topic.actionId != nil {
+            var choices = (state.historyCategories ?? []).map { label in
+                UIAction(title: label, state: topic.custom && label == topic.label ? .on : .off) { [weak model, weak button] _ in
+                    button?.afterDismissal { model?.chooseTopic(label, for: row, from: state) }
+                }
+            }
+            choices.append(UIAction(title: "Custom topic…", image: UIImage(systemName: "pencil")) { [weak model, weak button] _ in
+                button?.afterDismissal { model?.showDetails(row, mode: "topic", from: state) }
+            })
+            if topic.custom {
+                choices.append(UIAction(title: "Automatic category") { [weak model, weak button] _ in
+                    button?.afterDismissal { model?.chooseTopic(nil, for: row, from: state) }
+                })
+            }
+            actions.append(UIMenu(title: "Category", image: UIImage(systemName: "tag"), children: choices))
         }
         if row.deleteActionId != nil {
             actions.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak button, weak model] _ in

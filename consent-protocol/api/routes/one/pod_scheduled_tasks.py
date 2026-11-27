@@ -12,6 +12,8 @@ from pydantic import Field
 from api.routes.one.pod_browser import PrivateBrowserRoute
 from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_browser.contracts import StrictContract
+from hushh_mcp.services.pod_sandbox_scheduled_delivery import SandboxScheduledDelivery
+from hushh_mcp.services.pod_scheduled_delivery import ResidentScheduledDelivery
 from hushh_mcp.services.pod_scheduled_runtime import active_scheduled_tasks
 from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused, ScheduleRequest
 from hushh_mcp.services.pod_session_authority import ROLE_APP
@@ -104,6 +106,8 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
             "templates": sorted(runtime.capabilities) if code is None else [],
             "repeat_modes": ["once", "daily", "weekly", "monthly"] if code is None else [],
             "run_now_available": code is None,
+            "files_via_schedule": code is None
+            and isinstance(runtime.delivery, (SandboxScheduledDelivery, ResidentScheduledDelivery)),
             "authorization_limit_at": authorization_limit_at,
             "tasks": tasks,
         }
@@ -248,6 +252,8 @@ async def task_worker(
     body: Wake, response: Response, authorization: str | None = Header(default=None)
 ):
     from hushh_mcp.services.pod_files.jobs import worker_origin
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
+    from hushh_mcp.services.pod_sandbox_scheduled_delivery import sandbox_worker_email
     from hushh_mcp.services.scheduler_identity import (
         SchedulerIdentityError,
         verify_scheduler_request,
@@ -255,15 +261,20 @@ async def task_worker(
 
     no_store(response)
     try:
+        sandbox = hosted_ace_runtime()
+        caller = (
+            sandbox_worker_email() if sandbox else os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT", "")
+        )
         await asyncio.to_thread(
             verify_scheduler_request,
             authorization_header=authorization,
             audience=worker_origin(),
-            allowed_emails=(os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT", ""),),
+            allowed_emails=(caller,),
         )
-        return await active_scheduled_tasks().run(
+        result = await active_scheduled_tasks().run(
             body.schedule_id, body.revision, body.occurrence_id
         )
+        return {"state": result["state"]} if sandbox else result
     except SchedulerIdentityError:
         raise HTTPException(403, detail={"code": "SCHEDULE_WORKER_REFUSED"}) from None
     except ScheduleRefused as exc:

@@ -120,6 +120,41 @@ describe("native Cloud chat", () => {
     publishValidatedAuthSessionOwner(null);
   });
 
+  it("delivers a named one-hour Location proposal alongside a native Browser receipt", async () => {
+    const proposal = { type: "location.chat_action", id: "00000000-0000-4000-8000-000000000001",
+      action: "share_live", people: ["Kushal"], durationHours: 1 };
+    const context = { step: "duration" as const, action: "share_live" as const, people: ["Kushal"], circles: [] };
+    const event = { author: "one", content: { parts: [{ functionResponse: {
+      name: "propose_location_action", response: proposal,
+    } }] } };
+    const receipt = { invocationId: "location-turn", toolCallId: "browser-call", status: "accepted",
+      binding: { owner_id: input.userId, task_id: `browser_${"a".repeat(32)}` } };
+    vi.mocked(ApiService.ownerPodRequest).mockReset()
+      .mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1, nativeLocationChatReview: true }))
+      .mockResolvedValueOnce(new Response(
+        'event: start\ndata: {"sessionId":"native-thread"}\n\n' +
+        `event: browser_task\ndata: ${JSON.stringify(receipt)}\n\n` +
+        `data: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
+        { headers: { "Content-Type": "text/event-stream" } },
+      ));
+    const onLocationProposal = vi.fn();
+    const onBrowserTaskCreated = vi.fn();
+    await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatContinuation: context,
+      screenContext: { route: { pathname: "/" } }, handlers: { onLocationProposal, onBrowserTaskCreated } });
+    const body = JSON.parse(String(vi.mocked(ApiService.ownerPodRequest).mock.calls[1][1]?.body));
+    expect(body.forwardedProps).toMatchObject({ locationChatReview: true, locationChatContinuation: context });
+    expect(body.forwardedProps).not.toHaveProperty("mainChat");
+    expect(onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ people: ["Kushal"], durationHours: 1 }));
+    expect(onBrowserTaskCreated).toHaveBeenCalledOnce();
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it("uses the inline-capable AG-UI transport on a pod that only supports native text and visuals", async () => {
+    await streamAgentChat({ ...input, locationChatReview: true });
+    expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).toMatchObject({ locationChatReview: true });
+    expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.map(([path]) => path)).toEqual(["agent-chat/capabilities"]);
+  });
+
   it("preserves native surfaces and distinct Browser receipts without replaying discovery", async () => {
     const { ONE_A2UI_CATALOG } = await import("@/lib/a2ui/surface-store");
     const surface = {
@@ -1257,6 +1292,43 @@ describe("AG-UI Agent One client", () => {
     mockTransport.aborted = false;
     vi.mocked(ApiService.agentChatRequest).mockImplementation(async () =>
       Response.json({ stopped: true, returned: [] }));
+  });
+
+  it("continues a named Location share on an unpinned thread and delivers the streamed proposal only to its inline review", async () => {
+    const input = { vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "regular-thread",
+      vaultOwnerToken: "owner-token", screenContext: { route: { pathname: "/" } } };
+    const context = { step: "duration" as const, action: "share_live" as const, people: ["Kushal"], circles: [] };
+    const proposal = { type: "location.chat_action", status: "proposal_ready",
+      id: "00000000-0000-4000-8000-000000000001", action: "share_live", people: ["Kushal"], durationHours: 1 };
+    const stream = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "content-type": "text/event-stream" } });
+    const start = { type: "RUN_STARTED", threadId: input.conversationId, runId: "test-run" };
+    const end = { type: "RUN_FINISHED", threadId: input.conversationId, runId: "test-run" };
+    const resultEvents = [start,
+      { type: "TOOL_CALL_START", toolCallId: "location", toolCallName: "propose_location_action" },
+      { type: "TOOL_CALL_ARGS", toolCallId: "location", delta: JSON.stringify({ people: ["Kushal"] }) },
+      { type: "TOOL_CALL_END", toolCallId: "location" },
+      { type: "TOOL_CALL_RESULT", toolCallId: "location", messageId: "result", content: JSON.stringify({ result: proposal }) }, end];
+    vi.mocked(ApiService.agentChatRequest)
+      .mockResolvedValueOnce(stream([start, end]))
+      .mockResolvedValueOnce(stream(resultEvents))
+      .mockResolvedValueOnce(stream(resultEvents));
+    const handlers = { onLocationProposal: vi.fn(), onToolResult: vi.fn(), onToolWaiting: vi.fn() };
+    mockTransport.nativeMode = true;
+    try {
+      await streamAgentChat({ ...input, message: "Share my location with Kushal", locationChatReview: true, handlers });
+      await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatContinuation: context, handlers });
+      await streamAgentChat({ ...input, message: "hello", locationChatReview: false, locationChatContinuation: context, handlers });
+      const [initial, continued, disabled] = mockTransport.runAgent.mock.calls.map(([run]) => run.forwardedProps);
+      expect(initial).toMatchObject({ locationChatReview: true });
+      expect(initial).not.toHaveProperty("mainChat");
+      expect(continued).toMatchObject({ locationChatReview: true, locationChatContinuation: context });
+      expect(continued).not.toHaveProperty("mainChat");
+      expect(disabled).not.toHaveProperty("locationChatReview");
+      expect(disabled).not.toHaveProperty("locationChatContinuation");
+      expect(handlers.onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ action: "share_live", people: ["Kushal"], durationHours: 1 }));
+      expect(JSON.stringify([handlers.onToolResult.mock.calls, handlers.onToolWaiting.mock.calls])).not.toContain("Kushal");
+    } finally { mockTransport.nativeMode = false; }
   });
 
   it("uses the canonical endpoint and official run fields", async () => {

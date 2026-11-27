@@ -21,10 +21,12 @@ from hushh_mcp.services.account_generation_service import EXACT_OWNER_IDENTITIES
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.metrics_adoption_sql import (
     CANDIDATES_SQL,
+    MAX_ADOPTION_CANDIDATES,
     MEANINGFUL_REPLIES_SQL,
     SOURCE_TABLES,
 )
 
+OWNER_BATCH_SIZE = 50
 _production_aggregate_lock = asyncio.Lock()
 
 
@@ -42,7 +44,7 @@ class Period(BaseModel):
 class AdoptionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     period: Period
-    definitionVersion: str = Field(pattern=r"^1$")
+    definitionVersion: str = Field(pattern=r"^[12]$")
     sourceGeneration: str = Field(pattern=r"^[a-f0-9]{64}$")
     scopeDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
@@ -72,12 +74,14 @@ def approved_binding(environment: str = "production") -> dict:
         }
         if environment == "uat":
             required |= {"databaseName", "databaseUser"}
-        optional = {"provisionalUtcDay"} if environment == "uat" else set()
+        optional = (
+            {"provisionalUtcDay", "provisionalSourceGeneration"} if environment == "uat" else set()
+        )
         if (
             not isinstance(row, dict)
             or not required <= row.keys() <= required | optional
             or row["approved"] is not True
-            or row["definitionVersion"] != "1"
+            or row["definitionVersion"] not in {"1", "2"}
         ):
             raise ValueError
         for field in (
@@ -85,10 +89,13 @@ def approved_binding(environment: str = "production") -> dict:
             "scopeDigest",
             "populationPolicyRevision",
             "reconciliationDigest",
+            *(("provisionalSourceGeneration",) if "provisionalSourceGeneration" in row else ()),
         ):
             if not isinstance(row[field], str) or not re.fullmatch(r"[a-f0-9]{64}", row[field]):
                 raise ValueError
         if date.fromisoformat(row["coverageFrom"]).isoformat() != row["coverageFrom"]:
+            raise ValueError
+        if "provisionalSourceGeneration" in row and "provisionalUtcDay" not in row:
             raise ValueError
         if "provisionalUtcDay" in row:
             day = row["provisionalUtcDay"]
@@ -131,18 +138,29 @@ def period_bounds(
         and start == end == local_day
         and binding.get("provisionalUtcDay") == end.isoformat()
     )
+    expected_generation = (
+        binding.get("provisionalSourceGeneration", binding["sourceGeneration"])
+        if provisional
+        else binding["sourceGeneration"]
+    )
+    is_v2 = request.definitionVersion == "2"
+    max_days = 90 if is_v2 else 7
+    version_admitted = (
+        request.definitionVersion in {"1", "2"}
+        if binding["definitionVersion"] == "1"
+        else request.definitionVersion == binding["definitionVersion"]
+    )
     if (
         environment not in {"production", "uat"}
+        or not version_admitted
         or start > end
-        or (end - start).days >= 7
-        or start.isoformat() < binding["coverageFrom"]
+        or (end - start).days >= max_days
+        or (not is_v2 and start.isoformat() < binding["coverageFrom"])
         or (end >= local_day and not provisional)
-        or (environment == "uat" and first < now - timedelta(days=7))
-        or (environment == "production" and start < local_day - timedelta(days=7))
-        or any(
-            getattr(request, key) != binding[key]
-            for key in ("definitionVersion", "sourceGeneration", "scopeDigest")
-        )
+        or (not is_v2 and environment == "uat" and first < now - timedelta(days=7))
+        or ((is_v2 or environment == "production") and start < local_day - timedelta(days=max_days))
+        or request.scopeDigest != binding["scopeDigest"]
+        or request.sourceGeneration != expected_generation
     ):
         raise ValueError("Unsupported aggregate period or generation")
     # Existing effect adapters use inclusive bounds. Preserve the half-open day
@@ -166,7 +184,7 @@ async def _candidates(conn, since, through):
     rows = await conn.fetch(CANDIDATES_SQL, since, through, timeout=5)
     ids = [row["user_id"] for row in rows]
     if (
-        len(ids) > 50
+        len(ids) > MAX_ADOPTION_CANDIDATES
         or len(set(ids)) != len(ids)
         or any(not isinstance(uid, str) or not 1 <= len(uid) <= 128 for uid in ids)
     ):
@@ -188,10 +206,16 @@ async def _owner_identities(ids, conn):
         return {owner: owner for owner in ids}
     if restricted is not False:
         raise AggregateUnavailable("Metrics generation authority unavailable")
-    rows = await conn.fetch(EXACT_OWNER_IDENTITIES_SQL, ids, timeout=5)
-    identities = {row["owner"]: row["identity_uid"] for row in rows}
+    identities: dict[str, str] = {}
+    total_rows = 0
+    for offset in range(0, len(ids), OWNER_BATCH_SIZE):
+        batch = ids[offset : offset + OWNER_BATCH_SIZE]
+        rows = await conn.fetch(EXACT_OWNER_IDENTITIES_SQL, batch, timeout=5)
+        total_rows += len(rows)
+        for row in rows:
+            identities[row["owner"]] = row["identity_uid"]
     if (
-        len(identities) != len(rows)
+        len(identities) != total_rows
         or not identities.keys() <= set(ids)
         or len(set(identities.values())) != len(identities)
     ):
@@ -199,16 +223,30 @@ async def _owner_identities(ids, conn):
     return identities
 
 
+async def _active_projection_ids(conn, ids: list[str]) -> set[str]:
+    active: set[str] = set()
+    for offset in range(0, len(ids), OWNER_BATCH_SIZE):
+        batch = ids[offset : offset + OWNER_BATCH_SIZE]
+        active |= await AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=batch
+        )
+    return active
+
+
 async def _identity(ids, conn, environment="production"):
     if not ids:
         return {}, {}, {}
     identities = await _owner_identities(ids, conn)
     firebase_uids = list(identities.values())
-    firebase_records = await (
-        metrics_uat_authority.current_records(firebase_uids)
-        if environment == "uat"
-        else plg_reporting.current_reporting_records(firebase_uids)
-    )
+    firebase_records: dict[str, dict] = {}
+    for offset in range(0, len(firebase_uids), OWNER_BATCH_SIZE):
+        batch = firebase_uids[offset : offset + OWNER_BATCH_SIZE]
+        chunk = await (
+            metrics_uat_authority.current_records(batch)
+            if environment == "uat"
+            else plg_reporting.current_reporting_records(batch)
+        )
+        firebase_records.update(chunk)
     records = {
         owner: {**firebase_records[uid], "firebase_uid": uid}
         for owner, uid in identities.items()
@@ -216,8 +254,12 @@ async def _identity(ids, conn, environment="production"):
     }
     identity = ActorIdentityService()
     owners = list(records)
-    canonical = await identity.get_many(owners, conn=conn)
-    aliases = await identity.get_many_verified_email_aliases(owners, conn=conn)
+    canonical: dict = {}
+    aliases: dict = {}
+    for offset in range(0, len(owners), OWNER_BATCH_SIZE):
+        batch = owners[offset : offset + OWNER_BATCH_SIZE]
+        canonical.update(await identity.get_many(batch, conn=conn))
+        aliases.update(await identity.get_many_verified_email_aliases(batch, conn=conn))
     return records, canonical, aliases
 
 
@@ -283,11 +325,7 @@ async def adoption_aggregate(
         await guard.execute("SET LOCAL lock_timeout='1s'")
         await _assert_global_read(guard)
         ids = await _candidates(guard, since, through)
-        active = (
-            await AccountDeletionLifecycleService.active_projection_user_ids(guard, user_ids=ids)
-            if ids
-            else set()
-        )
+        active = await _active_projection_ids(guard, ids) if ids else set()
         before = (
             await _identity(ids, guard, environment)
             if environment == "uat"
@@ -320,10 +358,19 @@ async def adoption_aggregate(
             if not users <= set(eligible):
                 raise AggregateUnavailable("Invalid aggregate source")
             outcomes = 0
+            is_v2 = request.definitionVersion == "2"
+            subagent_outcomes = {sub_id: 0 for sub_id in plg_outcomes.SUBAGENT_OUTCOME_IDS}
+            subagent_users: dict[str, set[str]] = {
+                sub_id: set() for sub_id in plg_outcomes.SUBAGENT_OUTCOME_IDS
+            }
             for offset in range(0, len(eligible), 25):
                 owners = eligible[offset : offset + 25]
-                summaries = await plg_outcomes.value_summaries(
-                    data, owners, "agent_one", since, through
+                summaries = (
+                    await plg_outcomes.value_summaries_with_subagents(data, owners, since, through)
+                    if is_v2
+                    else await plg_outcomes.value_summaries(
+                        data, owners, "agent_one", since, through
+                    )
                 )
                 if set(summaries) != set(owners):
                     raise AggregateUnavailable("Incomplete aggregate source")
@@ -339,6 +386,24 @@ async def adoption_aggregate(
                     outcomes += count
                     if count:
                         users.add(uid)
+                    if is_v2:
+                        by_subagent = summary.get("bySubagent")
+                        if not isinstance(by_subagent, dict) or set(by_subagent) != set(
+                            plg_outcomes.SUBAGENT_OUTCOME_IDS
+                        ):
+                            raise AggregateUnavailable("Incomplete aggregate source")
+                        for sub_id, sub_summary in by_subagent.items():
+                            sub_count = sub_summary.get("count")
+                            if (
+                                sub_summary.get("supported") is not True
+                                or sub_summary.get("limited") is not False
+                                or type(sub_count) is not int
+                                or sub_count < 0
+                            ):
+                                raise AggregateUnavailable("Incomplete aggregate source")
+                            subagent_outcomes[sub_id] += sub_count
+                            if sub_count:
+                                subagent_users[sub_id].add(uid)
         after = (
             await _identity(ids, guard, environment)
             if environment == "uat"
@@ -371,20 +436,83 @@ async def adoption_aggregate(
         # subsequent publication, even if they were committed during the read.
         coverage = "provisional" if provisional else "partial"
         source_through = through if provisional else watermark
+        metrics_payload = {
+            "activeAccounts": {
+                "value": len(users),
+                "coverage": coverage,
+                "unit": "account",
+                "basis": "exact",
+            },
+            "confirmedOutcomes": {
+                "value": outcomes,
+                "coverage": coverage,
+                "unit": "outcome",
+                "basis": "exact",
+            },
+        }
+        if not is_v2:
+            return {
+                "metrics": metrics_payload,
+                "sourceCheckedAt": int(checked.timestamp() * 1000),
+                "sourceWatermark": int(source_through.timestamp() * 1000),
+                "sourceGeneration": request.sourceGeneration,
+                "scopeDigest": request.scopeDigest,
+                "definitionVersion": request.definitionVersion,
+                "period": request.period.model_dump(),
+                "reconciled": True,
+            }
+        new_active: int | None = 0
+        returning_active: int | None = 0
+        registration_coverage = coverage
+        records = before[0]
+        for uid in users:
+            raw_registered = (records.get(uid) or {}).get("registeredAt")
+            if not isinstance(raw_registered, str):
+                new_active = None
+                returning_active = None
+                registration_coverage = "unavailable"
+                break
+            registered_at = datetime.fromisoformat(raw_registered.replace("Z", "+00:00"))
+            if registered_at >= since:
+                new_active += 1
+            else:
+                returning_active += 1
         return {
             "metrics": {
-                "activeAccounts": {
-                    "value": len(users),
-                    "coverage": coverage,
+                **metrics_payload,
+                "newActiveAccounts": {
+                    "value": new_active,
+                    "coverage": registration_coverage,
                     "unit": "account",
                     "basis": "exact",
                 },
-                "confirmedOutcomes": {
-                    "value": outcomes,
-                    "coverage": coverage,
-                    "unit": "outcome",
+                "returningActiveAccounts": {
+                    "value": returning_active,
+                    "coverage": registration_coverage,
+                    "unit": "account",
                     "basis": "exact",
                 },
+            },
+            "bySubagent": {
+                sub_id: {
+                    "outcomeAccounts": {
+                        "value": len(subagent_users[sub_id]),
+                        "coverage": coverage,
+                        "unit": "account",
+                        "basis": "exact",
+                    },
+                    "confirmedOutcomes": {
+                        "value": subagent_outcomes[sub_id],
+                        "coverage": coverage,
+                        "unit": "outcome",
+                        "basis": "exact",
+                    },
+                }
+                for sub_id in plg_outcomes.SUBAGENT_OUTCOME_IDS
+            },
+            "coverageWindow": {
+                "coverageFrom": binding["coverageFrom"],
+                "windowFullyCovered": request.period.startDate >= binding["coverageFrom"],
             },
             "sourceCheckedAt": int(checked.timestamp() * 1000),
             "sourceWatermark": int(source_through.timestamp() * 1000),

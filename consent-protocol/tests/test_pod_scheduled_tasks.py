@@ -1,11 +1,58 @@
 """Bounded durable schedule lifecycle; simulated provider delivery only."""
 
 import asyncio
+import base64
+import json
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
 
 from hushh_mcp.one_adk.file_schedule_proposal import propose_file_schedule
+
+
+def test_sandbox_delivery_names_only_the_signed_owners_occurrence(monkeypatch):
+    from hushh_mcp.services.pod_sandbox_scheduled_delivery import (
+        SandboxScheduleOffer,
+        sandbox_cloud_task,
+    )
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused, occurrence_id
+
+    edge = "https://sandbox-edge.example.test"
+    worker = "sandbox-schedule@hushh-pda-dev.iam.gserviceaccount.com"
+    queue = "projects/hushh-pda-dev/locations/us-central1/queues/sandbox-test"
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_SANDBOX_EDGE_PUBLIC_URL", edge)
+    monkeypatch.setenv("HUSSH_SANDBOX_TASK_WORKER_EMAIL", worker)
+    monkeypatch.setenv("HUSSH_SANDBOX_TASK_QUEUE", queue)
+    placement = SimpleNamespace(hushh_id="owner-a", environment="dev", url=edge + "/u/owner-a")
+    now = 2_000_000_000
+    due = now + 60 * 86400
+    schedule_id = "schedule_" + "a" * 32
+    occurrence = occurrence_id(schedule_id, 3, due)
+    offer = SandboxScheduleOffer(
+        schedule_id=schedule_id, revision=3, occurrence_id=occurrence, due_at=due
+    )
+    assert sandbox_cloud_task(offer, placement=placement, now=now + 1) == (
+        sandbox_cloud_task(offer, placement=placement, now=now)
+    )
+    name, task = sandbox_cloud_task(offer, placement=placement, now=now)
+    assert name == queue
+    assert now < datetime.fromisoformat(task["scheduleTime"]).timestamp() < due
+    request = task["httpRequest"]
+    assert request["url"] == placement.url + "/api/one/pod/tasks/worker"
+    assert request["oidcToken"] == {"serviceAccountEmail": worker, "audience": placement.url}
+    assert json.loads(base64.b64decode(request["body"])) == {
+        "schedule_id": schedule_id,
+        "revision": 3,
+        "occurrence_id": occurrence,
+    }
+    placement.url = edge + "/u/owner-b"
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_DELIVERY_REFUSED"):
+        sandbox_cloud_task(offer, placement=placement, now=now)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED"):
+        sandbox_cloud_task(offer, placement=placement, now=now)
 
 
 def test_chat_file_schedule_review_only_returns_normalized_time():
@@ -22,6 +69,54 @@ def test_chat_file_schedule_review_only_returns_normalized_time():
         "run_at": None,
         "repeat": "weekdays",
     }
+
+
+def test_sandbox_queue_publication_requires_the_current_primary_signature(monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes.one import pod_schedule_delivery as route
+    from hushh_mcp.services.pod_request_signing import VerifiedPod
+
+    registry = SimpleNamespace(
+        get_by_hushh_id=AsyncMock(
+            return_value={
+                "status": "provisioned",
+                "pod_signing_key_id": "current-key",
+            }
+        )
+    )
+    verify = AsyncMock(return_value=VerifiedPod("owner-a", service_account="unbound"))
+    placement = SimpleNamespace(hushh_id="owner-a")
+    enqueue = Mock()
+    monkeypatch.setattr(route, "sandbox_worker_email", lambda: "worker")
+    monkeypatch.setattr(route, "PersonalAgentRegistryRepo", lambda: registry)
+    monkeypatch.setattr(route, "verify_pod_request", verify)
+    monkeypatch.setattr(route, "retained_hosted_ace_placement", lambda _row: placement)
+    monkeypatch.setattr(route, "enqueue_sandbox_schedule", enqueue)
+    app = FastAPI()
+    app.include_router(route.router)
+    body = {
+        "schedule_id": "schedule_" + "a" * 32,
+        "revision": 1,
+        "occurrence_id": "b" * 32,
+        "due_at": 2_000_000_000,
+    }
+    with TestClient(app) as client:
+        assert client.post(route.OFFER_PATH, json=body).status_code == 403
+        verify.return_value = VerifiedPod("owner-a", key_id="rotated-key")
+        assert client.post(route.OFFER_PATH, json=body).status_code == 403
+        verify.return_value = VerifiedPod("owner-a", key_id="current-key")
+        invalid = client.post(route.OFFER_PATH, json={**body, "title": "synthetic private title"})
+        assert invalid.status_code == 422
+        assert "synthetic private title" not in invalid.text
+        enqueue.assert_not_called()
+        assert client.post(route.OFFER_PATH, json=body).status_code == 204
+        assert verify.await_args.kwargs["owner_bound"] is True
+        enqueue.assert_called_once()
+        assert enqueue.call_args.kwargs["placement"] is placement
 
 
 @pytest.mark.parametrize("scopes", [(), ("files.manage",), ("pod.act", "pod.act")])
@@ -143,6 +238,21 @@ async def test_schedule_recovers_outbox_and_claims_once_before_effect(scheduled_
     assert (
         await restarted.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
     )["id"] == created["id"]
+
+
+async def test_one_time_cancelled_outcome_is_terminal_on_redelivery(scheduled_tasks):
+    world = scheduled_tasks
+    grant = {"subject_id": "browser", "version": 1}
+    await world.runtime.create(schedule_request(), grant=grant)
+    delivery = world.delivery.offer.call_args.args[:3]
+    other = await world.runtime.create(schedule_request(request_id="another-request"), grant=grant)
+    world.clock[0] = 1101
+    world.capability.run.return_value = "cancelled"
+    for runtime in (world.runtime, world.build()):
+        result = await runtime.run(*delivery)
+        assert result["state"] == result["last_run"]["state"] == "cancelled"
+    world.capability.run.assert_awaited_once()
+    assert (await world.runtime.get(other["id"]))["state"] == "scheduled"
 
 
 @pytest.mark.asyncio
@@ -548,6 +658,46 @@ def test_schedule_delivery_is_model_independent_but_refuses_a_foreign_queue(monk
         delivery.require_ready()
 
 
+@pytest.mark.asyncio
+async def test_resident_schedule_delivery_executes_due_occurrence_and_rehydrates_from_sealed_log(
+    scheduled_tasks, monkeypatch
+):
+    from hushh_mcp.services.pod_scheduled_delivery import ResidentScheduledDelivery
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
+
+    monkeypatch.setenv("ACE_SANDBOX_ID", "sandbox-test-01")
+    monkeypatch.setenv("ACE_SANDBOX_REVISION", "rev-1")
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+
+    world = scheduled_tasks
+    world.clock[0] = 1000
+    delivery = ResidentScheduledDelivery(clock=lambda: world.clock[0])
+    runtime = ScheduledTasks(
+        access=ScheduleAccess("owner", "pod", "epoch", world.runtime.access.check),
+        log=world.log,
+        capabilities={"agent_files.organize_file.v1": world.capability},
+        delivery=delivery,
+        admission=world.runtime.admission,
+        check_grant=world.check_grant,
+        clock=lambda: world.clock[0],
+    )
+    delivery.bind_runner(runtime.run)
+
+    created = await runtime.create(
+        schedule_request(first_run_at=1001),
+        grant={"subject_id": "browser", "version": 1},
+    )
+    assert created["state"] == "scheduled"
+    world.clock[0] = 1001
+    for _ in range(200):
+        if (await runtime.get(created["id"]))["state"] == "completed":
+            break
+        await asyncio.sleep(0.01)
+    assert world.capability.run.await_count == 1
+    assert (await runtime.get(created["id"]))["state"] == "completed"
+
+
 async def test_active_schedule_renews_its_claim_without_extending_the_approved_deadline(
     scheduled_tasks, monkeypatch
 ):
@@ -666,3 +816,18 @@ async def test_schedule_authority_loss_cancels_work_before_releasing_update_admi
     assert (await world.build().run(*delivery[:3]))["state"] == "needs_review"
     world.capability.run.assert_awaited_once()
     world.permit.release.assert_awaited_once()
+
+
+async def test_control_cannot_advance_an_exact_time_capability(scheduled_tasks):
+    from hushh_mcp.services.pod_scheduled_mail import ScheduledMailFollowup
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    world = scheduled_tasks
+    world.capability.allow_run_now = ScheduledMailFollowup.allow_run_now
+    row = await world.runtime.create(
+        schedule_request(), grant={"subject_id": "browser", "version": 1}
+    )
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_RUN_NOW_REFUSED"):
+        await world.runtime.control(row["id"], row["revision"], "run_now", confirmed=True)
+    assert (await world.runtime.get(row["id"]))["next_run_at"] == 1100
+    world.capability.run.assert_not_awaited()
