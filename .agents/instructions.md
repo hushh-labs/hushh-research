@@ -170,7 +170,7 @@ These rules apply to parent sessions, subagents, verification workers and local 
    `main`), base/head revision, owning task/session, purpose, owned process IDs and
    ports, and completion or handoff condition. Avoid duplicating `node_modules` or
    `.venv` trees (including `node_modules` under `hushh-webapp`) when safe read-only
-   symlinks suffice, and run `python3 scripts/ops/worktree_hygiene.py --check`
+   symlinks suffice, and run `python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --check`
    before creating any worktree or heavy build (warn below 30 GB free, hard-stop
    below 15 GB free, no static concurrency cap on active parallel worktrees but
    mandatory immediate removal of every temporary worktree after use; see

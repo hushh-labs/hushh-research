@@ -4,7 +4,7 @@ push safety, local runtime terminals, deploy cadence, and UAT release gates.
 
 ## Branch Preservation And Active-Base Worktrees
 
-1. Run `python3 scripts/ops/worktree_hygiene.py --check` (warn < 30 GB free, hard-stop < 15 GB free, mandatory remove-after-use teardown, zero orphan stubs; see `docs/development/worktree-and-dependency-hygiene.md`) and record `git status --short --branch` and `git worktree list` before branch, CI, deploy, PR, or hotfix work.
+1. Run `python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --check` (warn < 30 GB free, hard-stop < 15 GB free, mandatory remove-after-use teardown, zero orphan stubs; see `docs/development/worktree-and-dependency-hygiene.md`) and record `git status --short --branch` and `git worktree list` before branch, CI, deploy, PR, or hotfix work.
 2. Keep the primary root workspace parked cleanly on the **active base branch** (`dev` for normal dev work, or `uat` when explicitly operating on UAT) and synced with `origin/<active-base>`. Never park dirty task experiments directly on the root checkout.
 3. Create an **ephemeral registered task worktree** from fresh `origin/<active-base>` (under `~/.local/share/hushh-task-worktrees/<task>`, registered in the task ownership register per `.agents/instructions.md`) for code/config edits, merges, or sync PRs. When continuing an active user-named feature branch or open PR worktree, keep working there instead of spawning redundant "phase N" branches.
 4. When a fix spans multiple kept branches (`main`, `uat`, `dev`), land to the upstream destination first and cherry-pick or merge cleanly downstream using registered task worktrees; do not invent long-lived aggregation branches.

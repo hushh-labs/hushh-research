@@ -11,7 +11,7 @@ Multi-agent sessions across repositories previously pushed developer workstation
 ## Mandatory Thresholds and Rules
 
 1. **Pre-Flight Disk and Worktree Gate:**
-   Run `python3 scripts/ops/worktree_hygiene.py --check` before creating a git worktree, installing dependencies, or starting heavy Next.js, Xcode/iOS, or container builds.
+   Run `python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --check` before creating a git worktree, installing dependencies, or starting heavy Next.js, Xcode/iOS, or container builds.
    - **Below 30 GB free (Warning):** Surface free disk space, active worktree count, and largest worktree footprints before proceeding.
    - **Below 15 GB free (Hard Stop):** Refuse to create new worktrees or duplicate `node_modules` under `hushh-webapp`; run `--audit` and reclaim safe bloat first.
 2. **Containment and Mandatory Remove-After-Use:**
@@ -31,14 +31,14 @@ Multi-agent sessions across repositories previously pushed developer workstation
 
 ```bash
 # Read-only audit of linked worktrees, duplicate node_modules, orphan stubs, and disk free space
-python3 scripts/ops/worktree_hygiene.py --audit
+python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --audit
 
 # Preflight gate (exits non-zero if free disk < 15 GB or orphan stubs exist; add --fail-on-unused to fail on unremoved clean worktrees)
-python3 scripts/ops/worktree_hygiene.py --check
+python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --check
 
 # Preview safe pruning (clean, remote-backed worktrees and orphan stubs only)
-python3 scripts/ops/worktree_hygiene.py --prune-safe
+python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --prune-safe
 
 # Execute verified safe pruning (never touches dirty or unpushed worktrees)
-python3 scripts/ops/worktree_hygiene.py --prune-safe --execute
+python3 .agents/skills/repo-operations/scripts/worktree_hygiene.py --prune-safe --execute
 ```
