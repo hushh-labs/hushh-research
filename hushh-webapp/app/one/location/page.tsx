@@ -10355,6 +10355,17 @@ export function OneLocationAgentPageContent({
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
         });
+        trackEvent("one_location_check_in_completed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(
+            succeededRecipientIds.length,
+            remainingRecipientIds.length || 1,
+          ),
+          selected_count: selected.length,
+          success_count: succeededRecipientIds.length,
+          failure_count: remainingRecipientIds.length || 1,
+          circle_targeted: Boolean(request.sourceCircleId),
+        });
         toast.error(
           error instanceof Error ? error.message : "Could not check in.",
         );

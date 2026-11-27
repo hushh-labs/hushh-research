@@ -304,6 +304,23 @@ async def test_receipt_tools_use_the_same_closed_contract_in_the_private_pod(cha
     assert state["hussh:user_id"] == "owner-a"
 
 
+async def test_private_chat_exposes_expanded_portfolio_read_for_the_verified_owner():
+    from hushh_mcp.one_adk.portfolio_context_contract import (
+        PORTFOLIO_CONTEXT_TOOL,
+        STATE_PORTFOLIO_CONTEXT_ENABLED,
+    )
+
+    turn = _turn(portfolioContextContract=1, portfolioContextExpanded=True)
+    state, _ = pod_agent_chat.trusted_state(turn, _owner())
+    assert state[STATE_PORTFOLIO_CONTEXT_ENABLED] == 2
+    assert (
+        "detail"
+        in next(tool for tool in turn.tools if tool.name == PORTFOLIO_CONTEXT_TOOL).parameters[
+            "required"
+        ]
+    )
+
+
 @pytest.mark.parametrize(
     "style", [{"preferred_name": "Synthetic name"}, {"scope": "all"}, {"preferred_name": "x" * 65}]
 )

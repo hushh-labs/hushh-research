@@ -3,6 +3,8 @@ import {
   GMAIL_CONNECT_STARTED_ACTIONS,
   GMAIL_SYNC_RESULT_ACTIONS,
   ONE_CALENDAR_ACTIONS,
+  ONE_CAREER_ACTIONS,
+  ONE_DOCUMENT_REQUEST_ACTIONS,
   ONE_KYC_ACTIONS,
   ONE_LOCATION_JOURNEY_ACTIONS,
   ONE_MEMORY_ACTIONS,
@@ -22,6 +24,8 @@ const actions = {
   one_memory_action: ONE_MEMORY_ACTIONS,
   one_wallet_action: ONE_WALLET_ACTIONS,
   one_calendar_action: ONE_CALENDAR_ACTIONS,
+  one_career_action: ONE_CAREER_ACTIONS,
+  one_document_request_action: ONE_DOCUMENT_REQUEST_ACTIONS,
   one_kyc_action: ONE_KYC_ACTIONS,
   one_location_journey_action: ONE_LOCATION_JOURNEY_ACTIONS,
   gmail_connect_started: GMAIL_CONNECT_STARTED_ACTIONS,
@@ -45,7 +49,7 @@ const resultOnlyEvents: ReadonlySet<ObservabilityEventName> = new Set([
   "one_location_check_out_completed", "one_location_sos_triggered",
   "one_location_request_sent", "one_location_public_link_created",
   "one_location_contact_signal_synced", "one_location_circle_invite_created",
-  "one_location_circle_created",
+  "one_location_circle_created", "one_location_visit_rated",
 ]);
 
 type FeatureDimensions = {

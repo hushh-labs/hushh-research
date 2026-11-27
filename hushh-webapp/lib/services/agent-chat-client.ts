@@ -3049,7 +3049,7 @@ async function streamAgentChatAttempt(input: {
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
         emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
-        ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT, portfolioContextExpanded: true } : {}),
         ...(sharedWikiSession ? { wikiClientReady: true } : {}),
         ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
         ...(accountContextEnabled ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
@@ -3086,7 +3086,7 @@ async function streamAgentChatAttempt(input: {
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
         timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
-        ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT, portfolioContextExpanded: true } : {}),
         ...(accountRead ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
       } });
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
