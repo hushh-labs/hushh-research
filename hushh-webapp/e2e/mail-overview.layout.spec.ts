@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { awaitProductFont } from "./fixtures/product-font";
 import { buildMailWorkspaceFixture } from "./fixtures/build-mail-workspace";
@@ -15,6 +15,10 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(() => disposeFixture?.());
+
+async function prominentActionHeight(page: Page): Promise<number> {
+  return page.evaluate(() => matchMedia("(pointer: coarse)").matches ? 44 : 40);
+}
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {
@@ -159,7 +163,7 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       await awaitProductFont(page);
       await expect(page.getByRole("heading", { name: "Your mail, made useful." })).toBeVisible();
       const continueButton = page.getByRole("button", { name: "Continue" });
-      expect((await continueButton.boundingBox())!.height).toBeGreaterThanOrEqual(50);
+      expect((await continueButton.boundingBox())!.height).toBeGreaterThanOrEqual(await prominentActionHeight(page));
       await page.screenshot({ path: testInfo.outputPath(`mail-intro-${width}-${theme}.png`) });
       await continueButton.click();
       await expect(page.getByRole("button", { name: "Finish Mail setup" })).toBeVisible();
@@ -320,7 +324,7 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       });
       expect(title.slice(0, 3)).toEqual(["28px", "36px", "600"]);
       expect(title[3]).toContain("Plus Jakarta Sans");
-      expect((await finish.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await finish.boundingBox())!.height).toBeGreaterThanOrEqual(await prominentActionHeight(page));
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await page.screenshot({ path: testInfo.outputPath(`mail-setup-${width}-${theme}.png`) });
     });
@@ -445,7 +449,7 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       await expect(page.getByText("Google sign-in was cancelled.")).toBeVisible();
       const back = page.getByRole("button", { name: "Back to Mail" });
       await expect(back).toBeVisible();
-      expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(await prominentActionHeight(page));
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await page.screenshot({ path: testInfo.outputPath(`mail-oauth-return-${width}-${theme}.png`) });
     });

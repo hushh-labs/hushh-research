@@ -6809,7 +6809,8 @@ final class AppUITests: XCTestCase {
                 marker: "native-route-home",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
-            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc"),
+            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc",
+                          allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]),
             reviewerRoute(
                 name: "one-location",
                 redirect: "/one/location",

@@ -1,5 +1,6 @@
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { receiptMoneyKind } from "./receipt-month-summary";
+import { parseReceiptDate } from "./receipt-date";
 
 export const DATE_FILTERS = [
   { value: "all", label: "All dates" },
@@ -90,7 +91,7 @@ function matchesType(row: RecentReceiptRow, type: TypeFilter): boolean {
 
 function matchesDate(row: RecentReceiptRow, date: DateFilter, now: Date): boolean {
   if (date === "all") return true;
-  const time = row.receiptDate ? new Date(row.receiptDate).getTime() : NaN;
+  const time = row.receiptDate ? parseReceiptDate(row.receiptDate).getTime() : NaN;
   if (Number.isNaN(time)) return false;
   const day = 86_400_000;
   const age = now.getTime() - time;

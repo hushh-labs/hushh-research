@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Capacitor } from "@capacitor/core";
+import * as privacy from "@/lib/capacitor/session-privacy";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
@@ -40,6 +41,7 @@ function deferredWrite() {
 const mocks = vi.hoisted(() => ({
   native: false,
   nativeFailed: false,
+  retireForWeb: vi.fn<() => Promise<boolean>>(),
   search: "",
   workspace: null as Parameters<typeof import("@/lib/capacitor/use-native-workspace").useNativeWorkspace>[0] | null,
   user: { uid: "todo-owner", getIdToken: vi.fn() },
@@ -69,7 +71,7 @@ vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
 }));
 vi.mock("@/lib/capacitor/use-native-workspace", () => ({
   useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return options?.active === false ? "web" : "native"; },
-  useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
+  useNativeWorkspacePresentation: () => ({ owner: {}, retireForWeb: mocks.retireForWeb, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(mocks.search) }));
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
@@ -139,6 +141,7 @@ describe("TodoListPage row actions", () => {
     vi.restoreAllMocks();
     mocks.native = false;
     mocks.nativeFailed = false;
+    mocks.retireForWeb.mockReset().mockResolvedValue(true);
     mocks.search = "";
     mocks.workspace = null;
     mocks.unlocked = true;
@@ -348,6 +351,28 @@ describe("TodoListPage row actions", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("keeps Task sources behind the native owner until retirement, then restores Tasks on close", async () => {
+    mocks.native = true;
+    vi.spyOn(privacy, "nativePrivacyObservation").mockReturnValue({
+      epoch: 1,
+      state: { appIsActive: true, shielded: false, generation: 1, cause: "restart" },
+    });
+    render(<TodoListPage />);
+    const sources = () => mocks.workspace?.content.sections.flatMap(section => section.rows)
+      .find(row => row.label === "Task sources" && row.enabled);
+    await waitFor(() => expect(sources()).toBeDefined());
+    const tapSources = () => act(async () => { await mocks.workspace!.actions.get(sources()!.id)!({} as never); });
+    mocks.retireForWeb.mockResolvedValueOnce(false);
+    await tapSources();
+    expect(screen.queryByRole("dialog", { name: "Task sources" })).toBeNull();
+    await tapSources();
+    const sheet = await screen.findByRole("dialog", { name: "Task sources" });
+    expect(mocks.workspace?.active).toBe(false);
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    await waitFor(() => expect(mocks.workspace?.active).toBe(true));
+    expect(screen.queryByRole("dialog", { name: "Task sources" })).toBeNull();
   });
 
   it("does not read private schedules for a conflicting native Firebase session", async () => {

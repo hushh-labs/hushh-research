@@ -36,6 +36,7 @@ import {
 } from "@/lib/mail/receipt-filters";
 import type { ReceiptInsight } from "@/lib/mail/receipt-insights";
 import { summarizeMonth } from "@/lib/mail/receipt-month-summary";
+import { calendarDatePattern, parseReceiptDate } from "@/lib/mail/receipt-date";
 import { InsightCard, InsightReviewSheet, InsightsSheet, useCancellationConfirmation, useNoticeInsights } from "./receipts/receipt-insights-ui";
 import { MonthHeader, ReceiptControls, ReceiptRowButton } from "./receipts/receipt-list-ui";
 import { useReceiptTracking } from "./receipts/receipt-tracking-context";
@@ -212,13 +213,13 @@ function ReceiptMerchantVisit({ homepageUrl }: { homepageUrl: string }) {
 }
 
 function receiptTimestamp(row: RecentReceiptRow): number {
-  const timestamp = row.receiptDate ? new Date(row.receiptDate).getTime() : NaN;
+  const timestamp = row.receiptDate ? parseReceiptDate(row.receiptDate).getTime() : NaN;
   return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
 }
 
 function formatReceiptRowDate(value: string | null): string | null {
   if (!value) return null;
-  const date = new Date(value);
+  const date = parseReceiptDate(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat(undefined, {
     day: "numeric",
@@ -242,25 +243,19 @@ function groupReceiptRowsByMonth(
   rows: readonly RecentReceiptRow[],
 ): ReceiptMonthGroup[] {
   const groups = new Map<string, ReceiptMonthGroup>();
+  const monthFormat = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
 
   for (const row of rows) {
-    const date = row.receiptDate ? new Date(row.receiptDate) : null;
+    const date = row.receiptDate ? parseReceiptDate(row.receiptDate) : null;
     const validDate = date && !Number.isNaN(date.getTime()) ? date : null;
     const key = validDate
       ? `${validDate.getFullYear()}-${String(validDate.getMonth() + 1).padStart(2, "0")}`
       : "date-unavailable";
-    const label = validDate
-      ? new Intl.DateTimeFormat(undefined, {
-          month: "long",
-          year: "numeric",
-        })
-          .format(validDate)
-      : "Date unavailable";
     const existing = groups.get(key);
     if (existing) {
       existing.rows.push(row);
     } else {
-      groups.set(key, { key, label, rows: [row] });
+      groups.set(key, { key, label: validDate ? monthFormat.format(validDate) : "Date unavailable", rows: [row] });
     }
   }
 
@@ -374,13 +369,7 @@ export function GmailRecentReceipts({
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [reviewing, setReviewing] = useState<ReceiptInsight | null>(null);
   const monthSummaries = useMemo(() => {
-    const byMonth = new Map<string, RecentReceiptRow[]>();
-    for (const row of filteredRows) {
-      const at = row.receiptDate ? new Date(row.receiptDate) : null;
-      const key = at && !Number.isNaN(at.getTime()) ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}` : "date-unavailable";
-      byMonth.set(key, [...(byMonth.get(key) ?? []), row]);
-    }
-    return new Map([...byMonth].map(([key, monthRows]) => [key, summarizeMonth(monthRows)]));
+    return new Map(groupReceiptRowsByMonth(filteredRows).map(({ key, rows }) => [key, summarizeMonth(rows)]));
   }, [filteredRows]);
   const openReceipt = useCallback((receiptKey: string) => {
     const row = rows.find((item) => item.sourceReceiptKeys.includes(sourceKeyAliases?.[receiptKey] ?? receiptKey));
@@ -864,11 +853,11 @@ function ReceiptDetailRow({
 function formatReceiptDate(value: string | null | undefined): string | null {
   const normalizedValue = String(value || "").trim();
   if (!normalizedValue) return null;
-  const date = new Date(normalizedValue);
+  const date = parseReceiptDate(normalizedValue);
   if (Number.isNaN(date.getTime())) return null;
 
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
-    timeStyle: "short",
+    timeStyle: calendarDatePattern.test(normalizedValue) ? undefined : "short",
   }).format(date);
 }

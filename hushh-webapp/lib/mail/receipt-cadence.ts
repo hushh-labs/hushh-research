@@ -1,5 +1,6 @@
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { receiptMoneyKind } from "./receipt-month-summary";
+import { parseReceiptDate } from "./receipt-date";
 import { toMinor } from "./receipt-money";
 
 export type Cadence = "weekly" | "monthly" | "quarterly" | "yearly";
@@ -30,7 +31,7 @@ export function merchantSeries(rows: readonly RecentReceiptRow[]): MerchantSerie
   const groups = new Map<string, MerchantSeries>();
   for (const row of rows) {
     if (row.archived || receiptMoneyKind(row) !== "payment" || !row.receiptDate) continue;
-    const at = new Date(row.receiptDate);
+    const at = parseReceiptDate(row.receiptDate);
     const minor = toMinor(row.amount, row.currency);
     if (Number.isNaN(at.getTime()) || minor === null || !row.currency) continue;
     const currency = row.currency.trim().toUpperCase();
