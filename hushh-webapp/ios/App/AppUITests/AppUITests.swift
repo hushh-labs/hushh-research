@@ -3711,15 +3711,48 @@ final class AppUITests: XCTestCase {
         app.activate()
         defer { perfTapNav(app, label: "Chat") }
         perfTapNav(app, label: "Connect")
+        assertNativeWorkspaceTabs(app, labels: ["Circles", "Circles", "Connections"])
+    }
+
+    func testLocalSessionNativeConsentTabRoundTrip() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires the unlocked experimental interface on Consent.")
+        }
+        let app = XCUIApplication()
+        app.activate()
+        assertNativeWorkspaceTabs(app, labels: ["Active", "History", "Connections", "Requests"])
+    }
+
+    private func assertNativeWorkspaceTabs(_ app: XCUIApplication, labels: [String]) {
         let strips = app.segmentedControls.matching(identifier: "native-workspace-tabs")
-        for label in ["Circles", "Circles", "Connections"] {
+        for label in labels {
             let choice = strips.firstMatch.buttons[label].firstMatch
-            guard waitForAdmittedControl(choice) else { return XCTFail("Connect option unavailable: \(label)") }
+            guard waitForAdmittedControl(choice) else { return XCTFail("Workspace option unavailable: \(label)") }
             choice.tap()
             let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: choice)
             XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
             XCTAssertEqual(strips.count, 1)
         }
+    }
+
+    func testLocalSessionNativeCareerUploadStageCancels() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires the unlocked experimental interface on Career.")
+        }
+        let app = XCUIApplication()
+        app.activate()
+        let upload = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label IN %@", "native-workspace-row-", ["Upload", "Replace"]
+        )).firstMatch
+        guard waitForAdmittedControl(upload) else { return XCTFail("Career upload action unavailable") }
+        upload.tap()
+        let web = app.webViews.firstMatch
+        let cancel = web.buttons["Cancel"].firstMatch
+        guard waitForAdmittedControl(cancel), web.buttons["Choose file"].exists else {
+            return XCTFail("Career upload stage did not present its file choice and Cancel")
+        }
+        cancel.tap()
+        XCTAssertTrue(waitForAdmittedControl(upload), "Cancel did not restore native Career")
     }
 
     func testLocalSessionLocationScopeCancelReturnsToSettings() throws {
