@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 import time
@@ -13,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from api.utils.firebase_auth import current_auth_lane
-from hushh_mcp.services import metrics_adoption
+from hushh_mcp.services import metrics_adoption, metrics_feature_observations
 
 router = APIRouter(prefix="/api/one/metrics", tags=["Metrics aggregate"])
 NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
@@ -42,14 +43,6 @@ async def adoption(request: Request):
     secret = os.environ.get(secret_name, "")
     if os.environ.get(enabled) != "true" or not 32 <= len(secret.encode()) <= 256:
         raise HTTPException(404, "Metrics aggregate unavailable", headers=NO_STORE)
-    try:
-        binding = (
-            metrics_adoption.approved_binding(environment)
-            if environment == "uat"
-            else metrics_adoption.approved_binding()
-        )
-    except metrics_adoption.AggregateUnavailable:
-        raise HTTPException(503, "Metrics aggregate unavailable", headers=NO_STORE) from None
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
@@ -72,12 +65,27 @@ async def adoption(request: Request):
     ):
         raise HTTPException(401, "Invalid aggregate signature", headers=NO_STORE)
     try:
-        payload = metrics_adoption.AdoptionRequest.model_validate_json(body)
-        result = (
-            await metrics_adoption.bounded_adoption_aggregate(payload, binding, environment="uat")
-            if environment == "uat"
-            else await metrics_adoption.bounded_adoption_aggregate(payload, binding)
-        )
+        raw = json.loads(body)
+        if isinstance(raw, dict) and raw.get("reportKind") == "feature_observations":
+            payload = metrics_feature_observations.FeatureObservationRequest.model_validate(raw)
+            binding = metrics_feature_observations.approved_binding(environment)
+            result = await metrics_feature_observations.bounded_aggregate(
+                payload, binding, environment=environment
+            )
+        else:
+            payload = metrics_adoption.AdoptionRequest.model_validate(raw)
+            binding = (
+                metrics_adoption.approved_binding(environment)
+                if environment == "uat"
+                else metrics_adoption.approved_binding()
+            )
+            result = (
+                await metrics_adoption.bounded_adoption_aggregate(
+                    payload, binding, environment="uat"
+                )
+                if environment == "uat"
+                else await metrics_adoption.bounded_adoption_aggregate(payload, binding)
+            )
     except (ValueError, ValidationError):
         raise HTTPException(400, "Invalid aggregate request", headers=NO_STORE) from None
     except Exception:
