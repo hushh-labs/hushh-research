@@ -19,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useTransition,
   useMemo,
   useReducer,
   useRef,
@@ -227,6 +228,7 @@ import {
 import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
+import { chatStructuredExperienceItems, latestMailQuickActionId } from "@/lib/agent/structured-experience-order";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import { isPuppyLiveOnBuild } from "@/lib/one/owner-cloud";
 import {
@@ -1338,6 +1340,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // operation is requested while the vault is locked.
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [emailDraftOpen, setEmailDraftOpen] = useState(false);
+  const [openingOnboardingRoute, startOnboardingNavigation] = useTransition();
+  const onboardingRouteLaunching = useRef(false);
+  useLayoutEffect(() => {
+    if (!openingOnboardingRoute) onboardingRouteLaunching.current = false;
+  }, [openingOnboardingRoute]);
+  const [settledLocationReview, setSettledLocationReview] = useState<string | null>(null);
+  const markLocationReviewFinished = useCallback((proposalId: string, finished: boolean) => {
+    setSettledLocationReview((current) => finished ? proposalId : current === proposalId ? null : current);
+  }, []);
   const [isEmailDrafting, setIsEmailDrafting] = useState(false);
   const [emailDraftInstruction, setEmailDraftInstruction] = useState("");
   const [emailDraftAutoDraft, setEmailDraftAutoDraft] = useState(false);
@@ -1439,6 +1450,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [goalPlanReview, setGoalPlanReview] = useState<{
     proposal: GoalPlanInput; assistantId: string; ownerId: string; epoch: number;
   } | null>(null);
+  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
+  const [scheduleEditorOpen, setScheduleEditorOpen] = useState(false);
+  const [settledGoalReview, setSettledGoalReview] = useState<typeof goalPlanReview>(null);
+  const [settledScheduleReview, setSettledScheduleReview] = useState<typeof fileScheduleReview>(null);
   const planningCredentials = useMemo(() => applicationOwnerId && isVaultUnlocked && vaultKey && vaultOwnerToken
     ? { userId: applicationOwnerId, vaultKey, vaultOwnerToken } : null,
   [applicationOwnerId, isVaultUnlocked, vaultKey, vaultOwnerToken]);
@@ -9670,7 +9685,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
   const visibleMessages = dedupeAdjacentAgentMessages(
     messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? redactReceiptAnswer(message) : message).filter((message) => {
-      if (message.id === "agent-greeting") return false;
+      if (message.id === "agent-greeting" || (
+        message.role === "user" && !message.attachments?.length && isSilentConnectorContinuationPrompt(message.text)
+      )) return false;
       if (
         message.role === "assistant" &&
         message.status === "done" &&
@@ -9709,14 +9726,91 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ? locationReviewActionForLegacyDirective(pendingSpecialistDirective) : null;
   const latestLocationProposalMessageId = visibleMessages.findLast((message) => message.locationChatProposal)?.id;
   const latestLocationAnswer = visibleMessages.findLast(message => message.role === "assistant");
+  const latestVisibleMessage = visibleMessages.at(-1);
+  const latestItems = latestVisibleMessage ? chatStructuredExperienceItems(latestVisibleMessage) : [];
+  const showGoalReview = areGoalsAvailable() && goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+                goalPlanReview.ownerId === planningCredentials.userId && goalPlanReview.epoch === vaultSessionEpoch &&
+                messages.some(message => message.role === "assistant" && message.id === goalPlanReview.assistantId);
+  const showScheduleReview = areScheduledTasksAvailable() && fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+                fileScheduleReview.ownerId === planningCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
+                messages.some(message => message.id === fileScheduleReview.assistantId);
+  const activeLocationProposal = locationChatReviewEnabled
+    ? visibleMessages.findLast(message => message.id === latestLocationProposalMessageId &&
+        (!message.restoredFromHistory || locationSetupReturn?.outcome === "completed" &&
+          locationSetupReturn.proposal.id === message.locationChatProposal?.id))
+    : undefined;
+  const locationNeedsReview = Boolean(activeLocationProposal?.locationChatProposal &&
+    !activeLocationProposal.receiptRedacted &&
+    activeLocationProposal.locationChatProposal.id !== settledLocationReview &&
+    !(locationSetupReturn?.outcome === "cancelled" &&
+      locationSetupReturn.proposal.id === activeLocationProposal.locationChatProposal.id));
+  const pendingReview = showGoalReview && goalEditorOpen ? "goal"
+    : showScheduleReview && scheduleEditorOpen ? "schedule"
+    : pendingMcpReviews.length ? "mcp"
+    : emailDraftOpen ? "email"
+    : pendingSpecialistDirective ? "specialist"
+    : pendingAppAction && !pendingAppActionDuplicatesAskCard ? "app"
+    : locationNeedsReview ? "location"
+    : showGoalReview && settledGoalReview !== goalPlanReview ? "goal"
+    : showScheduleReview && settledScheduleReview !== fileScheduleReview ? "schedule"
+    : null;
+  const hasSpecificReply = Boolean(
+    latestItems.some(({ experience }) => {
+      switch (experience.type) {
+        case "one.person_selection.v1":
+          return experience.candidates.length > 0;
+        case "one.connector_read.v1":
+          return experience.status === "connect_required" || experience.status === "reconnect_required" || experience.status === "permission_denied";
+        case "one.information_request_review.v1":
+          return experience.phase === "draft" && experience.status === "awaiting_review";
+        case "one.workspace_connector_setup.v1":
+        case "one.turn_location_permission.v1":
+        case "one.scope_discovery.v1":
+        case "one.document_request_review.v1":
+        case "one.drive_share_review.v1":
+        case "one.drive_bulk_share_review.v1":
+        case "one.finance_stock_preview.v1":
+          return true;
+        default:
+          return false;
+      }
+    })
+  );
+  // An answer with its own next step owns the prompt space before generic suggestions.
+  const responseControls = pendingReview || hasSpecificReply || activeActionRun?.phase === "awaiting_confirmation" ? "request"
+    : !chatOnboarding.resolved && chatOnboarding.turns.length ? "onboarding"
+    : latestVisibleMessage?.role === "assistant" && latestVisibleMessage.status === "done"
+      ? hasChatAccess && latestMailQuickActionId(latestItems) ? "mail" : "follow-ups"
+      : !hasStartedConversation ? chatOnboarding.dailyTip ? "tip" : "starters"
+      : null;
+  const responseScope = useMemo(
+    () => ({ owner: applicationOwnerId, conversationId, vaultSessionEpoch, responseControls, messageId: latestVisibleMessage?.id }),
+    [applicationOwnerId, conversationId, vaultSessionEpoch, responseControls, latestVisibleMessage?.id],
+  );
+  const latestResponseScope = useRef(responseScope);
+  latestResponseScope.current = responseScope;
+  const submittingResponseScope = useRef<typeof responseScope | null>(null);
+
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns
-      controller={chatOnboarding}
+      controller={{
+        ...chatOnboarding,
+        activeControlTurnId: responseControls === "onboarding" ? chatOnboarding.activeControlTurnId : null,
+        busy: chatOnboarding.busy || openingOnboardingRoute || responseActionBusy,
+        isActiveTurn: (turn) => latestResponseScope.current === responseScope &&
+          responseControls === "onboarding" && !onboardingRouteLaunching.current && !calendarChatRecoveryBusy.current &&
+          !responseActionBusy && chatOnboarding.isActiveTurn(turn),
+        onChip: (turn, chipId) => {
+          if (latestResponseScope.current === responseScope && responseControls === "onboarding" &&
+            !onboardingRouteLaunching.current && !calendarChatRecoveryBusy.current && !responseActionBusy)
+            chatOnboarding.onChip(turn, chipId);
+        },
+      }}
       slot={slot}
       onCompletionShown={revealOnboardingStarters}
-      completion={!hasStartedConversation && !voiceActive && !isPuppySurface && hasChatAccess && isVaultUnlocked ? (
+      completion={responseControls === "starters" && !voiceActive && !isPuppySurface && hasChatAccess && isVaultUnlocked ? (
         <AgentPromptSuggestions prompts={welcomePrompts}
-          disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+          disabled={recoveryInspectionPending || isVoiceConnecting || responseActionBusy}
           onPromptSelect={handleWelcomePromptSelect} />
       ) : undefined}
       gmailConnected={Boolean(onboardingGmail.status?.connected &&
@@ -9729,11 +9823,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <AgentBubble message={message} />
         </>
       )}
-      onConnect={(action, trigger) =>
-        action.kind === "connector"
-          ? openConnectorSurface(action.provider, trigger)
-          : router.push(action.href)
-      }
+      onConnect={(action, trigger) => {
+        if (action.kind === "connector") {
+          openConnectorSurface(action.provider, trigger);
+          return;
+        }
+        onboardingRouteLaunching.current = true;
+        startOnboardingNavigation(() => router.push(action.href));
+      }}
     />
   );
   const trailingSpecialistLoadingMessages = pendingSpecialistDirective
@@ -10125,7 +10222,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
   }, [applicationOwnerId, hasChatAccess]);
   const submitSuggestedPrompt = (prompt: string) => {
-    if (!prompt.trim() || recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming) return;
+    if (latestResponseScope.current !== responseScope || submittingResponseScope.current === responseScope ||
+      !prompt.trim() || recoveryInspectionPending || isVoiceConnecting || voiceActive || responseActionBusy) return;
+    submittingResponseScope.current = responseScope;
     transcriptUserScrollRef.current = false;
     scrollToSubmittedTurnRef.current = true;
     setInput("");
@@ -10141,6 +10240,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onRefused: () => {
         setInput((current) => current || prompt);
       },
+    }).then((accepted) => {
+      if (!accepted && submittingResponseScope.current === responseScope) submittingResponseScope.current = null;
+    }, () => {
+      if (submittingResponseScope.current === responseScope) submittingResponseScope.current = null;
     });
   };
   const handleWelcomePromptSelect = submitSuggestedPrompt;
@@ -10619,6 +10722,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     </>
   );
 
+  const renderChatWelcome = (briefPrompt: string | null) => (
+    <AgentWelcomePanel
+      name={displayName}
+      prompts={responseControls === "starters"
+        ? briefPrompt && !welcomePrompts.includes(briefPrompt) ? [...welcomePrompts, briefPrompt] : welcomePrompts
+        : []}
+      disabled={recoveryInspectionPending || isVoiceConnecting || responseActionBusy}
+      onPromptSelect={handleWelcomePromptSelect}
+    />
+  );
+
   const renderDriveMemoryReview = (message: AgentMessage) => {
     const experiences = [...(message.structuredExperiences || []).map(item => item.experience),
       ...(message.structuredExperience ? [message.structuredExperience] : [])];
@@ -10667,9 +10781,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-one-chat-surface
     >
       {transitionDialog}
-      <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
-        ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
-        : null}>
       <CustomConnectorChatContext.Provider value={customConnectorChat}>
       <AgentConnectorContinuationContext.Provider
         value={hasChatAccess && !isStreaming
@@ -11181,17 +11292,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : !hasStartedConversation && !voiceActive ? (
                 !(hasChatAccess && isVaultUnlocked && !historyReadyForSlot && !slotHistoryFailed) ? (
                   <>
-                    <AgentWelcomePanel
-                      name={displayName}
-                      prompts={welcomePrompts}
-                      disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
-                      onPromptSelect={handleWelcomePromptSelect}
-                    />
-                    {!isPuppySurface ? <MailAttentionStack onAskOne={handleWelcomePromptSelect}
-                      briefDisabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
-                      onEmpty={() => composerTextareaRef.current?.focus()}
-                      onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} /> : null}
-                    {chatOnboarding.dailyTip ? (
+                    {isPuppySurface ? renderChatWelcome(null) : (
+                      <MailAttentionStack renderWelcome={renderChatWelcome}
+                        onEmpty={() => composerTextareaRef.current?.focus()}
+                        onOpenItem={(item) => router.push(buildGmailWorkspaceRoute(item.source === "receipt" ? "receipts" : "kyc"))} />
+                    )}
+                    {responseControls === "tip" && chatOnboarding.dailyTip ? (
                       <ChatOnboardingDailyTip
                         tip={chatOnboarding.dailyTip}
                         onUse={handlePromptDraftSelect}
@@ -11228,13 +11334,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   message.locationComposerProposal && !message.restoredFromHistory &&
                   liveLocationOrigin.current?.id === message.locationChatProposal?.id && liveLocationOrigin.current?.current();
                 const liveLocationConversation = (locationConversation || resumedLocation) && (freshLocation || resumedLocation);
-                if (
-                  message.role === "user" &&
-                  !message.attachments?.length &&
-                  isSilentConnectorContinuationPrompt(message.text)
-                ) {
-                  return null;
-                }
                 return (
                 <Fragment key={message.id}>
                   {renderChatOnboarding({ kind: "before", messageId: message.id, visibleMessageIds })}
@@ -11257,6 +11356,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <LocationChatConversationText message={message} text={message.locationChatText || (message.restoredFromHistory
                       ? message.text || "This Location request was proposed in an earlier turn." : "Checking Location…")} />
                   ) : (
+                    <AgentPersonSelectionContext.Provider value={hasChatAccess && !responseActionBusy &&
+                      !pendingReview && message.id === latestVisibleMessage?.id &&
+                      responseControls === "request"
+                      ? (handle, name, sourceTool) => {
+                          if (latestResponseScope.current === responseScope)
+                            enqueuePrompt(personSelectionPrompt(sourceTool, name), handle);
+                        }
+                      : null}>
                     <AgentBubble
                       message={message}
                       pendingPhase={
@@ -11361,9 +11468,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         ? () => void downloadCompiledDriveNotes(message.id)
                         : undefined}
                       onMailQuickAction={
-                        hasChatAccess &&
-                        message.status === "done" &&
-                        message.id === visibleMessages.at(-1)?.id &&
+                        responseControls === "mail" &&
+                        message.id === latestVisibleMessage?.id &&
                         !responseActionBusy &&
                         !recoveryInspectionPending &&
                         !isVoiceConnecting &&
@@ -11656,6 +11762,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }
                       }}
                     />
+                    </AgentPersonSelectionContext.Provider>
                   )}
                   {(
                     emailDeliveryTimeline.itemsAfterMessage.get(message.id) ??
@@ -11678,7 +11785,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ))}
                   <AgentFollowUpSuggestions
                     suggestions={visibleFollowUps(
-                      message, visibleMessages.at(-1)?.id, isChatLoading || isStreaming,
+                      message, responseControls === "follow-ups" ? latestVisibleMessage?.id : undefined, responseActionBusy,
                     )}
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
@@ -11698,6 +11805,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       proposal={resumedLocation ? returnedLocation.proposal : message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
                       allowReview={message.id === latestLocationProposalMessageId && (!locationConversation || Boolean(liveLocationConversation))}
+                      paused={locationNeedsReview && message.id === activeLocationProposal?.id && pendingReview !== "location"}
+                      onReviewFinished={markLocationReviewFinished}
                       sendHost={liveLocationConversation && latestLocationAnswer &&
                         (latestLocationAnswer.locationReplyFor ?? latestLocationAnswer.locationChatProposal?.id) === message.locationChatProposal.id
                         ? locationSendHost : null}
@@ -11712,11 +11821,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       onConversationText={locationConversation || resumedLocation ? writeLocationConversationText : undefined}
                     />
                   ) : null}
-                  {calendarConnectDirective && message.id === calendarConnectAnchorId
+                  {pendingReview === "specialist" && calendarConnectDirective && message.id === calendarConnectAnchorId
                     ? renderCalendarConnectCard(calendarConnectDirective)
                     : null}
-                  {message.id === emailDraftAnchorMessageId
-                    ? renderEmailDraftCard()
+                  {message.id === emailDraftAnchorMessageId && emailDraftIsAnchored
+                    ? <div hidden={pendingReview !== "email"}>{renderEmailDraftCard()}</div>
                     : null}
                 </Fragment>
                 );
@@ -11850,8 +11959,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
+                <div key={review.reference.directiveId} hidden={pendingReview !== "mcp"}>
                 <McpCallReviewCard
-                  key={review.reference.directiveId}
                   review={review}
                   vaultOwnerToken={vaultOwnerToken || ""}
                   onActivityOutcome={(outcome) => {
@@ -11878,9 +11987,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     else ids.delete(review.reference.directiveId);
                   }}
                 />
+                </div>
               ))}
 
-              {pendingAppAction && !pendingAppActionDuplicatesAskCard ? (
+              {pendingReview === "app" && pendingAppAction ? (
                 <SpecialistDirectiveCard
                   summary={
                     pendingAppAction.event.message ||
@@ -11913,20 +12023,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {areGoalsAvailable() && goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
-                goalPlanReview.ownerId === planningCredentials.userId && goalPlanReview.epoch === vaultSessionEpoch &&
-                messages.some(message => message.role === "assistant" && message.id === goalPlanReview.assistantId) ? (
+              {showGoalReview && goalPlanReview && planningCredentials ? (
                   <ChatGoalPlanCard key={goalPlanReview.assistantId} proposal={goalPlanReview.proposal}
+                    hidden={pendingReview !== "goal"} onSettled={() => setSettledGoalReview(goalPlanReview)}
+                    onEditorOpenChange={setGoalEditorOpen}
                     credentials={planningCredentials} onDismiss={() => setGoalPlanReview(null)} />
                 ) : null}
 
-              {areScheduledTasksAvailable() && fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
-                fileScheduleReview.ownerId === planningCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
-                messages.some(message => message.id === fileScheduleReview.assistantId) ? (
+              {showScheduleReview && fileScheduleReview && planningCredentials ? (
                   <ChatFileScheduleCard key={fileScheduleReview.assistantId} proposal={fileScheduleReview.proposal}
+                    hidden={pendingReview !== "schedule"} onSettled={() => setSettledScheduleReview(fileScheduleReview)}
+                    onEditorOpenChange={setScheduleEditorOpen}
                     credentials={planningCredentials} onDismiss={() => setFileScheduleReview(null)} />
                 ) : null}
-              {pendingSpecialistDirective && !calendarConnectDirective ? (
+              {pendingReview === "specialist" && pendingSpecialistDirective && !calendarConnectDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
                   <SpecialistConsentRequiredCard
                     agentId={
@@ -12737,7 +12847,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Fragment>
               ))}
               {!emailDraftIsAnchored ? renderMailReturn() : null}
-              {!emailDraftIsAnchored ? renderEmailDraftCard() : null}
+              {!emailDraftIsAnchored && emailDraftOpen ? (
+                <div hidden={pendingReview !== "email"}>{renderEmailDraftCard()}</div>
+              ) : null}
+              {pendingReview === "specialist" && calendarConnectDirective &&
+                (!calendarConnectAnchorId || !visibleMessageIds.includes(calendarConnectAnchorId))
+                ? renderCalendarConnectCard(calendarConnectDirective) : null}
               {emailDeliveryTimeline.trailingItems.map((item) => (
                 <EmailDeliveryHistoryCard
                   key={item.id}
@@ -13026,7 +13141,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       </AgentConsentContinuationContext.Provider>
       </AgentConnectorContinuationContext.Provider>
       </CustomConnectorChatContext.Provider>
-      </AgentPersonSelectionContext.Provider>
     </div>
   );
 }

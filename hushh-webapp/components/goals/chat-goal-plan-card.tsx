@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,12 +14,19 @@ import type { TodoWriteParams } from "@/lib/services/todo-list-pkm-service";
 import type { TodoItem } from "@/lib/todos/todo-list-model";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
-export function ChatGoalPlanCard({ proposal, credentials, onDismiss }: {
+export function ChatGoalPlanCard({ proposal, credentials, onDismiss, onSettled, onEditorOpenChange, hidden }: {
   proposal: GoalPlanInput;
   credentials: TodoWriteParams;
   onDismiss: () => void;
+  onSettled?: () => void;
+  onEditorOpenChange?: (open: boolean) => void;
+  hidden?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  useLayoutEffect(() => {
+    onEditorOpenChange?.(open);
+    return () => onEditorOpenChange?.(false);
+  }, [onEditorOpenChange, open]);
   const [saved, setSaved] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -79,6 +86,7 @@ export function ChatGoalPlanCard({ proposal, credentials, onDismiss }: {
       if (!result.success) throw new Error("GOAL_SAVE_UNCONFIRMED");
       setOpen(false);
       setSaved(true);
+      onSettled?.();
       setTasks(null);
     } catch {
       if (current()) setError("Couldn’t confirm the save. Check your plan and try again.");
@@ -89,6 +97,7 @@ export function ChatGoalPlanCard({ proposal, credentials, onDismiss }: {
   }
 
   return (
+    <div hidden={hidden && !saved}>
     <SurfaceCard className="my-3 space-y-3 p-4" aria-label="Goal proposal">
       <h3 className="font-medium">{saved ? "Goal saved" : "Review your goal"}</h3>
       {!saved ? <p className="break-words text-sm text-muted-foreground">{proposal.title}</p> : null}
@@ -123,5 +132,6 @@ export function ChatGoalPlanCard({ proposal, credentials, onDismiss }: {
         </DialogContent>
       </Dialog>
     </SurfaceCard>
+    </div>
   );
 }

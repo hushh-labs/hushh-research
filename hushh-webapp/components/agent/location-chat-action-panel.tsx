@@ -151,6 +151,8 @@ type PanelProps = {
   vaultKey?: string | null;
   onUnlock: () => void;
   allowReview: boolean;
+  paused?: boolean;
+  onReviewFinished?: (proposalId: string, finished: boolean) => void;
   onContinuationChange?: (proposalId: string, context: MainLocationContinuation | null) => void;
   claimEnable?: (proposalId: string) => boolean;
   claimDirectShare?: (proposal: MainLocationProposal) => DirectLocationShare | null;
@@ -163,10 +165,12 @@ type PanelProps = {
 };
 
 export function LocationChatActionPanel(props: PanelProps) {
-  const { onConversationText, onConversationReply, onNearbyReady, ownerId, token, proposal } = props;
+  const { onConversationText, onConversationReply, onNearbyReady, onReviewFinished, ownerId, token, proposal } = props;
   const publish = useCallback((text: string) => onConversationText?.(proposal.id, text), [onConversationText, proposal.id]);
   const register = useCallback((handler: LocationConversationReply | null) => onConversationReply?.(proposal.id, handler), [onConversationReply, proposal.id]);
-  const childConversation = onConversationText && props.allowReview ? { onConversationText: publish, onConversationReply: register } : {};
+  const reportSafetyFinished = useCallback((finished: boolean) => onReviewFinished?.(proposal.id, finished),
+    [onReviewFinished, proposal.id]);
+  const childConversation = onConversationText && props.allowReview && !props.paused ? { onConversationText: publish, onConversationReply: register } : {};
   const node = useRef<HTMLDivElement>(null);
   const [activated, setActivated] = useState(props.allowReview);
   const [nearViewport, setNearViewport] = useState(props.allowReview);
@@ -190,7 +194,7 @@ export function LocationChatActionPanel(props: PanelProps) {
   const [checkedSetup, setCheckedSetup] = useState<{ proposal: MainLocationProposal; settings: Awaited<ReturnType<typeof getLocationAccountSettings>>; observedAt: number } | null>(null);
   const [setupError, setSetupError] = useState("");
   useEffect(() => {
-    if (!firstUse || !token || !ownerId) return;
+    if (!firstUse || props.paused || !token || !ownerId) return;
     let active = true;
     void getLocationAccountSettings(token).then(async settings => {
       if (!active) return;
@@ -202,14 +206,14 @@ export function LocationChatActionPanel(props: PanelProps) {
       setCheckedSetup({ proposal, settings, observedAt: Date.now() });
     }).catch(() => { if (active) setSetupError("I couldn’t check your Location setup. Please send your request again."); });
     return () => { active = false; };
-  }, [action, firstUse, proposal, ownerId, token, onNearbyReady]);
+  }, [action, firstUse, props.paused, proposal, ownerId, token, onNearbyReady]);
   useEffect(() => { if (setupError) onConversationText?.(proposal.id, setupError); }, [onConversationText, proposal.id, setupError]);
   if (firstUse && props.token && checkedSetup?.proposal !== proposal)
-    return <div ref={node}>{!onConversationText && setupError ? <p role="status">{setupError}</p> : null}</div>;
+    return <div ref={node} hidden={props.paused}>{!onConversationText && setupError ? <p role="status">{setupError}</p> : null}</div>;
   const safety = action === "sos_review" || action === "sos_stop" || action === "sms_contacts";
-  return <div ref={node}>{activated ? safety
+  return <div ref={node} hidden={props.paused}>{activated ? safety
     ? props.ownerId && props.token
-      ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} sendHost={props.sendHost} {...childConversation} />
+      ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} sendHost={props.sendHost} hidden={props.paused} onFinished={reportSafetyFinished} {...childConversation} />
       : props.allowReview ? <UnlockLocationCard onUnlock={props.onUnlock} /> : null
     : <LocationChatActionContent {...props} firstObservation={firstUse ? checkedSetup : null} nearViewport={nearViewport} childConversation={childConversation} /> : null}</div>;
 }
@@ -222,7 +226,7 @@ function UnlockLocationCard({ onUnlock }: { onUnlock: () => void }) {
   }} onRecover={onUnlock} />;
 }
 
-function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKey, onUnlock, allowReview, onContinuationChange, claimEnable, claimDirectShare, onFirstUse, onOpenLocation, afterSetup, onConversationReply, onConversationText, nearViewport, childConversation, firstObservation }: PanelProps & {
+function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposal, ownerId, token, vaultKey, onUnlock, allowReview, onContinuationChange, claimEnable, claimDirectShare, onFirstUse, onOpenLocation, afterSetup, onConversationReply, onConversationText, nearViewport, childConversation, firstObservation }: PanelProps & {
   firstObservation: { settings: Awaited<ReturnType<typeof getLocationAccountSettings>>; observedAt: number } | null;
   nearViewport: boolean;
   childConversation: { onConversationText?: (text: string) => void; onConversationReply?: (handle: LocationConversationReply | null) => void };
@@ -247,6 +251,9 @@ function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKe
   const [settled, setSettled] = useState<MainLocationPlan[]>([]);
   const [retryRevision, setRetryRevision] = useState(0);
   const [stage, setStage] = useState<"loading" | "choose" | "terms" | "review" | "settled" | "cancelled" | "error" | "sharing-off" | "setup-offer" | "setup" | "device-paused" | "device-permission" | "share-menu" | "private-picker" | "public-share" | "workspace" | "links" | "check-in" | "self-location">("loading");
+  useEffect(() => {
+    if (allowReview) onReviewFinished?.(proposal.id, stage === "settled" || stage === "cancelled");
+  }, [allowReview, onReviewFinished, proposal.id, stage]);
   const [error, setError] = useState<string>();
   const [permissionIssue, setPermissionIssue] = useState<ChatLocationPermissionIssue>(null);
   const [standaloneStatus, setStandaloneStatus] = useState<string>();
@@ -276,7 +283,7 @@ function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKe
     if (intent.action === "ask") { dismiss(); return; }
     setStage(proposal.action === "manage_links" ? "links" : proposal.action === "share_public" ? "cancelled" : "share-menu");
   };
-  useBackLayer(ROUTES.HOME, allowReview && token && [
+  useBackLayer(ROUTES.HOME, allowReview && !paused && token && [
     "choose", "terms", "review", "setup-offer", "setup", "sharing-off", "device-paused", "device-permission",
     "share-menu", "private-picker", "public-share", "workspace", "links", "check-in", "self-location",
   ].includes(stage) ? 1 : 0, () => {
@@ -978,11 +985,11 @@ function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKe
     if (question && !busy && ownerId && token) onConversationText?.(proposal.id, question);
   }, [busy, onConversationText, ownerId, proposal.id, question, token]);
   useEffect(() => {
-    if (stage === "setup" && allowReview) onOpenLocation?.();
-  }, [stage, allowReview, onOpenLocation]);
+    if (stage === "setup" && allowReview && !paused) onOpenLocation?.();
+  }, [stage, allowReview, paused, onOpenLocation]);
 
   useLayoutEffect(() => {
-    if (!conversational || stage === "setup" || stage === "workspace" || stage === "links" || stage === "public-share" ||
+    if (paused || !conversational || stage === "setup" || stage === "workspace" || stage === "links" || stage === "public-share" ||
         !allowReview || !ownerId || !token || !onConversationReply) return;
     const handle: LocationConversationReply = (text, displayedQuestion) => {
       if (!alive.current || busyRef.current) return false;
@@ -1021,17 +1028,17 @@ function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKe
   });
 
   useEffect(() => {
-    if (!conversational || !allowReview || !ownerId || !token || !inRecovery || stage === "device-paused" ||
+    if (paused || !conversational || !allowReview || !ownerId || !token || !inRecovery || stage === "device-paused" ||
         (proposal.action !== "enable_location" && proposal.action !== "enable_device_location")) return;
     if (!afterSetup && claimEnable?.(proposal.id)) void withPending(recoverConversation);
     // The live composer grants one attempt. Re-mounting or refreshing cannot mint another.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowReview, claimEnable, conversational, inRecovery, ownerId, proposal.action, proposal.id, stage, token]);
+  }, [allowReview, claimEnable, conversational, inRecovery, ownerId, paused, proposal.action, proposal.id, stage, token]);
 
   if (!ownerId || !token) return allowReview ? <UnlockLocationCard onUnlock={onUnlock} /> : null;
   if (conversational && stage !== "setup" && stage !== "workspace" && stage !== "links" && stage !== "public-share") return <>
     <LocationChatPermissionRecovery issue={permissionIssue} />
-    {allowReview && stage === "review" && reviewedText && plans?.length && !staleReview && !failedLabels.length &&
+    {!paused && allowReview && stage === "review" && reviewedText && plans?.length && !staleReview && !failedLabels.length &&
       (intent.action === "share_live" || intent.action === "ask") ? <LocationChatSend host={sendHost}
         label={intent.action === "ask" ? "Send location request" : "Share live location"} busy={busy}
         onSend={() => { setMembersPage(null); void withPending(version => commit(version)); }} /> : null}

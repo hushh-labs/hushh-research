@@ -194,6 +194,9 @@ describe("onboarding conversation", () => {
     expect(resolved()).toBe("false");
     fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
     expect(resolved()).toBe("false");
+    expect(screen.queryByRole("button", { name: "Short and direct" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Continue in chat" }));
+    expect(screen.queryByTestId("chat-onboarding-connect")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save to memory" }));
     await waitFor(() => expect(finishSave).toBeTypeOf("function"));
@@ -264,6 +267,9 @@ describe("onboarding conversation", () => {
     expect(await screen.findByRole("button", { name: "Connect Gmail" })).toBeInTheDocument();
     expect(screen.queryByText("Gmail connected")).toBeNull();
 
+    expect(screen.queryByRole("button", { name: "Short and direct" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Continue in chat" }));
+    expect(screen.queryByTestId("chat-onboarding-connect")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
     await screen.findByRole("button", { name: "Save to memory" });
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();

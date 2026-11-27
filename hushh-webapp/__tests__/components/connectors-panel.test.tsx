@@ -1389,8 +1389,8 @@ describe("supported connector catalog", () => {
       within(calendar).getByRole("button", { name: "Connect Calendar" }),
     ).toBeInTheDocument();
     expect(
-      within(calendar).getByText("Private by default. Disconnect anytime."),
-    ).toBeInTheDocument();
+      within(calendar).queryByText("Private by default. Disconnect anytime."),
+    ).not.toBeInTheDocument();
 
     state.calendar = {
       connected: false,
@@ -1428,8 +1428,8 @@ describe("supported connector catalog", () => {
       within(calendar).getByRole("button", { name: "Disconnect Calendar" }),
     ).toBeInTheDocument();
     expect(
-      within(calendar).getByText("Disconnect anytime."),
-    ).toBeInTheDocument();
+      within(calendar).queryByText("Disconnect anytime."),
+    ).not.toBeInTheDocument();
 
     state.calendar = {
       connected: true,
@@ -1743,7 +1743,9 @@ describe("supported connector catalog", () => {
       await openCalendar();
       await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
       await post(settlement(attemptOf(popup)!.attemptId), popup);
-      expect(await screen.findByText("Calendar not connected.")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
+      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar connected.")).not.toBeInTheDocument();
     });
 
@@ -1790,7 +1792,9 @@ describe("supported connector catalog", () => {
       state.calendarStatus.mockClear();
       const attempt = attemptOf(popup)!;
       fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
-      expect(await screen.findByText("Calendar not connected.")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
+      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(popup.close).toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: "Cancel sign-in" })).not.toBeInTheDocument();
       await post(settlement(attempt.attemptId), popup);
@@ -1835,7 +1839,9 @@ describe("supported connector catalog", () => {
       state.calendarStartNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", service: "calendar", access_level: "read", state: "signed-state" });
       state.connectCalendar.mockRejectedValue(Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }));
       await openCalendar();
-      expect(await screen.findByText("Calendar not connected.")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
+      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(state.calendarCompleteNativeConnect).not.toHaveBeenCalled();
     });
   });

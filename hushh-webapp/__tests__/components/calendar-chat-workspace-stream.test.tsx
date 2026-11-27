@@ -664,6 +664,10 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
         { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
         { type: "TEXT_MESSAGE_CONTENT", messageId, delta: text },
         { type: "TEXT_MESSAGE_END", messageId },
+        { type: "TOOL_CALL_START", toolCallId: "follow-up", toolCallName: "suggest_follow_ups" },
+        { type: "TOOL_CALL_END", toolCallId: "follow-up" },
+        { type: "TOOL_CALL_RESULT", messageId: `${messageId}-follow-ups`, toolCallId: "follow-up", role: "tool",
+          content: JSON.stringify({ status: "shown", suggestions: ["Show the previous email", "Read the latest update"] }) },
         { type: "RUN_FINISHED", threadId: "same-conversation", runId: messageId },
       ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""),
       { headers: { "Content-Type": "text/event-stream" } },
@@ -695,6 +699,9 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     const mailQuestion = screen.getByText("Which account is connected to Mail?");
     expect(card).toBeEnabled();
     expect(card.compareDocumentPosition(mailQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show the previous email" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    expect(await screen.findByRole("button", { name: "Show the previous email" })).toBeEnabled();
   });
 
   it("denied consent retains one actionable authorization card without continuing or executing", async () => {
