@@ -4406,10 +4406,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (canonicalMainId && targetConversationId === canonicalMainId) {
         setIsOneStreamDraft(true);
       }
-      if (!transcriptUserScrollRef.current && recoveryScrollTopRef.current === null) {
-        initialBottomPinPendingRef.current = true;
-        transcriptStuckToEndRef.current = true;
-      }
       updateConversationId(targetConversationId, false);
       setMessages((current) =>
         mergePendingConsentMessages(
