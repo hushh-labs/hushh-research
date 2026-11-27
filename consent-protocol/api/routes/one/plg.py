@@ -178,6 +178,7 @@ class Observation(BaseModel):
     operationId: str = Field(pattern=r"^[A-Za-z0-9_-]{16,64}$")
     actionId: str = Field(min_length=1, max_length=256)
     phase: Literal["started", "returned", "failed", "cancelled", "blocked"]
+    result: Literal["success", "error", "expected_error"] | None = None
 
 
 @router.get("/activity", include_in_schema=False)
@@ -186,7 +187,10 @@ async def activity_admission(uid: str = Depends(require_firebase_auth_read_only)
         result = await run_in_threadpool(product_activity.admission, uid)
     except Exception:
         raise HTTPException(503, "Product observation unavailable", headers=NO_STORE) from None
-    return JSONResponse({"enabled": result is not None, **(result or {})}, headers=NO_STORE)
+    return JSONResponse(
+        {"enabled": result is not None, **({**result, "resultVersion": 1} if result else {})},
+        headers=NO_STORE,
+    )
 
 
 @router.post("/activity", include_in_schema=False)
@@ -209,6 +213,7 @@ async def report_activity(request: Request, uid: str = Depends(require_firebase_
             payload.phase,
             "client_reported",
             payload.operationId,
+            **({"event_result": payload.result} if payload.result is not None else {}),
         )
     except (ValueError, ValidationError):
         raise HTTPException(400, "Invalid product observation", headers=NO_STORE) from None
