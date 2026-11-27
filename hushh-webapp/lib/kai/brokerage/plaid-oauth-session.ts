@@ -5,6 +5,12 @@ import {
   removeSessionItem,
   setSessionItem,
 } from "@/lib/utils/session-storage";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+  type AuthSessionOwnerSnapshot,
+} from "@/lib/auth/session-owner";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const PLAID_OAUTH_SESSION_KEY = "kai_plaid_oauth_resume_v2";
 // A bank login takes minutes; after half an hour the person starts again
@@ -28,6 +34,8 @@ export interface PlaidOAuthResumeSession {
   /** The https redirect URI the link token was minted with. */
   redirectUri: string;
   returnPath: string;
+  successReturnPath?: string;
+  originSurface?: "profile_nws" | "agentone_chat";
   startedAt: string;
   expiresAt: string;
   /** Opaque setup-attempt id; never a Plaid or vault credential. */
@@ -64,6 +72,7 @@ export function loadPlaidOAuthResumeSession(now: Date = new Date()): PlaidOAuthR
     const linkToken = nonEmpty(parsed.linkToken, 512);
     const redirectUri = nonEmpty(parsed.redirectUri);
     const returnPath = nonEmpty(parsed.returnPath);
+    const successReturnPath = nonEmpty(parsed.successReturnPath);
     const expiresAt = nonEmpty(parsed.expiresAt, 64);
     if (parsed.version !== 2 || !userId || !linkToken || !redirectUri || !returnPath || !expiresAt) {
       return null;
@@ -74,13 +83,17 @@ export function loadPlaidOAuthResumeSession(now: Date = new Date()): PlaidOAuthR
       return null;
     }
     // Only an in-app path is a valid place to send the person afterwards.
-    const safeReturnPath = returnPath.startsWith("/") && !returnPath.startsWith("//") ? returnPath : "/";
+    const isInternal = (path: string) => /^\/(?![\/\\])/.test(path);
+    const safeReturnPath = isInternal(returnPath) ? returnPath : "/";
     return {
       version: 2,
       userId,
       linkToken,
       redirectUri,
       returnPath: safeReturnPath,
+      ...(successReturnPath && isInternal(successReturnPath) ? { successReturnPath } : {}),
+      ...(parsed.originSurface === "profile_nws" || parsed.originSurface === "agentone_chat"
+        ? { originSurface: parsed.originSurface } : {}),
       startedAt: nonEmpty(parsed.startedAt, 64) ?? now.toISOString(),
       expiresAt,
       onboardingAttemptId: nonEmpty(parsed.onboardingAttemptId, 96),
@@ -93,4 +106,22 @@ export function loadPlaidOAuthResumeSession(now: Date = new Date()): PlaidOAuthR
 
 export function clearPlaidOAuthResumeSession(): void {
   removeSessionItem(PLAID_OAUTH_SESSION_KEY);
+}
+
+// One client navigation after a verified save. A URL or a refresh cannot
+// replay the confirmation or settle setup for a different owner.
+let financeSetupSuccess: { owner: AuthSessionOwnerSnapshot; pathname: string } | null = null;
+
+export function rememberFinanceSetupPlaidSuccess(userId: string, returnPath: string): void {
+  const pathname = returnPath.split("?")[0];
+  if (pathname !== ROUTES.ONE_SETUP_FINANCE && pathname !== ROUTES.ONE_SETUP_FINANCE_IMPORT) return;
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (owner?.userId === userId) financeSetupSuccess = { owner, pathname };
+}
+
+export function takeFinanceSetupPlaidSuccess(pathname: string): boolean {
+  const success = financeSetupSuccess;
+  if (success?.pathname !== pathname) return false;
+  financeSetupSuccess = null;
+  return isValidatedAuthSessionOwnerCurrent(success.owner);
 }

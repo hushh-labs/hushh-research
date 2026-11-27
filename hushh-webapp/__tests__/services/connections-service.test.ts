@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockApiFetch } = vi.hoisted(() => ({ mockApiFetch: vi.fn() }));
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({ recordLiveActivity: vi.fn(), snapshotLiveActivityOwner: () => null }));
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: mockApiFetch },
@@ -21,13 +22,14 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("ConnectionsService", () => {
   beforeEach(() => mockApiFetch.mockReset());
 
-  it("sends network discovery and permission through the authenticated no-store API owner", async () => {
+  it("sends network discovery, permission and visibility through the authenticated no-store API owner", async () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ person: null, items: [], page: 2, hasMore: false }));
-    await ConnectionsService.listNetwork({ idToken: "token", degree: 3, query: " A & B ", page: 2 });
+    await ConnectionsService.listNetwork({ idToken: "token", degree: 3, query: " A & B ", page: 2, includeSuggestions: true });
     const [href, options] = mockApiFetch.mock.calls[0];
     const params = new URL(href, "https://app.test").searchParams;
-    expect(Object.fromEntries(params)).toEqual({ degree: "3", query: "A & B", page: "2", limit: "20" });
+    expect(Object.fromEntries(params)).toEqual({ degree: "3", query: "A & B", page: "2", limit: "20", include_suggestions: "true" });
     expect(options).toMatchObject({ method: "GET", cache: "no-store", headers: { Authorization: "Bearer token" } });
+    mockApiFetch.mockResolvedValue(jsonResponse({ shareConnectionList: true }));
     mockApiFetch.mockResolvedValue(jsonResponse({ detail: "Unavailable" }, 403));
     await expect(ConnectionsService.listNetwork({ idToken: "token", personRef: "private-person", page: 1 })).rejects.toMatchObject({ status: 403 });
   });
@@ -44,10 +46,10 @@ describe("ConnectionsService", () => {
   });
 
   it("reads participant context with Firebase authentication without gaining Location authority",async()=>{
-    const payload = {person:{userId:"target",relationship:"none",displayName:"Synthetic",photoUrl:null,email:null},request:{id:"r",direction:"outgoing",status:"accepted"}};
+    const payload = {person:{userId:"target",publicPersonRef:"public-target",relationship:"none",displayName:"Synthetic",photoUrl:null,email:null},request:{id:"r",direction:"outgoing",status:"accepted"}};
     mockApiFetch.mockResolvedValue(jsonResponse(payload));
     expect(await ConnectionsService.getPersonContext({idToken:"token",counterpartUserId:"target"})).toEqual(payload);
-    expect(mockApiFetch).toHaveBeenCalledWith("/api/one/connections/target/context",expect.objectContaining({method:"GET",headers:expect.objectContaining({Authorization:"Bearer token"})}));
+    expect(mockApiFetch).toHaveBeenCalledWith("/api/one/connections/target/context",expect.objectContaining({method:"GET",cache:"no-store",headers:expect.objectContaining({Authorization:"Bearer token"})}));
   });
 
   it("surfaces a safe FastAPI detail message for contact-sync failures", async () => {
@@ -266,6 +268,16 @@ describe("ConnectionsService", () => {
     await ConnectionsService.searchDirectory({ idToken: "tok", query: "Priya", nameOnly: true });
     const [path] = mockApiFetch.mock.calls[0];
     expect(new URL(path, "https://example.test").searchParams.get("name_only")).toBe("true");
+  });
+
+  it("sends the typed search mode with the original directory query", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ items: [], page: 2, hasMore: false }));
+    await ConnectionsService.searchDirectory({ idToken: "tok", query: "Sharu  K", typedSearch: true, page: 2 });
+    const [path] = mockApiFetch.mock.calls[0];
+    const params = new URL(path, "https://example.test").searchParams;
+    expect(params.get("typed_search")).toBe("true");
+    expect(params.get("query")).toBe("Sharu  K");
+    expect(params.get("page")).toBe("2");
   });
 
   it("sendRequest POSTs the addressee id", async () => {

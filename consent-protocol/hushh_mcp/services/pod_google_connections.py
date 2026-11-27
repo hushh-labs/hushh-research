@@ -150,6 +150,24 @@ class PodGoogleConnections:
         self.require_current(service)
         return token
 
+    async def calendar_list_access_token(self, *, user_id: str) -> str:
+        if user_id != (self._owner or _pod_owner()):
+            raise GoogleConnectionError("Google connection owner mismatch", status_code=403)
+        self.require_current("calendar")
+        source = self._source if self._source is not None else google_token_source()
+        try:
+            token = str(await source.access_token("calendar", "read_calendar_list"))
+        except ConnectorTokenError as exc:
+            raise GoogleConnectionError(
+                "Google Calendar list access is unavailable",
+                status_code=_STATUS.get(exc.code, 403),
+                reason_code="calendar_list_permission_required"
+                if exc.code == SCOPE_NOT_GRANTED
+                else _REASONS.get(exc.code),
+            ) from None
+        self.require_current("calendar")
+        return token
+
 
 class PodCalendarProposalStore:
     """``CalendarProposalStore`` over the owner's own log (kind ``calendar``)."""
@@ -212,6 +230,19 @@ class PodCalendarProposalStore:
             proposal_id=proposal_id, status="executed" if executed else "failed"
         )
 
+    async def record_calendar_reply(self, **receipt: Any) -> bool:
+        return await self._proposals().record_calendar_reply(**receipt)
+
+    async def finish_confirmed_chat_booking(self, *, proposal_id: str, event_id: str) -> None:
+        await self._proposals().settle(
+            proposal_id=proposal_id, status="executed", calendar_event_id=event_id
+        )
+
+    async def recent_calendar_booking(self, *, owner_id: str, conversation_id: str) -> dict | None:
+        return await self._proposals().recent_calendar_booking(
+            owner_id=owner_id, conversation_id=conversation_id
+        )
+
     async def forget_executed(self, *, user_id: str, proposal_id: str) -> None:
         # Settled is final: the plan stays sealed in the owner's own log, never readable
         # again by a claim, and never anywhere Hussh can read it.
@@ -219,10 +250,12 @@ class PodCalendarProposalStore:
 
 
 def calendar_runs_locally() -> bool:
-    """True inside an owner-cloud agent: Calendar is read and changed here, never via the hub."""
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent  # noqa: PLC0415
+    """True inside an owner-cloud pod or activated Personal Sandbox: Calendar runs locally."""
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        personal_sandbox_workspace_runtime,
+    )
 
-    return bool(owner_cloud_agent())
+    return bool(personal_sandbox_workspace_runtime())
 
 
 def calendar_reads_via_door() -> bool:

@@ -1424,3 +1424,115 @@ async def test_incremental_replay_bounds_recovery_and_keeps_erasure_closed(tmp_p
         await log.replay_since(cursor)
     with pytest.raises(PodLogFenced):
         await log.fold_since(cursor, lambda _: pytest.fail("fenced history released"))
+
+
+@pytest.mark.asyncio
+async def test_remote_read_caches_eliminate_redundant_io_while_preserving_fencing(tmp_path):
+    class CountingStore(LocalObjectStore):
+        def __init__(self, root: str) -> None:
+            super().__init__(root)
+            self.head_reads = 0
+            self.record_reads = 0
+
+        async def get_with_generation(self, key: str):
+            if key == PodCommitLog.HEAD:
+                self.head_reads += 1
+            return await super().get_with_generation(key)
+
+        async def get(self, key: str):
+            if key.startswith("records/"):
+                self.record_reads += 1
+            return await super().get(key)
+
+    store = CountingStore(str(tmp_path / "cached-remote"))
+    log = PodCommitLog(
+        store,
+        KEY,
+        owner_id="synthetic-owner",
+        open_lease_seconds=2.0,
+        cache_immutable_records=True,
+    )
+    await log.append("fixture", {"step": 1})
+    await log.append("fixture", {"step": 2})
+
+    # Predecessor verification on append #2 hit the immutable blob cache (0 record reads).
+    assert store.record_reads == 0
+
+    # Repeat require_open() inside the 2s read-admission lease performs zero head reads.
+    store.head_reads = 0
+    for _ in range(10):
+        await log.require_open()
+    assert store.head_reads == 0
+
+    # Full replay still reads head live (1x) and serves verified sealed blobs from cache (0 record reads).
+    records = await log.replay()
+    assert [r["payload"]["step"] for r in records] == [1, 2]
+    assert store.head_reads == 1
+    assert store.record_reads == 0
+
+    # Incremental feedback projection folds via fold_since without full record replays.
+    from hushh_mcp.services import pod_message_feedback
+
+    await pod_message_feedback.record_feedback(
+        log,
+        owner="owner-1",
+        hushh_id="synthetic-owner",
+        conversation="conv-1",
+        message="msg-1",
+        rating="up",
+        report_reason=None,
+    )
+    store.record_reads = 0
+    first_fb = await pod_message_feedback.read_feedback(
+        log, owner="owner-1", hushh_id="synthetic-owner", conversation="conv-1"
+    )
+    assert first_fb == {"conversation_id": "conv-1", "ratings": {"msg-1": "up"}}
+    assert store.record_reads == 0
+
+    store.head_reads = 0
+    second_fb = await pod_message_feedback.read_feedback(
+        log, owner="owner-1", hushh_id="synthetic-owner", conversation="conv-1"
+    )
+    assert second_fb == {"conversation_id": "conv-1", "ratings": {"msg-1": "up"}}
+    # Unchanged cursor reads head once (no trailing duplicate require_open) and zero records.
+    assert store.head_reads == 1
+    assert store.record_reads == 0
+
+    # Fencing immediately invalidates all read caches and verifies uncached records on disk.
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="attempt-1")
+    assert store.record_reads == 3
+    with pytest.raises(PodLogFenced):
+        await log.require_open()
+    with pytest.raises(PodLogFenced):
+        await log.append("late", {})
+
+
+@pytest.mark.asyncio
+async def test_gcs_write_retries_rate_limited_and_transient_responses(monkeypatch):
+    import hushh_mcp.services.pod_commit_log as pcl
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(pcl.time, "sleep", sleeps.append)
+
+    class RateLimitedThenOkTransport(_FakeGcsTransport):
+        def __init__(self):
+            super().__init__()
+            self.closed_statuses: list[int] = []
+            self.attempts = 0
+
+        def post(self, url, **kwargs):
+            self.attempts += 1
+            if self.attempts in (1, 2):
+                status = 429 if self.attempts == 1 else 503
+                resp = _FakeResponse(status, {"error": "rate_limited"})
+                resp.close = lambda s=status: self.closed_statuses.append(s)  # type: ignore[attr-defined]
+                return resp
+            return _FakeResponse(200, {"generation": "42"})
+
+    transport = RateLimitedThenOkTransport()
+    store = GcsObjectStore("user-bucket", session=transport)
+    version = await store.put_if_generation("head.json", b"{}", "3")
+    assert version == "42"
+    assert transport.attempts == 3
+    assert transport.closed_statuses == [429, 503]
+    assert len(sleeps) == 2

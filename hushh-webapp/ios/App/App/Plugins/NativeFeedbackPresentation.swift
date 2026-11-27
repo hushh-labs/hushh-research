@@ -20,12 +20,20 @@ struct NativeFeedbackProjection: Decodable {
     let tone: String
     let duration: Double
     let dismissible: Bool
+    let actionToken: String?
+    let actionLabel: String?
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch,
             ownerGeneration: ownerGeneration, revision: revision, family: family)
     }
+    // Shell is a feedback owner only; it is never admitted as a drawer family.
+    static func validIdentity(_ identity: NativeDrawerIdentity) -> Bool {
+        identity.valid || identity.family == "shell" &&
+            NativeOwnedChoiceIdentity(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch,
+                ownerGeneration: identity.ownerGeneration, visitId: "shell-feedback", revision: identity.revision).valid
+    }
     var valid: Bool {
-        identity.valid && NativeDrawerIdentity.identifier(feedbackId) && feedbackRevision > 0 &&
+        Self.validIdentity(identity) && (family != "shell" || (destinationId == nil && supportDestinationId == nil && formScene == nil && formRevision == nil)) && NativeDrawerIdentity.identifier(feedbackId) && feedbackRevision > 0 &&
             feedbackRevision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
             feedbackSequence > 0 && feedbackSequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
             ((formScene == nil && formRevision == nil) || (formScene != nil && (formRevision ?? 0) > 0)) &&
@@ -33,13 +41,17 @@ struct NativeFeedbackProjection: Decodable {
             !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.utf16.count <= 2048 &&
             ["normal", "loading", "success", "error", "warning", "info"].contains(tone) &&
             duration.isFinite && (duration == 0 || (1000...30000).contains(duration)) &&
+            ((actionToken == nil && actionLabel == nil) ||
+                ((actionToken == "open-conversation" || actionToken == "open-information-request" || actionToken == "undo-feed-removal") &&
+                 actionLabel != nil && !actionLabel!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                 actionLabel!.utf16.count <= 48 && actionLabel!.rangeOfCharacter(from: .controlCharacters) == nil)) &&
             (destinationId == nil || NativeDrawerIdentity.identifier(destinationId!)) &&
             (supportDestinationId == nil || NativeDrawerIdentity.identifier(supportDestinationId!)) &&
             (formScene == nil || NativeProfilePreparationTarget.scenes.contains(formScene!))
     }
     static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family",
         "privacyGeneration", "feedbackId", "feedbackRevision", "feedbackSequence", "destinationId", "supportDestinationId", "formScene", "formRevision",
-        "message", "tone", "duration", "dismissible"]
+        "message", "tone", "duration", "dismissible", "actionToken", "actionLabel"]
     var receipt: [String: Any] {
         ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration,
          "revision": revision, "family": family, "privacyGeneration": privacyGeneration,
@@ -72,7 +84,7 @@ struct NativeFeedbackFence {
     }
     mutating func retire(id requested: String, sequence requestedSequence: Int, revision requestedRevision: Int,
                          owner requestedOwner: NativeDrawerIdentity, terminal: Bool = true) -> Bool {
-        guard requestedOwner.valid else { return false }
+        guard NativeFeedbackProjection.validIdentity(requestedOwner) else { return false }
         if let owner {
             guard owner.documentId == requestedOwner.documentId && owner.ownerEpoch == requestedOwner.ownerEpoch &&
                 owner.ownerGeneration == requestedOwner.ownerGeneration else { return false }
@@ -83,26 +95,44 @@ struct NativeFeedbackFence {
     }
 }
 
+enum NativeFeedbackEndReason: String {
+    case user, expired, programmatic
+}
+
 @MainActor private final class NativeFeedbackModel: ObservableObject {
     @Published var messages = [NativeFeedbackProjection]()
     var dismiss: ((NativeFeedbackProjection) -> Void)?
+    var activate: ((NativeFeedbackProjection) -> Void)?
 }
 struct NativePresentationFeedback: Decodable {
     let id: String; let message: String; let tone: String; let dismissible: Bool
-    static let keys: Set<String> = ["id", "message", "tone", "dismissible"]
-    var valid: Bool { NativeDrawerIdentity.identifier(id) && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.utf16.count <= 2048 && ["normal", "loading", "success", "error", "warning", "info"].contains(tone) }
+    let actionToken: String?; let actionLabel: String?
+    static let keys: Set<String> = ["id", "message", "tone", "dismissible", "actionToken", "actionLabel"]
+    var valid: Bool {
+        NativeDrawerIdentity.identifier(id) && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.utf16.count <= 2048 &&
+        ["normal", "loading", "success", "error", "warning", "info"].contains(tone) &&
+        ((actionToken == nil && actionLabel == nil) ||
+            ((actionToken == "open-conversation" || actionToken == "open-information-request" || actionToken == "undo-feed-removal") &&
+             actionLabel != nil && !actionLabel!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+             actionLabel!.utf16.count <= 48 && actionLabel!.rangeOfCharacter(from: .controlCharacters) == nil))
+    }
 }
 /// Shared bounded banner; its owning presentation supplies placement and lifetime.
 struct NativeTextFeedbackBanner: View {
-    let message: String; let tone: String; let dismissible: Bool; let dismiss: () -> Void
+    let message: String; let tone: String; let dismissible: Bool; let actionLabel: String?
+    let dismiss: () -> Void; let activate: () -> Void
     var body: some View {
         HStack(spacing: 10) {
             if tone == "loading" { ProgressView().controlSize(.small) }
             else { Image(systemName: symbol).imageScale(.medium).accessibilityHidden(true) }
             Text(message).font(.subheadline).foregroundStyle(.primary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            if let actionLabel {
+                Button(action: activate) { Text(actionLabel).font(.footnote.weight(.semibold)).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityIdentifier("native-feedback-action")
+            }
             if dismissible {
-                Button(action: dismiss) { Image(systemName: "xmark").font(.system(size: 13, weight: .medium)).frame(width: 44, height: 44) }
-                    .buttonStyle(.plain).accessibilityLabel("Dismiss notification")
+                Button(action: dismiss) { Image(systemName: "xmark").font(.system(size: 13, weight: .medium)).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Dismiss notification").accessibilityIdentifier("native-feedback-dismiss")
             }
         }.padding(.leading, 16).padding(.trailing, dismissible ? 0 : 16).padding(.vertical, dismissible ? 4 : 14)
             .background { material }.accessibilityElement(children: .contain).accessibilityIdentifier("native-feedback-banner")
@@ -121,7 +151,8 @@ private struct NativeFeedbackView: View {
     var body: some View {
         VStack(spacing: 8) {
             ForEach(model.messages, id: \.feedbackId) { state in
-                NativeTextFeedbackBanner(message: state.message, tone: state.tone, dismissible: state.dismissible) { model.dismiss?(state) }
+                NativeTextFeedbackBanner(message: state.message, tone: state.tone, dismissible: state.dismissible,
+                    actionLabel: state.actionLabel, dismiss: { model.dismiss?(state) }, activate: { model.activate?(state) })
             }
         }
     }
@@ -136,8 +167,12 @@ private struct NativeFeedbackView: View {
     private var fence = NativeFeedbackFence()
     private var lastReceipt: [String: Any]?
     var ended: (([String: Any]) -> Void)?
+    var actioned: ((NativeFeedbackProjection) -> Void)?
 
-    init() { model.dismiss = { [weak self] state in self?.dismiss(state) } }
+    init() {
+        model.dismiss = { [weak self] state in self?.dismiss(state, reason: .user) }
+        model.activate = { [weak self] state in _ = self?.activate(state) }
+    }
     func apply(_ state: NativeFeedbackProjection, to parent: UIViewController) -> Bool {
         guard parent.view.window != nil, fence.apply(state) else { return false }
         lastReceipt = state.receipt
@@ -147,7 +182,21 @@ private struct NativeFeedbackView: View {
         let replaced = model.messages.filter { $0.feedbackId != state.feedbackId }
         for previous in replaced { timers.removeValue(forKey: previous.feedbackId)?.cancel() }
         model.messages = [state] // Atomic replacement keeps the hosting controller attached.
-        replaced.forEach { ended?($0.receipt) }
+        replaced.forEach { ended?(endEvent($0, reason: .programmatic)) }
+        attach(to: parent)
+        if changedText { UIAccessibility.post(notification: .announcement, argument: state.message) }
+        if state.duration > 0 {
+            let id = state.feedbackId, revision = state.feedbackRevision
+            let timer = DispatchWorkItem { [weak self] in
+                guard let self, let current = self.model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision == revision }) else { return }
+                self.dismiss(current, terminal: false, reason: .expired)
+            }
+            timers[state.feedbackId] = timer
+            DispatchQueue.main.asyncAfter(deadline: .now() + state.duration / 1000, execute: timer)
+        }
+        return true
+    }
+    private func attach(to parent: UIViewController) {
         if host == nil {
             let next = UIHostingController(rootView: NativeFeedbackView(model: model))
             next.view.backgroundColor = .clear
@@ -166,32 +215,33 @@ private struct NativeFeedbackView: View {
         }
         parent.view.layoutIfNeeded()
         host?.view.layoutIfNeeded()
-        if changedText { UIAccessibility.post(notification: .announcement, argument: state.message) }
-        if state.duration > 0 {
-            let id = state.feedbackId, revision = state.feedbackRevision
-            let timer = DispatchWorkItem { [weak self] in
-                guard let self, let current = self.model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision == revision }) else { return }
-                self.dismiss(current, terminal: false)
-            }
-            timers[state.feedbackId] = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + state.duration / 1000, execute: timer)
-        }
-        return true
     }
-    func retire(id: String, sequence: Int, revision: Int, owner: NativeDrawerIdentity, context: [String: Any]) {
+    func relocateShell(to parent: UIViewController?) {
+        guard model.messages.first?.family == "shell" else { return }
+        guard let parent else { detach(); return }
+        if host?.parent !== parent { detach() }
+        attach(to: parent)
+    }
+    @discardableResult func retire(id: String, sequence: Int, revision: Int, owner: NativeDrawerIdentity,
+                                   context: [String: Any]) -> Bool {
         if let lastReceipt, sequence == lastReceipt["feedbackSequence"] as? Int {
             var expected = lastReceipt, requested = context
             expected.removeValue(forKey: "feedbackRevision"); requested.removeValue(forKey: "feedbackRevision")
-            guard NSDictionary(dictionary: expected).isEqual(to: requested) else { return }
+            guard NSDictionary(dictionary: expected).isEqual(to: requested) else { return false }
         }
-        guard fence.retire(id: id, sequence: sequence, revision: revision, owner: owner) else { return }
-        if let state = model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision <= revision }) { dismiss(state) }
+        guard fence.retire(id: id, sequence: sequence, revision: revision, owner: owner) else { return false }
+        if let state = model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision <= revision }) {
+            dismiss(state, reason: .programmatic)
+        }
+        return true
     }
     func retainOnly(_ state: NativeDrawerProjection) {
-        for message in model.messages where message.family == state.family && !message.belongs(to: state) { dismiss(message) }
+        for message in model.messages where message.family == state.family && !message.belongs(to: state) {
+            dismiss(message, reason: .programmatic)
+        }
     }
     func retireFamily(_ family: String) {
-        for message in model.messages where message.family == family { dismiss(message) }
+        for message in model.messages where message.family == family { dismiss(message, reason: .programmatic) }
     }
     func clear() {
         let previous = model.messages
@@ -202,9 +252,19 @@ private struct NativeFeedbackView: View {
         // The plugin calls this at an invalidated document/owner/privacy
         // lifetime. Its lease fence rejects all previous-lifetime deliveries.
         fence = NativeFeedbackFence(); lastReceipt = nil
-        previous.forEach { ended?($0.receipt) }
+        previous.forEach { ended?(endEvent($0, reason: .programmatic)) }
     }
-    func dismiss(_ state: NativeFeedbackProjection, terminal: Bool = true) {
+    @discardableResult func activate(_ state: NativeFeedbackProjection) -> Bool {
+        guard state.actionToken != nil, host?.view.window != nil,
+              model.messages.contains(where: { NSDictionary(dictionary: $0.receipt).isEqual(to: state.receipt) }) else { return false }
+        guard state.valid else { return false }
+        actioned?(state)
+        // Keep the presentation until JavaScript accepts this exact live
+        // owner/revision and sends its identity-scoped retirement.
+        return true
+    }
+    func dismiss(_ state: NativeFeedbackProjection, terminal: Bool = true,
+                 reason: NativeFeedbackEndReason = .programmatic, emitEnd: Bool = true) {
         // A button closure can outlive its rendered revision. Reject it before
         // touching the newer result's timer, hosting view or end receipt.
         guard model.messages.contains(where: {
@@ -214,7 +274,12 @@ private struct NativeFeedbackView: View {
         timers.removeValue(forKey: state.feedbackId)?.cancel()
         model.messages.removeAll { $0.feedbackId == state.feedbackId }
         if model.messages.isEmpty { detach() }
-        ended?(state.receipt)
+        if emitEnd { ended?(endEvent(state, reason: reason)) }
+    }
+    private func endEvent(_ state: NativeFeedbackProjection, reason: NativeFeedbackEndReason) -> [String: Any] {
+        var event = state.receipt
+        event["endReason"] = reason.rawValue
+        return event
     }
     private func detach() {
         host?.willMove(toParent: nil)

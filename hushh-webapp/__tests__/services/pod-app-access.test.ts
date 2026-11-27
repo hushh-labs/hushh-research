@@ -6,8 +6,14 @@ import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access
 import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-preparation";
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 import { RECEIPT_TOOL_DECLARATIONS } from "@/lib/mail/receipt-analysis";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
-const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn(), pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" })) }));
+const pod = vi.hoisted(() => ({
+  currentPodConnection: vi.fn(),
+  pin: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 })),
+  refreshEndpointFromHub: vi.fn(async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 })),
+  openPodSession: vi.fn(async () => ({ session: "pst1_reopened", role: "app", scopes: ["files.read", "files.manage", "pkm.read", "pod.status"] })),
+}));
 const memory = vi.hoisted(() => ({ fetch: vi.fn(), shared: vi.fn() }));
 
 const legacyChatCapabilities = {
@@ -94,6 +100,8 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: (
 vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: pod.pin,
   currentPodConnection: pod.currentPodConnection,
+  refreshEndpointFromHub: pod.refreshEndpointFromHub,
+  openPodSession: pod.openPodSession,
 }));
 
 it("requires owner app authority for scheduled work and permits only exact read/control methods", async () => {
@@ -308,4 +316,295 @@ it("routes unpinned managed chat directly and never retries the hub on failure",
   })).rejects.toThrow("POD_UNAVAILABLE");
   expect(direct).toHaveBeenCalledOnce();
   expect(hub).not.toHaveBeenCalled();
+});
+
+it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  pod.currentPodConnection.mockResolvedValue({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["files.read", "files.manage"] },
+  });
+  for (const route of [
+    "files/wiki/overview",
+    "files/wiki/page?page_id=work%2Fcareer.md",
+    "files/wiki/opt-in",
+    "files/wiki/confirm",
+    "files/wiki/projection/derive",
+    "files/wiki/forget",
+    "files/wiki/migrate",
+    "files/wiki/rollback",
+    "files/wiki/import",
+    "files/wiki/optimize",
+    "files/workspaces/status",
+    "files/workspaces/execute",
+    "files/workspaces/control",
+    "files/workspaces/forget",
+  ]) {
+    const response = await ownerPodRequest(route, { method: route.startsWith("files/wiki/overview") || route.startsWith("files/workspaces/status") || route.includes("?") ? "GET" : "POST" }, ports);
+    expect(response.ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(14);
+  await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});
+
+it("admits owner pod browser download save route only when browser.control and files scopes are held", async () => {
+  const fetch = vi.fn(async () => Response.json({ verified: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const downloadRoute = `browser/tasks/browser_${"a".repeat(32)}/downloads/${"b".repeat(32)}`;
+
+  pod.currentPodConnection.mockResolvedValueOnce({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control"] },
+  });
+  await expect(ownerPodRequest(downloadRoute, { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+
+  pod.currentPodConnection.mockResolvedValueOnce({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control", "files.read", "files.manage"] },
+  });
+  const ok = await ownerPodRequest(downloadRoute, { method: "POST", body: "{}" }, ports);
+  expect(ok.ok).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it("admits status, config, and circle-rules routes only with app role and exact scopes", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = {
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "device", scopes: ["pod.status", "pod.config"] },
+  };
+  pod.currentPodConnection.mockResolvedValue(connection);
+
+  await expect(ownerPodRequest("status", { method: "GET" }, ports)).rejects.toThrow("POD_STATUS_REQUEST_REFUSED");
+  await expect(ownerPodRequest("config", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_CONFIG_REQUEST_REFUSED");
+  await expect(ownerPodRequest("circle-rules", { method: "GET" }, ports)).rejects.toThrow("POD_CIRCLE_RULES_REQUEST_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+
+  connection.session.role = "app";
+  connection.session.scopes = ["pod.status"];
+  expect((await ownerPodRequest("status", { method: "GET" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules", { method: "GET" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules/preview", { method: "POST", body: "{}" }, ports)).ok).toBe(true);
+  await expect(ownerPodRequest("circle-rules", { method: "PUT", body: "{}" }, ports)).rejects.toThrow("POD_CIRCLE_RULES_REQUEST_REFUSED");
+  await expect(ownerPodRequest("config", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_CONFIG_REQUEST_REFUSED");
+
+  connection.session.scopes = ["pod.status", "pod.config"];
+  expect((await ownerPodRequest("config", { method: "POST", body: "{}" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules", { method: "PUT", body: "{}" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules/rule_abcd1234ef/toggle", { method: "POST", body: "{}" }, ports)).ok).toBe(true);
+  expect((await ownerPodRequest("circle-rules/rule_abcd1234ef", { method: "DELETE" }, ports)).ok).toBe(true);
+  await expect(ownerPodRequest("circle-rules/not-a-valid-id", { method: "DELETE" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  expect(fetch).toHaveBeenCalledTimes(7);
+});
+
+it("keeps exact credential catalog and use routes behind browser.control", async () => {
+  const fetch = vi.fn(async () => Response.json({ accepted: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const root = `browser/tasks/browser_${"a".repeat(32)}/credentials`;
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.observe"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  for (const [route, method] of [[root, "GET"], [root + "/use", "POST"], [root + "/transient", "POST"]]) {
+    await expect(ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  }
+  expect(fetch).not.toHaveBeenCalled();
+  connection.session.scopes = ["browser.control"];
+  for (const [route, method] of [[root + "?origin=https%3A%2F%2Fexample.com", "GET"], [root + "/use", "POST"], [root + "/transient", "POST"]]) {
+    expect((await ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(3);
+  await expect(ownerPodRequest(root + "/unreviewed", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});
+
+const credentialCatalogRoute = `browser/tasks/browser_${"a".repeat(32)}/credentials`;
+const credentialFloorRoute = `credentials/cred_${"a".repeat(32)}`;
+function credentialReadmissionConnection(role = "app", scopes = ["browser.control", "pod.config"], hushhId = "ha1_owner", endpointVersion = 2) {
+  return { endpoint: { hushhId, url: `https://${hushhId}.a.run.app`, endpointVersion },
+    session: { session: `synthetic-session-${endpointVersion}`, role, scopes } };
+}
+function prepareCredentialReadmission(next = credentialReadmissionConnection(), afterAdmission?: () => void, refreshedVersion = 2) {
+  const first = credentialReadmissionConnection("app", ["browser.control", "pod.config"], "ha1_owner", 1);
+  pod.pin.mockResolvedValue(first.endpoint);
+  pod.refreshEndpointFromHub.mockReset().mockResolvedValue({ ...first.endpoint, endpointVersion: refreshedVersion });
+  pod.openPodSession.mockReset().mockResolvedValue(next.session);
+  pod.currentPodConnection.mockReset().mockResolvedValueOnce(first).mockImplementationOnce(async () => {
+    afterAdmission?.();
+    return next;
+  });
+}
+
+it.each([401, 404])("retries same-pod credential GETs once after a newer endpoint answers %s", async status => {
+  for (const route of [credentialCatalogRoute, credentialFloorRoute]) {
+    prepareCredentialReadmission();
+    const sessions: (string | null)[] = [];
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      sessions.push(new Headers(init.headers).get("Authorization"));
+      return Response.json({}, { status: sessions.length === 1 ? status : 200 });
+    });
+    const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+    expect((await ownerPodRequest(route, { method: "GET" }, ports, "ha1_owner")).ok).toBe(true);
+    expect(sessions).toEqual(["Bearer synthetic-session-1", "Bearer synthetic-session-2"]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(pod.refreshEndpointFromHub).toHaveBeenCalledOnce();
+  }
+});
+
+it.each([
+  { label: "Browser role", route: credentialCatalogRoute, next: credentialReadmissionConnection("device"), error: "POD_BROWSER_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "Browser control", route: credentialCatalogRoute, next: credentialReadmissionConnection("app", ["browser.observe"]), error: "POD_BROWSER_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "custody role", route: credentialFloorRoute, next: credentialReadmissionConnection("device"), error: "POD_CREDENTIAL_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "custody config", route: credentialFloorRoute, next: credentialReadmissionConnection("app", ["pod.status"]), error: "POD_CREDENTIAL_REQUEST_REFUSED", expectedPod: "ha1_owner" },
+  { label: "expected pod", route: credentialCatalogRoute, next: credentialReadmissionConnection("app", ["browser.control"], "ha1_other"), error: "POD_DIRECT_OWNER_MISMATCH", expectedPod: "ha1_owner" },
+  { label: "Browser POST control", route: credentialCatalogRoute + "/use", next: credentialReadmissionConnection("app", ["browser.observe"]), error: "POD_BROWSER_REQUEST_REFUSED", expectedPod: "ha1_owner", method: "POST" },
+  { label: "custody POST config", route: "credentials", next: credentialReadmissionConnection("app", ["pod.status"]), error: "POD_CREDENTIAL_REQUEST_REFUSED", expectedPod: "ha1_owner", method: "POST" },
+  { label: "original pod", route: credentialCatalogRoute, next: credentialReadmissionConnection("app", ["browser.control"], "ha1_other"), error: "POD_DIRECT_OWNER_MISMATCH", expectedPod: undefined },
+])("refuses changed $label before a second credential request", async ({ route, next, error, expectedPod, method = "GET" }) => {
+  prepareCredentialReadmission(next);
+  const fetch = vi.fn(async () => Response.json({}, { status: 401 }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  await expect(ownerPodRequest(route, { method, ...(method === "POST" ? { body: "{}" } : {}) }, ports, expectedPod)).rejects.toThrow(error);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each((["caller", "owner", "vault", "cancel"] as const).flatMap(retired => [404, 401].map(status => ({ retired, status }))))("refuses $retired retirement during credential $status re-admission", async ({ retired, status }) => {
+  let current = true;
+  const cancellation = new AbortController();
+  prepareCredentialReadmission(credentialReadmissionConnection(), () => {
+    if (retired === "caller") current = false;
+    if (retired === "owner") publishValidatedAuthSessionPrincipal({ firebaseUid: "other", ownerId: "other", accountGeneration: 1 });
+    if (retired === "vault") advanceVaultSessionEpoch();
+    if (retired === "cancel") cancellation.abort();
+  });
+  const fetch = vi.fn(async () => Response.json({}, { status }));
+  const ports = { transport: async () => ({}), fetch, isCurrent: () => current } as Parameters<typeof ownerPodRequest>[2];
+  const response = ownerPodRequest(credentialCatalogRoute + (status === 401 ? "/use" : ""), { method: status === 401 ? "POST" : "GET", ...(status === 401 ? { body: "{}" } : {}), signal: cancellation.signal }, ports, "ha1_owner");
+  if (retired === "cancel") await expect(response).rejects.toMatchObject({ name: "AbortError" });
+  else await expect(response).rejects.toThrow(/POD_(OWNER|VAULT_SESSION)_CHANGED/);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each(["GET", "POST"])("renews a same-version credential %s once on 401 with the original body", async method => {
+  const next = credentialReadmissionConnection("app", ["browser.control", "pod.config"], "ha1_owner", 1);
+  next.session.session = "synthetic-renewed-session";
+  prepareCredentialReadmission(next, undefined, 1);
+  const body = method === "POST" ? JSON.stringify({ sealed: "synthetic-envelope" }) : undefined;
+  const sessions: (string | null)[] = [];
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    sessions.push(new Headers(init.headers).get("Authorization"));
+    return Response.json({}, { status: sessions.length === 1 ? 401 : 200 });
+  });
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  expect((await ownerPodRequest(credentialCatalogRoute + (method === "POST" ? "/use" : ""), { method, body }, ports, "ha1_owner")).ok).toBe(true);
+  expect(sessions).toEqual(["Bearer synthetic-session-1", "Bearer synthetic-renewed-session"]);
+  expect(fetch.mock.calls.map(([, init]) => init.body)).toEqual([body, body]);
+  expect(pod.openPodSession).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { route: credentialFloorRoute, method: "GET", version: 1, refreshedPod: "ha1_owner" },
+  { route: credentialCatalogRoute, method: "GET", version: 0, refreshedPod: "ha1_owner" },
+  { route: credentialCatalogRoute, method: "GET", version: 2, refreshedPod: "ha1_other" },
+  { route: credentialCatalogRoute + "/use", method: "POST", version: 2, refreshedPod: "ha1_owner" },
+])("does not retry credential $method/404 at endpoint $refreshedPod version $version", async ({ route, method, version, refreshedPod }) => {
+  prepareCredentialReadmission(credentialReadmissionConnection(), undefined, version);
+  pod.refreshEndpointFromHub.mockResolvedValue({ ...credentialReadmissionConnection().endpoint, hushhId: refreshedPod, endpointVersion: version });
+  const fetch = vi.fn(async () => Response.json({}, { status: 404 }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  expect((await ownerPodRequest(route, { method, ...(method === "POST" ? { body: "{}" } : {}) }, ports)).status).toBe(404);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(pod.currentPodConnection).toHaveBeenCalledOnce();
+  expect(pod.openPodSession).not.toHaveBeenCalled();
+  if (method === "POST") expect(pod.refreshEndpointFromHub).not.toHaveBeenCalled();
+});
+
+it("returns the second credential GET refusal without another retry", async () => {
+  prepareCredentialReadmission();
+  const fetch = vi.fn(async () => Response.json({}, { status: 401 }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  expect((await ownerPodRequest(credentialFloorRoute, { method: "GET" }, ports)).status).toBe(401);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(pod.currentPodConnection).toHaveBeenCalledTimes(2);
+  expect(pod.refreshEndpointFromHub).toHaveBeenCalledOnce();
+});
+
+it("re-opens pod session transparently on 401 when pooled sandbox recycles without endpointVersion bump", async () => {
+  pod.openPodSession.mockClear();
+  let activeSession = "pst1_expired_after_idle_recycle";
+  pod.currentPodConnection.mockImplementation(async () => ({
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 },
+    session: { session: activeSession, role: "app", scopes: ["files.read", "files.manage", "pkm.read", "pod.status"] },
+    directVerifiedAt: Date.now(),
+  }));
+  pod.openPodSession.mockImplementation(async () => {
+    activeSession = "pst1_fresh_sandbox_session";
+    return { session: activeSession, role: "app", scopes: ["files.read", "files.manage", "pkm.read", "pod.status"] };
+  });
+
+  const fetch = vi.fn(async (url: string, init: RequestInit) => {
+    const auth = new Headers(init.headers).get("Authorization");
+    if (auth === "Bearer pst1_expired_after_idle_recycle") {
+      return Response.json({ detail: "session_expired" }, { status: 401 });
+    }
+    if (url.endsWith("/capabilities")) {
+      return Response.json({ ...legacyChatCapabilities, receiptToolVersion: 1 });
+    }
+    return Response.json({ ok: true, sessionUsed: auth });
+  });
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+
+  const filesResp = await ownerPodRequest("files/list", { method: "GET" }, ports);
+  expect(filesResp.ok).toBe(true);
+  expect(await filesResp.json()).toMatchObject({ ok: true, sessionUsed: "Bearer pst1_fresh_sandbox_session" });
+  expect(pod.openPodSession).toHaveBeenCalledTimes(1);
+
+  activeSession = "pst1_expired_after_idle_recycle";
+  const chatResp = await ownerPodRequest(
+    "agent-chat",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        tools: [],
+        messages: [{ id: "m1", role: "user", content: "what about the core files" }],
+        forwardedProps: { timezone: "UTC" },
+      }),
+    },
+    ports,
+  );
+  expect(chatResp.ok).toBe(true);
+  expect(pod.openPodSession).toHaveBeenCalledTimes(2);
+});
+
+it("admits sovereign pod plaid vault routes only for app POST requests with pkm.read", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = {
+    endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app", endpointVersion: 1 },
+    session: { session: "pst1_valid", role: "device", scopes: ["pkm.read"] },
+  };
+  pod.currentPodConnection.mockResolvedValue(connection);
+
+  await expect(ownerPodRequest("plaid/vault/snapshot", { method: "POST", body: "{}" }, ports)).rejects.toThrow(
+    "POD_PLAID_VAULT_REQUEST_REFUSED",
+  );
+  connection.session.role = "app";
+  connection.session.scopes = ["pod.status"];
+  await expect(ownerPodRequest("plaid/vault/snapshot", { method: "POST", body: "{}" }, ports)).rejects.toThrow(
+    "POD_PLAID_VAULT_REQUEST_REFUSED",
+  );
+  connection.session.scopes = ["pkm.read"];
+  await expect(ownerPodRequest("plaid/vault/snapshot", { method: "GET" }, ports)).rejects.toThrow(
+    "POD_PLAID_VAULT_REQUEST_REFUSED",
+  );
+  for (const route of [
+    "plaid/vault/link-token",
+    "plaid/vault/exchange",
+    "plaid/vault/snapshot",
+    "plaid/vault/remove",
+  ]) {
+    const res = await ownerPodRequest(route, { method: "POST", body: "{}" }, ports);
+    expect(res.ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(4);
 });

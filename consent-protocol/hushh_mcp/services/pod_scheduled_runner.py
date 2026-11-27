@@ -247,8 +247,9 @@ class ScheduledTaskRunner:
                 row["state"] = (
                     "pending_delivery"
                     if following and following < row["authorization_expires_at"]
-                    else "completed"
+                    else outcome
                     if outcome == "completed"
+                    or (outcome == "cancelled" and row["repeat"] == "once")
                     else "needs_review"
                 )
                 if following:

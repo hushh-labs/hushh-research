@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
+import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import ValidationError
+
+from hushh_mcp.services import calendar_proposal_options as options
+from hushh_mcp.services.calendar_opening_selection import (
+    CalendarOpeningSelection,
+    CalendarSharedOpeningSelection,
+    instant,
+)
 from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
@@ -30,7 +43,8 @@ async def board_booking_state(
     status_reader = getattr(owner, "calendar_accounts_status", None)
     if not callable(status_reader):
         raise GoogleConnectionError("Calendar account review is unavailable", status_code=503)
-    status = await status_reader(user_id=user_id)
+    read_status = partial(status_reader, include_pictures=False)
+    status = await read_status(user_id=user_id)
     accounts = status.get("accounts")
     checked = plan.get("checked_account_ids")
     if (
@@ -51,25 +65,36 @@ async def board_booking_state(
         raise GoogleConnectionError("Calendar selection changed", status_code=409)
     start = datetime.fromisoformat(plan["start_at"].replace("Z", "+00:00"))
     end = datetime.fromisoformat(plan["end_at"].replace("Z", "+00:00"))
+    # The board bounds the selection at three independently scoped accounts.
+    # Join all reads before verifying the complete snapshot or admitting a write.
+    results = await asyncio.gather(
+        *(
+            _account_snapshot(
+                calendar,
+                owner=owner,
+                user_id=user_id,
+                plan=plan,
+                account=account,
+                override=overrides.get(account["account_id"]),
+                start=start,
+                end=end,
+            )
+            for account in accounts
+        ),
+        return_exceptions=True,
+    )
     snapshots: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
-    for account in accounts:
-        snapshot, busy = await _account_snapshot(
-            calendar,
-            owner=owner,
-            user_id=user_id,
-            plan=plan,
-            account=account,
-            override=overrides.get(account["account_id"]),
-            start=start,
-            end=end,
-        )
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+        snapshot, busy = result
         snapshots.append(snapshot)
         conflicts.extend(busy)
     await _verify_board_snapshot(
         owner=owner,
         user_id=user_id,
-        status_reader=status_reader,
+        status_reader=read_status,
         accounts=accounts,
         snapshots=snapshots,
         reviewed=plan.get("board_accounts"),
@@ -169,21 +194,116 @@ async def _verify_board_snapshot(
         )
 
 
+def target_fields(payload: dict[str, Any]) -> dict[str, str]:
+    account_id = payload.get("account_id", "default")
+    calendar_id = payload.get("calendar_id", "primary")
+    if not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 128:
+        raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
+    if not isinstance(calendar_id, str) or not calendar_id.strip() or len(calendar_id) > 1024:
+        raise GoogleConnectionError("Choose a valid calendar", status_code=422)
+    return {"account_id": account_id, "calendar_id": calendar_id}
+
+
+def event_path(plan: dict[str, Any]) -> str:
+    target = target_fields(plan)
+    return f"/calendars/{quote(target['calendar_id'], safe='')}/events/{quote(plan['event_id'], safe='')}"
+
+
+def review_event(plan: dict[str, Any], event: dict[str, Any], *, execution: bool = False) -> None:
+    """Bind an occurrence to its provider identity, never a guessed series scope."""
+    if event.get("id") != plan["event_id"]:
+        raise GoogleConnectionError("Calendar event changed. Review it again.", status_code=409)
+    if event.get("recurrence"):
+        raise GoogleConnectionError(
+            "Choose one occurrence of this recurring meeting before reviewing a change.",
+            status_code=422,
+            reason_code="calendar_occurrence_required",
+        )
+    if event.get("attendeesOmitted"):
+        raise GoogleConnectionError(
+            "The complete guest list is required before review.", status_code=409
+        )
+    if not event.get("etag"):
+        raise GoogleConnectionError(
+            "Calendar event review is incomplete. Try again.", status_code=409
+        )
+    boundaries = ["start", "end"]
+    if event.get("recurringEventId"):
+        boundaries.append("originalStartTime")
+    for key in boundaries:
+        boundary = event.get(key)
+        if not isinstance(boundary, dict):
+            raise GoogleConnectionError(
+                "Calendar event review is incomplete. Try again.", status_code=409
+            )
+        try:
+            if boundary.get("dateTime"):
+                value = datetime.fromisoformat(boundary["dateTime"].replace("Z", "+00:00"))
+                if value.tzinfo is None:
+                    raise ValueError("unqualified_time")
+            else:
+                date.fromisoformat(boundary["date"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GoogleConnectionError(
+                "Calendar event review is incomplete. Try again.", status_code=409
+            ) from exc
+    identity = {
+        "recurring_event_id": event.get("recurringEventId"),
+        "original_start_time": event.get("originalStartTime"),
+    }
+    if execution and any(plan.get(key) != value for key, value in identity.items()):
+        raise GoogleConnectionError(
+            "Calendar occurrence changed. Review it again.", status_code=409
+        )
+    plan.update(identity)
+
+
 def validate_plan(
     calendar: GoogleCalendarService, *, action: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    target = target_fields(payload)
+    if action == "create" and target["calendar_id"] != "primary":
+        raise GoogleConnectionError(
+            "New events currently require the selected account's primary calendar.",
+            status_code=422,
+            reason_code="calendar_destination_unsupported",
+        )
+    if target["account_id"] != getattr(calendar.connections, "account_id", "default"):
+        raise GoogleConnectionError(
+            "Calendar account review changed",
+            status_code=409,
+            reason_code="calendar_connection_changed",
+        )
+    for field in ("event_id", "title", "description", "location"):
+        if field in payload and payload[field] is not None and not isinstance(payload[field], str):
+            raise GoogleConnectionError(
+                "Calendar text fields must be strings; use an empty string only to clear a field.",
+                status_code=422,
+            )
+    raw_attendees = payload.get("attendees")
+    if raw_attendees is not None and (
+        not isinstance(raw_attendees, list)
+        or any(not isinstance(item, str) for item in raw_attendees)
+    ):
+        raise GoogleConnectionError(
+            "Calendar attendees must be a list of email addresses.", status_code=422
+        )
+    if "send_updates" in payload and not isinstance(payload["send_updates"], bool):
+        raise GoogleConnectionError(
+            "Choose whether Calendar guests should be notified.", status_code=422
+        )
     event_id = str(payload.get("event_id") or "").strip()
     title = str(payload.get("title") or "").strip()
     if action in {"reschedule", "cancel"} and not event_id:
         raise GoogleConnectionError("Calendar event id is required", status_code=422)
     if action == "cancel":
-        return {"event_id": event_id, "send_updates": bool(payload.get("send_updates", True))}
+        return {
+            **target,
+            "event_id": event_id,
+            "send_updates": bool(payload.get("send_updates", True)),
+        }
     if (action == "create" and not title) or len(title) > 512:
         raise GoogleConnectionError("Calendar event title is required", status_code=422)
-    start = calendar._iso(str(payload.get("start_at") or ""))
-    end = calendar._iso(str(payload.get("end_at") or ""))
-    if start >= end:
-        raise GoogleConnectionError("Calendar end must be after start", status_code=422)
     booking_source = payload.get("booking_source")
     account_id = str(payload.get("account_id") or "default")
     provided_zone = str(payload.get("time_zone") or "")
@@ -193,6 +313,38 @@ def validate_plan(
     board_zone = normalize_time_zone(
         provided_zone, default="" if booking_source == "board" else "UTC"
     )
+    civil = {}
+    if payload.get("start_date") is not None or payload.get("end_date") is not None:
+        if action != "create" or payload.get("start_at") or payload.get("end_at"):
+            raise options.invalid(
+                "Use either exact timed boundaries or all-day dates for a new event."
+            )
+        civil = options.all_day_window(
+            payload.get("start_date"), payload.get("end_date"), board_zone
+        )
+    preserve_time = (
+        action == "reschedule" and not payload.get("start_at") and not payload.get("end_at")
+    )
+    if preserve_time:
+        if not any(
+            payload.get(key) is not None
+            for key in (
+                "title",
+                "description",
+                "location",
+                "attendees",
+                "add_attendees",
+                "reminder_minutes",
+                "add_reminder_minutes",
+            )
+        ):
+            raise options.invalid("Choose what to change, or provide the new event time.")
+        start, end = "", ""
+    else:
+        start, end = calendar._read_window(
+            str(civil.get("start_at") or payload.get("start_at") or ""),
+            str(civil.get("end_at") or payload.get("end_at") or ""),
+        )
     if booking_source == "board":
         validate_board_request(
             action=action,
@@ -204,9 +356,7 @@ def validate_plan(
         )
     raw_attendees = payload.get("attendees")
     attendees = [
-        str(item).strip().lower()
-        for item in (raw_attendees if isinstance(raw_attendees, list) else [])
-        if str(item).strip()
+        str(item).strip() for item in (raw_attendees if isinstance(raw_attendees, list) else [])
     ]
     if len(attendees) > 100 or any("@" not in item for item in attendees):
         raise GoogleConnectionError(
@@ -215,12 +365,45 @@ def validate_plan(
     description = str(payload.get("description") or "")[:8000]
     location = str(payload.get("location") or "")[:1024]
     plan: dict[str, Any] = {
+        **target,
         "event_id": event_id or None,
         "start_at": start,
         "end_at": end,
         "time_zone": board_zone,
         "send_updates": bool(payload.get("send_updates", True)),
+        **civil,
+        **({"review_contract": 1} if payload.get("review_contract") == 1 else {}),
     }
+    if preserve_time:
+        plan["preserve_time"] = True
+    if payload.get("reminder_minutes") is not None:
+        plan["reminders"] = options.popup_reminders(payload["reminder_minutes"])
+    if payload.get("add_reminder_minutes") is not None:
+        if action != "reschedule" or "reminders" in plan:
+            raise options.invalid("Choose either additional reminders or replacement reminders.")
+        plan["add_reminder_minutes"] = options.reminder_minutes(payload["add_reminder_minutes"])
+    if payload.get("add_attendees") is not None:
+        raw_additions = payload["add_attendees"]
+        if (
+            action != "reschedule"
+            or payload.get("attendees") is not None
+            or (
+                not isinstance(raw_additions, list)
+                or len(raw_additions) > 100
+                or any(not isinstance(item, str) or "@" not in item for item in raw_additions)
+            )
+        ):
+            raise options.invalid(
+                "Add verified guest addresses without replacing the existing guest list."
+            )
+        plan["add_attendees"] = list(dict.fromkeys(item.strip().lower() for item in raw_additions))
+    if action != "create" and any(
+        payload.get(key) is not None and payload.get(key) is not False
+        for key in ("repeat_weekly", "repeat_count", "repeat_until")
+    ):
+        raise options.invalid(
+            "Weekly recurrence is available for a new series; select one occurrence to edit."
+        )
     if action == "create":
         meeting_type = str(payload.get("meeting_type") or "google_meet")
         meeting_link = str(payload.get("meeting_link") or "").strip()
@@ -239,15 +422,48 @@ def validate_plan(
         )
         if booking_source == "board":
             plan.update(board_create_fields(payload, account_id, meeting_type, meeting_link))
+        if "opening_selection" in payload:
+            selection = _opening_selection(payload["opening_selection"], plan)
+            plan["opening_selection"] = selection.model_dump(mode="json", exclude_defaults=True)
+        if "shared_opening_selection" in payload:
+            if "opening_selection" in payload or booking_source == "board":
+                raise GoogleConnectionError("Choose one Calendar slot source", status_code=422)
+            shared = _shared_opening_selection(payload["shared_opening_selection"], plan)
+            # Consume the five-minute lookup at preparation, just like a single-
+            # account offer. The issued proposal then owns its advertised TTL.
+            if not 0 <= int(time.time() * 1000) - shared.offer_created_at_ms <= 5 * 60 * 1000:
+                raise GoogleConnectionError(
+                    "This slot expired. Check openings again.", status_code=409
+                )
+            plan["shared_opening_selection"] = shared.model_dump(mode="json")
         from hushh_mcp.services.advisor_calendar_binding import bind_plan
 
         bind_plan(plan, payload)
+        options.weekly_options(payload, plan)
         return plan
     changes = {"title": title, "description": description, "location": location}
-    plan.update({key: value for key, value in changes.items() if value})
-    if attendees:
+    plan.update(
+        {
+            key: value
+            for key, value in changes.items()
+            if key in payload and payload[key] is not None
+        }
+    )
+    if "title" in plan and not plan["title"]:
+        raise GoogleConnectionError("Calendar event title is required", status_code=422)
+    if "attendees" in payload and payload["attendees"] is not None:
         plan["attendees"] = list(dict.fromkeys(attendees))
     return plan
+
+
+async def plan_conflicts(calendar: GoogleCalendarService, *, plan: dict[str, Any], **kwargs):
+    start, end = (
+        options.conflict_window(plan)
+        if plan.get("weekly_recurrence")
+        else (plan["start_at"], plan["end_at"])
+    )
+    events = await calendar._find_conflicts(start_at=start, end_at=end, **kwargs)
+    return options.series_conflicts(plan, events)
 
 
 def validate_board_request(
@@ -335,6 +551,7 @@ async def prepare_included_conflicts(
     if (
         action == "create"
         and plan.get("booking_source") != "board"
+        and not plan.get("shared_opening_selection")
         and await calendar.connections.has_service_scope(
             user_id=user_id, service="calendar", scope=CALENDAR_LIST_READ_SCOPE
         )
@@ -366,19 +583,33 @@ async def execute_create(
     proposal_id: str,
     plan: dict[str, Any],
     binding: tuple[str, ...] | None,
+    before_write: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     if not str(plan.get("conference_request_id") or "").strip():
         plan["conference_request_id"] = f"meet_legacy_{proposal_id.removeprefix('gcal_')}"
-    if plan.get("booking_source") != "board":
+    if plan.get("booking_source") != "board" and not plan.get("shared_opening_selection"):
         calendar._reject_new_conflicts(
             planned=plan.get("primary_conflicts", plan.get("conflicts")),
-            current=await calendar._find_conflicts(
+            current=await plan_conflicts(
+                calendar,
+                plan=plan,
                 user_id=user_id,
-                start_at=plan["start_at"],
-                end_at=plan["end_at"],
                 expected_binding=binding,
             ),
         )
+
+    async def check_source_grants_at_dispatch() -> None:
+        if before_write is not None:
+            await before_write()
+        calendar._check_attendee_grant(plan)
+        calendar._check_mail_attendee_grant(user_id, plan)
+
+    # The Calendar token exchange can overlap with a Contacts or Gmail disconnect.
+    dispatch_guard = (
+        check_source_grants_at_dispatch
+        if plan.get("attendee_grant_binding") or plan.get("mail_attendee_grant")
+        else before_write
+    )
     return await calendar._request(
         user_id=user_id,
         method="POST",
@@ -394,6 +625,7 @@ async def execute_create(
             ),
         },
         payload=calendar._event_payload(plan),
+        **({"before_write": dispatch_guard} if dispatch_guard is not None else {}),
     )
 
 
@@ -415,6 +647,13 @@ def event_payload(plan: dict[str, Any]) -> dict[str, Any]:
         "end": {"dateTime": plan["end_at"], "timeZone": plan["time_zone"]},
         "attendees": [{"email": email} for email in plan["attendees"]],
     }
+    if plan.get("all_day"):
+        body["start"] = {"date": plan["start_date"]}
+        body["end"] = {"date": plan["end_date"]}
+    if plan.get("recurrence"):
+        body["recurrence"] = plan["recurrence"]
+    if "reminders" in plan:
+        body["reminders"] = plan["reminders"]
     if plan.get("meeting_type", "google_meet") == "google_meet":
         body["conferenceData"] = {
             "createRequest": {
@@ -426,3 +665,114 @@ def event_payload(plan: dict[str, Any]) -> dict[str, Any]:
 
     bind_event(body, plan)
     return body
+
+
+def _opening_selection(raw: Any, plan: dict[str, Any]) -> CalendarOpeningSelection:
+    try:
+        selection = CalendarOpeningSelection.model_validate(raw)
+        if (
+            selection.calendar_id != plan["calendar_id"]
+            or selection.slot.start_at != plan["start_at"]
+            or selection.slot.end_at != plan["end_at"]
+            or selection.time_zone != plan["time_zone"]
+        ):
+            raise ValueError("Opening target changed")
+    except (ValidationError, TypeError, ValueError, KeyError) as exc:
+        raise GoogleConnectionError(
+            "Calendar slot review changed. Check openings again.", status_code=409
+        ) from exc
+    return selection
+
+
+async def check_opening(
+    calendar: GoogleCalendarService,
+    *,
+    user_id: str,
+    plan: dict[str, Any],
+    binding: tuple[str, ...] | None,
+) -> None:
+    """A slot reference is free-only, both before review and before dispatch."""
+    if plan.get("shared_opening_selection"):
+        await _check_shared_opening(calendar, user_id=user_id, plan=plan)
+        return
+    selection = _opening_selection(plan["opening_selection"], plan)
+    if instant(selection.slot.start_at) <= datetime.now(UTC) or not binding:
+        raise GoogleConnectionError("This slot expired. Check openings again.", status_code=409)
+    if selection.coverage_policy == "board_default":
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+        schedule = CalendarScheduleService(calendar=calendar)
+        inventory = await schedule._included_calendars(user_id, binding=binding)
+        selected, _ = schedule._availability_selection(inventory)
+        if set(schedule.opening_calendar_ids(selected)) != set(selection.calendar_ids):
+            raise GoogleConnectionError(
+                "Calendar coverage changed. Check openings again.",
+                status_code=409,
+                reason_code="calendar_selection_changed",
+            )
+        busy = await schedule._busy_intervals(
+            user_id=user_id,
+            start=instant(selection.slot.start_at),
+            end=instant(selection.slot.end_at),
+            calendar_ids=selection.calendar_ids,
+            binding=binding,
+        )
+    else:
+        result = await calendar.freebusy(
+            user_id=user_id,
+            start_at=selection.slot.start_at,
+            end_at=selection.slot.end_at,
+            calendar_ids=selection.calendar_ids,
+            expected_binding=binding,
+        )
+        busy = calendar._merged_busy_intervals(
+            calendars=result.get("calendars"),
+            range_start=instant(selection.slot.start_at),
+            range_end=instant(selection.slot.end_at),
+        )
+    if busy:
+        raise GoogleConnectionError(
+            "This slot is no longer free. Check openings again.",
+            status_code=409,
+            reason_code="calendar_availability_changed",
+        )
+    await calendar._check_read_binding(user_id, binding)
+
+
+def _shared_opening_selection(raw: Any, plan: dict[str, Any]) -> CalendarSharedOpeningSelection:
+    try:
+        selection = CalendarSharedOpeningSelection.model_validate(raw)
+        if (
+            plan["calendar_id"] != "primary"
+            or plan["account_id"] not in {item.account_id for item in selection.board_accounts}
+            or selection.slot.start_at != plan["start_at"]
+            or selection.slot.end_at != plan["end_at"]
+            or selection.time_zone != plan["time_zone"]
+        ):
+            raise ValueError("Shared opening target changed")
+    except (ValidationError, TypeError, ValueError, KeyError) as exc:
+        raise GoogleConnectionError(
+            "Calendar slot review changed. Check openings again.", status_code=409
+        ) from exc
+    return selection
+
+
+async def _check_shared_opening(
+    calendar: GoogleCalendarService, *, user_id: str, plan: dict[str, Any]
+) -> None:
+    selection = _shared_opening_selection(plan["shared_opening_selection"], plan)
+    if instant(selection.slot.start_at) <= datetime.now(UTC):
+        raise GoogleConnectionError("This slot expired. Check openings again.", status_code=409)
+    # Use Board's existing full-account coverage, grant and write-permission
+    # authority, comparing the ORIGINAL read snapshots before sealing anything.
+    checked = {
+        **plan,
+        "checked_account_ids": [item.account_id for item in selection.board_accounts],
+        "board_accounts": [item.model_dump() for item in selection.board_accounts],
+    }
+    if await board_booking_state(calendar, user_id=user_id, plan=checked):
+        raise GoogleConnectionError(
+            "This slot is no longer free. Check openings again.",
+            status_code=409,
+            reason_code="calendar_availability_changed",
+        )

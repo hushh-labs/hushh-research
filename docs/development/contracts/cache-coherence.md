@@ -16,6 +16,7 @@ flowchart TB
 
   subgraph device["Device persistence"]
     secure["Encrypted IndexedDB<br/>secure resource cache"]
+    ownerui["Encrypted Owner UI Cache<br/>hushh-owner-ui-cache (0ms - 150ms)"]
     plain["Plain IndexedDB<br/>non-sensitive resource cache"]
   end
 
@@ -30,6 +31,7 @@ flowchart TB
   end
 
   ui --> mem
+  ui --> ownerui
   mem --> secure
   mem --> plain
   mem --> pkm
@@ -44,6 +46,7 @@ flowchart TB
   sync --> secure
   sync --> plain
   key --> secure
+  key --> ownerui
   plaintext --> mem
 ```
 
@@ -53,6 +56,7 @@ Hussh frontend cache is split by sensitivity and runtime role:
 
 - decrypted PKM stays **memory-only**
 - encrypted PKM-derived snapshots can persist in **encrypted IndexedDB**
+- encrypted owner UI read-plane snapshots (`hushh-owner-ui-cache`) persist in **encrypted IndexedDB** for `0ms - 150ms` (`<100ms` target) passive UI reads across Chats, `/one/files`, and Personal Wiki
 - non-sensitive read models can use resource-specific memory/device caches
 
 Every DB-backed mutation must still pass through `CacheSyncService` so views stay coherent without ad-hoc invalidation.
@@ -83,6 +87,17 @@ No invitation contents or credentials are persisted to device storage. RSVP revi
 and confirmation, along with explicit invitation requests in chat, continue to
 use live provider requests.
 
+## Calendar follow-up snapshots
+
+Follow-ups uses the existing memory cache for the selected account’s first page.
+Keys include authenticated-session generation, owner, account, provider binding
+and connection revision. Saved presentation can render while live status/list
+reads revalidate; it never authorizes mutations. Authentication withdrawal purges
+snapshots. Grant or monitor rejection clears rows, details, links and drafts and
+exposes recovery. No follow-up content persists in device storage. Visible online
+polling continues after initial completion, with focus/online refresh; each read
+uses the selected account’s current Mail authority on the server.
+
 ## People message snapshots
 
 `DirectMessagesResourceService` keeps owner-scoped presentation snapshots in
@@ -91,7 +106,19 @@ per transcript and 64 verified route-token mappings. No message body or route
 mapping is written to device storage. Cached send permission is always false;
 the existing authenticated history/relationship request checks it on each entry.
 
-Revisits render the matching transcript while revalidation runs. Cold entries
+Selecting an inbox person updates the thread immediately, before route-token
+minting. The server-verified token mapping is retained in owner-scoped memory
+before navigation, avoiding a second resolution request. A newer tap or Back
+retires the pending opening; an earlier client transition cannot replace a newer
+selection. New chat carries the selected connection's known name and photo as
+presentation only.
+
+Revisits render the matching transcript while revalidation runs. Without a
+transcript, the authenticated inbox's latest message is presentation only until
+history arrives. It never narrows the initial history page or replaces newer
+cached edits or deletions, including confirmed empty transcripts. Tapping the
+active conversation refreshes history directly while retaining the transcript.
+Cold entries
 retain the shell and known contact header without a blocking loading panel or
 premature empty state. Transport failures retain readable history; authoritative
 401/403/404 responses clear it. Focus, resume, polling and message signals use
@@ -102,6 +129,22 @@ Pending optimistic reactions are excluded from snapshot publication.
 received message-change signals and connection changes. Read receipts keep them warm. Sign-out,
 account deletion and cache clear purge snapshots and verified route mappings;
 request-session fences prevent late responses from restoring purged entries.
+
+## Circle message working state
+
+The Messages Circles pane retains up to four recently visited threads in React
+memory, including their history, sequence/version fences and uncertain send state.
+Each thread keeps its original session object. Switching back shows its latest
+available transcript while the existing state/history requests revalidate it.
+Cold entries keep the circle header and an accessible busy state without separate
+connection or message-loading panels.
+
+Only the selected thread polls and acknowledges reads. Hidden threads release
+file/video viewers and keep the existing revocation listener. Owner, owner-token
+or vault-key changes synchronously discard the retained working set; directory
+removal prunes a thread, and a changed membership incarnation resets its editor
+and transcript. No thread contents or credentials are added to device storage.
+Existing live membership, roster and mutation checks remain authoritative.
 
 ## Mail receipt snapshots
 
@@ -209,8 +252,15 @@ durable transaction journal. Initial connection, listener recovery, and Feed
 queue overflow send `feed_reset`; authenticated reads recover the current state.
 Legacy consent queues remain separate from Feed-only burst/reset handling.
 
+UAT migration 459 emits a Feed wake after a committed change to a connection
+request, a request-linked Drive search or delivery, or a Drive checkout or
+refund. The stream sends a fixed reason to the participants. The client
+rereads the authorized snapshots and refreshes incoming connections
+separately from consent and Drive. Visible request outcomes join Feed
+history while the reader stays on the same row.
+
 Deleting a participant chat emits the owner-only `history_mutated` reason on a
-general Feed hint. The stream admits only that exact enum and discards other
+general Feed hint. The stream admits a fixed set of reasons and discards other
 producer fields. `CacheSyncService.onFeedHistoryMutated` advances the Feed
 presentation revision, evicts its saved pages, and invalidates list/count reads.
 The next authoritative page drops previously loaded deleted rows; a stale
@@ -254,6 +304,9 @@ Source files:
 - `hushh-webapp/cache-coherence-screen-manifest.generated.json`
 - `hushh-webapp/scripts/architecture/audit-cache-coherence.mjs`
 - `hushh-webapp/lib/services/secure-resource-cache-service.ts`
+- `hushh-webapp/lib/storage/encrypted-owner-ui-cache.ts`
+- `hushh-webapp/lib/files/files-cache.ts`
+- `hushh-webapp/lib/agent/agent-chat-history-cache.ts`
 - `hushh-webapp/lib/pkm/pkm-domain-resource.ts`
 - `hushh-webapp/lib/services/pkm-write-coordinator.ts`
 - `consent-protocol/hushh_mcp/services/market_insights_cache.py`
@@ -359,11 +412,13 @@ Do:
   the prior bounded projection answers the next turn immediately while one
   user-scoped refresh checks metadata and reloads ciphertext only when its
   revision changed. No decrypted working set survives vault lock or process exit.
-- Agent Chat conversation metadata and message history use a separate
-  process-memory-only, user-scoped cache. Vault unlock single-flights a bounded
-  warm of the recent conversation list and latest thread; opening Agent Chat
-  renders the composer first and restores authorized memory snapshots immediately,
-  including snapshots older than five minutes. Expiry starts one shared background
+- Agent Chat conversation metadata and message history pair a process-memory
+  decrypted RAM cache with an owner-scoped AES-256-GCM encrypted IndexedDB
+  read replica (`chat-history:v1` inside `hushh-owner-ui-cache`). Vault unlock
+  single-flights a bounded warm of the recent conversation list and latest thread;
+  opening Agent Chat renders the composer first and restores authorized snapshots
+  immediately (from RAM or encrypted IndexedDB in `0ms - 150ms`), including
+  snapshots older than five minutes. Expiry starts one shared background
   list/transcript refresh; failure retains readable history without blocking the
   composer. Fresh settled returns make no history request. Owner, vault, chat,
   restoration and cache generations fence every deferred publication. Successful
@@ -371,7 +426,10 @@ Do:
   in-flight list cannot restore the deleted conversation. The workspace defers
   a cold history request to an idle beat. Direct Ask One handoffs never wait for
   or get overwritten by restoration. Selecting another thread loads only that
-  thread, and vault lock synchronously clears all cached chat text.
+  thread. Idle `lockVault()` clears decrypted RAM plaintext synchronously while
+  retaining the AES-256-GCM encrypted `chat-history:v1` IndexedDB replica across
+  reload and idle lock (`includeDevice: false`); only explicit sign-out,
+  confirmed owner mismatch, or explicit vault reset/erasure purges IndexedDB.
 - A loaded Connected Systems record follows the same protected L1 rule: show the
   current-session record immediately, then re-read it silently after binding and
   schema authority settle. Record values, binding IDs, and staged changes never
@@ -535,12 +593,38 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
 
 ## Reconciliation Notes
 
+### Encrypted Owner UI Read Replica (0ms - 150ms Read Plane, 2026-11-23)
+
+- **Storage and cryptography:** `hushh-webapp/lib/storage/encrypted-owner-ui-cache.ts`
+  stores encrypted read-plane snapshots in IndexedDB database `hushh-owner-ui-cache`
+  (`RECORD_STORE = "encrypted_records"`, `OWNER_INDEX = "by_owner"`) using
+  AES-256-GCM with an HKDF-SHA256 subkey derived in RAM from `vaultKey` (salt
+  `ownerId`, info `hussh-ui-read-cache-v1`), AEAD
+  `additionalData = "hussh-ui-read-cache-v1|<ownerId>|<namespace>"`, and a
+  `2 MiB` max plaintext guard.
+- **Covered namespaces:** `chat-history:v1` (Chats sidebar and Rolling Main Chat via
+  `hushh-webapp/lib/agent/agent-chat-history-cache.ts`), plus `files:hosting:v1`,
+  `files:settings:v1`, `files:wiki:overview:v1`, and `files:list:<parent>:live`
+  (`/one/files` and Personal Wiki via `hushh-webapp/lib/files/files-cache.ts`).
+- **Reload and idle lock retention:** Pending-auth initialization
+  (`publishPendingAuthSessionIdentity` in `hushh-webapp/lib/firebase/auth-context.tsx`)
+  and idle `lockVault()` (`hushh-webapp/lib/vault/vault-context.tsx`) clear only
+  RAM caches (`includeDevice: false`), preserving encrypted IndexedDB records so
+  return-from-idle and reload render in `0ms - 150ms` (`<100ms` target for Chats
+  sidebar and `/one/files`) without grey skeleton hangs while sandboxes pre-warm
+  silently. Transient hub errors retain `files:hosting:v1`.
+- **Permitted IndexedDB wipe conditions only:** Explicit sign-out
+  (`onAuthSignedOut`), confirmed owner mismatch, or explicit vault reset/erasure
+  (`deleteEncryptedOwnerUiRecords`).
+- **Tracking:** [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) ·
+  [#9370](https://github.com/hushh-labs/hushh-research/issues/9370).
+
 ### Market session refresh
 
 `KaiMarketHomeProvider` owns the shared Market/Stocks resource and registers
 `useMarketLiveRefresh` on the shared idle scheduler. Visible, online screens
 request fresh information on the two-minute clock during scheduled US regular
-hours (weekdays, 09:30–16:00 America/New_York), including opening and return from
+hours (weekdays, 09:30 to 16:00 America/New_York), including opening and return from
 the background. Scheduled requests bypass the client freshness TTL, reuse valid
 owner credentials, and retain the rendered snapshot while awaiting a response.
 Hidden/offline screens make no scheduled requests. Failed attempts are bounded
@@ -568,22 +652,53 @@ warm-up failures do not consume a current session's
 explicit Review attempt. All keys and decrypted context remain memory-only;
 existing secure device snapshots remain encrypted.
 
-### Cross-route PKM freshness (2026-09-02)
+### Cross-route PKM freshness and warm-revisit bounds
 
 A domain stored on one route (Wallet, the Kai statement import, chat) used to
 reach Memory only if Memory was mounted at that moment: `pkm-domain-changed` is
 a fire-and-forget window event, and the metadata write-through patch reset the
 TTL, so `getMetadata(force=false)` on the next mount served the patch for up to
-five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
+five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap without
+trapping later revisits in permanent cold reloads:
 
 - `CacheSyncService` bumps the per-owner epoch on every stored / cleared /
-  restored emit, alongside the event.
-- `usePkmDomainChangeRevision` seeds from the epoch, so a screen that mounts
-  after a write starts above zero and forces a fresh read; the listener still
-  covers writes made while it is mounted.
-- Profile my-data applies the same rule through `refreshPkmMetadata(true)`.
+  restored emit and invalidates cached domain scope availability alongside
+  metadata.
+- `usePkmDomainChangeRevision` reads the epoch so mounted surfaces react
+  immediately when a write occurs.
+- `usePkmNaturalModel` seeds metadata synchronously from
+  `CacheService.peek(CACHE_KEYS.PKM_METADATA(...))` so warm `/one/pkm` revisits
+  paint without `Opening Memory...` loaders, and forces a cold metadata/card
+  reload only when `pkmChangeRevision` advances while mounted or on explicit
+  refresh. Profile my-data retains `refreshPkmMetadata(true)`.
 - `audit-cache-coherence.mjs` invariant 0 fails the build if either side of the
-  link is removed.
+  epoch link is removed.
+
+### Paid scope commerce, Memory earnings, and hub traffic hygiene (2026-11-22)
+
+- **Single-catalog tariff pricing:** `ScopeTariffEditor` hydrates from the
+  batched owner `tariffCatalog` snapshot (`peekOwnerTariff` plus single-flight
+  `GET /api/one/scope-commerce/tariffs`) and treats handles absent from a
+  settled catalog as `Free` instead of firing per-row `N x 2` tariff/readiness
+  lookups. Backend `GET /api/one/scope-commerce/tariffs` coalesces tariff
+  listing and seller/environment/retention readiness into one DB transaction
+  (`list_tariffs_with_readiness`) and one consolidated readiness query.
+- **Cached domain scope discovery and Memory earnings:**
+  `PersonalKnowledgeModelService.getAvailableScopes` caches per owner at
+  `CACHE_TTL.MEDIUM` with vault-session-epoch fencing and inflight coalescing,
+  invalidated on PKM domain store/clear through `CacheSyncService`.
+  `useCommerceRead` supports opt-in memory-only SWR warm snapshots
+  (`warmSnapshot` for `memory-earnings`), fenced by owner, vault session epoch,
+  and `CONSENT_STATE_CHANGED_EVENT`, with zero plaintext device persistence.
+- **Navigation and hub traffic-storm guards:** `ConsentNotificationProvider`
+  keys web SSE lifecycle on the boolean `prioritizeConsentRealtime` predicate
+  rather than raw `pathname` and caches `?capabilities=1` per owner for five
+  minutes so routine tab switches do not tear down SSE or repeat capability
+  probes. `ConsentCenterService.getSummary` coalesces concurrent cold
+  foreground reads per `(cacheKey, generation, version)`. Connect defers
+  multi-degree `preloadNetworkDiscovery` and preview reads until the `Discover`
+  view is active, and `PublicProfileDiscoveryService` negative-caches `404`
+  status probes per auth session generation and token key for five minutes.
 
 - Domain metadata patches should preserve canonical summary counters (`attribute_count`, `item_count`, `holdings_count`).
 - Raw `total_value` is not retained in index summary cache patches; numeric values should map to `portfolio_total_value`.

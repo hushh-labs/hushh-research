@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -72,6 +73,144 @@ def request(app, path, **kwargs):
     return app.client.request(
         method, path, headers={"Authorization": "Bearer owner-fixture"}, **kwargs
     )
+
+
+@pytest.fixture
+def task_owner(owner_app, monkeypatch):
+    from api.routes.one import pod_commands
+    from hushh_mcp.services import one_todo_suggestions
+
+    monkeypatch.setattr(pod_commands, "verified_session", pod_session.verified_session)
+    monkeypatch.setattr(one_todo_suggestions, "one_todo_suggestions_enabled", lambda: True)
+    runner = AsyncMock(
+        return_value={
+            "items": [{"source_ref": "s1", "title": "Plan the demo", "reason": "Friday meeting"}]
+        }
+    )
+    monkeypatch.setattr(pod_todo_sources, "_private_todo_gene", runner)
+    return owner_app, runner
+
+
+TASK_BODY = {
+    "allow_model_processing": True,
+    "selected_capabilities": ["calendar"],
+    "sources": [
+        {"ref": "s1", "capability": "calendar", "summary": "Demo on Friday"},
+        {"ref": "s2", "capability": "gmail", "summary": "Disabled source"},
+        {
+            "ref": "s3",
+            "capability": "calendar",
+            "summary": "Existing task",
+            "already_pending": True,
+        },
+    ],
+}
+TASK_URL = "/api/one/pod/todos/suggestions"
+
+
+def test_private_suggestions_owner_http_filters_before_inference(task_owner):
+    app, runner = task_owner
+    response = app.client.post(
+        TASK_URL, json=TASK_BODY, headers={"Authorization": "Bearer owner-fixture"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["items"][0]["source_ref"] == "s1"
+    prompt = runner.call_args.kwargs["prompt"]
+    assert "Demo on Friday" in prompt
+    assert "Disabled source" not in prompt and "Existing task" not in prompt
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {"X-Consent-Token": "hub-token"}, {"Authorization": "Bearer foreign"}]
+)
+def test_private_suggestions_refuse_nonowner_before_body_and_model(task_owner, headers):
+    app, runner = task_owner
+    response = app.client.post(TASK_URL, content="{", headers=headers)
+    assert response.status_code in {401, 403}
+    runner.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["device", "status", "foreign", "fenced"])
+def test_private_suggestions_refuse_wrong_role_scope_owner_or_incarnation(task_owner, kind):
+    app, runner = task_owner
+    if kind == "device":
+        app.claims["role"] = "device"
+    elif kind == "status":
+        app.claims["scopes"] = ["pod.status"]
+    elif kind == "foreign":
+        app.state["owner"] = "different-owner"
+    else:
+        app.state["held"] = False
+    response = app.client.post(
+        TASK_URL, json=TASK_BODY, headers={"Authorization": "Bearer owner-fixture"}
+    )
+    assert response.status_code in {401, 403, 409}
+    assert response.headers["cache-control"] == "private, no-store"
+    runner.assert_not_called()
+
+
+def test_private_suggestions_require_explicit_processing_and_sanitize_validation(task_owner):
+    app, runner = task_owner
+    headers = {"Authorization": "Bearer owner-fixture"}
+    response = app.client.post(
+        TASK_URL, json={**TASK_BODY, "allow_model_processing": False}, headers=headers
+    )
+    assert response.status_code == 403
+    response = app.client.post(
+        TASK_URL, json={**TASK_BODY, "private_secret": "never echo this"}, headers=headers
+    )
+    assert response.status_code == 422
+    assert "never echo this" not in response.text
+    assert response.headers["cache-control"] == "private, no-store"
+    runner.assert_not_called()
+
+
+def test_private_suggestions_revalidate_after_inference_and_reject_unoffered_refs(task_owner):
+    app, runner = task_owner
+    headers = {"Authorization": "Bearer owner-fixture"}
+    runner.return_value = {
+        "items": [{"source_ref": "s2", "title": "Unselected", "reason": "No authority"}]
+    }
+    assert app.client.post(TASK_URL, json=TASK_BODY, headers=headers).status_code == 503
+
+    async def revoke(**kwargs):
+        app.state["revoked"] = True
+        return {"items": []}
+
+    runner.side_effect = revoke
+    assert app.client.post(TASK_URL, json=TASK_BODY, headers=headers).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_private_suggestion_model_uses_owner_target_and_refuses_shared(monkeypatch):
+    from hushh_mcp.one_adk import text_runtime
+    from hushh_mcp.services import one_todo_suggestions
+
+    payload = pod_turn.PodTurnRequest(message="fixture")
+    monkeypatch.setattr(pod_turn, "_resolve_model", lambda: ("gemini", "owner-model"))
+    mode = {"value": "user_adc"}
+    monkeypatch.setattr(
+        pod_turn,
+        "_resolve_owner_target",
+        lambda *_: (payload, ("gemini", "owner-model", mode["value"])),
+    )
+    model = Mock()
+    builder = Mock(return_value=model)
+    runner = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr(text_runtime, "_runtime_model", builder)
+    monkeypatch.setattr(one_todo_suggestions, "run_todo_gene", runner)
+    await pod_todo_sources._private_todo_gene(
+        prompt="fixture", user_id="owner", consent_token=LOCAL_TOKEN_PREFIX + "fixture"
+    )
+    assert builder.call_args.kwargs["runtime_mode"] == "user_adc"
+    assert runner.call_args.kwargs["model"] is model
+    mode["value"] = "hushh_managed_vertex"
+    with pytest.raises(HTTPException):
+        await pod_todo_sources._private_todo_gene(
+            prompt="fixture", user_id="owner", consent_token=LOCAL_TOKEN_PREFIX + "fixture"
+        )
+    assert builder.call_count == 1 and runner.call_count == 1
 
 
 def calendar_event(identity="event-1"):
@@ -231,13 +370,50 @@ def test_calendar_grant_recovery_is_not_an_owner_authentication_failure(owner_ap
 def test_unavailable_mail_store_is_a_safe_retryable_failure(owner_app, monkeypatch):
     from hushh_mcp.services import pod_connector_credentials as store
 
-    def unavailable(_connector):
+    def unavailable(connector_id, *, account_id):
+        assert (connector_id, account_id) == ("gmail", "")
         raise store.ConnectorCredentialsUnavailable("fixture unavailable")
 
     monkeypatch.setattr(store, "active_connector_credential", unavailable)
     response = request(owner_app, MAIL)
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "MAIL_READ_UNAVAILABLE"
+    assert owner_app.google.requests == []
+
+
+def test_selected_followup_mailbox_store_failure_is_retryable(owner_app, monkeypatch):
+    from api.routes.one import pod_mail_followups
+    from hushh_mcp.services import pod_connector_credentials as store
+
+    owner_app.client.app.include_router(pod_mail_followups.router)
+    primary = store.active_connector_credential("gmail")
+    slot = "selected-mailbox"
+    selected = SimpleNamespace(
+        credential_id=primary.credential_id,
+        account_id=slot,
+        account_subject=primary.account_subject,
+        status=store.STATUS_CONNECTED,
+    )
+    looked_up = []
+
+    def lookup(account):
+        assert account == "selected"
+        return selected
+
+    def unavailable(connector_id, *, account_id):
+        looked_up.append((connector_id, account_id))
+        raise store.ConnectorCredentialsUnavailable("fixture unavailable")
+
+    monkeypatch.setattr(store, "active_mail_account", lookup)
+    monkeypatch.setattr(store, "active_connector_credential", unavailable)
+    response = owner_app.client.post(
+        "/api/one/pod/gmail/followups/account",
+        headers={"Authorization": "Bearer owner-fixture"},
+        json={"account": "selected", "connection": primary.credential_id},
+    )
+    assert looked_up == [("gmail", slot)]
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "MAIL_FOLLOWUP_UNAVAILABLE"
     assert owner_app.google.requests == []
 
 

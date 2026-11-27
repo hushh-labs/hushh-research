@@ -7,8 +7,8 @@ import { Button } from "@/lib/morphy-ux/button";
 
 export type StockHistoryLoader = (symbol: string, signal: AbortSignal) => Promise<StockPriceHistory>;
 
-export function StockHistoryPanel({ symbol, loadHistory, active = true }: {
-  symbol: string; loadHistory?: StockHistoryLoader; active?: boolean;
+export function StockHistoryPanel({ symbol, loadHistory, active = true, market = "US" }: {
+  symbol: string; loadHistory?: StockHistoryLoader; active?: boolean; market?: "US" | "IN";
 }) {
   const [history, setHistory] = useState<StockPriceHistory | null>(null);
   const [loading, setLoading] = useState(Boolean(active && loadHistory));
@@ -41,7 +41,7 @@ export function StockHistoryPanel({ symbol, loadHistory, active = true }: {
       onClick={() => setAttempt(value => value + 1)}>Retry price history</Button> : null}
   </div>;
   return <div className="space-y-2">
-    <PriceHistoryChart key={symbol} data={history.points} label="Price history" />
+    <PriceHistoryChart key={symbol} data={history.points} label="Price history" currency={market === "IN" ? "INR" : "USD"} timeZone={market === "IN" ? "Asia/Kolkata" : "America/New_York"} />
     <p className="text-xs leading-[18px] text-muted-foreground">
       {[history.source, history.stale ? "Cached history" : history.cached ? "Saved daily history" : "Daily observations",
         history.retrievedAt && Number.isFinite(Date.parse(history.retrievedAt)) ? `Retrieved ${new Date(history.retrievedAt).toLocaleString()}` : null].filter(Boolean).join(" · ")}

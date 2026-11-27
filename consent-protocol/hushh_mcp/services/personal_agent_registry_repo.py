@@ -32,6 +32,13 @@ from hushh_mcp.services.compute_backend import (
 from hushh_mcp.services.placement_observation import read_placement_row
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
+from . import upgrade_host_binding as _binding
+from .personal_agent_registry_hosted_files import HostedFilesRegistryMixin
+
+_UPGRADE_HOST_METADATA_KEYS = _binding._UPGRADE_HOST_METADATA_KEYS
+_UPGRADE_HOST_BINDING_REGISTRY_KEYS = _binding._UPGRADE_HOST_BINDING_REGISTRY_KEYS
+_UPGRADE_HOST_BINDING_METADATA_KEYS = _binding._UPGRADE_HOST_BINDING_METADATA_KEYS
+
 _REGISTRY = "personal_agent_registry"
 _TOMBSTONES = "personal_agent_deletion_tombstones"
 
@@ -177,51 +184,8 @@ def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
     )
 
 
-_UPGRADE_HOST_METADATA_KEYS = (
-    "project",
-    "region",
-    "service",
-    "serviceUid",
-    "url",
-    "runtime_service_account",
-    "tenancy",
-    "ingress",
-    "substrateReceipt",
-    "filesUpgradeCheckpoint",
-    "hostKind",
-    "vmHost",
-    "vmConfigurationSha256",
-    "vmUpdateModuleSha256",
-    "image",
-    "image_digest",
-    "runtime_principal_id",
-    "runtime_client_id",
-    "vmPower",
-)
-
-
 def upgrade_host_snapshot(row: Optional[dict]) -> Optional[dict]:
-    snapshot = registry_host_snapshot(row)
-    if row is None or snapshot is None:
-        return None
-    # Reuse the host authority projection and include the remaining PodSpec inputs.
-    snapshot.update(
-        {
-            key: row.get(key)
-            for key in (
-                "phone_e164_hash",
-                "placement_epoch",
-                "pod_pubkey",
-                "pod_key_id",
-                "pod_signing_key_id",
-                "pod_signing_pubkey",
-                "liveness_mode",
-            )
-        }
-    )
-    metadata = snapshot["backend_metadata"] or {}
-    snapshot["host_metadata"] = {key: metadata.get(key) for key in _UPGRADE_HOST_METADATA_KEYS}
-    return snapshot
+    return _binding.upgrade_host_snapshot(row, registry_snapshot=registry_host_snapshot)
 
 
 def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dict:
@@ -251,7 +215,20 @@ def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dic
     }
 
 
-class PersonalAgentRegistryRepo:
+def upgrade_host_binding_json(snapshot: dict) -> str:
+    return _binding.upgrade_host_binding_json(snapshot, dump_json=json.dumps)
+
+
+def upgrade_lease_host_binding_matches(row: dict) -> bool:
+    return _binding.upgrade_lease_host_binding_matches(
+        row,
+        snapshot_for_row=upgrade_host_snapshot,
+        binding_json=upgrade_host_binding_json,
+        load_json=json.loads,
+    )
+
+
+class PersonalAgentRegistryRepo(HostedFilesRegistryMixin):
     """CRUD over the personal-agent registry and deletion tombstones."""
 
     def __init__(self, client: Any = None) -> None:
@@ -270,13 +247,33 @@ class PersonalAgentRegistryRepo:
         retained = ((observed or {}).get("backend_metadata") or {}).get("provisionAttempt") or {}
         resuming = bool(retained.get("hostedAdmission"))
         attempt = str(retained.get("attemptId")) if resuming else uuid.uuid4().hex
+        managed_target = is_known_pod_target(
+            intent.get("deployment_target")
+        ) and not is_owner_cloud_target(intent.get("deployment_target"))
         claim_function = (
             "claim_hosted_pod_pilot_provision"
-            if is_known_pod_target(intent.get("deployment_target"))
-            and not is_owner_cloud_target(intent.get("deployment_target"))
+            if managed_target
             else "claim_personal_agent_provision"
         )
         try:
+            if managed_target:
+                from hushh_mcp.services.hosted_dev_pilot_extension import (
+                    claim_extension_provision,
+                    matches_extension_intent,
+                )
+
+                if matches_extension_intent(intent, observed=observed):
+                    ext_reservation = await claim_extension_provision(
+                        self._db(), observed=observed, intent=intent, attempt_id=attempt
+                    )
+                    if (
+                        not isinstance(ext_reservation, dict)
+                        or ext_reservation.get("ownerId") != owner
+                        or ext_reservation.get("attemptId") != attempt
+                        or ext_reservation.get("intent") != intent
+                    ):
+                        raise ValueError("unacknowledged provision reservation")
+                    return ext_reservation
             result = await asyncio.to_thread(
                 self._db().execute_raw,
                 f"SELECT public.{claim_function}(:owner,:attempt,"
@@ -311,10 +308,20 @@ class PersonalAgentRegistryRepo:
             raise RuntimeError("personal agent provision admission unavailable") from None
 
     async def hosted_upgrade_current(
-        self, *, owner_id: str, lease: str, observed: dict, work: bool = True
+        self,
+        *,
+        owner_id: str,
+        lease: str,
+        observed: dict,
+        work: bool = True,
+        join_on_cancel: bool = False,
     ) -> bool:
         return await self._hosted_journal().upgrade_current(
-            owner_id=owner_id, lease=lease, observed=observed, work=work
+            owner_id=owner_id,
+            lease=lease,
+            observed=observed,
+            work=work,
+            join_on_cancel=join_on_cancel,
         )
 
     async def hosted_cleanup_current(self, *, owner_id: str, reservation: dict) -> bool:
@@ -469,38 +476,50 @@ class PersonalAgentRegistryRepo:
         inventory = result.data[0].get("inventory") if result.data else None
         return inventory if isinstance(inventory, dict) else None
 
-    async def retain_erasure_upgrade_ack(self, *, user_id: str, lease: str, receipt: dict) -> bool:
+    async def retain_erasure_upgrade_ack(
+        self, *, user_id: str, lease: str, receipt: dict, join_on_cancel: bool = False
+    ) -> bool:
         """Append late provider evidence without reopening the reserved owner."""
-        response = await asyncio.to_thread(
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        response = await database_thread(
             self._db().execute_raw,
             "SELECT public.retain_erasure_upgrade_ack(:owner, :lease, CAST(:receipt AS jsonb)) AS retained",
             {"owner": user_id, "lease": lease, "receipt": json.dumps(receipt)},
+            join_on_cancel=join_on_cancel,
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
     async def retain_erasure_files_upgrade_observation(
-        self, *, user_id: str, lease: str, observation: dict
+        self, *, user_id: str, lease: str, observation: dict, join_on_cancel: bool = False
     ) -> bool:
         """Preserve the last Files result without reopening the reserved owner."""
-        response = await asyncio.to_thread(
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        response = await database_thread(
             self._db().execute_raw,
             "SELECT public.retain_erasure_files_upgrade_observation(:owner,:lease,CAST(:receipt AS jsonb)) AS retained",
             {"owner": user_id, "lease": lease, "receipt": json.dumps(observation)},
+            join_on_cancel=join_on_cancel,
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
-    async def files_upgrade_admission_ready(self) -> bool:
-        available = await asyncio.to_thread(
+    async def files_upgrade_admission_ready(self, *, join_on_cancel: bool = False) -> bool:
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        available = await database_thread(
             self._db().execute_raw,
             "SELECT to_regprocedure('public.files_upgrade_admission_ready()') IS NOT NULL AS ready",
             {},
+            join_on_cancel=join_on_cancel,
         )
         if not (available.data and available.data[0].get("ready") is True):
             return False
-        result = await asyncio.to_thread(
+        result = await database_thread(
             self._db().execute_raw,
             "SELECT public.files_upgrade_admission_ready() AS ready",
             {},
+            join_on_cancel=join_on_cancel,
         )
         return bool(result.data and result.data[0].get("ready") is True)
 
@@ -1128,8 +1147,10 @@ class PersonalAgentRegistryRepo:
                 hushh_id=hushh_id,
             )
 
-    async def get(self, user_id: str) -> Optional[dict]:
-        return await read_placement_row(self._db(), _REGISTRY, user_id)
+    async def get(self, user_id: str, *, join_on_cancel: bool = False) -> Optional[dict]:
+        return await read_placement_row(
+            self._db(), _REGISTRY, user_id, join_on_cancel=join_on_cancel
+        )
 
     async def set_space_name(self, *, user_id: str, space_name: str) -> bool:
         """Update only an existing owner's handle, preserving lifecycle authority.
@@ -1768,6 +1789,10 @@ class PersonalAgentRegistryRepo:
         lifecycle transition wins; this writer never replaces it with an old verdict.
         In-progress and suspended lifecycle states cannot be reinitialized here.
         """
+        from hushh_mcp.services.pod_adoption import has_hosted_evidence
+
+        if has_hosted_evidence(observed):
+            return False
         normalized = str(user_id or "").strip()
         snapshot = registry_host_snapshot(observed)
         if (
@@ -1795,6 +1820,14 @@ class PersonalAgentRegistryRepo:
             query = query.is_(key, None) if value is None else query.eq(key, value)
         response = query.execute()
         return bool(response.data or [])
+
+    async def restore_confirmed_managed_host(self, *, owner: str, observed: dict) -> bool:
+        """Restore only a previously admitted, independently verified same host."""
+        from hushh_mcp.services.hosted_pod_adoption import restore_retained_host
+
+        return await asyncio.to_thread(
+            restore_retained_host, self._db(), owner=owner, observed=observed
+        )
 
     async def mark_provisioning_failed(
         self, *, user_id: str, reason: str, detail: str = ""

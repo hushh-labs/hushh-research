@@ -3,18 +3,17 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { parseCommerceReturn } from "@/lib/services/scope-commerce-return";
 import { AnswerPayoutAccount, type AnswerPayoutAccountModel } from "./answer-payout-account";
-import type { useScopeCommerceAccount } from "./use-scope-commerce-account";
+import { PurchaseCoins } from "./purchase-coins";
 import { DocumentHashcoinPayouts } from "./document-hashcoins";
-import { ScopeCommerceAccountPanel } from "./scope-commerce-account-panel";
 
-/** Compose existing financial owners; a hosted return never pools their funds. */
-export function PaymentsAndEarnings({ commerce, answer }: { commerce?: ReturnType<typeof useScopeCommerceAccount>; answer?: AnswerPayoutAccountModel } = {}) {
+/** Existing payouts with source-bound recovery for an answer Stripe return. */
+export function PaymentsAndEarnings({ answer }: { answer?: AnswerPayoutAccountModel } = {}) {
   const pathname = usePathname();
   const query = useSearchParams();
   const arrival = parseCommerceReturn(`${pathname}?${query.toString()}`);
   return <div className="consent-presentation-surface contents">
-    <ScopeCommerceAccountPanel model={commerce} />
     {arrival?.source === "answers" ? <section aria-label="Answer payout setup"><AnswerPayoutAccount model={answer} /></section> : null}
+    {arrival?.source !== "answers" ? <PurchaseCoins /> : null}
     <DocumentHashcoinPayouts />
   </div>;
 }

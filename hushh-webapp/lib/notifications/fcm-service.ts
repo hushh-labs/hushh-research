@@ -32,6 +32,7 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import {
   buildOneLocationWorkflowHref,
+  isOneLocationSmsEmergencyAlert,
   resolveOneLocationNotificationHref,
 } from "@/lib/one-location/notifications";
 import { smsAlarmAcknowledgements } from "@/lib/notifications/sms-alarm-acknowledgements";
@@ -739,7 +740,12 @@ function setupWebServiceWorkerBridge(): void {
     // Visibility can change after the service worker chooses an owner. A tab
     // that became hidden must not consume the acknowledgement and suppress the
     // system notification that now owns presentation.
-    if (document.visibilityState !== "visible") {
+    const isEmergencySms = message.data?.type === "location_share_created" &&
+      isOneLocationSmsEmergencyAlert({
+        shareKind: message.data.share_kind,
+        notificationProfile: message.data.notification_profile,
+      });
+    if (document.visibilityState !== "visible" || (isEmergencySms && !document.hasFocus())) {
       dispatchFeedStateChanged("action");
       return;
     }

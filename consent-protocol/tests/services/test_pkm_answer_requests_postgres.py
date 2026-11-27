@@ -55,6 +55,11 @@ MIGRATIONS.append(
     Path(__file__).resolve().parents[2] / "db/migrations/326_answer_scope_resolution_lease.sql"
 )
 
+MIGRATIONS.append(
+    Path(__file__).resolve().parents[2]
+    / "db/migrations/parked/989_pkm_answer_processing_runtime.sql"
+)
+
 # The owner's registry. attr.financial.holdings is deliberately present so a
 # resolver over-reach can be distinguished from a legitimate narrow answer.
 OWNER_SCOPES = [
@@ -569,7 +574,7 @@ async def test_missing_age_can_be_omitted_before_a_payable_sex_and_location_answ
         request = (
             connection.execute(
                 text(
-                    "SELECT request_id, owner_user_id, terms_digest, composer_consent_digest "
+                    "SELECT request_id, owner_user_id, requester_user_id, terms_digest, composer_consent_digest "
                     "FROM pkm_answer_requests WHERE request_id=:r"
                 ),
                 {"r": request_id},

@@ -87,7 +87,8 @@ def consent_access_ended_state_key(bundle_id: str) -> str:
 def neutral_note(labels: Iterable[str] | None, person_name: str | None) -> str:
     """The text a redacted answer becomes in the model's context."""
     what = ", ".join(str(label) for label in labels or [] if str(label).strip()) or "information"
-    who = str(person_name or "").strip() or "the other person"
+    clean_who = str(person_name or "").strip()
+    who = clean_who if clean_who and clean_who.lower() != "they" else "the other person"
     return f"Access to {what} from {who} ended; do not use or repeat it."
 
 

@@ -209,6 +209,23 @@ describe("connectGmailInPlace (web)", () => {
     await expect(start.result).resolves.toBe("connected");
   });
 
+  it("requests full Mail scopes on web and accepts partial Google checkbox grants when read is present", async () => {
+    mocks.gmailGetStatus.mockResolvedValue({
+      connected: true,
+      scope_csv: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send",
+      send_permission_granted: true,
+      compose_permission_granted: false,
+      modify_permission_granted: false,
+    });
+    const start = connectGmailInPlace({ owner, purpose: "full" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.gmailStartConnect).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: "full", includeGrantedScopes: true }),
+    );
+    post(gmailSettlement(attemptIn(popup, GMAIL_ATTEMPT_KEY).attemptId, "succeeded"), popup);
+    await expect(start.result).resolves.toBe("connected");
+  });
+
   it("cancel ends quietly as not connected, and a late callback changes nothing", async () => {
     const cancel = new AbortController();
     const start = connectGmailInPlace({ owner, purpose: "send", cancelSignal: cancel.signal });
@@ -337,6 +354,30 @@ describe("connectCalendarInPlace", () => {
     expect(mocks.calendarStatus).toHaveBeenCalledWith(expect.any(String), ownerId);
   });
 
+  it.each(["disconnected", "needs_reauth", "connected", "empty"])("requests onboarding Mail only for a new Calendar connection (%s)", async (priorStatus) => {
+    mocks.calendarStatus.mockResolvedValueOnce({ connected: priorStatus === "connected", status: priorStatus === "empty" ? "disconnected" : priorStatus, access_level: "manage", ...(priorStatus === "empty" ? { accounts: [] } : {}) })
+      .mockResolvedValue({ connected: true, status: "connected", access_level: "manage" });
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage", includeMeetingFiles: true, includeMailAccess: true });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.calendarStartConnect.mock.calls[0][0].includeMailAccess).toBe(["disconnected", "empty"].includes(priorStatus) ? true : undefined);
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe("connected");
+  });
+
+  it("does not start consent after cancellation during the initial grant check", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.calendarStatus.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const cancel = new AbortController();
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage", includeMailAccess: true, cancelSignal: cancel.signal });
+    await vi.waitFor(() => expect(mocks.calendarStatus).toHaveBeenCalledOnce());
+    cancel.abort();
+    finish({ connected: false, status: "disconnected", accounts: [] });
+    await expect(start.result).resolves.toBe("not_connected");
+    expect(mocks.calendarStartConnect).not.toHaveBeenCalled();
+    expect(popup.location.replace).not.toHaveBeenCalled();
+  });
+
   it("requires manage access for a scheduling connect", async () => {
     mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "read" });
     const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
@@ -362,6 +403,31 @@ describe("connectCalendarInPlace", () => {
     const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
     post(calendarSettlement(attemptId), popup);
     await expect(start.result).resolves.toBe(expected);
+  });
+
+  it.each(["account-b", "account-c"])("reconnects only %s and rejects a successful primary grant", async accountId => {
+    mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "manage", accounts: [
+      { account_id: "default", connected: true, status: "connected", access_level: "manage" },
+      { account_id: accountId, connected: false, status: "needs_reauth", access_level: "manage" },
+    ] });
+    const start = connectCalendarInPlace({ owner, accountId, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.calendarStartConnect).toHaveBeenCalledWith(expect.objectContaining({ accountId, additional: true }));
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe("not_connected");
+  });
+
+  it("verifies the same additional account after native consent", async () => {
+    mocks.native = true;
+    mocks.calendarStartNative.mockResolvedValue({ server_client_id: "native-client", access_level: "manage", state: "selected-state" });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
+    mocks.calendarCompleteNative.mockResolvedValue({ connected: false, accounts: [
+      { account_id: "account-b", connected: true, status: "connected", access_level: "manage" },
+    ] });
+    const start = connectCalendarInPlace({ owner, accountId: "account-b", accessLevel: "manage" });
+    await expect(start.result).resolves.toBe("connected");
+    expect(mocks.calendarStartNative).toHaveBeenCalledWith(expect.objectContaining({ accountId: "account-b", additional: true }));
   });
 
   it("does not report connected after denied Calendar consent", async () => {

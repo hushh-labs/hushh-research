@@ -313,3 +313,184 @@ async def test_broker_supplies_authoritative_http_framing(method, body):
         assert response.status == 200 and response.body == b"ok"
     finally:
         await broker.close()
+
+
+@pytest.mark.parametrize("revoke_before_network", [False, True])
+async def test_private_entry_bridge_scrubs_worker_buffers_and_rechecks_before_network(
+    revoke_before_network,
+):
+    import time
+
+    import httpcore
+
+    from hushh_mcp.services.pod_browser.connected_executor import (
+        ConnectedBrowserExecutor,
+        ConnectedBrowserWorker,
+    )
+    from hushh_mcp.services.pod_browser.contracts import (
+        BrowserAction,
+        BrowserExecutionScope,
+        BrowserRequest,
+    )
+    from hushh_mcp.services.pod_browser.credential_contracts import (
+        CredentialLease,
+        CredentialUseRequest,
+    )
+    from hushh_mcp.services.pod_browser.network import BrowserNetworkBroker
+    from tests.helpers.pod_browser import Authority, Executor, binding
+
+    bound = binding(expires_at=int(time.time()) + 600)
+    left, right = socket.socketpair()
+    broker = BrowserNetworkBroker(
+        binding=bound,
+        allowed_origins=frozenset({"https://example.com"}),
+        authority=Authority(approved=True),
+    )
+
+    class Pool:
+        calls = 0
+
+        async def handle_async_request(self, request):
+            self.calls += 1
+            return httpcore.Response(200, content=b"ok")
+
+        async def aclose(self):
+            pass
+
+    await broker._pool.aclose()
+    pool = broker._pool = Pool()
+    worker = ConnectedBrowserWorker(bound)
+    worker_leases = []
+
+    class Driver(Executor):
+        refuse_target = True
+
+        async def verify_credential_targets(self, request):
+            if self.refuse_target:
+                raise BrowserRefused("BROWSER_CREDENTIAL_TARGET_REFUSED")
+
+        async def fill_credentials(self, request, lease, *, scope, check):
+            worker_leases.append(lease)
+            await check()
+            assert lease.password == bytearray(b"synthetic-private-password")
+            await worker.fetch(
+                BrowserRequest(
+                    url="https://example.com/session",
+                    method="POST",
+                    body=b"synthetic-form",
+                    scope=scope,
+                )
+            )
+            return {"submitted": True, "cleared": True}
+
+    driver = Driver()
+    serving = asyncio.create_task(worker.serve(right, driver))
+
+    async def terminate():
+        pass
+
+    host = await ConnectedBrowserExecutor.connect(
+        left, binding=bound, broker=broker, terminate=terminate
+    )
+    scope = BrowserExecutionScope(
+        sequence=1, control_epoch=2, actor="agent", deadline_at=time.time() + 20
+    )
+    host.bind_scope_validator(
+        lambda candidate: candidate.require_action(
+            BrowserAction(
+                operation="click",
+                sequence=scope.sequence,
+                control_epoch=scope.control_epoch,
+                x=10,
+                y=70,
+            ),
+            bound,
+        )
+    )
+    request = CredentialUseRequest(
+        operation_id="credential_bridge",
+        handle="cred_" + "a" * 32,
+        origin="https://example.com",
+        control_epoch=1,
+        targets={
+            "username": {"x": 10, "y": 10},
+            "password": {"x": 10, "y": 40},
+            "submit": {"x": 10, "y": 70},
+        },
+    )
+    checks = 0
+
+    async def current():
+        nonlocal checks
+        checks += 1
+        if revoke_before_network and checks > 1:
+            raise BrowserRefused("BROWSER_CREDENTIAL_REVISION_STALE")
+
+    lease = CredentialLease(
+        bytearray(b"synthetic-user"), bytearray(b"synthetic-private-password"), current
+    )
+    try:
+        await host.initialize()
+        with pytest.raises(BrowserRefused, match="CREDENTIAL_TARGET_REFUSED"):
+            await host.verify_credential_targets(request)
+        assert "close" not in driver.calls  # pre-effect refusal preserves manual fallback
+        driver.refuse_target = False
+        await host.verify_credential_targets(request)
+        if revoke_before_network:
+            with pytest.raises(BrowserRefused):
+                await host.fill_credentials(request, lease, scope=scope, check=current)
+        else:
+            assert await host.fill_credentials(request, lease, scope=scope, check=current) == {
+                "submitted": True,
+                "cleared": True,
+            }
+        assert pool.calls == (0 if revoke_before_network else 1)
+        assert worker_leases and all(
+            not any(item.password) and not any(item.username) for item in worker_leases
+        )
+        assert broker._credential_check is None and host._scope is None
+        assert "type" not in driver.calls and "observe" not in driver.calls
+    finally:
+        lease.clear()
+        await host.close()
+        await asyncio.wait_for(serving, 1)
+
+
+@pytest.mark.parametrize(
+    "shadow_kind",
+    ["open", "user-agent", "closed", "unknown", "missing", "iframe", "embedded_document"],
+)
+async def test_private_entry_observation_refuses_unverifiable_shadow_roots(shadow_kind):
+    from hushh_mcp.services.pod_browser.playwright_credentials import require_clear_inputs
+
+    class CDP:
+        async def send(self, method, params):
+            if method == "DOM.getDocument":
+                assert params == {"depth": -1, "pierce": True}
+                if shadow_kind == "missing":
+                    return {}
+                if shadow_kind == "iframe":
+                    return {"root": {"nodeType": 9, "children": [{"nodeName": "IFRAME"}]}}
+                if shadow_kind == "embedded_document":
+                    return {
+                        "root": {"nodeType": 9, "children": [{"contentDocument": {"nodeType": 9}}]}
+                    }
+                return {
+                    "root": {
+                        "nodeType": 9,
+                        "children": [{"shadowRoots": [{"shadowRootType": shadow_kind}]}],
+                    }
+                }
+            if method == "Page.createIsolatedWorld":
+                return {"executionContextId": 1}
+            assert method == "Runtime.evaluate"
+            return {"result": {"value": True}}
+
+    if shadow_kind in ("open", "user-agent"):
+        await require_clear_inputs(None, cdp=CDP(), frame_id="top", private_entry=True)
+    else:
+        # A page-world traversal returning true cannot attest closed/unknown roots.
+        with pytest.raises(BrowserRefused, match="SECRET_OBSERVATION_UNVERIFIABLE"):
+            await require_clear_inputs(None, cdp=CDP(), frame_id="top", private_entry=True)
+    # The same clear-field page remains eligible for explicit owner handback.
+    await require_clear_inputs(None, cdp=CDP(), frame_id="top")

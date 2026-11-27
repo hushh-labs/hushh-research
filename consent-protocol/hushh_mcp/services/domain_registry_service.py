@@ -292,12 +292,19 @@ class DomainRegistryService:
         defaults = DEFAULT_DOMAIN_METADATA.get(domain_key, {})
 
         # Build metadata with fallbacks
+        from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
+
         final_display_name = (
             display_name or defaults.get("display_name") or self._generate_display_name(domain_key)
         )
-        final_icon = icon_name or defaults.get("icon_name", "folder")
-        final_color = color_hex or defaults.get("color_hex", "#6B7280")
         final_description = description or defaults.get("description")
+        final_icon = normalize_or_infer_scope_icon(
+            icon_name=icon_name or defaults.get("icon_name"),
+            domain=domain_key,
+            label=final_display_name,
+            description=final_description,
+        )
+        final_color = color_hex or defaults.get("color_hex", "#6B7280")
 
         try:
             # Use RPC function for atomic upsert when supported by the client.

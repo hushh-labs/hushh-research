@@ -226,7 +226,7 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
   );
   fs.writeFileSync(
     path.join(dir, "src/direct-messages-service.ts"),
-    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+    `export const DirectMessagesService = { routeSelection: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
   );
   fs.writeFileSync(
     path.join(dir, "src/next-navigation.ts"),
@@ -825,6 +825,9 @@ test.describe("Circle roster row", () => {
       const trigger = page.getByRole("button", {
         name: `Actions for ${fixture.memberName}`,
       });
+      await trigger.hover();
+      await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(trigger.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
       await trigger.click();
 
       const menu = page.getByTestId("circle-member-actions-menu");
@@ -879,7 +882,9 @@ test.describe("Circle roster row", () => {
       expect(menuBox[0].left).toBeGreaterThan(selectedRow[0].right);
       expect(menuBox[0].width).toBeCloseTo(280, 0);
       for (const action of await boxesOf(page, '[role="menuitem"]')) {
-        expect(action.height).toBeGreaterThanOrEqual(51.99);
+        // One 44px target per action; 52px rows left the two actions loosely spaced.
+        expect(action.height).toBeGreaterThanOrEqual(43.99);
+        expect(action.height).toBeLessThanOrEqual(44.01);
         expect(action.width).toBeCloseTo(menuBox[0].width - 10, 0);
       }
 
@@ -1013,7 +1018,7 @@ test.describe("Circle roster row", () => {
             await expect(remove).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
             await expect(remove).toHaveCSS("border-width", "0px");
           }
-          await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
+          await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
           await expect(cancel).toHaveCSS("color", defaultAccent);
           await page.evaluate(() => document.documentElement.dataset.accent = "gold");
           const goldAccent = await readAccent();

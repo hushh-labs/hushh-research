@@ -660,6 +660,19 @@ async def test_gone_observation_cannot_recreate_a_deleted_registry_row():
     assert await repo.get(_UID) is None
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [{"tenancy": "hussh-hosted"}, {"provisionAttempt": {"hostedAdmission": {}}}],
+)
+async def test_owner_cloud_absence_cannot_reinitialize_managed_placement(metadata):
+    repo, db = _repo_and_db()
+    await _upsert(repo)
+    db.tables["personal_agent_registry"][0]["backend_metadata"] = metadata
+    observed = deepcopy(await repo.get(_UID))
+    assert await repo.mark_needs_reinit(_UID, observed=observed) is False
+    assert await repo.get(_UID) == observed
+
+
 async def test_gone_observation_requires_exact_owner_and_transition_timestamp():
     repo, _ = _repo_and_db()
     await _upsert(repo)

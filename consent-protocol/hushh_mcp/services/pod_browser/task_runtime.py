@@ -71,8 +71,13 @@ class BrowserTaskRuntime:
         availability_check: Callable[[], None] | None = None,
         public_research_only: bool = False,
         delivery: BrowserDeliveryPort | None = None,
+        environment: Literal["development", "uat"] = "development",
+        credential_source=None,
     ) -> None:
         self._owner, self._pod, self._incarnation = owner_id, pod_id, incarnation
+        self._environment: Literal["development", "uat"] = (
+            "uat" if environment == "uat" else "development"
+        )
         self._launcher, self._model, self._reviews, self._source = launcher, model, reviews, source
         self._authority_factory, self._log, self._admission = authority_factory, log, admission
         self._sessions_factory, self._clock = sessions_factory, clock
@@ -81,6 +86,7 @@ class BrowserTaskRuntime:
             public_research_only,
         )
         self._delivery = delivery
+        self._credential_source = credential_source
         self._tasks: dict[str, _Task] = {}
         self._request_key = os.urandom(32)
         self._requests: dict[str, str] = {}
@@ -96,6 +102,7 @@ class BrowserTaskRuntime:
             draining=lambda: self._draining,
             checkpoint=self._checkpoint,
             snapshot=self._snapshot,
+            credentials_factory=self._credentials,
         )
         admission.register_drain(incarnation=incarnation, name="pod_browser", callback=self.drain)
 
@@ -104,7 +111,7 @@ class BrowserTaskRuntime:
             "owner_id": self._owner,
             "pod_id": self._pod,
             "incarnation": self._incarnation,
-            "environment": "development",
+            "environment": self._environment,
         }
         if os.getenv("POD_COMPUTER_USE_ENABLED", "").lower() not in {"1", "true"}:
             return BrowserCapability(available=False, code="BROWSER_DISABLED", **identity)
@@ -131,7 +138,36 @@ class BrowserTaskRuntime:
                 self._sessions_factory is not None and not self._public_research_only
             ),
             public_research_only=self._public_research_only,
+            saved_logins_available=self._credentials_available(),
             **identity,
+        )
+
+    def _credentials_available(self) -> bool:
+        if self._credential_source is None or self._public_research_only:
+            return False
+        from .credential_contracts import require_credential_execution
+
+        try:
+            require_credential_execution(self._launcher.readiness)
+            return True
+        except BrowserRefused:
+            return False
+
+    def _credentials(self, task):
+        if not self._credentials_available():
+            return None
+        from .credential_use import BrowserCredentialUse
+
+        def pending(request):
+            task.phase, task.code = "needs_owner", "BROWSER_CREDENTIAL_OWNER_REQUIRED"
+            task.revision += 1
+
+        return BrowserCredentialUse(
+            task.control,
+            self._credential_source,
+            task.consent,
+            allowed_origins=task.request.allowed_origins,
+            pending=pending,
         )
 
     async def require_owner(self, access: BrowserOwnerAccess) -> None:
@@ -202,6 +238,15 @@ class BrowserTaskRuntime:
             code=task.code,
             downloads=control.downloads.offers if control and control.downloads else (),
             goal_completed=task.model_completed,
+            credential_entry_active=bool(control and control._secret_entry),
+            credential_request=(
+                {
+                    name: getattr(control.credentials.selection, name)
+                    for name in ("operation_id", "handle", "origin")
+                }
+                if control and control.credentials and control.credentials.selection
+                else None
+            ),
             summary=task.summary,
             review=task.review,
             approved_origins=task.request.allowed_origins
@@ -209,8 +254,10 @@ class BrowserTaskRuntime:
             else (),
             viewport=control.viewport if control else None,
             input_pending=not task.closed
-            and task.input_worker is not None
-            and not task.input_worker.done(),
+            and any(
+                worker is not None and not worker.done()
+                for worker in (task.input_worker, task.credential_worker)
+            ),
         )
 
     async def _checkpoint(self, task: _Task) -> None:
@@ -278,7 +325,7 @@ class BrowserTaskRuntime:
                     pod_id=self._pod,
                     incarnation=self._incarnation,
                     task_id="browser_" + uuid4().hex,
-                    environment="development",
+                    environment=self._environment,
                     expires_at=min(access.expires_at, int(self._clock()) + 900),
                 )
                 try:
@@ -591,6 +638,81 @@ class BrowserTaskRuntime:
                 )
                 return {"restored": restored, "authenticated": False}
             raise BrowserRefused("BROWSER_SESSION_OPERATION_INVALID")
+
+    async def credential_catalog(self, access, task_id: str, origin: str) -> list[dict]:
+        task = await self._task(access, task_id)
+        if task.closed or task.control is None or task.control.credentials is None:
+            raise BrowserRefused("BROWSER_CREDENTIAL_EXECUTION_UNQUALIFIED")
+        return [
+            item.model_dump(mode="json") for item in await task.control.credentials.catalog(origin)
+        ]
+
+    async def use_credential(
+        self,
+        access,
+        task_id: str,
+        *,
+        handle: str,
+        operation_id: str,
+        control_epoch: int,
+        transient: tuple[dict, dict] | None = None,
+    ):
+        task = await self._task(access, task_id)
+        control = task.control
+        if task.closed or control is None or control.credentials is None:
+            raise BrowserRefused("BROWSER_CREDENTIAL_EXECUTION_UNQUALIFIED")
+        selection = control.credentials.selection
+        if (
+            selection is None
+            or selection.operation_id != operation_id
+            or control_epoch != control.control_epoch
+        ):
+            raise BrowserRefused("BROWSER_CREDENTIAL_SELECTION_CHANGED")
+        request = selection.model_copy(update={"handle": handle, "control_epoch": control_epoch})
+        if task.credential_worker is not None and not task.credential_worker.done():
+            raise BrowserRefused("BROWSER_CREDENTIAL_ENTRY_ACTIVE")
+
+        async def run():
+            try:
+                await control.credentials.use(
+                    request,
+                    owner_selected=True,
+                    interrupt=lambda: self._lifecycle.cancel_worker(task),
+                    transient=transient,
+                )
+                await access.check()
+                task.code = "BROWSER_CREDENTIAL_SUBMITTED"
+                if control.control_owner == "agent":
+                    task.phase = "running"
+                    task.worker = asyncio.create_task(
+                        self._lifecycle.run(task), name="owner-browser-task"
+                    )
+                await self._checkpoint(task)
+            except BrowserRefused as exc:
+                if control.outcome_uncertain:
+                    await self._lifecycle.close(
+                        task, phase="outcome_uncertain", code="BROWSER_OUTCOME_UNCERTAIN"
+                    )
+                elif control.control_owner == "stopped":
+                    await self._lifecycle.close(task, phase="cancelled", code=exc.code)
+                elif not task.closed and task.closing is None:
+                    task.phase, task.code = "needs_owner", exc.code
+                    await self._checkpoint(task)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                await self._lifecycle.close(
+                    task, phase="outcome_uncertain", code="BROWSER_OUTCOME_UNCERTAIN"
+                )
+            finally:
+                if transient is not None:
+                    transient[0].clear()
+                    transient[1].clear()
+
+        task.phase, task.code = "running", "BROWSER_CREDENTIAL_ENTRY_PENDING"
+        task.revision += 1
+        task.credential_worker = asyncio.create_task(run(), name="owner-browser-credential")
+        return self._snapshot(task)
 
     async def fence_live_contexts(self, site: str) -> None:
         # Pilot runs at most one live browser. Forget closes it regardless of

@@ -16,6 +16,20 @@ const makePage = (start: number, next: number | null): LeaderboardPage => ({
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe("individual ranking pagination", () => {
+  it("keeps distinct ranked members with the same permitted name and preserves aliases/private names", () => {
+    const page = { ...makePage(1, null), entries: [
+      { rank: 1, handle: "Anonymous referrer", display_name: "Same Name", points: 500, is_viewer: false },
+      { rank: 2, handle: "Anonymous referrer", display_name: "Same Name", points: 300, is_viewer: false },
+      { rank: 3, handle: "Public alias", display_name: "Private alias owner", points: 200, is_viewer: false },
+      { rank: 4, handle: "Anonymous referrer", display_name: null, points: 100, is_viewer: false },
+    ] };
+    render(<IndividualReferralRankings firstPage={page} user={owner} onRefresh={onRefresh} />);
+    expect(screen.getAllByText("Same Name")).toHaveLength(2);
+    expect(within(screen.getByRole("list")).getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.getByText("Public alias")).toBeTruthy();
+    expect(screen.getByText("Name unavailable")).toBeTruthy();
+    expect(screen.queryByText("Private alias owner")).toBeNull();
+  });
   it("shows ten entries and navigates both directions on one snapshot without duplicate presses", async () => {
     let finish: (page: LeaderboardPage) => void = () => {};
     vi.mocked(ReferralService.getLeaderboard).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));

@@ -35,13 +35,13 @@ export function VoiceErrorCard({
     <div
       role="alert"
       aria-label="Voice couldn't start"
-      className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
+      className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-2xl p-3 text-[#1d1d1f] dark:text-[#f5f5f7]"
       data-testid="voice-error-card"
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2.5">
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-foreground">Voice couldn&apos;t start</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{message}</p>
+          <p className="mt-0.5 text-[12px] leading-[16px] text-muted-foreground">{message}</p>
         </div>
         <button
           type="button"
@@ -56,7 +56,7 @@ export function VoiceErrorCard({
       <button
         type="button"
         onClick={onRetry}
-        className="relative mt-4 h-12 w-full rounded-full bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        className="relative mt-2.5 h-9 px-4 rounded-full bg-primary text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
         Try again
         <MaterialRipple variant="none" effect="fill" />

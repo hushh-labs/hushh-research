@@ -32,6 +32,21 @@ describe("resolveTurnLocation", () => {
     expect(bus.ensure).not.toHaveBeenCalled();
   });
 
+  it("returns immediately from cached LocationBus state without awaiting syncPermission", async () => {
+    bus.getState.mockReturnValue({
+      permission: "granted",
+      snapshot: { ...PRECISE, capturedAt: new Date().toISOString() },
+    });
+
+    expect(await resolveTurnLocation()).toEqual({
+      status: "available",
+      latitude: 37.77,
+      longitude: -122.42,
+    });
+    expect(bus.syncPermission).not.toHaveBeenCalled();
+    expect(bus.ensure).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["denied", "denied"],
     ["restricted", "denied"],
@@ -42,6 +57,22 @@ describe("resolveTurnLocation", () => {
     bus.syncPermission.mockResolvedValue(permission);
 
     expect(await resolveTurnLocation()).toEqual({ status });
+    expect(bus.ensure).not.toHaveBeenCalled();
+  });
+
+  it("reuses a fresh session measurement when WebKit reports prompt in syncPermission", async () => {
+    bus.syncPermission.mockResolvedValue("prompt");
+    bus.getState.mockReturnValue({
+      status: "ready",
+      snapshotOrigin: "fresh",
+      snapshot: { ...PRECISE, capturedAt: new Date().toISOString() },
+    });
+
+    expect(await resolveTurnLocation()).toEqual({
+      status: "available",
+      latitude: 37.77,
+      longitude: -122.42,
+    });
     expect(bus.ensure).not.toHaveBeenCalled();
   });
 

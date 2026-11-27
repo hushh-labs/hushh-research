@@ -1,3 +1,4 @@
+import { readActiveKaiDebateRun, type ActiveKaiDebateRequest } from "./kai-active-debate-read";
 import { requestPhoneTransfer } from "./account-phone-api";
 import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
@@ -9,6 +10,8 @@ import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
  * Offline vault, consent and authentication retain their Capacitor owners.
  */
 
+import { MarketInsightsEmptyError, MarketNewsSnapshotChangedError } from "@/lib/services/market-errors";
+export { MarketInsightsEmptyError, MarketNewsSnapshotChangedError, isMarketInsightsEmptyError } from "@/lib/services/market-errors";
 import { readKaiCompanyFacts } from "@/lib/services/kai-company-facts-read";
 import { readKaiStockHistory } from "@/lib/services/kai-stock-history-read";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
@@ -31,8 +34,21 @@ import {
 } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
 import { decodeFirebaseTokenSubject } from "@/lib/auth/firebase-token-subject";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
+import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
+import {
+  extractHostedMigrationErrorMessage,
+  parseHostedAzureMigrationResult,
+  parseHostedAzureMigrationStatus,
+  parseHostedSourceRetirementStatus,
+  parseHostedUmbrellaCellsStatus,
+  type HostedAzureMigrationResult,
+  type HostedAzureMigrationStatus,
+  type HostedSourceRetirementStatus,
+  type HostedUmbrellaCellsStatus,
+} from "@/lib/services/hosted-pod-migration";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import {
   toDurationBucket,
@@ -360,30 +376,6 @@ function resolveClientTimezone(): string | null {
   }
 }
 
-export class MarketInsightsEmptyError extends Error {
-  readonly status = 404;
-
-  constructor() {
-    super("Market insights are not ready yet.");
-    this.name = "MarketInsightsEmptyError";
-  }
-}
-
-export class MarketNewsSnapshotChangedError extends Error {
-  readonly status = 409;
-
-  constructor() {
-    super("Market news refreshed. Start again to see the latest headlines.");
-    this.name = "MarketNewsSnapshotChangedError";
-  }
-}
-
-export function isMarketInsightsEmptyError(
-  error: unknown,
-): error is MarketInsightsEmptyError {
-  return error instanceof MarketInsightsEmptyError;
-}
-
 async function classifyVaultOwnerAuthFailure(
   response: Response,
 ): Promise<VaultOwnerAuthFailure> {
@@ -457,6 +449,8 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
 // direct routes; normal app and hub requests retain the 60-second bound.
 const OWNER_POD_WAKE_FETCH_TIMEOUT_MS = 120_000;
 const LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS = 80_000;
+// One's mailbox check reads the mailbox and waits for one model answer, so it outlasts a scan (the proxy allows 90 s).
+const RECEIPT_NOTICE_FETCH_TIMEOUT_MS = 95_000;
 
 /**
  * Keep the browser alive long enough to receive the KYC scan proxy's bounded
@@ -479,6 +473,14 @@ function isLiveGmailReceiptPath(path: string): boolean {
   );
 }
 
+function isReceiptNoticePath(path: string): boolean {
+  const pathname = path.split("?", 1)[0] ?? "";
+  return (
+    pathname === "/api/kai/gmail/receipts/notice" ||
+    pathname === "/api/kai/gmail/receipts/notice/source"
+  );
+}
+
 /**
  * Account deletion is one transaction whose duration grows with round-trip
  * latency to the database (about 1 s deployed, minutes through a local Cloud SQL
@@ -488,10 +490,17 @@ function isLiveGmailReceiptPath(path: string): boolean {
  */
 const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
+function isMemoryRewritePath(path: string): boolean {
+  const pathname = /^https?:\/\//i.test(path) ? new URL(path).pathname : path.split("?", 1)[0];
+  return pathname === "/api/pkm/memory/rewrite" || pathname === "/api/one/pod/memory/rewrite";
+}
+
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = /^https?:\/\//i.test(path)
     ? new URL(path).pathname
     : path.split("?", 1)[0] ?? "";
+  // Memory inference has a 90-second backend budget; allow its response to arrive.
+  if (isMemoryRewritePath(path)) return 100_000;
   if (/^\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
     return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
   }
@@ -500,6 +509,7 @@ export function webFetchTimeoutMsForPath(path: string): number {
   if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
     return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
   }
+  if (isReceiptNoticePath(path)) return RECEIPT_NOTICE_FETCH_TIMEOUT_MS;
   if (isLiveGmailReceiptPath(path)) return LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
@@ -595,10 +605,12 @@ async function apiFetch(
   streaming = false,
 ): Promise<Response> {
   const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, accountLifecycleOwnsAuthOutcome, authRefreshRetry, ...fetchOptions } = options;
+  const lifecyclePath = /^\/api\/account\/deletion-cleanup\?operation_id=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path)
+    ? "/api/account/deletion-cleanup" : path;
   if (accountLifecycleOwnsAuthOutcome && ![
     "/api/account/session-status", "/api/account/delete", "/api/account/delete-lost-vault",
     "/api/account/deletion-cleanup", "/api/account/registration-status", "/api/account/start-fresh",
-  ].includes(path)) throw new Error("Unsupported account lifecycle transport.");
+  ].includes(lifecyclePath)) throw new Error("Unsupported account lifecycle transport.");
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -947,8 +959,12 @@ async function apiFetch(
           ? 180_000
           : path.split("?", 1)[0] === "/api/one/agent-chat/proposals"
             ? LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS
+          : isReceiptNoticePath(path)
+            ? RECEIPT_NOTICE_FETCH_TIMEOUT_MS
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
+          : isMemoryRewritePath(path)
+            ? 100_000
           : isLongRunningRoute
             ? 90_000
             : 60_000);
@@ -1119,6 +1135,16 @@ export interface KaiHomeWatchlistItem {
   as_of: string | null;
 }
 
+export type KaiUsdInrRate = {
+  base: "USD";
+  quote: "INR";
+  /** Rupees per dollar. */
+  rate: number;
+  /** Day the rate was quoted (ISO date). */
+  as_of: string | null;
+  stale: boolean;
+};
+
 export interface KaiMarketCompanyFacts {
   symbol: string;
   market_cap?: number | null;
@@ -1252,6 +1278,9 @@ export interface KaiHomeMovers {
   as_of: string | null;
   source_tags: string[];
   degraded: boolean;
+  stale?: boolean;
+  /** India only: how many large NSE stocks the movers were ranked from. */
+  universe_size?: number | null;
 }
 
 export interface KaiHomeSectorItem {
@@ -1273,6 +1302,8 @@ export interface KaiHomeNewsItem {
   summary?: string | null;
   image_url?: string | null;
   image_thumbnail_url?: string | null;
+  /** The publisher's mark, for feeds that carry no article image (India). */
+  source_logo_url?: string | null;
   url: string;
   published_at: string;
   source_name: string;
@@ -1327,6 +1358,7 @@ export interface KaiHomeOverviewItem {
    * sparkline. When absent the UI must not invent a chart shape.
    */
   sparkline?: number[] | null;
+  sparkline_points?: Array<{ t: number; p: number }> | null;
 }
 
 export interface KaiHomeSpotlightItem {
@@ -1903,6 +1935,101 @@ export class ApiService {
     return response.json();
   }
 
+  static async getHostedUmbrellaCellsStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedUmbrellaCellsStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/cells/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_CELLS_STATUS_UNAVAILABLE");
+    return parseHostedUmbrellaCellsStatus(await response.json());
+  }
+
+  static async getHostedAzureMigrationStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedAzureMigrationStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/azure/migrate/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_MIGRATION_STATUS_UNAVAILABLE");
+    return parseHostedAzureMigrationStatus(await response.json());
+  }
+
+  static async migrateToHostedAzure(options?: {
+    cellId?: string;
+    allowFreshPodLog?: boolean;
+    isEffectCurrent?: () => boolean;
+  }): Promise<HostedAzureMigrationResult> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/azure/migrate", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        ...(options?.cellId ? { cellId: options.cellId } : {}),
+        ...(options?.allowFreshPodLog ? { allowFreshPodLog: true } : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(payload, "Could not move your pod right now. Your current setup is unchanged."),
+      );
+    }
+    return parseHostedAzureMigrationResult(payload);
+  }
+
+  static async getHostedSourceRetirementStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<HostedSourceRetirementStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/source-retirement/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: options?.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error("HOSTED_SOURCE_RETIREMENT_UNAVAILABLE");
+    return parseHostedSourceRetirementStatus(await response.json());
+  }
+
+  static async confirmHostedSourceRetirement(options?: {
+    placementId?: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<HostedSourceRetirementStatus> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/byoc/hosted/source-retirement/confirm", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(options?.placementId ? { placementId: options.placementId } : {}),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not confirm your new pod right now. Your safety window is unchanged.",
+        ),
+      );
+    }
+    return parseHostedSourceRetirementStatus(payload);
+  }
+
   static async selectSharedHosting(): Promise<{
     hostingMode: "shared";
     nextStep: string;
@@ -1917,10 +2044,106 @@ export class ApiService {
       body: JSON.stringify({}),
     });
     if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+    ApiService.clearRoutingHostingBurstCache();
     return response.json();
   }
 
-  static async selectManagedGeminiRuntime(): Promise<{
+  static async switchHostingMode(options: {
+    target: "shared" | "own_cloud";
+    isEffectCurrent?: () => boolean;
+  }): Promise<{
+    hostingMode: string;
+    detachedPriorHost: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/hosting/switch", {
+      method: "POST",
+      isEffectCurrent: options.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ target: options.target }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not switch hosting right now. Your existing setup is unchanged.",
+        ),
+      );
+    }
+    ApiService.clearRoutingHostingBurstCache();
+    if (options.target === "shared") {
+      try {
+        const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+        const principal = snapshotValidatedAuthSessionPrincipal();
+        if (principal?.ownerId) {
+          const ownerPod = await import("./owner-pod-endpoint");
+          await ownerPod.clearPinnedPodEndpoint(principal.ownerId);
+        }
+      } catch {
+        // Best-effort local pin eviction; server detach remains authoritative.
+      }
+    }
+    return payload;
+  }
+
+  static async adoptPooledSandbox(options?: {
+    allowCleanSlate?: boolean;
+    removePriorCloudResources?: boolean;
+    isEffectCurrent?: () => boolean;
+  }): Promise<{
+    status: string;
+    hostingMode: string;
+    deploymentTarget: string;
+    hushhId: string;
+    podUrl: string;
+    detachedPriorHost: boolean;
+    migrationMode?: string;
+    syncedRecordCount?: number;
+    backgroundCleanupQueued?: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/pooled-sandbox/adopt", {
+      method: "POST",
+      isEffectCurrent: options?.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        allowCleanSlate: options?.allowCleanSlate === true,
+        ...(options?.removePriorCloudResources === true
+          ? { removePriorCloudResources: true }
+          : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
+        ),
+      );
+    }
+    ApiService.clearRoutingHostingBurstCache();
+    try {
+      const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+      const principal = snapshotValidatedAuthSessionPrincipal();
+      if (principal?.ownerId) {
+        const ownerPod = await import("./owner-pod-endpoint");
+        await ownerPod.clearPinnedPodEndpoint(principal.ownerId);
+      }
+    } catch {
+      // Best-effort local pin refresh before re-admitting the newly adopted sandbox.
+    }
+    return payload;
+  }
+
+  static async selectManagedGeminiRuntime(isEffectCurrent?: () => boolean): Promise<{
     status: "ready";
     model: string;
     location: string;
@@ -1929,7 +2152,7 @@ export class ApiService {
   }> {
     const token = await this.getFirebaseToken();
     const response = await apiFetch("/api/one/runtime/managed/select", {
-      method: "POST",
+      method: "POST", isEffectCurrent,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -2142,6 +2365,33 @@ export class ApiService {
     );
   }
 
+  static async pruneWebTrustedDevices(
+    keepDeviceId: string | null,
+    isCurrentOwner?: () => boolean,
+  ): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch("/api/account/trusted-devices/prune-web", {
+      method: "POST",
+      authRefreshRetry: "never",
+      isEffectCurrent: isCurrentOwner,
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(keepDeviceId ? { keepDeviceId } : {}),
+      signal: AbortSignal.timeout(30_000),
+    });
+  }
+
   /**
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side, and never
@@ -2330,7 +2580,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string },
+    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string; readOnly?: boolean },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2343,18 +2593,20 @@ export class ApiService {
     }
 
     const force = options?.force ?? true;
-    const path = options?.requireSuccess === true
+    const path = options?.readOnly === true
+      ? "/api/account/identity"
+      : options?.requireSuccess === true
       ? "/api/account/identity/refresh?require_success=true"
       : force
       ? "/api/account/identity/refresh"
       : "/api/account/identity/refresh?force=false";
 
     return apiFetch(path, {
-      method: "POST",
+      method: options?.readOnly ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
-      ...(options?.verifiedPhoneNumber ? {
+      ...(!options?.readOnly && options?.verifiedPhoneNumber ? {
         body: JSON.stringify({ verified_phone_number: options.verifiedPhoneNumber }),
       } : {}),
     });
@@ -2428,6 +2680,8 @@ export class ApiService {
     phoneIdToken: string,
     idToken?: string,
     expectedUserId?: string,
+    isCurrent?: () => boolean,
+    authRefreshRetry?: "never",
   ): Promise<AccountPhoneClaimResponse> {
     const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
     if (!normalizedPhoneIdToken) {
@@ -2441,6 +2695,10 @@ export class ApiService {
 
     const response = await apiFetch("/api/account/phone/claim", {
       method: "POST",
+      isEffectCurrent: isCurrent,
+      // A linked-deletion claim carries a one-time proof. Its owner must
+      // reconcile an uncertain result rather than replay the mutation.
+      authRefreshRetry,
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
@@ -2478,6 +2736,7 @@ export class ApiService {
   static async startUatPhoneTestVerification(
     phoneNumber: string,
     idToken?: string,
+    isCurrent?: () => boolean,
   ): Promise<AccountPhoneTestStartResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2490,6 +2749,7 @@ export class ApiService {
 
     const response = await apiFetch("/api/account/phone/uat-test/start", {
       method: "POST",
+      isEffectCurrent: isCurrent,
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
@@ -2536,6 +2796,8 @@ export class ApiService {
     verificationId: string,
     idToken?: string,
     expectedUserId?: string,
+    isCurrent?: () => boolean,
+    authRefreshRetry?: "never",
   ): Promise<AccountPhoneClaimResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -2544,6 +2806,8 @@ export class ApiService {
 
     const response = await apiFetch("/api/account/phone/uat-test/confirm", {
       method: "POST",
+      isEffectCurrent: isCurrent,
+      authRefreshRetry,
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
@@ -2621,8 +2885,8 @@ export class ApiService {
     });
   }
 
-  static async getAccountCleanupStatus(idToken: string): Promise<Response> {
-    return ApiService.getAccountLifecycleStatus("/api/account/deletion-cleanup", idToken);
+  static async getAccountCleanupStatus(idToken: string, operationId?: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/deletion-cleanup", idToken, true, operationId);
   }
 
   static async continueAccountCleanup(
@@ -2643,6 +2907,7 @@ export class ApiService {
     path: "/api/account/session-status" | "/api/account/deletion-cleanup" | "/api/account/registration-status",
     idToken: string,
     accountLifecycleOwnsAuthOutcome = true,
+    operationId?: string,
   ): Promise<Response> {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => {
@@ -2655,7 +2920,8 @@ export class ApiService {
     }, ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS);
 
     try {
-      return await apiFetch(path, {
+      const target = operationId ? `${path}?operation_id=${encodeURIComponent(operationId)}` : path;
+      return await apiFetch(target, {
         method: "GET",
         accountLifecycleOwnsAuthOutcome,
         cache: "no-store",
@@ -2732,7 +2998,11 @@ export class ApiService {
     durationHours?: number;
     modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
+    beforeEffect?: () => Promise<void>;
+    isEffectCurrent?: () => boolean;
   }): Promise<Response> {
+    await data.beforeEffect?.();
+    if (data.isEffectCurrent && !data.isEffectCurrent()) throw new Error("CONSENT_OWNER_CHANGED");
     const requestId = data.requestId || data.token;
     const vaultOwnerToken = data.vaultOwnerToken;
     trackEvent("consent_action_submitted", {
@@ -2807,6 +3077,8 @@ export class ApiService {
 
     const response = await apiFetch("/api/consent/pending/approve", {
       method: "POST",
+      beforeDispatch: data.beforeEffect,
+      isEffectCurrent: data.isEffectCurrent,
       headers: {
         Authorization: `Bearer ${vaultOwnerToken}`,
       },
@@ -3525,8 +3797,12 @@ export class ApiService {
 
   /** Correlate a token with the initiating owner; the backend verifies it. */
   static async getFirebaseIdTokenForOwner(userId: string): Promise<string | undefined> {
+    const session = snapshotAuthSessionGeneration();
+    if (session?.userId && session.userId !== userId) return undefined;
+    const firebaseUid = snapshotValidatedAuthSessionPrincipal()?.firebaseUid ?? userId;
     const token = await this.getFirebaseToken();
-    return token && decodeFirebaseTokenSubject(token) === userId ? token : undefined;
+    if (session && !isValidatedAuthSessionOwnerCurrent(session)) return undefined;
+    return token && decodeFirebaseTokenSubject(token) === firebaseUid ? token : undefined;
   }
 
   private static async getFirebaseToken(): Promise<string | undefined> {
@@ -3796,6 +4072,55 @@ export class ApiService {
     return response.json() as Promise<{ status: "ready" }>;
   }
 
+  /**
+   * Bounded pre-save probe for an OpenAI key when no enrolled pod is reachable yet.
+   * Throws `OPENAI_VALIDATE_ROUTE_UNAVAILABLE` on 404/405 so callers can fall back to pod checks.
+   */
+  static async validateOpenAiRuntimeCredential(input: {
+    credential: string;
+    model?: string | null;
+  }): Promise<{ status: "ready" }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/openai/validate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          credential: input.credential,
+          ...(input.model ? { model: input.model } : {}),
+        }),
+      },
+    );
+    if (response.status === 404 || response.status === 405) {
+      throw new Error("OPENAI_VALIDATE_ROUTE_UNAVAILABLE");
+    }
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { status?: string; code?: string };
+      } | null;
+      const status = payload?.detail?.status ?? payload?.detail?.code;
+      if (status === "invalid_key" || status === "KEY_REFUSED") {
+        throw new Error("OpenAI could not accept that API key.");
+      }
+      if (status === "quota_exhausted" || status === "QUOTA_EXCEEDED") {
+        throw new Error(
+          "This OpenAI key has no available quota or is currently rate limited.",
+        );
+      }
+      if (status === "unsupported_model" || status === "MODEL_UNAVAILABLE") {
+        throw new Error("This OpenAI key cannot access the model One uses.");
+      }
+      throw new Error("OpenAI could not be reached to validate this key.");
+    }
+    return response.json() as Promise<{ status: "ready" }>;
+  }
+
   static async getOneAdkLiveRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
@@ -3816,13 +4141,21 @@ export class ApiService {
   /** Route private chat only to its admitted pod; unknown hosting never grants Shared. */
   static async agentChatRequest(path: string, init: RequestInit, streaming = false,
     onChatAdmission?: (hushhId: string) => void, isCurrent?: () => boolean): Promise<Response> {
+    if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    if (!principal || !isFirebaseSessionOwnerCurrent(principal)) {
+      throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    }
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const current = () => isFirebaseSessionOwnerCurrent(principal)
+      && isVaultSessionEpochCurrent(vaultEpoch) && (isCurrent?.() ?? true);
     const access = await import("./pod-app-access");
-    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
-      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, isCurrent));
+    const fetchTurn = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
     return access.agentChatRequest(path, init, {
-      hosting: () => this.getPersonalAgentStatusForRouting(), fetch: fetcher,
-      direct: (route, options) => this.ownerPodRequest(route, options, streaming, onChatAdmission, undefined, isCurrent),
-      isCurrent,
+      hosting: () => this.getPersonalAgentStatusForRouting(),
+      fetch: (url, options) => fetchTurn(url, withCurrentOwnerEffect(options, current)),
+      direct: (route, options) => this.ownerPodRequest(route, options, streaming, onChatAdmission, undefined, current),
+      isCurrent: current,
     });
   }
 
@@ -3854,9 +4187,11 @@ export class ApiService {
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
     limit?: number;
+    before?: string;
   }): Promise<Response> {
     const query = new URLSearchParams();
     if (data.limit) query.set("limit", String(data.limit));
+    if (data.before) query.set("before", data.before);
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
@@ -3872,11 +4207,15 @@ export class ApiService {
 
   static async renameAgentChatConversation(data: {
     conversationId: string;
-    title: string;
+    title?: string;
+    category?: string | null;
     vaultOwnerToken: string;
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
   }): Promise<Response> {
+    const body: Record<string, unknown> = {};
+    if (data.title !== undefined) body.title = data.title;
+    if ("category" in data) body.category = data.category ?? null;
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
@@ -3885,7 +4224,7 @@ export class ApiService {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
           ...(await oneChatKeyHeaders(data.vaultKey)),
         },
-        body: JSON.stringify({ title: data.title }),
+        body: JSON.stringify(body),
       },
     );
   }
@@ -3933,16 +4272,20 @@ export class ApiService {
    * vault-epoch, mutation invalidation, and explicit status polling.
    */
   static async getPersonalAgentStatusForRouting(options?: {
+    fresh?: boolean;
     signal?: AbortSignal;
   }): Promise<PersonalAgentStatus> {
     const principal = snapshotValidatedAuthSessionPrincipal();
-    const currentUid = AuthService.getCurrentUser?.()?.uid;
-    if (!principal || !currentUid || currentUid !== principal.firebaseUid || options?.signal) {
-      return this.getPersonalAgentStatus(options);
-    }
-    const key = `${principal.firebaseUid}:${principal.ownerId}:${principal.accountGeneration}:${snapshotVaultSessionEpoch()}`;
+    if (!principal || !isFirebaseSessionOwnerCurrent(principal)) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    options?.signal?.throwIfAborted();
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const current = () => isFirebaseSessionOwnerCurrent(principal)
+      && isVaultSessionEpochCurrent(vaultEpoch) && !options?.signal?.aborted;
+    const key = `${principal.firebaseUid}:${principal.ownerId}:${principal.accountGeneration}:${principal.generation}:${vaultEpoch}`;
     const cached = ApiService.routingHostingBurstCache;
+    const cacheAllowed = !options?.fresh && !options?.signal;
     if (
+      cacheAllowed &&
       cached &&
       cached.key === key &&
       cached.fnRef === this.getPersonalAgentStatus &&
@@ -3950,11 +4293,25 @@ export class ApiService {
     ) {
       return cached.value;
     }
-    const status = await this.getPersonalAgentStatus(options);
+    let status: PersonalAgentStatus;
+    if (Capacitor.isNativePlatform()) {
+      const token = await this.getFirebaseIdTokenForOwner(principal.ownerId);
+      if (!current()) throw new Error("POD_OWNER_CHANGED");
+      if (!token) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+      // A scoped fetch cannot join a status request from an earlier auth episode.
+      status = await readPersonalAgentStatus(token, (path, init) => {
+        if (!current()) throw new Error("POD_OWNER_CHANGED");
+        return this.apiFetch(path, withCurrentOwnerEffect(init, current));
+      }, options);
+    } else {
+      // An explicit signal avoids joining a status read from a retired episode.
+      status = await this.getPersonalAgentStatus({ signal: options?.signal ?? new AbortController().signal });
+    }
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
     const settled =
       status.hostingMode === "shared" ||
       (status.hostingMode === "byoc" && status.state === "active");
-    if (settled) {
+    if (settled && cacheAllowed) {
       ApiService.routingHostingBurstCache = {
         key,
         fnRef: this.getPersonalAgentStatus,
@@ -4304,44 +4661,101 @@ export class ApiService {
     return settleTrustedDeviceRevocation(hub, deviceId, uid, isCurrentOwner, () => ApiService.ownerPodTransport(), !!(options?.proof || options?.receipt));
   }
 
+  private static rewriteLocalDevSandboxUrl(url: string): string {
+    if (process.env.NODE_ENV !== "development") return url;
+    const rawOverride = (process.env.NEXT_PUBLIC_LOCAL_SANDBOX_EDGE_URL ?? "").trim();
+    if (!rawOverride) return url;
+    try {
+      const localBase = new URL(rawOverride);
+      if (
+        (localBase.protocol !== "http:" && localBase.protocol !== "https:") ||
+        (localBase.hostname !== "127.0.0.1" && localBase.hostname !== "localhost")
+      ) {
+        return url;
+      }
+      const parsed = new URL(url);
+      if (!parsed.pathname.startsWith("/u/")) return url;
+      return `${localBase.origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+
   private static async ownerPodTransport(): Promise<
     import("./owner-pod-endpoint").OwnerPodTransport
   > {
     const principal = snapshotValidatedAuthSessionPrincipal();
-    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
-      && AuthService.getCurrentUser()?.uid === principal.firebaseUid);
-    if (!current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
-    const firebaseIdToken = await ApiService.getFirebaseToken();
+    if (!principal || !isFirebaseSessionOwnerCurrent(principal)) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    const current = () => isFirebaseSessionOwnerCurrent(principal);
+    const firebaseIdToken = await ApiService.getFirebaseIdTokenForOwner(principal.ownerId);
     if (!current()) throw new Error("POD_OWNER_CHANGED");
     return {
-      hub: (path, init) =>
-        apiFetch(path, {
-          ...init,
-          isEffectCurrent: current,
-          headers: {
-            ...((init.headers as Record<string, string> | undefined) ?? {}),
-            ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
-          },
-        }),
+      hub: (path, init) => {
+        if (!current()) throw new Error("POD_OWNER_CHANGED");
+        if (!firebaseIdToken) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+        const headers = new Headers(init.headers);
+        headers.set("Authorization", `Bearer ${firebaseIdToken}`);
+        return apiFetch(path, withCurrentOwnerEffect({ ...init, headers }, current));
+      },
       // Pods authenticate signed sessions, never hub/browser cookies.
-      direct: (url, init) => apiFetch(url, { ...init, credentials: "omit", isEffectCurrent: current }),
+      direct: (url, init) =>
+        apiFetch(
+          ApiService.rewriteLocalDevSandboxUrl(url),
+          withCurrentOwnerEffect({ ...init, credentials: "omit" }, current),
+        ),
     };
+  }
+
+  /** Public-key context for an explicit credential-custody action, bound to
+   * the current owner and unlocked vault generation. This does not issue a grant. */
+  static async ownerCredentialSealContext(expectedOwnerId: string, isCurrent?: () => boolean): Promise<import("@/lib/one/ai-selection-recipient").AiSelectionSealContext> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => !!principal && principal.ownerId === expectedOwnerId && isFirebaseSessionOwnerCurrent(principal) &&
+      isVaultSessionEpochCurrent(epoch) && (isCurrent?.() ?? true);
+    if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED");
+    const transport = await this.ownerPodTransport();
+    const { currentPodConnection } = await import("./owner-pod-endpoint");
+    const connection = await currentPodConnection(expectedOwnerId, transport);
+    if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED");
+    return { userId: expectedOwnerId, ...connection, transport };
   }
 
   /** Exact app routes only; content never falls back to the shared hub. */
   static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
     onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string, isCurrent?: () => boolean): Promise<Response> {
     const principal = snapshotValidatedAuthSessionPrincipal();
-    const uid = principal?.ownerId;
-    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
-      && AuthService.getCurrentUser()?.uid === principal.firebaseUid && (isCurrent?.() ?? true));
+    if (!principal || !isFirebaseSessionOwnerCurrent(principal)) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const vaultEpoch = snapshotVaultSessionEpoch();
-    if (!uid || !current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
-    const access = await import("./pod-app-access");
-    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
-      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, current));
+    const current = () => isFirebaseSessionOwnerCurrent(principal)
+      && isVaultSessionEpochCurrent(vaultEpoch) && (isCurrent?.() ?? true);
     if (!current()) throw new Error("POD_OWNER_CHANGED");
-    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent: current }, expectedHushhId, uid, vaultEpoch);
+    const access = await import("./pod-app-access");
+    const fetchRequest = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
+    return access.ownerPodRequest(path, init, {
+      transport: () => this.ownerPodTransport(),
+      fetch: (url, options) => fetchRequest(ApiService.rewriteLocalDevSandboxUrl(url), withCurrentOwnerEffect(options, current)),
+      onChatAdmission,
+      isCurrent: current,
+    }, expectedHushhId, principal.ownerId, vaultEpoch);
+  }
+
+  /**
+   * Best-effort app-load pre-warming of private agent pod connection,
+   * standing capability grants, and container wake state.
+   */
+  static async prewarmOwnerPodChatAccess(): Promise<void> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    if (!principal || !isFirebaseSessionOwnerCurrent(principal)) {
+      return;
+    }
+    const access = await import("./pod-app-access");
+    await access.prewarmOwnerPodChatAccess({
+      hosting: () => this.getPersonalAgentStatusForRouting(),
+      transport: () => this.ownerPodTransport(),
+      fetch: (url, init) => apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), init),
+    });
   }
 
   /** Public identity only, after signed endpoint verification and app admission. */
@@ -4471,7 +4885,7 @@ export class ApiService {
     let pin = await ownerPod.loadPinnedEndpoint(uid);
     if (!pin) {
       const hosting = await ApiService.getPersonalAgentStatus();
-      if (hosting.hostingMode !== "byoc" || hosting.state !== "active") return null;
+      if (!isPrivateHostingMode(hosting.hostingMode) || hosting.state !== "active") return null;
       if (hosting.hushhId !== hushhId) throw new Error("POD_DIRECT_UNAVAILABLE:OWNER_MISMATCH");
       const transport = await ApiService.ownerPodTransport();
       try {
@@ -4891,12 +5305,14 @@ export class ApiService {
   static async getActivePortfolioImportRun(params: {
     userId: string;
     vaultOwnerToken: string;
+    signal?: AbortSignal;
   }): Promise<Response> {
     const query = new URLSearchParams({ user_id: params.userId });
     return apiFetch(
       `/api/kai/portfolio/import/run/active?${query.toString()}`,
       {
         method: "GET",
+        signal: params.signal,
         headers: {
           Authorization: `Bearer ${params.vaultOwnerToken}`,
         },
@@ -5254,15 +5670,40 @@ export class ApiService {
     return readKaiCompanyFacts(data, authToken, apiFetch);
   }
 
-  static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal): Promise<import("@/lib/kai/price-history").StockPriceHistory> {
+  /** Rupees per dollar for the India display mode. Throws when no rate exists, so callers keep dollars. */
+  static async getKaiUsdInrRate(data: { userId: string; signal?: AbortSignal }): Promise<KaiUsdInrRate> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) throw new Error("Missing authentication for the exchange rate");
+    const response = await apiFetch(`/api/kai/market/fx/usd-inr/${data.userId}`, {
+      method: "GET",
+      signal: data.signal,
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!response.ok) throw new Error(`Exchange rate unavailable: ${response.status}`);
+    const body = (await response.json()) as Partial<KaiUsdInrRate>;
+    if (typeof body.rate !== "number" || !Number.isFinite(body.rate) || body.rate <= 0) {
+      throw new Error("Exchange rate unavailable: unusable rate");
+    }
+    return {
+      base: "USD",
+      quote: "INR",
+      rate: body.rate,
+      as_of: typeof body.as_of === "string" ? body.as_of : null,
+      stale: Boolean(body.stale),
+    };
+  }
+
+  static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal, market: "US" | "IN" = "US"): Promise<import("@/lib/kai/price-history").StockPriceHistory> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) throw new Error("Missing authentication for price history");
-    return readKaiStockHistory(userId, symbol, authToken, apiFetch, signal);
+    return readKaiStockHistory(userId, symbol, authToken, apiFetch, signal, market);
   }
 
   static async getKaiMarketBaselineInsights(data: {
     userId: string;
     daysBack?: number;
+    /** India view. Omitted for the US view, which stays the default. */
+    market?: "US" | "IN";
     signal?: AbortSignal;
   }): Promise<KaiHomeInsightsV2> {
     const startedAt = Date.now();
@@ -5275,6 +5716,7 @@ export class ApiService {
     if (typeof data.daysBack === "number" && Number.isFinite(data.daysBack)) {
       query.set("days_back", String(data.daysBack));
     }
+    if (data.market === "IN") query.set("market", "IN");
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const path = `/api/kai/market/insights/baseline/${data.userId}${suffix}`;
 
@@ -5384,6 +5826,7 @@ export class ApiService {
     cursor?: string | null;
     limit?: number;
     daysBack?: number;
+    market?: "US" | "IN";
     signal?: AbortSignal;
   }): Promise<KaiMarketNewsPage> {
     const query = new URLSearchParams();
@@ -5394,6 +5837,7 @@ export class ApiService {
     if (typeof data.limit === "number") query.set("limit", String(data.limit));
     if (typeof data.daysBack === "number")
       query.set("days_back", String(data.daysBack));
+    if (data.market === "IN") query.set("market", "IN");
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const response = await apiFetch(
       `/api/kai/market/news/${data.userId}${suffix}`,
@@ -6066,21 +6510,8 @@ export class ApiService {
     return response;
   }
 
-  static async getActiveKaiDebateRun(data: {
-    userId: string;
-    debateSessionId: string;
-    vaultOwnerToken: string;
-  }): Promise<Response> {
-    const query = new URLSearchParams({
-      user_id: data.userId,
-      debate_session_id: data.debateSessionId,
-    }).toString();
-    return apiFetch(`/api/kai/analyze/run/active?${query}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-    });
+  static getActiveKaiDebateRun(data: ActiveKaiDebateRequest): Promise<Response> {
+    return readActiveKaiDebateRun(apiFetch, data);
   }
 
   static async cancelKaiDebateRun(data: {

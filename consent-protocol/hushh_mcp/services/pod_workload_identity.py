@@ -74,7 +74,7 @@ _cache_lock = threading.Lock()
 
 def google_metadata_access_endpoint() -> str:
     """The GCE metadata token address, unless this workload is not Google's."""
-    if workload_platform() == "azure":
+    if workload_platform() not in {"gcp", "local"}:
         raise PodWorkloadIdentityUnavailable("the Google metadata server is not this workload's")
     return GCE_METADATA_ACCESS_ENDPOINT
 

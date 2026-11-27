@@ -19,8 +19,8 @@
       "why": "Market refresh advisory lock. The startup warm and the refresh loop run one after the other, so one connection per worker at a time."
     },
     "hushh_mcp/services/fleet_sweep_lock.py": {
-      "connections": 2,
-      "why": "Pod liveness and personal-agent reconcile sweeps. Every hub worker tries both locks, and each try opens a connection, even though only the holder keeps it."
+      "connections": 1,
+      "why": "Pod liveness, personal-agent reconcile, umbrella cell replenish, and source pod retirement multiplex onto one shared dedicated advisory-lock session per process; held only while this process holds at least one active sweep turn."
     },
     "hushh_mcp/services/gmail_live_receipts_service.py": {
       "connections": 2,

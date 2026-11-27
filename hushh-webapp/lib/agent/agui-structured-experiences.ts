@@ -1,9 +1,22 @@
+import {
+  FINANCE_PORTFOLIO_EXPERIENCE_TYPE,
+  FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE,
+  FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE,
+  FINANCE_TOP_GAINERS_EXPERIENCE_TYPE,
+  parseFinancePortfolio,
+  parseFinancePortfolioUpload,
+  parseFinanceStockPreview,
+  parseFinanceTopGainers,
+  parseFinanceToolResult,
+  type FinanceCardExperience,
+} from "./finance-chat-experiences";
 import { asRecord, parseRecord, unwrapToolResult } from "./tool-result-envelope";
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
 import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
 import { parseSharedFieldSensitivities, type SharedFieldSensitivity } from "@/lib/consent/field-sensitivity";
 import {
   parseConnectorReadReceipt,
+  parseLiveMailSources,
   parseWorkspaceConnectorSetup,
   parseWorkspaceConnectorSetupDescriptor,
   WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
@@ -37,6 +50,19 @@ export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
 export const STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE = "one.style_settings_offer.v1" as const;
+export const TURN_LOCATION_PERMISSION_EXPERIENCE_TYPE =
+  "one.turn_location_permission.v1" as const;
+
+export type TurnLocationPermissionStatus =
+  | "not_granted"
+  | "denied"
+  | "unavailable"
+  | "not_provided";
+
+export type TurnLocationPermissionExperience = {
+  type: typeof TURN_LOCATION_PERMISSION_EXPERIENCE_TYPE;
+  permission: TurnLocationPermissionStatus;
+};
 
 /**
  * One's offer to change how it writes to the owner. It names the proposed
@@ -222,6 +248,8 @@ export type SharedWithMeCardItem = {
   status: "granted" | "revoked" | "expired" | null;
   /** False when the server knows there is nothing to open (no bundle); rare. */
   decryptable?: boolean;
+  /** Increments automatically when a continuous subscription refreshes; never contains values. */
+  exportRevision?: number | null;
 };
 
 export type SharedWithMeCard = {
@@ -252,6 +280,8 @@ export type AgentStructuredExperience =
   | MemoryImportReviewExperience
   | EvidenceBriefExperience
   | StyleSettingsOfferExperience
+  | TurnLocationPermissionExperience
+  | FinanceCardExperience
   | MailBriefExperience
   | ReceiptSetupExperience;
 
@@ -698,6 +728,11 @@ function parseSharedWithMeItems(value: unknown, fallbackPurpose: string | null):
       status: status === "granted" || status === "revoked" || status === "expired" ? status : null,
       ...(item.decryptable === false ? { decryptable: false } : {}),
       ...(fields.length ? { fields } : {}),
+      ...(typeof item.exportRevision === "number" && Number.isFinite(item.exportRevision)
+        ? { exportRevision: item.exportRevision }
+        : typeof item.export_revision === "number" && Number.isFinite(item.export_revision)
+          ? { exportRevision: item.export_revision }
+          : {}),
     }];
   });
 }
@@ -747,7 +782,34 @@ export function parseSharedWithMeCard(content: unknown): SharedWithMeCardExperie
   return cards.length ? { type: SHARED_WITH_ME_CARD_EXPERIENCE_TYPE, cards } : null;
 }
 
+const TURN_LOCATION_PERMISSION_VALUES = new Set<TurnLocationPermissionStatus>([
+  "not_granted",
+  "denied",
+  "unavailable",
+  "not_provided",
+]);
+
+function parseTurnLocationPermissionDescriptor(
+  content: unknown,
+): TurnLocationPermissionExperience | null {
+  const record = unwrapToolResult(content) ?? parseRecord(content);
+  const raw = typeof record?.permission === "string" ? record.permission : "not_provided";
+  const permission: TurnLocationPermissionStatus = TURN_LOCATION_PERMISSION_VALUES.has(
+    raw as TurnLocationPermissionStatus,
+  )
+    ? (raw as TurnLocationPermissionStatus)
+    : "not_provided";
+  return {
+    type: TURN_LOCATION_PERMISSION_EXPERIENCE_TYPE,
+    permission,
+  };
+}
+
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
+  [FINANCE_PORTFOLIO_EXPERIENCE_TYPE]: parseFinancePortfolio,
+  [FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE]: parseFinancePortfolioUpload,
+  [FINANCE_TOP_GAINERS_EXPERIENCE_TYPE]: parseFinanceTopGainers,
+  [FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE]: parseFinanceStockPreview,
   [SHARED_WITH_ME_CARD_EXPERIENCE_TYPE]: parseSharedWithMeCard,
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,
@@ -758,6 +820,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE]: parseMemoryImportReview,
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
   [WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE]: parseWorkspaceConnectorSetupDescriptor,
+  [TURN_LOCATION_PERMISSION_EXPERIENCE_TYPE]: parseTurnLocationPermissionDescriptor,
 };
 
 export function parseAgentActivityExperience(
@@ -775,6 +838,12 @@ export function parseAgentToolResultExperience(
   content: unknown,
   toolArguments?: unknown,
 ): AgentStructuredExperienceWithPresentation | null {
+  if (toolName === "get_my_location") {
+    const result = unwrapToolResult(content);
+    return result?.status === "needs_location_permission"
+      ? parseTurnLocationPermissionDescriptor(result)
+      : null;
+  }
   const connectorSetup = parseWorkspaceConnectorSetup(
     toolName,
     content,
@@ -787,12 +856,24 @@ export function parseAgentToolResultExperience(
   // shared-with-me card renders it.
   const sharedCard = parseSharedWithMeCard(content);
   if (sharedCard) return sharedCard;
-  if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
-    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapToolResult(content)) : null;
+  const financeCard = parseFinanceToolResult(toolName, content);
+  if (financeCard) return financeCard;
+  const directMailReadTool =
+    toolName === "gmail_search_mail" ||
+    toolName === "gmail_read_thread" ||
+    toolName === "gmail_list_needs_reply";
+  if (toolName === "ask_email_agent" || directMailReadTool || toolName === "ask_documents_agent") {
+    const unwrapped = unwrapToolResult(content);
+    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapped) : null;
     if (brief) return brief;
-    const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
-    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
-      ? receipt : null;
+    const receipt = parseConnectorReadReceipt(unwrapped?.structured);
+    const expectedConnector = toolName === "ask_documents_agent" ? "drive" : "mail";
+    if (receipt?.connector !== expectedConnector) return null;
+    if (expectedConnector === "mail") {
+      const liveSources = parseLiveMailSources(unwrapped?.live_sources);
+      if (liveSources) return { ...receipt, liveSources };
+    }
+    return receipt;
   }
   if (toolName === "read_workspace_tool") {
     const result = unwrapToolResult(content);

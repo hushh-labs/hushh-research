@@ -1,4 +1,3 @@
-# consent-protocol/server.py
 """
 FastAPI Server for Hussh Consent Protocol Agents
 
@@ -16,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
 from api import database_listener_lifecycle as _listener_lifecycle
+from api.email_router_lifecycle import warm_email_router_for_startup
 from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
@@ -156,6 +156,7 @@ from api.routes import (  # noqa: E402
     session,
     sse,
     trust,
+    website_pwm_research,
 )
 from api.routes.connector_routes import register_connector_routes  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
@@ -376,6 +377,7 @@ register_connector_routes(app)
 # startup/background execution path.
 app.include_router(referral_scoring_drain.router)
 app.include_router(pwm_notification_drain.router)
+app.include_router(website_pwm_research.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
@@ -520,6 +522,24 @@ logger.info(
 # that the guard reuses the already-warm pool instead of paying cold-start
 # connection cost a second time.
 # ============================================================================
+
+
+@app.on_event("startup")
+async def startup_dev_sandbox_custody_bootstrap() -> None:
+    """Self-hydrate Dev Hub sandbox custody secrets on Cloud Run dev when unset."""
+    if pod_mode():
+        return
+    try:
+        from hushh_mcp.services.dev_sandbox_custody_bootstrap import (  # noqa: PLC0415
+            bootstrap_dev_hub_sandbox_custody,
+        )
+
+        await asyncio.to_thread(bootstrap_dev_hub_sandbox_custody)
+    except Exception as exc:  # noqa: BLE001 - fail-safe so non-sandbox routes still boot
+        logger.warning(
+            "startup.dev_sandbox_custody_bootstrap_failed reason=%s",
+            type(exc).__name__,
+        )
 
 
 @app.on_event("startup")
@@ -728,6 +748,8 @@ async def startup_action_retrieval_warmup() -> None:
     never blocks readiness or health; a failure leaves the lazy path in place.
     """
     from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
+
+    await warm_email_router_for_startup(logger)
 
     if os.getenv(BAKED_MODEL_DIR_ENV) != BAKED_MODEL_DIR or not os.path.isdir(BAKED_MODEL_DIR):
         return
@@ -1585,6 +1607,56 @@ async def startup_pod_liveness_worker() -> None:
         logger.info("startup.pod_liveness_registered interval_s=120 heal=flag_gated fleet_lock=on")
     except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
         logger.warning("startup.pod_liveness_failed reason=%s", type(exc).__name__)
+
+
+@app.on_event("startup")
+async def startup_umbrella_cell_replenisher_worker() -> None:
+    """Maintain Dev Umbrella Cell warm standby headroom under strict zero-idle cost bounds."""
+    if pod_mode():
+        logger.info("startup.umbrella_cell_replenisher_skipped reason=pod_mode")
+        return
+    try:
+        from hushh_mcp.services.umbrella_cell_replenisher import (  # noqa: PLC0415
+            start_umbrella_cell_replenisher_loop,
+        )
+
+        task = start_umbrella_cell_replenisher_loop(
+            interval_seconds=180.0,
+            initial_delay_seconds=15.0,
+            sweep_lock=fleet_sweep_lock.UMBRELLA_CELL_REPLENISH,
+        )
+        if task is None:
+            logger.info("startup.umbrella_cell_replenisher_off reason=lane_or_flag")
+            return
+        _track_startup_background_task(task)
+        logger.info("startup.umbrella_cell_replenisher_registered interval_s=180 fleet_lock=on")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.umbrella_cell_replenisher_failed reason=%s", type(exc).__name__)
+
+
+@app.on_event("startup")
+async def startup_source_pod_retirement_worker() -> None:
+    """Enforce Dev 3-day two-key source-pod retirement (grace expiry + owner confirmation)."""
+    if pod_mode():
+        logger.info("startup.source_pod_retirement_skipped reason=pod_mode")
+        return
+    try:
+        from hushh_mcp.services.source_pod_retirement import (  # noqa: PLC0415
+            start_source_pod_retirement_loop,
+        )
+
+        task = start_source_pod_retirement_loop(
+            interval_seconds=600.0,
+            initial_delay_seconds=30.0,
+            sweep_lock=fleet_sweep_lock.SOURCE_POD_RETIREMENT,
+        )
+        if task is None:
+            logger.info("startup.source_pod_retirement_off reason=lane_or_flag")
+            return
+        _track_startup_background_task(task)
+        logger.info("startup.source_pod_retirement_registered interval_s=600 fleet_lock=on")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.source_pod_retirement_failed reason=%s", type(exc).__name__)
 
 
 @app.on_event("startup")

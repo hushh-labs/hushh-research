@@ -7,6 +7,8 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpFeedInvalidationEpoch, bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
@@ -31,6 +33,7 @@ import {
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import { PersonProfileService } from "@/lib/services/person-profile-service";
 import {
   dispatchOneLocationStateChanged,
   type OneLocationStateChangedDetail,
@@ -379,6 +382,10 @@ export class CacheSyncService {
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
 
     if (domain === "financial") {
       if (options?.portfolioData) {
@@ -411,6 +418,7 @@ export class CacheSyncService {
     } else {
       cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     }
+    cache.invalidate(`pkm_domain_resource_${userId}_available_scopes`);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -460,12 +468,17 @@ export class CacheSyncService {
     options?: { emitEvent?: boolean; eventId?: string },
   ): void {
     const cache = CacheService.getInstance();
+    cache.invalidate(`pkm_domain_resource_${userId}_available_scopes`);
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
     cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -530,6 +543,10 @@ export class CacheSyncService {
     ]);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_${domain}_`);
     cache.invalidatePattern(`consent_export_${userId}_`);
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -652,6 +669,20 @@ export class CacheSyncService {
     cache.invalidatePattern(`domain_blob_${userId}_`);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_`);
     cache.invalidatePattern(`stock_context_${userId}_`);
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        if (typeof PkmDomainResourceService.invalidateAllForUser === "function") {
+          PkmDomainResourceService.invalidateAllForUser(userId, {
+            includeDevice: true,
+            includeBackingCaches: true,
+          });
+        }
+      })
+      .catch(() => undefined);
     this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
   }
@@ -761,6 +792,11 @@ export class CacheSyncService {
     this.onFeedChanged(userId);
   }
 
+  static onFeedConnectionRequestsChanged(userId: string): void {
+    noteConsentMutated(userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+  }
+
   /**
    * One-to-One requests can add, revoke, or leave capabilities unchanged.
    * Keep every affected surface on the same invalidation contract rather than
@@ -783,12 +819,22 @@ export class CacheSyncService {
    * provenance projection in the same request. Invalidate both the generic
    * connection/consent tiers and One Location's combined state resource.
    */
-  static onConnectionGraphMutated(userId: string): void {
+  static onConnectionGraphMutated(
+    userId: string,
+    options?: { broadcast?: boolean; reason?: "mutation" | "reconcile" },
+  ): void {
     if (!userId) return;
+    CacheService.getInstance().invalidateMany([
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "ria"),
+      CACHE_KEYS.CONNECT_DIRECTORY_FIRST_PAGE(userId, "all"),
+      CACHE_KEYS.CONNECT_DIRECTORY_FIRST_PAGE(userId, "ria"),
+    ]);
+    PersonProfileService.invalidatePublicProfiles();
     this.onConnectionCapabilityMutated(userId);
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
-    dispatchConnectionGraphChanged(userId);
+    dispatchConnectionGraphChanged(userId, options);
   }
 
   /**
@@ -970,6 +1016,8 @@ export class CacheSyncService {
   }
 
   static onAuthSignedOut(userId?: string | null): void {
+    if (userId) void MessagesDraftService.clearForUser(userId).catch(() => undefined);
+    else MessagesDraftService.clearAll();
     bumpFeedInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     if (userId) {
@@ -983,6 +1031,21 @@ export class CacheSyncService {
           ConnectedSystemsResourceService.purgeUser(userId),
         )
         .catch(() => undefined);
+      void import("@/lib/agent/agent-chat-history-cache")
+        .then(({ clearAgentChatHistoryCache }) =>
+          clearAgentChatHistoryCache(userId, { includeDevice: true }),
+        )
+        .catch(() => undefined);
+      void import("@/lib/files/files-cache")
+        .then(({ clearFilesCache }) =>
+          clearFilesCache(userId, { includeDevice: true }),
+        )
+        .catch(() => undefined);
+      void import("@/lib/storage/encrypted-owner-ui-cache")
+        .then(({ deleteEncryptedOwnerUiRecords }) =>
+          deleteEncryptedOwnerUiRecords(userId),
+        )
+        .catch(() => undefined);
       return;
     }
     OneLocationStateResource.discardAll();
@@ -990,6 +1053,21 @@ export class CacheSyncService {
     clearAllLocationWorkspaceMemory();
     clearAllOneLocationControlRuntime();
     cache.clear();
+    void import("@/lib/agent/agent-chat-history-cache")
+      .then(({ clearAgentChatHistoryCache }) =>
+        clearAgentChatHistoryCache(undefined, { includeDevice: true }),
+      )
+      .catch(() => undefined);
+    void import("@/lib/files/files-cache")
+      .then(({ clearFilesCache }) =>
+        clearFilesCache(undefined, { includeDevice: true }),
+      )
+      .catch(() => undefined);
+    void import("@/lib/storage/encrypted-owner-ui-cache")
+      .then(({ deleteEncryptedOwnerUiRecords }) =>
+        deleteEncryptedOwnerUiRecords(),
+      )
+      .catch(() => undefined);
   }
 
   static onAccountDeleted(userId?: string | null): void {

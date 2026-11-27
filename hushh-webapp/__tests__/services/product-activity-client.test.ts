@@ -8,7 +8,7 @@ beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); mocks.token.mockResolv
   mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012" })));
 });
 const posts = () => mocks.fetch.mock.calls.filter((call) => call[1].method === "POST");
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function fixture() {
   const identity = await import("@/lib/auth/session-owner");
   identity.publishValidatedAuthSessionOwner("owner-a");
@@ -16,6 +16,301 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it.each([
+    ["gmail_connect_started", "full", "started"],
+    ["gmail_connect_result", "complete", "returned"],
+    ["gmail_disconnect_result", undefined, "returned"],
+    ["gmail_sync_requested", "manual", "returned"],
+    ["gmail_sync_result", "queue", "returned"],
+    ["gmail_receipts_loaded", undefined, "returned"],
+    ["import_upload_started", undefined, "started"],
+    ["import_parse_completed", undefined, "returned"],
+    ["import_quality_gate_passed", undefined, "returned"],
+    ["import_quality_gate_failed", undefined, "blocked"],
+    ["import_save_completed", undefined, "returned"],
+    ["consent_action_submitted", "approve", "returned"],
+    ["consent_action_result", "revoke", "returned"],
+  ] as const)("records reviewed feature observation %s through the existing private path", async (event, action, phase) => {
+    const client = await fixture();
+    client.observeProductEvent(event, action, event === "import_quality_gate_failed" ? "expected_error" : "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    const body = JSON.parse(posts()[0][1].body);
+    expect(body).toMatchObject({ actionId: `observation:${event}${action ? `:${action}` : ""}`, phase });
+    expect(Object.keys(body).sort()).toEqual(["actionId", "generation", "operationId", "phase"]);
+  });
+
+  it.each([
+    ["expected_error", "blocked"], ["error", "failed"], [undefined, "returned"],
+  ] as const)("keeps %s as the recorded %s phase without claiming business success", async (result, phase) => {
+    const client = await fixture();
+    client.observeProductEvent("gmail_sync_result", "queue", result);
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({ actionId: "observation:gmail_sync_result:queue", phase });
+    expect(JSON.stringify(posts())).not.toMatch(/succeeded|confirmed|technical_failed/);
+  });
+
+  it("excludes auth/system families and private undeclared action text before admission", async () => {
+    const client = await fixture();
+    client.observeProductEvent("auth_started", "google", "success");
+    client.observeProductEvent("api_request_completed", undefined, "success");
+    client.observeProductEvent("gmail_connect_result", "PRIVATE_CONTACT", "success");
+    client.observeProductEvent("consent_action_result", "PRIVATE_QUESTION", "success");
+    await Promise.resolve();
+    expect(mocks.token).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it("records the Mail connection prompt under its governed identifier", async () => {
+    const client = await fixture();
+    client.observeProductEvent("hushh_mail_signin_screen_view", undefined, "success");
+    client.observeProductEvent("account_reset_requested", undefined, "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({
+      actionId: "observation:hushh_mail_signin_screen_view",
+      phase: "returned",
+    });
+  });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
+    "withholds observations during a %s reviewer run while product operations complete",
+    async reviewerMutationPolicy => {
+      const f = await fixture();
+      vi.stubGlobal("__HUSHH_NATIVE_TEST__", {
+        enabled: true, autoReviewerLogin: true, reviewerMutationPolicy,
+      });
+      f.observeProductAction("calendar.event.create", "started");
+      f.observeProductEvent("one_memory_action", "detail_edited", "success");
+      const attempt = f.captureProductAttempt("chat:agent_one", "owner-a");
+      attempt.started();
+      attempt.settled("returned");
+      const result = { status: "succeeded" };
+      expect(await f.observeDispatch("calendar.event.create", Promise.resolve(result))).toBe(result);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mocks.token).not.toHaveBeenCalled();
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retires an in-flight observation when the reviewer becomes read-only", async () => {
+    const f = await fixture();
+    let resolveAdmission!: (response: Response) => void;
+    mocks.fetch.mockImplementationOnce(() => new Promise<Response>(resolve => { resolveAdmission = resolve; }));
+    f.observeProductAction("calendar.event.create", "started");
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(1));
+    vi.stubGlobal("__HUSHH_NATIVE_TEST__", {
+      enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only",
+    });
+    resolveAdmission(new Response(JSON.stringify({ enabled: true, generation: "original-epoch" })));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(0);
+  });
+
+  const navigation = () => ({ status: "started" as const, actionId: "setup.open_calendar", label: "Connect your calendar",
+    routeBefore: "/one/setup", routeAfter: "/one/setup/calendar", screenBefore: "one_setup", screenAfter: "one_setup_calendar",
+    resultSummary: "PRIVATE_RESULT", data: { privateValue: "PRIVATE_VALUE" } });
+  const arrived = { getCurrentRoute: () => ({ pathname: "/one/setup/calendar", screen: "one_setup_calendar", subview: null }),
+    getCurrentSurfaceMetadata: () => ({ screenId: "one_setup_calendar", title: "Calendar Setup", publisherRouteKey: "/one/setup/calendar" }) };
+
+  it("settles the Location chat attempt when the destination publishes after Chat unmounts", async () => {
+    const f = await fixture();
+    const { settleChatLocationNavigation } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const { clearVoiceSurfaceMetadata, publishVoiceSurfaceMetadata } =
+      await import("@/lib/kai/actions/voice-surface-metadata");
+    const originalUrl = window.location.href;
+    const actionId = "route.one_location";
+    const destination = "/one/location";
+    try {
+      window.history.replaceState(null, "", "/");
+      const result = await f.observeDispatch(actionId, Promise.resolve({
+        status: "started" as const, actionId, label: "Open Location", routeBefore: "/",
+        routeAfter: destination, screenBefore: "chat", resultSummary: "Opening Location",
+      }));
+      const settlement = settleChatLocationNavigation(result);
+      await vi.waitFor(() => expect(posts()).toHaveLength(1));
+      expect(JSON.parse(posts()[0][1].body)).toMatchObject({ actionId, phase: "started" });
+      window.history.replaceState(null, "", destination);
+      publishVoiceSurfaceMetadata("location", { screenId: "one_location", title: "Location" },
+        { routeKey: destination });
+      expect((await settlement).status).toBe("succeeded");
+      await vi.waitFor(() => expect(posts()).toHaveLength(2));
+      expect(JSON.parse(posts()[1][1].body)).toEqual({ ...JSON.parse(posts()[0][1].body), phase: "returned" });
+    } finally {
+      clearVoiceSurfaceMetadata("location");
+      window.history.replaceState(null, "", originalUrl);
+    }
+  });
+
+  it("reports a navigation terminal once only after its destination actually settles", async () => {
+    const f = await fixture();
+    const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const value = navigation();
+    const result = await f.observeDispatch(value.actionId, Promise.resolve(value));
+    expect(result).toBe(value);
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    const original = JSON.parse(posts()[0][1].body);
+    const settled = await settleAgentGatewayAction(result, arrived);
+    expect(settled.status).toBe("succeeded");
+    await vi.waitFor(() => expect(posts().some(call => JSON.parse(call[1].body).phase === "returned")).toBe(true));
+    await settleAgentGatewayAction(result, arrived);
+    await settleAgentGatewayAction(settled, arrived);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const terminals = posts().map(call => JSON.parse(call[1].body)).filter(body => body.phase === "returned");
+    expect(terminals).toEqual([{ ...original, phase: "returned" }]);
+    expect(JSON.stringify(posts())).not.toMatch(/PRIVATE_RESULT|PRIVATE_VALUE|\/one\/setup\/calendar/);
+  });
+
+  it("keeps route timeout unknown and retains the original attempt for later settlement", async () => {
+    const f = await fixture();
+    const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const value = navigation();
+    const result = await f.observeDispatch(value.actionId, Promise.resolve(value));
+    const waiting = await settleAgentGatewayAction(result, {
+      getCurrentRoute: () => ({ pathname: "/one/setup", screen: "one_setup", subview: null }),
+      getCurrentSurfaceMetadata: () => null, timeoutMs: 0,
+    });
+    expect(waiting.status).toBe("started");
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    expect(posts().every(call => JSON.parse(call[1].body).phase === "started")).toBe(true);
+    const original = JSON.parse(posts()[0][1].body);
+    // Timeout describes the current screen, not the requested destination.
+    // Its projection must never acquire terminal-report authority.
+    await settleAgentGatewayAction(waiting, {
+      getCurrentRoute: () => ({ pathname: "/one/setup", screen: "one_setup", subview: null }),
+      getCurrentSurfaceMetadata: () => ({ screenId: "one_setup", title: "Setup", publisherRouteKey: "/one/setup" }),
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts().every(call => JSON.parse(call[1].body).phase === "started")).toBe(true);
+    await settleAgentGatewayAction(result, arrived);
+    await vi.waitFor(() => expect(posts().some(call => JSON.parse(call[1].body).phase === "returned")).toBe(true));
+    expect(JSON.parse(posts().at(-1)![1].body)).toEqual({ ...original, phase: "returned" });
+  });
+
+  it.each(["reset", "switch"])("does not attach a delayed route terminal to an owner after %s", async change => {
+    const f = await fixture();
+    const { settleAgentGatewayAction } = await import("@/lib/agent/agent-gateway-action-settlement");
+    const value = navigation();
+    const result = await f.observeDispatch(value.actionId, Promise.resolve(value));
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const count = posts().length;
+    if (change === "reset") mocks.reset!("owner-a");
+    else f.publishValidatedAuthSessionOwner("owner-b");
+    expect((await settleAgentGatewayAction(result, arrived)).status).toBe("succeeded");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(count);
+  });
+
+  it("keeps a streamed attempt on its original epoch and admits only its first terminal", async () => {
+    const f = await fixture();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    let epoch = "original-epoch";
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(
+      options.method === "POST" ? { recorded: true } : { enabled: true, generation: epoch },
+    )));
+    const id = "12345678-1234-1234-1234-123456789012";
+    const attempt = f.captureProductAttempt("chat:agent_one", "owner-a", id);
+    attempt.settled("returned"); // No started run: no terminal evidence.
+    attempt.started();
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    epoch = "new-epoch";
+    clock.mockReturnValue(now + 60_001);
+    f.observeProductEvent("one_memory_action", "detail_edited", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(2));
+    attempt.started(); // A confirmation resume is still the original attempt.
+    attempt.settled("returned");
+    attempt.settled("failed");
+    await vi.waitFor(() => expect(posts()).toHaveLength(3));
+    const reports = posts().map((call) => JSON.parse(call[1].body)).filter((body) => body.operationId === id);
+    expect(reports.map((body) => [body.phase, body.generation])).toEqual([
+      ["started", "original-epoch"], ["returned", "original-epoch"],
+    ]);
+  });
+  it.each(["reset", "switch"])("does not settle a streamed attempt after owner %s", async (change) => {
+    const f = await fixture();
+    const attempt = f.captureProductAttempt("chat:agent_one", "owner-a");
+    attempt.started();
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    if (change === "reset") mocks.reset!("owner-a");
+    else f.publishValidatedAuthSessionOwner("owner-b");
+    attempt.settled("returned");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(1);
+  });
+  it("refuses mismatched owners and keeps free-form message identifiers out of reports", async () => {
+    const f = await fixture();
+    const refused = f.captureProductAttempt("chat:agent_one", "owner-b");
+    refused.started(); refused.settled("returned");
+    expect(mocks.token).not.toHaveBeenCalled();
+    const admitted = f.captureProductAttempt("chat:agent_one", "owner-a", "PRIVATE_MESSAGE_BODY");
+    admitted.started(); admitted.settled("returned");
+    await vi.waitFor(() => expect(posts()).toHaveLength(2));
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_MESSAGE_BODY");
+    expect(new Set(posts().map((call) => JSON.parse(call[1].body).operationId)).size).toBe(1);
+  });
+  it("drains a burst after four in-flight reports without delaying product results", async () => {
+    const f = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mocks.fetch.mockImplementation(async (_url, options) => {
+      if (options.method === "POST") await gate;
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "original-epoch" }));
+    });
+    const values = Array.from({ length: 6 }, () => ({ status: "succeeded" }));
+    const operations = values.map((value) => f.observeDispatch("calendar.event.create", Promise.resolve(value)));
+    expect(await Promise.all(operations)).toEqual(values);
+    await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    release();
+    await vi.waitFor(() => expect(posts()).toHaveLength(12));
+    const bodies = posts().map((call) => JSON.parse(call[1].body));
+    expect(new Set(bodies.map((body) => body.operationId)).size).toBe(6);
+    for (const id of new Set(bodies.map((body) => body.operationId))) {
+      expect(bodies.filter((body) => body.operationId === id).map((body) => body.phase)).toEqual(["started", "returned"]);
+    }
+    expect(bodies.every((body) => body.generation === "original-epoch")).toBe(true);
+  });
+  it.each(["switch", "reset"])("discards queued reports after owner %s", async (change) => {
+    const f = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mocks.fetch.mockImplementation(async (_url, options) => {
+      if (options.method === "POST") await gate;
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "capture-epoch" }));
+    });
+    for (let i = 0; i < 6; i++) f.observeProductAction("calendar.event.create", "started", `old-operation-${i}`);
+    await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    if (change === "switch") f.publishValidatedAuthSessionOwner("owner-b");
+    else mocks.reset!("owner-a");
+    f.observeProductAction("calendar.event.create", "started", "current-operation");
+    release();
+    await vi.waitFor(() => expect(posts()).toHaveLength(5));
+    expect(posts().map((call) => JSON.parse(call[1].body).operationId)).toEqual([
+      "old-operation-0", "old-operation-1", "old-operation-2", "old-operation-3", "current-operation",
+    ]);
+  });
+  it.each(["capacity", "expiry"])("bounds queued observation retention by %s", async (limit) => {
+    const f = await fixture();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mocks.fetch.mockImplementation(async (_url, options) => {
+      if (options.method === "POST") await gate;
+      return new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "capture-epoch" }));
+    });
+    for (let i = 0; i < (limit === "capacity" ? 1000 : 6); i++)
+      f.observeProductAction("calendar.event.create", "started", `bounded-operation-${i}`);
+    await vi.waitFor(() => expect(posts()).toHaveLength(4));
+    if (limit === "expiry") clock.mockReturnValue(now + 60_001);
+    release();
+    // A new report proves the drain finished; expired or overflowed records must
+    // not reappear after the transport becomes available.
+    await vi.waitFor(() => expect(posts()).toHaveLength(limit === "capacity" ? 68 : 4));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    f.observeProductAction("calendar.event.create", "returned", "fresh-operation");
+    await vi.waitFor(() => expect(posts()).toHaveLength(limit === "capacity" ? 69 : 5));
+    expect(JSON.parse(posts().at(-1)![1].body).operationId).toBe("fresh-operation");
+  });
   it("refreshes admission for new operations after a remote reset without rebinding pending terminal reports", async () => {
     const f = await fixture();
     const now = Date.now();
@@ -76,5 +371,29 @@ describe("private product observation lifecycle", () => {
     await expect(f.observeDispatch("calendar.event.create", Promise.reject(failure))).rejects.toBe(failure);
     await vi.waitFor(() => expect(posts()).toHaveLength(2));
     expect(JSON.stringify(posts())).not.toContain("PRIVATE_ERROR");
+  });
+  it.each([
+    new DOMException("PRIVATE_ABORT", "AbortError"),
+    new DOMException("PRIVATE_TIMEOUT", "TimeoutError"),
+    Object.assign(new Error("PRIVATE_ABORT"), { name: "AbortError" }),
+    Object.assign(new Error("PRIVATE_TIMEOUT"), { name: "TimeoutError" }),
+  ])("keeps a rejected $name dispatch unknown without changing its rejection", async (error) => {
+    const f = await fixture();
+    await expect(f.observeDispatch("calendar.event.create", Promise.reject(error))).rejects.toBe(error);
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts().map(call => JSON.parse(call[1].body).phase)).toEqual(["started"]);
+    expect(JSON.stringify(posts())).not.toMatch(/PRIVATE_ABORT|PRIVATE_TIMEOUT/);
+  });
+  it("records the declared Calendar booking result through the private projection", async () => {
+    const client = await fixture();
+    client.observeProductEvent("one_calendar_action", "booking_create", "success");
+    client.observeProductEvent("one_calendar_action", "PRIVATE_MEETING_TITLE", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({
+      actionId: "observation:one_calendar_action:booking_create",
+      phase: "returned",
+    });
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_MEETING_TITLE");
   });
 });

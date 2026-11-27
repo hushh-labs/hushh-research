@@ -141,6 +141,22 @@ async def require_hosted_pilot_selection(
             raise ValueError
         return HostedPilotSelection(owner_id, hushh_id, deepcopy(row))
     except Exception as exc:  # noqa: BLE001 - missing policy/schema/read authority must deny
+        if deploy_lane() == "dev":
+            from hushh_mcp.services.hosted_dev_pilot_extension import select_extension_slot
+
+            try:
+                image = os.getenv("HUSSH_ONE_POD_IMAGE", "")
+                extension = await select_extension_slot(
+                    owner_id,
+                    registry,
+                    image=image,
+                    release=configured_release(image),
+                    require_record=require_record,
+                )
+                if extension is not None:
+                    return extension
+            except Exception:  # noqa: BLE001 - fall through to canonical denial
+                pass
         raise HostedTierNotPermittedError("Hosted pilot selection is unavailable") from exc
 
 

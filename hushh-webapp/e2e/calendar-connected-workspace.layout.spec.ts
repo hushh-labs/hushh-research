@@ -34,8 +34,10 @@ test("Calendar product font and real action targets survive responsive boundarie
   const dialog = page.getByRole("dialog");
   await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   const title = dialog.getByRole("heading", { name: "QA Product Sync" });
-  expect(await title.evaluate(element => ({ family: getComputedStyle(element).fontFamily, size: getComputedStyle(element).fontSize, line: getComputedStyle(element).lineHeight }))).toMatchObject({ size: "15px", line: "18px" });
+  expect(await title.evaluate(element => ({ family: getComputedStyle(element).fontFamily, size: getComputedStyle(element).fontSize, line: getComputedStyle(element).lineHeight }))).toMatchObject({ size: "20px", line: "28px" });
   await expect(title).toHaveCSS("font-family", /Plus Jakarta Sans/);
+  const offerAction = dialog.getByRole("button", { name: "Decline & offer another time" });
+  await expect(offerAction).toHaveCSS("font-weight", "550");
   const invitationBack = dialog.getByRole("button", { name: "Invitations", exact: true });
   await expect(invitationBack).toHaveCSS("font-size", "12px");
   expect((await invitationBack.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -77,15 +79,32 @@ test("Calendar product font and real action targets survive responsive boundarie
 
 test("three-account Board keeps its measure, heading roles and account actions across breakpoints", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 360, false, "standard", false, true);
-  for (const width of [360, 393, 430, 768, 900, 901, 1024, 1440]) {
+  for (const width of [320, 360, 393, 430, 768, 900, 901, 1024, 1440]) {
     await page.setViewportSize({ width, height: 950 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Board overflow at ${width}px`).toBe(true);
     await expect(page.locator("[data-calendar-account-board]")).toHaveCSS("font-family", /Plus Jakarta Sans/);
     const add = (await page.getByRole("button", { name: "Add account" }).boundingBox())!;
     expect(add.height, `Add account target at ${width}px`).toBeGreaterThanOrEqual(44);
+    const counter = (await page.getByText("3 of 3 Google accounts added", { exact: true }).boundingBox())!;
+    const refresh = (await page.getByRole("button", { name: "Refresh Calendar", exact: true }).boundingBox())!;
+    expect(Math.abs(counter.y + counter.height / 2 - add.y - add.height / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(refresh.y + refresh.height / 2 - add.y - add.height / 2)).toBeLessThanOrEqual(1);
+    expect(counter.x + counter.width).toBeLessThanOrEqual(add.x);
+    expect(add.x + add.width).toBeLessThanOrEqual(refresh.x);
+    expect(refresh.x + refresh.width).toBeLessThanOrEqual(width);
     const overlap = (await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).boundingBox())!;
     expect(overlap.height, `overlap target at ${width}px`).toBeGreaterThanOrEqual(44);
   }
+  const today = page.getByRole("button", { name: "Today", exact: true });
+  await expect(today).toHaveAttribute("aria-current", "date");
+  await page.getByRole("button", { name: "Previous day", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Today", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+  await page.getByRole("button", { name: "Back to today", exact: true }).click();
+  await expect(today).toHaveAttribute("aria-current", "date");
+  await page.getByRole("button", { name: "Next day", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+  await page.getByRole("button", { name: "Back to today", exact: true }).click();
   const addPill = page.getByRole("button", { name: "Add account" });
   const lightPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
@@ -96,13 +115,13 @@ test("three-account Board keeps its measure, heading roles and account actions a
   const dialog = page.getByRole("dialog");
   await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   const title = dialog.getByRole("heading", { name: "QA Design Review" });
-  await expect(title).toHaveCSS("font-size", "15px");
-  await expect(title).toHaveCSS("line-height", "18px");
+  await expect(title).toHaveCSS("font-size", "20px");
+  await expect(title).toHaveCSS("line-height", "28px");
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
 
-test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
+test("@presentation a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "broken");
   const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
   const avatar = account.locator("[data-photo-source=hussh]");
@@ -115,13 +134,15 @@ test("a broken HUSSH portrait keeps the Calendar account initial and size", asyn
   expect(errors).toEqual([]);
 });
 
-test("Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
+test("@presentation Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "transparent");
   for (const section of ["Insights", "Invitations"]) {
     await page.getByRole("tab", { name: section, exact: true }).click();
     const owner = page.getByRole("button", { name: "Calendar account: qa-owner@example.com" });
     await expect.poll(() => owner.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
-    await owner.click();
+    if (section === "Invitations") await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    await owner.press("Enter");
+    await expect(owner).toHaveAttribute("aria-expanded", "true");
     const work = page.getByRole("menuitemradio", { name: /qa-work@example.com/ });
     await expect.poll(() => work.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     await expect(work.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
@@ -158,7 +179,14 @@ for (const width of [390, 1440]) {
     }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Free across all accounts" })).toBeVisible();
+    const sharedHeading = page.getByRole("heading", { name: "Free across all accounts" });
+    await expect(page.getByLabel("Calendar board date").locator("..").locator("span")).toHaveCSS("font-size", "14px");
+    await expect(sharedHeading).toHaveCSS("line-height", "22px");
+    await expect(sharedHeading).toHaveCSS("font-weight", "600");
+    const sharedOpening = page.getByRole("button", { name: /^Schedule from shared free time/ }).first();
+    await expect(sharedOpening).toHaveCSS("font-size", "14px");
+    await expect(sharedOpening.getByText("Schedule this time")).toHaveCSS("font-size", "12px");
+    await expect(sharedOpening.getByText("Schedule this time")).toHaveCSS("font-weight", "550");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-three-account-board-${width}.png`) });
     await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).click();
@@ -169,7 +197,10 @@ for (const width of [390, 1440]) {
     await dialog.getByPlaceholder("Explain why you cannot attend").fill("I need to join the client call.");
     await dialog.getByRole("button", { name: "Review Calendar and Mail" }).click();
     await expect(dialog.getByText("To: organizer-design@example.test")).toBeVisible();
-    await dialog.getByRole("button", { name: "Confirm selected changes" }).click();
+    const confirm = dialog.getByRole("button", { name: "Confirm selected changes" });
+    await expect(confirm).toHaveCSS("font-size", "12px");
+    await expect(confirm).toHaveCSS("font-weight", "550");
+    await confirm.click();
     await expect(dialog.getByText("Calendar: declined · Mail: sent")).toBeVisible();
     expect(page.url()).toContain("/calendar-connected-fixture?board=1");
     expect(calls.some(call => call.path.endsWith("/conflicts/workspace/review"))).toBe(true);
@@ -206,7 +237,7 @@ for (const width of [320, 390, 1440]) {
     const selectedSurface = await page.locator("[data-highlighted]").evaluate(element => getComputedStyle(element).backgroundColor);
     const inactiveSurface = await page.getByRole("tab", { name: "Free time", exact: true }).evaluate(element => getComputedStyle(element).backgroundColor);
     await expect(page.getByRole("tab", { name: "Today", exact: true })).toHaveCSS("background-color", selectedSurface);
-    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    await expect(page.getByRole("link", { name: "Join meeting: QA Product Sync", exact: true })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=qa-owner%40example.com&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Dqa-owner%2540example.com");
     await expect(page.getByRole("link", { name: "Join meeting: QA Design Review", exact: true })).toHaveAttribute("href", "https://zoom.us/j/123456789");
     await expect(page.getByRole("link", { name: "Join meeting: QA Client Call – Acme", exact: true })).toHaveAttribute("href", "https://teams.microsoft.com/l/meetup-join/19%3ameeting_qa/0");
     await expect(page.locator('[data-calendar-event="primary:shared-id"] img[src="/one-calendar/providers/google-meet-reference.png"]')).toBeVisible();
@@ -256,7 +287,14 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("Choose calendars and alternative meeting hours. Free time checks the whole selected day.");
     await expect(page.getByRole("dialog").getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
-    for (let index = 0; index < 6; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    const settings = page.getByRole("dialog", { name: "Calendar settings" });
+    await expect.poll(() => settings.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    const closeSettings = settings.getByRole("button", { name: "Close", exact: true });
+    await closeSettings.focus();
+    await page.keyboard.press("Tab");
+    await expect(settings.locator('input[type="time"]').first()).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(closeSettings).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
     await tabs.getByRole("tab", { name: "Schedule", exact: true }).focus();
@@ -447,7 +485,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See more in Google Calendar")).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-list-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
-    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=qa-owner%40example.com&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Dqa-owner%2540example.com");
     const dialog = page.getByRole("dialog", { name: "Invitation details", exact: true });
     await expect(dialog).toBeVisible();
     await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
@@ -488,6 +526,19 @@ for (const width of [320, 390, 1440]) {
     }));
     expect(guestBounds.every((row, index) => row.rowWidth > 0 && row.x === guestBounds[0]?.x && (index === 0 || row.y > guestBounds[index - 1]!.y))).toBe(true);
     expect(guestBounds.every(row => row.x + row.rowWidth <= bounds.x + bounds.width + 1)).toBe(true);
+    const decline = (await dialog.getByRole("button", { name: "Decline", exact: true }).boundingBox())!;
+    const acceptBounds = (await dialog.getByRole("button", { name: "Accept", exact: true }).boundingBox())!;
+    const offer = (await dialog.getByRole("button", { name: "Decline & offer another time", exact: true }).boundingBox())!;
+    expect(decline.x + decline.width).toBeLessThan(acceptBounds.x);
+    expect(decline.y).toBe(acceptBounds.y);
+    expect(decline.width).toBeCloseTo(acceptBounds.width, 0);
+    expect(decline.height).toBe(acceptBounds.height);
+    expect(offer.width).toBeLessThan(acceptBounds.x + acceptBounds.width - decline.x);
+    expect(offer.y).toBeGreaterThanOrEqual(decline.y + decline.height);
+    const join = dialog.getByRole("link", { name: "Join meeting", exact: true });
+    await expect(join).toHaveCSS("border-top-width", "0px");
+    await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    expect((await join.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     const actionButtons = dialog.getByRole("button", { name: /^(Accept|Decline|Decline & offer another time)$/ });
     for (const button of await actionButtons.all()) {
       const normal = (await button.boundingBox())!;
@@ -525,9 +576,48 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("tab", { name: "Responded", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
+    await expect(dialog.getByRole("article")).toBeVisible();
+    await expect(dialog.getByLabel("Invitation actions")).toHaveCount(0);
     expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
   });
 }
+
+test("invitation titles retain source spacing and wrap within their available measure", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "long", false, true);
+  await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+  const card = page.getByRole("button", { name: `Open invitation: ${privateLongTitle}` });
+  await expect(card.locator("..").locator("strong").filter({ hasText: privateLongTitle })).toHaveText(privateLongTitle);
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    const account = (await page.getByRole("button", { name: "Calendar account: qa-owner@example.com" }).boundingBox())!;
+    const filters = (await page.getByRole("tablist", { name: "Invitation filters" }).boundingBox())!;
+    const date = (await page.getByLabel("Invitation date").boundingBox())!;
+    const heading = (await page.getByRole("heading", { name: "Needs your response" }).boundingBox())!;
+    const invitation = (await card.boundingBox())!;
+    for (const element of [filters, date, heading, invitation]) expect(element.x).toBeCloseTo(account.x, 0);
+    expect(filters.y).toBeGreaterThanOrEqual(account.y + account.height);
+    expect(date.y).toBeGreaterThanOrEqual(filters.y + filters.height);
+    expect(heading.y).toBeGreaterThanOrEqual(date.y + date.height);
+    expect(invitation.y).toBeGreaterThanOrEqual(heading.y + heading.height);
+    const warning = card.locator("..").getByText("Overlaps QA Existing meeting", { exact: true }).locator("..");
+    expect(await warning.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeLessThan(await card.locator("..").locator("strong").filter({ hasText: privateLongTitle }).evaluate(element => parseFloat(getComputedStyle(element).fontSize)));
+  }
+  await page.setViewportSize({ width: 390, height: 950 });
+  await card.click();
+  const dialog = page.getByRole("dialog");
+  const title = dialog.getByRole("heading", { name: privateLongTitle });
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await expect(title).toHaveCSS("letter-spacing", "normal");
+    await expect(title).toHaveCSS("white-space", "pre-wrap");
+    expect(await title.evaluate(element => element.textContent)).toBe(privateLongTitle);
+    expect(await title.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await title.evaluate(element => element.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+});
 
 for (const width of [390, 1280]) {
   test(`Calendar Insights library and notes at ${width}px`, async ({ page }) => {
@@ -545,13 +635,19 @@ for (const width of [390, 1280]) {
       ];
       return route.fulfill({ json: { complete: true, calendar_complete: true, next_cursor: null, limitations: [], checked_events: 2, meeting_file_access: "ready", account_id: "default", date: body.date, time_zone: body.time_zone, meetings: rows.filter(row => row.title.toLowerCase().includes((body.query || "").toLowerCase())) } });
     });
-    await page.route("**/api/one/calendar/meetings/detail", route => route.fulfill({ json: { complete: true, discovery: "checked", calendar_id: "primary", event: { title: "QA Design review" }, artifacts: [
+    await page.route(/\/api\/one\/calendar\/meetings\/(?:approved-)?detail$/, route => route.fulfill({ json: { complete: true, discovery: "checked", calendar_id: "primary", event: { title: "QA Design review" }, artifacts: [
       { file_id: "qa-doc", kind: "notes", state: "available", title: "QA Meeting notes", url: "https://docs.google.com/document/d/qa-doc", text: "Synthetic browser fixture only.", text_format: "plain", can_download: true },
       { file_id: "qa-transcript", kind: "transcript", state: "permission_required" },
     ] } }));
     await page.getByRole("tab", { name: "Insights", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Executive snapshot" })).toBeVisible();
-    await expect(page.getByText("8", { exact: true })).toBeVisible();
+    await expect(page.getByText("8", { exact: true })).toHaveCSS("line-height", "36px");
+    await expect(page.locator(".recharts-cartesian-axis-tick text").first()).toHaveCSS("line-height", "18px");
+    await page.locator(".recharts-bar-rectangle").nth(1).hover();
+    const chartValue = page.locator('[data-slot="chart-tooltip-value"]');
+    await expect(chartValue).toHaveCSS("font-family", /Plus Jakarta Sans/);
+    await expect(chartValue).toHaveCSS("font-weight", "550");
+    await expect(page.getByRole("heading", { name: "Focus opportunities" })).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-overview-${width}.png`), fullPage: true });
     const libraryEntry = page.getByRole("button", { name: /Recordings & Notes/ });
     await libraryEntry.scrollIntoViewIfNeeded();
@@ -652,10 +748,14 @@ for (const width of [390, 1280]) {
     await expect(rows).toHaveCount(1);
     await expect(rows).toHaveAccessibleName("Open invitation: QA Tomorrow");
     await page.getByRole("button", { name: "Next day", exact: true }).click();
-    await expect(page.getByText("No pending invitations on this date.")).toBeVisible();
+    const empty = page.getByText("No pending invitations on this date.");
+    await expect(empty).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Needs your response" })).toHaveCount(0);
+    const pendingTab = page.getByRole("tab", { name: "Pending (0)" });
+    expect(Math.abs((await empty.boundingBox())!.x - (await pendingTab.boundingBox())!.x)).toBeLessThanOrEqual(2);
     await page.getByRole("button", { name: "Previous day", exact: true }).click();
     await expect(rows).toHaveCount(1);
-    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await page.getByRole("button", { name: "Back to today", exact: true }).click();
     await expect(rows).toHaveCount(10);
     const before = reads;
     await page.getByRole("tab", { name: "Schedule", exact: true }).click();
@@ -726,16 +826,177 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   await page.getByRole("tab", { name: "Invitations", exact: true }).click();
   await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
   await page.getByRole("button", { name: "Decline", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Review decline email" })).toBeDisabled();
+  const send = page.getByRole("button", { name: "Decline", exact: true });
+  await expect(send).toBeDisabled();
   await page.getByLabel("Reason for declining").fill("I have another commitment.");
-  await page.getByRole("button", { name: "Review decline email" }).click();
-  await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
-  await expect(page.getByText(/I have another commitment\./)).toBeVisible();
   expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(0);
-  await page.getByRole("button", { name: "Decline & send email" }).click();
+  await send.click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("calendar-action")).toHaveText("");
   expect(page.url()).toContain("/calendar-connected-fixture");
   expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(1);
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+});
+
+for (const width of [320, 390, 480, 481, 768, 1440]) {
+  test(`Board invitation title, Join and people stay aligned at ${width}px`, async ({ page }, testInfo) => {
+    const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "busy", false, true);
+    const title = width === 390 ? "Hushh Growth Sync" : "QA Client Call with a deliberately long title for the invitation header";
+    await page.route("**/api/one/calendar/board/day", async route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const board = (await import("./fixtures/calendar-board-day")).calendarBoardDayFixture({
+        day: String(body.date), zone: String(body.time_zone), durationMinutes: Number(body.duration_minutes), now: qaNow, busy: true,
+        instant: (day, clock) => Date.parse(`${day}T${clock}:00+05:30`),
+      });
+      board.accounts[1]!.events[0]!.title = title;
+      await route.fulfill({ json: board });
+    });
+    await page.getByRole("button", { name: "Refresh Calendar", exact: true }).click();
+    await page.getByRole("button", { name: `Open ${title} in qa-work@example.com` }).click();
+    const dialog = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: title }) });
+    await page.screenshot({ animations: "disabled" });
+    const header = dialog.locator('[data-slot="dialog-header"]');
+    const join = dialog.getByRole("link", { name: "Join meeting", exact: true });
+    const close = dialog.getByRole("button", { name: "Close", exact: true });
+    await expect(header.getByRole("link", { name: "Join meeting", exact: true })).toBeVisible();
+    await expect(join).toHaveCSS("border-top-width", "0px");
+    await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const joinBounds = (await join.boundingBox())!;
+    const headerBounds = (await header.boundingBox())!;
+    const closeBounds = (await close.boundingBox())!;
+    expect(joinBounds.height).toBeGreaterThanOrEqual(44);
+    expect(joinBounds.x + joinBounds.width).toBeLessThanOrEqual(closeBounds.x);
+    expect(joinBounds.x + joinBounds.width).toBeGreaterThan(headerBounds.x + headerBounds.width / 2);
+    const heading = header.getByRole("heading", { name: title });
+    const titleBounds = (await heading.boundingBox())!;
+    const firstTitleLine = await heading.evaluate(element => {
+      const range = document.createRange(); range.selectNodeContents(element);
+      const first = range.getClientRects()[0]!;
+      return { top: first.top, bottom: first.bottom };
+    });
+    expect(titleBounds.x + titleBounds.width).toBeLessThanOrEqual(joinBounds.x);
+    expect(joinBounds.y).toBeLessThan(firstTitleLine.bottom);
+    expect(joinBounds.y + joinBounds.height).toBeGreaterThan(firstTitleLine.top);
+    if (width === 390) {
+      // Reproduce the removed mobile rule: it must put Join below the title.
+      const stacked = await heading.evaluate(element => {
+        const row = element.parentElement!;
+        row.style.gridTemplateColumns = "minmax(0, 1fr)";
+        const titleBottom = element.getBoundingClientRect().bottom;
+        const joinTop = row.querySelector("a")!.getBoundingClientRect().top;
+        row.style.removeProperty("grid-template-columns");
+        return { titleBottom, joinTop };
+      });
+      expect(stacked.joinTop).toBeGreaterThanOrEqual(stacked.titleBottom);
+    }
+    const organizer = header.locator("p").filter({ hasText: "Organized by" }).locator(":scope > span").last();
+    const avatarBounds = (await organizer.locator('[data-slot="avatar"]').boundingBox())!;
+    const nameBounds = (await organizer.locator(":scope > span").last().boundingBox())!;
+    expect(Math.abs(avatarBounds.y + avatarBounds.height / 2 - nameBounds.y - nameBounds.height / 2)).toBeLessThanOrEqual(1);
+    const decline = dialog.getByRole("button", { name: "Decline", exact: true });
+    const accept = dialog.getByRole("button", { name: "Accept", exact: true });
+    const declineBounds = (await decline.boundingBox())!;
+    const acceptBounds = (await accept.boundingBox())!;
+    expect(declineBounds.x + declineBounds.width).toBeLessThan(acceptBounds.x);
+    expect(declineBounds.width).toBeCloseTo(acceptBounds.width, 0);
+    const offer = (await dialog.getByRole("button", { name: "Decline & offer another time", exact: true }).boundingBox())!;
+    expect(offer.width).toBeLessThan(acceptBounds.x + acceptBounds.width - declineBounds.x);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-board-header-${testInfo.project.name}-${width}.png`) });
+    await decline.click();
+    await dialog.getByLabel("Reason for declining").fill("A different commitment.");
+    const back = dialog.getByRole("button", { name: "Back", exact: true });
+    await expect(decline).toBeEnabled();
+    expect((await join.boundingBox())!.x).toBe(joinBounds.x);
+    const handoff = new URL((await join.getAttribute("href"))!);
+    expect(handoff.origin + handoff.pathname).toBe("https://accounts.google.com/AccountChooser");
+    expect(handoff.searchParams.get("Email")).toBe("qa-work@example.com");
+    await expect(join).toHaveAttribute("target", "_blank");
+    await back.click();
+    await expect(decline).toBeVisible();
+    await expect(accept).toBeVisible();
+    expect(calls.some(call => call.path.endsWith("/attendance/rsvp/confirm"))).toBe(false);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+  });
+}
+
+test("Calendar Follow-ups carries Connect roles through pagination, Review, Schedule and Remove", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 393, false, "standard", false, true);
+  const conversation = "11111111-1111-4111-8111-111111111111";
+  const request = {
+    id: "22222222-2222-4222-8222-222222222222",
+    kind: "meeting", state: "pending", title: "Review the proposed meeting",
+    proposed_at: "2026-10-26T04:00:00Z", proposed_date: "2026-10-26", time_zone: "Asia/Kolkata",
+    ambiguities: [], urgency: "time_bound", meeting_state: "proposed", revision: 1, responsibility: "owner",
+    reminder_at: "2026-10-25T04:00:00Z", booking_state: "not_booked",
+  };
+  await page.route("**/api/one/calendar/insights", route => route.fulfill({ json: {
+    complete: true, meeting_count: 0, meeting_minutes: 0, overlaps: 0, back_to_back: 0,
+    time_zone: "Asia/Kolkata", days: [], recurring: [], focus: [],
+  } }));
+  await page.route("**/api/one/calendar/followups/**", route => {
+    const { account_id, offset } = route.request().postDataJSON();
+    const entry = { id: conversation, subject: "Fixture meeting", sender: "Tester <tester@example.test>", latest_internal_date_ms: qaNow, source_completeness: "complete" };
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith("/status")) return route.fulfill({ json: {
+      account_id, mail_connected: true, monitoring_enabled: true, monitor_current: true,
+      background_available: true, scan_state: "complete", coverage: { coverage: "complete" },
+      notifications_enabled: true, historical_start_at: "2026-09-10T00:00:00Z", time_zone: "Asia/Kolkata",
+    } });
+    if (pathname.endsWith("/list")) return route.fulfill({ json: {
+      account_id, scan_state: "complete", total_conversations: 16, next_offset: offset ? null : 15,
+      view_counts: { upcoming: 16, overdue: 0, snoozed: 0, history: 0 },
+      conversations: [{ ...entry, request_count: 1, active_count: 1, preview_requests: [request] }],
+    } });
+    if (pathname.endsWith("/detail")) return route.fulfill({ json: { ...entry, account_id, requests: [request] } });
+    if (pathname.endsWith("/source/link")) return route.fulfill({ json: { account_id, request_id: request.id, gmail_message_id: "18c0ffee" } });
+    if (pathname.endsWith("/scan")) return route.fulfill({ json: { state: "not_due" } });
+    unexpectedRequests.push(pathname);
+    return route.abort();
+  });
+  await page.getByRole("tab", { name: "Insights", exact: true }).click();
+  await page.getByRole("button", { name: "View all" }).click();
+  const next = page.getByRole("button", { name: "Go to next page" });
+  await expect(next).toHaveCSS("font-size", "12px");
+  await expect(next).toHaveCSS("line-height", "18px");
+  await expect(next).toHaveCSS("font-weight", "550");
+  await next.click();
+  await expect(page.getByText("Page 2 of 2")).toBeVisible();
+  await page.getByRole("button", { name: "Go to previous page" }).click();
+  await expect(page.getByText("Page 1 of 2")).toBeVisible();
+
+  const row = page.getByRole("button", { name: `Review ${request.title}` });
+  await row.press("ArrowRight");
+  const toast = page.locator("[data-sonner-toast] [data-title]").filter({ hasText: "Kept in Follow-ups" });
+  await expect(toast).toHaveCSS("font-family", /Plus Jakarta Sans/);
+  await expect(toast).toHaveCSS("font-size", "14px");
+  await expect(toast).toHaveCSS("line-height", "21px");
+  await expect(toast).toHaveCSS("font-weight", "550");
+  await row.click();
+  const review = page.getByRole("dialog", { name: "Follow-up", exact: true });
+  await expect(review).toHaveAttribute("data-connect-type-scale", "page");
+  await expect(review.getByRole("heading", { name: request.title })).toHaveCSS("font-weight", "600");
+  await expect(review.getByText(/Reminder/)).toBeVisible();
+  const duration = review.getByRole("combobox", { name: "Duration" });
+  await expect(duration).toHaveCSS("font-size", "16px");
+  await expect(duration).toHaveCSS("line-height", "22px");
+  await expect(duration).toHaveCSS("font-weight", "400");
+  await duration.selectOption("60");
+  await review.getByRole("button", { name: "Schedule", exact: true }).click();
+  const booking = page.getByRole("dialog", { name: "Schedule meeting", exact: true });
+  await expect(booking).toHaveAttribute("data-connect-type-scale", "page");
+  await expect(booking.getByLabel("Duration")).toHaveValue("60");
+  await expect(booking.getByRole("heading")).toHaveCSS("line-height", "28px");
+  await booking.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(booking).toBeHidden();
+
+  await row.press("Delete");
+  const removal = page.getByRole("alertdialog", { name: "Remove follow-up?" });
+  await expect(removal).toHaveAttribute("data-connect-type-scale", "page");
+  await expect(removal.getByRole("heading")).toHaveCSS("font-size", "20px");
+  await expect(removal.getByRole("button", { name: "Remove", exact: true })).toHaveCSS("font-weight", "550");
+  await removal.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(errors).toEqual([]);
+  expect(unexpectedRequests).toEqual([]);
 });

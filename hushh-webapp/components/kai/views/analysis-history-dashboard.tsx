@@ -8,30 +8,13 @@ import {
 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { useIsMobile } from "@/hooks/use-mobile";
 // Search is provided globally via Kai layout (bottom bar)
 import {
   KaiHistoryService,
   type AnalysisHistoryEntry,
   type AnalysisHistoryMap,
 } from "@/lib/services/kai-history-service";
-import { AnalysisHistoryList } from "./analysis-history-list";
-import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
-import type { HistoryEntryWithVersion } from "./columns";
+import { AnalysisHistoryList, type AnalysisHistoryRow } from "./analysis-history-list";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -60,7 +43,7 @@ import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboa
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { DebateReadinessChart } from "@/components/kai/charts/debate-readiness-chart";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
-import { VersionOptions } from "./analysis-history-version-options";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   getTickerUniverseSnapshot,
   preloadTickerUniverse,
@@ -79,7 +62,6 @@ export interface AnalysisHistoryDashboardProps {
   onViewHistory: (entry: AnalysisHistoryEntry) => void;
   onHistoryCount?: (count: number) => void;
   showDebateInputs?: boolean;
-  ephemeralEntry?: AnalysisHistoryEntry | null;
 }
 
 interface DebateCoverageRow {
@@ -299,15 +281,8 @@ function buildSearchText(
   return Array.from(new Set(parts)).join(" ");
 }
 
-/**
- * Dedupe history table to one row per ticker.
- *
- * - We still compute a `version` for each entry (oldest=1 ... newest=N)
- * - The table shows ONLY the latest entry per ticker
- * - Older versions are accessible via the row action menu (handled in columns)
- */
-function processHistory(map: AnalysisHistoryMap): HistoryEntryWithVersion[] {
-  const latestPerTicker: HistoryEntryWithVersion[] = [];
+function processHistory(map: AnalysisHistoryMap): AnalysisHistoryRow[] {
+  const latestPerTicker: AnalysisHistoryRow[] = [];
   const epochOf = (value: string): number => {
     const ms = Date.parse(value);
     return Number.isFinite(ms) ? ms : 0;
@@ -320,72 +295,22 @@ function processHistory(map: AnalysisHistoryMap): HistoryEntryWithVersion[] {
       return;
     }
 
-    // Sort entries for this ticker by date ASC to assign version numbers
-    const sortedByDateAsc = [...entries].sort(
-      (a, b) => epochOf(a.timestamp) - epochOf(b.timestamp)
+    const entry = entries.reduce((latest, candidate) =>
+      epochOf(candidate.timestamp) >= epochOf(latest.timestamp) ? candidate : latest
     );
-
-    const withVersions: HistoryEntryWithVersion[] = sortedByDateAsc.map((entry, index) => {
-      const companyName = extractCompanyName(entry, canonicalTicker);
-      return {
-        ...entry,
-        ticker:
-          typeof entry.ticker === "string" && entry.ticker.trim().length > 0
-            ? entry.ticker
-            : canonicalTicker,
-        companyName,
-        searchText: buildSearchText(entry, canonicalTicker, companyName),
-        version: index + 1,
-      };
+    const companyName = extractCompanyName(entry, canonicalTicker);
+    latestPerTicker.push({
+      ...entry,
+      ticker: typeof entry.ticker === "string" && entry.ticker.trim() ? entry.ticker : canonicalTicker,
+      companyName,
+      searchText: buildSearchText(entry, canonicalTicker, companyName),
     });
-
-    // Latest is the newest timestamp
-    const latest = withVersions[withVersions.length - 1];
-    if (latest) latestPerTicker.push(latest);
   });
 
   // Sort tickers by latest analysis date DESC
   return latestPerTicker.sort(
     (a, b) => epochOf(b.timestamp) - epochOf(a.timestamp)
   );
-}
-
-function cloneHistoryMap(historyMap: AnalysisHistoryMap): AnalysisHistoryMap {
-  return Object.fromEntries(
-    Object.entries(historyMap).map(([ticker, entries]) => [ticker, [...entries]])
-  );
-}
-
-function toEpochMs(value: string | null | undefined): number | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const epoch = Date.parse(trimmed);
-  return Number.isFinite(epoch) ? epoch : null;
-}
-
-function timestampsMatch(left: string | null | undefined, right: string | null | undefined): boolean {
-  const leftTrimmed = typeof left === "string" ? left.trim() : "";
-  const rightTrimmed = typeof right === "string" ? right.trim() : "";
-  if (!leftTrimmed || !rightTrimmed) return false;
-  if (leftTrimmed === rightTrimmed) return true;
-  const leftEpoch = toEpochMs(leftTrimmed);
-  const rightEpoch = toEpochMs(rightTrimmed);
-  if (leftEpoch === null || rightEpoch === null) return false;
-  return Math.abs(leftEpoch - rightEpoch) <= 1000;
-}
-
-function normalizeTickerKey(historyMap: AnalysisHistoryMap, ticker: string): string | null {
-  const wanted = String(ticker || "").trim().toUpperCase();
-  const canonicalWanted = wanted.replace(/[^A-Z0-9]/g, "");
-  if (!wanted && !canonicalWanted) return null;
-  if (Object.prototype.hasOwnProperty.call(historyMap, wanted)) return wanted;
-  const matched = Object.keys(historyMap).find((key) => {
-    const keyUpper = key.toUpperCase();
-    if (keyUpper === wanted) return true;
-    return keyUpper.replace(/[^A-Z0-9]/g, "") === canonicalWanted;
-  });
-  return matched ?? null;
 }
 
 function extractEntryStreamId(entry: AnalysisHistoryEntry): string | null {
@@ -409,114 +334,15 @@ function extractEntryRunId(entry: AnalysisHistoryEntry): string | null {
   return extractEntryStreamId(entry);
 }
 
-function upsertEntryInHistoryMap(
-  historyMap: AnalysisHistoryMap,
-  entry: AnalysisHistoryEntry
-): AnalysisHistoryMap {
-  const nextMap = cloneHistoryMap(historyMap);
-  const canonicalTicker = String(entry.ticker || "").trim().toUpperCase();
-  if (!canonicalTicker || canonicalTicker === "UNDEFINED" || canonicalTicker === "NULL") {
-    return historyMap;
-  }
-  const tickerKey = normalizeTickerKey(nextMap, canonicalTicker) || canonicalTicker;
-  const current = nextMap[tickerKey] || [];
-  const incomingRunId = extractEntryRunId(entry);
-
-  const filtered = current.filter((candidate) => {
-    if (incomingRunId && extractEntryRunId(candidate) === incomingRunId) {
-      return false;
-    }
-    return !timestampsMatch(candidate.timestamp, entry.timestamp);
-  });
-
-  const nextEntries = [entry, ...filtered]
-    .sort((a, b) => {
-      const aMs = Date.parse(a.timestamp);
-      const bMs = Date.parse(b.timestamp);
-      const aSafe = Number.isFinite(aMs) ? aMs : 0;
-      const bSafe = Number.isFinite(bMs) ? bMs : 0;
-      return bSafe - aSafe;
-    })
-    .slice(0, 3);
-
-  nextMap[tickerKey] = nextEntries;
-  return nextMap;
-}
-
-function mergeRunManagerHistoryEntries(
-  historyMap: AnalysisHistoryMap,
-  items: Array<{ entry: AnalysisHistoryEntry }>
-): AnalysisHistoryMap {
-  let nextMap = historyMap;
-  for (const { entry } of items) {
-    nextMap = upsertEntryInHistoryMap(nextMap, entry);
-  }
-  return nextMap;
-}
-
-function removeEntryFromHistoryMap(
-  historyMap: AnalysisHistoryMap,
-  entry: AnalysisHistoryEntry
-): { nextMap: AnalysisHistoryMap; changed: boolean } {
-  const nextMap = cloneHistoryMap(historyMap);
-  const tickerKey = normalizeTickerKey(nextMap, entry.ticker);
-  if (!tickerKey) return { nextMap: historyMap, changed: false };
-
-  const wantedTimestamp = String(entry.timestamp || "").trim();
-  const wantedStreamId = extractEntryStreamId(entry);
-  const current = nextMap[tickerKey] || [];
-  if (current.length === 0) return { nextMap: historyMap, changed: false };
-
-  const originalLen = current.length;
-  let filtered = current.filter((candidate) => {
-    const byTimestamp = wantedTimestamp.length > 0 && timestampsMatch(candidate.timestamp, wantedTimestamp);
-    const byStreamId = wantedStreamId !== null && extractEntryStreamId(candidate) === wantedStreamId;
-    return !(byTimestamp || byStreamId);
-  });
-
-  if (filtered.length === originalLen) {
-    filtered = current.slice(1);
-  }
-
-  if (filtered.length === 0) {
-    delete nextMap[tickerKey];
-  } else {
-    nextMap[tickerKey] = filtered;
-  }
-
-  return {
-    nextMap,
-    changed: filtered.length !== originalLen || !nextMap[tickerKey],
-  };
-}
-
-function removeTickerFromHistoryMap(
-  historyMap: AnalysisHistoryMap,
-  ticker: string
-): { nextMap: AnalysisHistoryMap; changed: boolean; tickerKey: string | null } {
-  const nextMap = cloneHistoryMap(historyMap);
-  const tickerKey = normalizeTickerKey(nextMap, ticker);
-  if (!tickerKey) return { nextMap: historyMap, changed: false, tickerKey: null };
-  delete nextMap[tickerKey];
-  return { nextMap, changed: true, tickerKey };
-}
-
 // ============================================================================
 // Empty State
 // ============================================================================
 
 function EmptyState() {
   return (
-    <div className="flex max-w-xl flex-col items-start justify-center space-y-2 px-1 py-8">
-      <div className="space-y-2 text-left">
-          <h3 className="text-[20px] font-medium leading-tight tracking-normal text-foreground">
-            No analyses yet
-          </h3>
-        <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
-          Search for a stock ticker below and let Agent One&apos;s multi-agent
-          debate engine give you a data-driven recommendation.
-        </p>
-      </div>
+    <div className="space-y-0.5 px-1 py-1 text-left">
+      <h3 className="ui-text-section-label">No saved analyses</h3>
+      <p className="ui-text-row-description">Analyze a stock to see it here.</p>
     </div>
   );
 }
@@ -527,11 +353,6 @@ interface DebateInputsCardProps {
   onSelectTicker: (ticker: string) => void;
   historyTickers: string[];
 }
-
-type PendingDeleteAction =
-  | { kind: "entry"; entry: AnalysisHistoryEntry }
-  | { kind: "ticker"; ticker: string }
-  | null;
 
 function DebateInputsCard({
   loading,
@@ -547,7 +368,7 @@ function DebateInputsCard({
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader>
+      <SurfaceCardHeader className="px-4 pb-2 pt-4">
         <div className="flex items-center justify-between gap-2">
           <SurfaceCardTitle className="flex items-center gap-2 text-sm">
             <Icon icon={MessageSquareText} size="sm" className="text-primary" aria-hidden="true" />
@@ -561,7 +382,7 @@ function DebateInputsCard({
           Start a debate directly from history using your current vault portfolio context.
         </SurfaceCardDescription>
       </SurfaceCardHeader>
-      <SurfaceCardContent className="space-y-4">
+      <SurfaceCardContent className="space-y-3 px-4 pb-4">
         {loading ? (
           <SurfaceInset className="border-dashed p-3 text-sm text-muted-foreground">
             Loading debate context from vault...
@@ -669,65 +490,31 @@ export function AnalysisHistoryDashboard({
   onViewHistory,
   onHistoryCount,
   showDebateInputs = true,
-  ephemeralEntry,
 }: AnalysisHistoryDashboardProps) {
-  const isMobile = useIsMobile();
-  const [entries, setEntries] = useState<HistoryEntryWithVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [debateSnapshot, setDebateSnapshot] = useState<DebateInputsSnapshot | null>(null);
   const [debateSnapshotLoading, setDebateSnapshotLoading] = useState(true);
 
   const [historyMap, setHistoryMap] = useState<AnalysisHistoryMap>({});
-  const historyMapRef = useRef<AnalysisHistoryMap>({});
-  const [versionsOpen, setVersionsOpen] = useState(false);
-  const [versionsTicker, setVersionsTicker] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<PendingDeleteAction>(null);
+  const entries = useMemo(() => processHistory(historyMap), [historyMap]);
+  const historyRequest = useRef(0);
+  const [pendingDelete, setPendingDelete] = useState<AnalysisHistoryEntry | null>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
-
-  useEffect(() => {
-    historyMapRef.current = historyMap;
-  }, [historyMap]);
 
   useEffect(() => {
     onHistoryCount?.(entries.length);
   }, [entries.length, onHistoryCount]);
 
-  const applyHistoryMap = useCallback((nextMap: AnalysisHistoryMap) => {
-    historyMapRef.current = nextMap;
-    setHistoryMap(nextMap);
-    setEntries(processHistory(nextMap));
-  }, []);
-
-  useEffect(() => {
-    if (!ephemeralEntry) return;
-    const nextMap = upsertEntryInHistoryMap(historyMapRef.current, ephemeralEntry);
-    applyHistoryMap(nextMap);
-  }, [applyHistoryMap, ephemeralEntry]);
-
-  const fetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async (showLoader = true) => {
+    const request = ++historyRequest.current;
+    if (showLoader) setLoading(true);
     try {
-      setLoading(true);
-      const nextMap = await KaiHistoryService.getAllHistory({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      const mergedMap = mergeRunManagerHistoryEntries(
-        nextMap,
-        DebateRunManagerService.getHistoryEntriesForUser(userId)
-      );
-      applyHistoryMap(mergedMap);
-    } catch (err) {
-      console.error("[AnalysisHistoryDashboard] Failed to load history:", err);
-      const mergedMap = mergeRunManagerHistoryEntries(
-        {},
-        DebateRunManagerService.getHistoryEntriesForUser(userId)
-      );
-      applyHistoryMap(mergedMap);
+      const history = await KaiHistoryService.getAllHistory({ userId, vaultKey, vaultOwnerToken });
+      if (request === historyRequest.current) setHistoryMap(history);
     } finally {
-      setLoading(false);
+      if (request === historyRequest.current) setLoading(false);
     }
-  }, [applyHistoryMap, userId, vaultKey, vaultOwnerToken]);
+  }, [userId, vaultKey, vaultOwnerToken]);
 
   const fetchDebateSnapshot = useCallback(async () => {
     try {
@@ -797,152 +584,52 @@ export function AnalysisHistoryDashboard({
     }
   }, [userId, vaultKey, vaultOwnerToken]);
 
-  // ----- Delete Handlers -----
-
-  const executeDeleteEntry = useCallback(async (entry: AnalysisHistoryEntry) => {
-    const { nextMap, changed } = removeEntryFromHistoryMap(historyMap, entry);
-    if (!changed) {
-      toast.error("Failed to delete analysis");
-      return;
-    }
-    const previousMap = historyMap;
-    applyHistoryMap(nextMap);
-
-    const toastId = toast.loading("Deleting analysis entry...");
-    setDeleteInFlight(true);
-    const streamId = extractEntryStreamId(entry);
-    const success = await KaiHistoryService.deleteEntry({
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-      ticker: entry.ticker,
-      timestamp: entry.timestamp,
-      streamId,
-    });
-    setDeleteInFlight(false);
-
-    if (success) {
-      toast.success("Analysis deleted", { id: toastId });
-      return;
-    }
-
-    applyHistoryMap(previousMap);
-    toast.error("Failed to delete analysis", { id: toastId });
-  }, [applyHistoryMap, historyMap, userId, vaultKey, vaultOwnerToken]);
-
-  const executeDeleteTicker = useCallback(async (ticker: string) => {
-    const canonicalTicker = String(ticker || "").trim().toUpperCase();
-    if (!canonicalTicker || canonicalTicker === "UNDEFINED" || canonicalTicker === "NULL") {
-      toast.error("Failed to delete history: invalid ticker");
-      return;
-    }
-    const { nextMap, changed, tickerKey } = removeTickerFromHistoryMap(historyMap, canonicalTicker);
-    if (!changed || !tickerKey) {
-      toast.error(`Failed to delete history for ${canonicalTicker}`);
-      return;
-    }
-    const previousMap = historyMap;
-    applyHistoryMap(nextMap);
-
-    const toastId = toast.loading(`Deleting history for ${canonicalTicker}...`);
-    setDeleteInFlight(true);
-    const success = await KaiHistoryService.deleteTickerHistory({
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-      ticker: canonicalTicker,
-    });
-    setDeleteInFlight(false);
-
-    if (success) {
-      toast.success(`All history for ${canonicalTicker} deleted`, { id: toastId });
-    } else {
-      applyHistoryMap(previousMap);
-      toast.error(`Failed to delete history for ${canonicalTicker}`, { id: toastId });
-    }
-  }, [applyHistoryMap, historyMap, userId, vaultKey, vaultOwnerToken]);
-
-  useEffect(() => {
-    const pendingEntries = DebateRunManagerService.getHistoryEntriesForUser(userId);
-    if (pendingEntries.length > 0) {
-      let nextMap = historyMapRef.current;
-      for (const { entry } of pendingEntries) {
-        nextMap = upsertEntryInHistoryMap(nextMap, entry);
-      }
-      applyHistoryMap(nextMap);
-    }
-    return DebateRunManagerService.subscribeHistory((entry, task) => {
-      if (task.userId !== userId) return;
-      const nextMap = upsertEntryInHistoryMap(historyMapRef.current, entry);
-      applyHistoryMap(nextMap);
-    });
-  }, [applyHistoryMap, userId]);
-
-  const handleDeleteEntry = useCallback((entry: AnalysisHistoryEntry) => {
-    setPendingDelete({ kind: "entry", entry });
-  }, []);
-
-  const handleDeleteTicker = useCallback((ticker: string) => {
-    setPendingDelete({ kind: "ticker", ticker });
-  }, []);
-
-  const confirmDelete = useCallback(async () => {
+  const confirmDelete = async () => {
     if (!pendingDelete || deleteInFlight) return;
-    if (pendingDelete.kind === "entry") {
-      await executeDeleteEntry(pendingDelete.entry);
+    const epoch = snapshotVaultSessionEpoch();
+    const owner = { userId, vaultKey, vaultOwnerToken };
+    const runId = extractEntryRunId(pendingDelete);
+    setDeleteInFlight(true);
+    try {
+      const deleted = await KaiHistoryService.deleteEntry({
+        ...owner,
+        ticker: pendingDelete.ticker,
+        timestamp: pendingDelete.timestamp,
+        streamId: runId,
+      });
+      if (!isVaultSessionEpochCurrent(epoch)) return;
+      if (deleted) {
+        if (runId && DebateRunManagerService.getTask(runId)?.userId === userId) {
+          DebateRunManagerService.dismissTask(runId);
+        }
+        toast.success("Analysis history updated");
+      } else {
+        toast.error("Could not finish deleting analysis history");
+      }
+      await fetchHistory(false);
+    } finally {
+      setDeleteInFlight(false);
       setPendingDelete(null);
-      return;
     }
-    await executeDeleteTicker(pendingDelete.ticker);
-    setPendingDelete(null);
-  }, [pendingDelete, deleteInFlight, executeDeleteEntry, executeDeleteTicker]);
-
-  // ----- Columns -----
-  const closeVersions = useCallback(() => {
-    setVersionsOpen(false);
-    setVersionsTicker(null);
-  }, []);
-
-  const openVersions = useCallback((
-    ticker: string,
-    _event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
-  ) => {
-    setVersionsTicker(ticker);
-    setVersionsOpen(true);
-  }, []);
-
-
-
-  const versionsForTicker: HistoryEntryWithVersion[] = useMemo(() => {
-    if (!versionsTicker) return [];
-    const list = historyMap[versionsTicker] || [];
-
-    // Oldest -> newest for version numbering
-    const sortedAsc = [...list].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-
-    const withVersions = sortedAsc.map((entry, index) => ({
-      ...entry,
-      version: index + 1,
-    }));
-
-    // Show newest first in the modal
-    return withVersions.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-  }, [historyMap, versionsTicker]);
+  };
 
   useEffect(() => {
-    if (userId && vaultKey) {
-      fetchHistory();
-      if (showDebateInputs) {
-        void fetchDebateSnapshot();
-      }
-    } else {
+    if (!userId || !vaultKey) {
+      setHistoryMap({});
       setLoading(false);
       setDebateSnapshotLoading(false);
+      return;
     }
+
+    void fetchHistory();
+    if (showDebateInputs) void fetchDebateSnapshot();
+    const unsubscribe = DebateRunManagerService.subscribeHistory((_, task) => {
+      if (task.userId === userId && task.persistenceState === "saved") void fetchHistory(false);
+    });
+    return () => {
+      unsubscribe();
+      historyRequest.current += 1;
+    };
   }, [userId, vaultKey, fetchDebateSnapshot, fetchHistory, showDebateInputs]);
 
   const historyTickers = useMemo(() => {
@@ -961,7 +648,7 @@ export function AnalysisHistoryDashboard({
     return (
       <div className="w-full">
         <SurfaceCard className="overflow-hidden">
-          <SurfaceCardContent className="flex min-h-52 items-center justify-center p-6">
+          <SurfaceCardContent className="flex items-center justify-center p-4">
             <HushhLoader variant="inline" label="Loading analysis history…" />
           </SurfaceCardContent>
         </SurfaceCard>
@@ -972,7 +659,7 @@ export function AnalysisHistoryDashboard({
   // ----- Empty state -----
   if (entries.length === 0) {
     return (
-      <div className="w-full space-y-6">
+      <div className="w-full space-y-3">
         <EmptyState />
         {showDebateInputs ? (
           <DebateInputsCard
@@ -988,9 +675,9 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6">
-      <AnalysisHistoryList entries={entries} onOpen={onViewHistory} onVersions={openVersions}
-        onDelete={handleDeleteEntry} onDeleteTicker={handleDeleteTicker} />
+    <div className="w-full space-y-3">
+      <AnalysisHistoryList entries={entries} onOpen={onViewHistory}
+        onDelete={setPendingDelete} />
 
       {showDebateInputs ? (
         <DebateInputsCard
@@ -1001,48 +688,6 @@ export function AnalysisHistoryDashboard({
         />
       ) : null}
 
-      {isMobile ? (
-        <Sheet open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>
-          <SheetContent side="bottom" className={`${financeStyles.detail} rounded-t-3xl p-0 sm:mx-auto sm:max-w-md`}>
-            <SheetHeader className="border-b border-border/60 px-5 py-4 text-left">
-              <SheetTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</SheetTitle>
-              <SheetDescription>Choose a saved version to review.</SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-[calc(1rem+var(--app-safe-area-bottom-effective))] pt-3">
-              <VersionOptions
-                entries={versionsForTicker}
-                onDeleteAll={versionsTicker ? () => handleDeleteTicker(versionsTicker) : undefined}
-                onOpen={(entry) => {
-                  onViewHistory(entry);
-                  closeVersions();
-                }}
-                onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>
-          <DialogContent className={`${financeStyles.detail} w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md`}>
-            <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
-              <DialogTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</DialogTitle>
-              <DialogDescription>Choose a saved version to review.</DialogDescription>
-            </DialogHeader>
-            <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-3">
-              <VersionOptions
-                entries={versionsForTicker}
-                onDeleteAll={versionsTicker ? () => handleDeleteTicker(versionsTicker) : undefined}
-                onOpen={(entry) => {
-                  onViewHistory(entry);
-                  closeVersions();
-                }}
-                onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
       <AlertDialog
         open={Boolean(pendingDelete)}
         onOpenChange={(open) => {
@@ -1051,14 +696,8 @@ export function AnalysisHistoryDashboard({
       >
         <AlertDialogContent className="z-[800]" overlayClassName="z-[799]">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingDelete?.kind === "ticker" ? "Delete all versions?" : "Delete this version?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.kind === "ticker"
-                ? `This will remove all saved analysis versions for ${pendingDelete.ticker}.`
-                : "This will permanently remove the selected analysis version from history."}
-            </AlertDialogDescription>
+            <AlertDialogTitle>Delete this analysis?</AlertDialogTitle>
+            <AlertDialogDescription>This will remove the selected analysis from history.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteInFlight}>Cancel</AlertDialogCancel>

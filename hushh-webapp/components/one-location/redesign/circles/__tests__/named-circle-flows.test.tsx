@@ -1,3 +1,4 @@
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 // @vitest-environment jsdom
 import {
   act,
@@ -9,7 +10,12 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createElement, startTransition } from "react";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
+import * as observability from "@/lib/observability/client";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 
 import {
@@ -30,6 +36,18 @@ import type {
   OneLocationCircleMemberInvite,
   OneLocationCircleMemberPage,
 } from "@/lib/one-location/types";
+
+const nativeLocation = vi.hoisted(() => ({ enabled: false, layer: null as null | {
+  sections: import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceSection[];
+  confirmation?: import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceConfirmation;
+  textEditor?: import("@/lib/capacitor/native-workspace-surface").NativeWorkspaceSurfaceTextEditor;
+} }));
+vi.mock("@/components/one-location/redesign/native-location-workspace", () => ({
+  useNativeLocationEnabled: () => nativeLocation.enabled,
+  useNativeLocationClose: () => undefined,
+  NativeLocationLayer: (props: { children: import("react").ReactNode; sections: NonNullable<typeof nativeLocation.layer>["sections"]; confirmation?: NonNullable<typeof nativeLocation.layer>["confirmation"]; textEditor?: NonNullable<typeof nativeLocation.layer>["textEditor"] }) => { if (nativeLocation.enabled) nativeLocation.layer = props; return props.children; },
+}));
+afterEach(() => { nativeLocation.enabled = false; nativeLocation.layer = null; });
 
 vi.mock("sonner", () => ({
   toast: {
@@ -78,6 +96,52 @@ function createProps() {
   };
 }
 
+// Exercise the production save owner through the real flow, without mounting
+// the unrelated map/account tree or making any provider/contact requests.
+function pageCircleOwner(createNamedCircle: ReturnType<typeof vi.fn>) {
+  const file = ts.createSourceFile("page.tsx", readFileSync("app/one/location/page.tsx", "utf8"),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(file) === "handleCreateNamedCircle"
+      && node.initializer && ts.isCallExpression(node.initializer)) callback = node.initializer.arguments[0];
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  if (!callback) throw new Error("Missing production Circle save owner");
+  const updateNamedCircle = vi.fn(async ({ name }: { name: string }) => circle("new-circle", name));
+  const ports = {
+    vaultOwnerToken: "synthetic-owner-token", setBusy: vi.fn(),
+    OneLocationService: { createNamedCircle, updateNamedCircle },
+    scheduleNamedCircleStateRefresh: vi.fn(), trackEvent: observability.trackEvent,
+    trackLocationFunnelStepCompleted: vi.fn(), toast,
+    oneLocationErrorMessage: () => "Synthetic save failure",
+  };
+  const javascript = ts.transpileModule(`const callback = ${callback.getText(file)};`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const onSubmit = new Function(...Object.keys(ports), `${javascript}\nreturn callback;`)(...Object.values(ports)) as
+    (name: string, kind: "family" | "friends" | "other", existingId?: string) => Promise<OneLocationCircleDetail>;
+  const hub = ts.createSourceFile("hub.tsx", readFileSync("components/one-location/redesign/location-redesign-hub.tsx", "utf8"),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let view: ts.JsxSelfClosingElement | undefined;
+  const findView = (node: ts.Node) => {
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(hub) === "CreateCircleFlow") view = node;
+    ts.forEachChild(node, findView);
+  };
+  findView(hub);
+  if (!view) throw new Error("Missing production Circle creation binding");
+  const props = createProps(), complete = vi.fn();
+  const viewPorts = { React: { createElement }, CreateCircleFlow, vm: {
+    userId: "synthetic-owner", circleSessionScope: "synthetic-session", busy: null,
+    onCreateNamedCircle: onSubmit, onLoadNamedCircleEligibleConnectionsPage: props.onLoadPeople,
+    onInviteNamedCircleConnections: props.onAddPeople,
+  }, openCircleDetail: complete };
+  const renderScript = ts.transpileModule(`const renderFlow = () => (${view.getText(hub)});`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const renderFlow = new Function(...Object.keys(viewPorts), `${renderScript}\nreturn renderFlow;`)(...Object.values(viewPorts)) as () => import("react").ReactNode;
+  return { onSubmit, updateNamedCircle, renderFlow, complete };
+}
+
 function detailProps(
   onLoad: (circleId: string) => Promise<OneLocationCircleDetail>,
 ) {
@@ -108,6 +172,66 @@ function detailProps(
 }
 
 describe("named Circle flows", () => {
+  describe("Circle creation observations", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("records one confirmed create through Next and Add people later", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      const create = vi.fn(async () => circle("new-circle", "Synthetic circle"));
+      const owner = pageCircleOwner(create);
+      render(owner.renderFlow());
+      fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Synthetic circle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Add people later" }));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(owner.complete).toHaveBeenCalledTimes(1);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toEqual([
+        ["one_location_circle_created", { route_id: "one_location", result: "success", circle_kind: "family" }],
+      ]);
+    });
+
+    it("does not invent a successful creation on rejection and records its retry once", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      const create = vi.fn().mockRejectedValueOnce(new Error("Synthetic save failure"))
+        .mockResolvedValueOnce(circle("new-circle", "Synthetic circle"));
+      const owner = pageCircleOwner(create);
+      render(owner.renderFlow());
+      fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Synthetic circle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(0);
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("button", { name: "Add people later" });
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(1);
+    });
+
+    it("retains one creation when the saved Circle is renamed before finishing", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      const create = vi.fn(async () => circle("new-circle", "Synthetic circle"));
+      const owner = pageCircleOwner(create);
+      const { result } = renderHook(() => useCreateCircleFlow({ ...createProps(), onSubmit: owner.onSubmit, creationObservedByOwner: true }));
+      act(() => result.current.setName("Synthetic circle"));
+      await act(async () => { expect(await result.current.prepare()).toBe(true); });
+      act(() => { result.current.advance(); result.current.backToDetails(); });
+      act(() => result.current.setName("Synthetic renamed circle"));
+      await act(async () => { expect(await result.current.prepare()).toBe(true); });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(owner.updateNamedCircle).toHaveBeenCalledTimes(1);
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(1);
+    });
+
+    it("preserves the flow observation for a save owner without its own reporter", async () => {
+      const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
+      render(<CreateCircleFlow {...createProps()} />);
+      fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Synthetic circle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("button", { name: "Add people later" });
+      expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toHaveLength(1);
+    });
+  });
+
   it.each([false, true])("uses the SMS text-style Add people entry for named circles (living=%s)", async (livingCircleExperience) => {
     render(<CircleDetailFlow circleId="family" livingCircleExperience={livingCircleExperience} {...detailProps(async () => circle("family", "Family"))} />);
     const add = await screen.findByRole("button", { name: "Add people", exact: true });
@@ -116,6 +240,15 @@ describe("named Circle flows", () => {
     expect(add.querySelector('[data-slot="settings-row-chevron"]')).toBeNull();
     fireEvent.click(add);
     expect(await screen.findByRole("dialog", { name: "Add people" })).toBeVisible();
+  });
+
+  it.each([false, true])("places Add people above an empty roster and beside Delete after a member joins (%s)", async (hasMember) => {
+    const detail = circle("family", "Family");
+    if (hasMember) { detail.members.push({ ...detail.members[0]!, userId: "friend", displayName: "Friend", role: "member" }); detail.memberCount = 2; }
+    render(<CircleDetailFlow circleId="family" {...detailProps(async () => detail)} />);
+    const add = await screen.findByRole("button", { name: "Add people", exact: true });
+    expect(Boolean(add.closest("[data-circle-member-actions]"))).toBe(hasMember);
+    expect(screen.getByRole("button", { name: "Delete circle", exact: true }).closest("[data-circle-member-actions]")).not.toBeNull();
   });
 
   it("retains the created ID if the server drops a custom type, then updates it on retry", async () => {
@@ -197,6 +330,82 @@ describe("named Circle flows", () => {
     expect(props.onAddPeople).toHaveBeenCalledWith("new-circle", people.slice(1).map(person => person.userId));
   });
 
+  it("rejects a stale person selection immediately when the search changes", async () => {
+    const props = createProps();
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "new-circle", circleName: "Roommates", active: true,
+      onLoad: props.onLoadPeople, onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.people).toHaveLength(1));
+    const stale = result.current;
+    act(() => { stale.changeQuery("different"); stale.changeQuery(""); stale.add("asha"); });
+    expect(result.current.selected).toEqual([]);
+    await act(async () => result.current.finish(true));
+    expect(props.onAddPeople).not.toHaveBeenCalled();
+    await waitFor(() => expect(props.onLoadPeople).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.add("asha"));
+    expect(result.current.selected).toEqual(["asha"]);
+  });
+
+  it("rejects stale selection and completion callbacks across changes of circle", async () => {
+    const props = createProps();
+    let resolveAdd!: () => void;
+    props.onAddPeople.mockImplementationOnce(() => new Promise<void>(resolve => { resolveAdd = resolve; }));
+    const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
+      circleId, circleName: "Roommates", active: true, onLoad: props.onLoadPeople,
+      onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }), { initialProps: { circleId: "A" } });
+    await waitFor(() => expect(result.current.people).toHaveLength(1));
+    act(() => result.current.add("asha"));
+    const staleFinish = result.current.finish;
+    act(() => result.current.remove("asha"));
+    await act(async () => staleFinish(true));
+    expect(props.onAddPeople).not.toHaveBeenCalled();
+    act(() => result.current.add("asha"));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.finish(true); });
+    expect(props.onAddPeople).toHaveBeenCalledWith("A", ["asha"]);
+    rerender({ circleId: "B" });
+    rerender({ circleId: "A" });
+    await act(async () => { resolveAdd(); await pending; });
+    expect(props.onComplete).not.toHaveBeenCalled();
+  });
+
+  it("rejects old results during an interrupted search render", async () => {
+    const props = createProps();
+    const { result, rerender } = renderHook(({ marker }) => {
+      void marker;
+      return useCreateCirclePeopleModel({
+        circleId: "A", circleName: "Roommates", active: true, onLoad: props.onLoadPeople,
+        onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+      });
+    }, { initialProps: { marker: 0 } });
+    await waitFor(() => expect(result.current.people).toHaveLength(1));
+    act(() => {
+      startTransition(() => result.current.changeQuery("bob"));
+      flushSync(() => rerender({ marker: 1 }));
+      result.current.add("asha");
+    });
+    expect(result.current.selected).toEqual([]);
+  });
+
+  it("does not skip a page when load more is invoked twice before rendering", async () => {
+    const props = createProps();
+    const loadPeople = vi.fn(async (_circleId: string, options: { page: number; limit: number; query?: string }) => ({
+      eligibleConnections: [{ connectionId: `c-${options.page}`, userId: `person-${options.page}`, displayName: "Person", isRia: false }],
+      pendingInvites: [], remainingCapacity: 99, page: options.page, hasMore: true, totalCount: 3,
+    }));
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "A", circleName: "Roommates", active: true, onLoad: loadPeople,
+      onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => { result.current.more(); result.current.more(); });
+    await waitFor(() => expect(loadPeople).toHaveBeenCalledTimes(2));
+    expect(loadPeople.mock.calls.map(([, options]) => options.page)).toEqual([1, 2]);
+  });
+
   it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
     const props = createProps();
     const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
@@ -221,17 +430,27 @@ describe("named Circle flows", () => {
 
   it("adds selected contacts in step 2 without creating another Circle on retry", async () => {
     const props = createProps();
+    const contact = {
+      connectionId: "c-asha", userId: "asha", displayName: "Asha Meena", isRia: false,
+      connectedFromContacts: true, connectedAt: "2026-10-30T17:17:00Z",
+    };
+    props.onLoadPeople.mockResolvedValueOnce({
+      eligibleConnections: [contact],
+      pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: 1,
+    });
     props.onAddPeople.mockRejectedValueOnce(new Error("Temporarily unavailable"));
     render(<CreateCircleFlow {...props} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     const choice = await screen.findByRole("button", { name: "Add Asha Meena" });
-    expect(choice).toHaveAccessibleDescription("Connection details unavailable");
+    expect(choice).toHaveAccessibleDescription(/^Connected .+ · Connected from your contacts$/);
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(screen.getByText("Connected from your contacts", { exact: false })).toHaveClass("sr-only");
     fireEvent.click(choice);
     expect(props.onAddPeople).not.toHaveBeenCalled();
     expect(props.onComplete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not add those people. Try again or add people later."));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not add those people. Try again or add people later.", { className: connectTypography.toast }));
     expect(screen.getByRole("button", { name: "Remove Asha Meena" })).toBeEnabled();
     expect(props.onComplete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
@@ -405,7 +624,7 @@ describe("named Circle flows", () => {
     const props = detailProps(vi.fn(async () => current));
     props.onLoadEligibleConnections = vi.fn(async () => ({
       eligibleConnections: current.memberCount === 1 ? [{
-        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao",
+        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao", connectedFromContacts: true,
       }] : [],
       pendingInvites: [],
       remainingCapacity: 20 - current.memberCount,
@@ -426,9 +645,13 @@ describe("named Circle flows", () => {
     expect(screen.queryByRole("heading", { name: "Add your first member" })).toBeNull();
     expect(screen.queryByText(/Choose at least one connection below/)).toBeNull();
     expect(screen.getByText("Circle conversation")).not.toBeVisible();
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" }));
+    const choice = await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" });
+    expect(choice).toHaveAccessibleDescription("Connected from your contacts");
+    expect(screen.getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(screen.queryByText("Connection details unavailable")).toBeNull();
+    fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again"));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again", { className: connectTypography.toast }));
     const retry = screen.getByRole("button", { name: "Add people", exact: true });
     await waitFor(() => expect(retry).toBeEnabled());
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
@@ -611,8 +834,8 @@ describe("named Circle flows", () => {
     expect(alex).toHaveAttribute("aria-checked", "true");
     await act(async () => finishRead());
     expect(alex).toHaveAttribute("aria-checked", "true");
-    expect(toast.success).toHaveBeenCalledWith("Circle members updated.");
-    expect(toast.error).not.toHaveBeenCalledWith("Could not add them.");
+    expect(toast.success).toHaveBeenCalledWith("Circle members updated.", { className: connectTypography.toast });
+    expect(toast.error).not.toHaveBeenCalledWith("Could not add them.", { className: connectTypography.toast });
     expect(screen.getByText("Roster temporarily unavailable")).toBeVisible();
   });
 
@@ -1021,7 +1244,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith("Circle limit reached."),
+      expect(toast.error).toHaveBeenCalledWith("Circle limit reached.", { className: connectTypography.toast }),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -2906,7 +3129,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith("Circle capacity changed."),
+      expect(toast.error).toHaveBeenCalledWith("Circle capacity changed.", { className: connectTypography.toast }),
     );
     expect(screen.getByRole("dialog", { name: "Add people" })).toBeTruthy();
   });
@@ -3600,3 +3823,29 @@ async function openCirclePeoplePicker() {
   fireEvent.click(await screen.findByTestId("one-location-circle-add-people-row"));
   await screen.findByRole("dialog", { name: "Add people" });
 }
+
+describe("native Circle capability and scope", () => {
+  it("excludes Trusted rename and drops an old Circle confirmation on reentry", async () => {
+    nativeLocation.enabled = true;
+    const props = detailProps(async id => ({ ...circle(id, id === "trusted" ? "Trusted" : "Family"), systemKind: id === "trusted" ? "trusted" : undefined }));
+    const view = render(<CircleDetailFlow circleId="trusted" {...props} />);
+    const rows = () => nativeLocation.layer?.sections.flatMap(section => section.rows) ?? [];
+    await waitFor(() => expect(rows().some(row => row.label === "Trusted")).toBe(true));
+    expect(rows().some(row => row.key === "rename")).toBe(false);
+    view.rerender(<CircleDetailFlow circleId="family" {...props} />);
+    await waitFor(() => expect(rows().some(row => row.key === "rename")).toBe(true));
+    act(() => { void rows().find(row => row.key === "rename")!.run!(); });
+    act(() => { nativeLocation.layer!.textEditor!.change("Unsaved draft"); });
+    act(() => { nativeLocation.layer!.textEditor!.cancel(); });
+    act(() => { void rows().find(row => row.key === "rename")!.run!(); });
+    expect(nativeLocation.layer!.textEditor!.value).toBe("Family");
+    act(() => { nativeLocation.layer!.textEditor!.cancel(); });
+    expect(props.onRename).not.toHaveBeenCalled();
+    act(() => { void rows().find(row => row.key === "leave-delete")!.run!(); });
+    await waitFor(() => expect(nativeLocation.layer?.confirmation?.title).toContain("Family"));
+    view.rerender(<CircleDetailFlow circleId="next" {...props} />);
+    await waitFor(() => expect(nativeLocation.layer?.confirmation).toBeUndefined());
+    expect(props.onDelete).not.toHaveBeenCalled();
+    expect(props.onLeave).not.toHaveBeenCalled();
+  });
+});

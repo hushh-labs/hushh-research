@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { productFontStyle, stripAppFontFaces } from "./product-font";
 
-export async function buildMailWorkspaceFixture() {
+export async function buildMailWorkspaceFixture(followups = false) {
   let script: string;
   let css: string;
   let fixtureDir: string;
@@ -44,6 +44,10 @@ export async function buildMailWorkspaceFixture() {
     ],
     resolve: {
       alias: [
+        ...(followups ? ["@/lib/services/private-google-connections", "@/lib/one/google-native-connect",
+          "@/lib/services/todo-list-pkm-service", "@/lib/services/mail-followups-service"].map(find => ({
+          find, replacement: path.join(root, "e2e/fixtures/mail-followups-boundaries.ts")
+        })) : []),
         ...stubbed.map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundaries })),
         { find: '@/lib/services/mail-receipt-resource-service', replacement: receiptResource },
         { find: "@", replacement: root },
@@ -58,7 +62,7 @@ export async function buildMailWorkspaceFixture() {
       outDir,
       emptyOutDir: false,
       lib: {
-        entry: path.join(root, "e2e/fixtures/mail-workspace.tsx"),
+        entry: path.join(root, followups ? "e2e/fixtures/mail-followups.tsx" : "e2e/fixtures/mail-workspace.tsx"),
         name: "Fixture",
         formats: ["iife"],
         fileName: () => "fixture.js",

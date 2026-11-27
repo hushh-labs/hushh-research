@@ -31,17 +31,16 @@ _WITHHELD_STATES = frozenset({"denied", "not_granted", "unavailable"})
 
 _PERMISSION_GUIDANCE = {
     "denied": (
-        "Location access for Hussh is turned off on this device. Turn it on in the "
-        "device's Settings, then ask again."
+        "Location access for Hussh is turned off in your browser or device "
+        "settings. Turn it on there, then check again on the location card below."
     ),
     "not_granted": (
-        "Hussh hasn't been allowed to use this device's location yet. Open Location "
-        "in One and allow location access, then ask again."
+        "Allow location access on the card below so I can check that for where you are right now."
     ),
-    "unavailable": "This device couldn't provide a location just now. Try again shortly.",
+    "unavailable": "This device couldn't provide a location just now. Try again on the card below.",
     "not_provided": (
-        "This request didn't include the person's location. If location access is "
-        "allowed for Hussh, asking again from chat will include it."
+        "Allow location access on the card below so this chat can include "
+        "your approximate (~1 km) location."
     ),
 }
 

@@ -65,6 +65,12 @@ logger = logging.getLogger(__name__)
 class PodLocalMetadataReader(GmailMetadataReader):
     """An authorized read can settle matching notification IDs, never mark mail read."""
 
+    def calendar_source_credential_id(self) -> str | None:
+        if self._observation is None:
+            return None
+        identifier = self._observation.get("observed_credential_id")
+        return identifier if isinstance(identifier, str) else None
+
     async def read(self, operation: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
 
@@ -92,9 +98,9 @@ class HubTableRefused(RuntimeError):
     """An inherited hub path asked for a database table this agent does not have."""
 
 
-def _held() -> Optional[store.ConnectorCredential]:
+def _held(account_id: str = "") -> Optional[store.ConnectorCredential]:
     try:
-        return store.active_connector_credential(GMAIL)
+        return store.active_connector_credential(GMAIL, account_id=account_id)
     except store.ConnectorCredentialsUnavailable:
         raise GmailMetadataError("retryable") from None
 
@@ -110,9 +116,12 @@ def _satisfies(credential: store.ConnectorCredential, level: str) -> bool:
 class PodGmailConnection(GmailReceiptsService):
     """The hub Gmail service's three credential seams, answered from the agent's login."""
 
-    def __init__(self, owner_user_id: str, *, token_source: Any = None) -> None:
+    def __init__(
+        self, owner_user_id: str, *, token_source: Any = None, account_id: str = ""
+    ) -> None:
         super().__init__()
         self._owner = owner_user_id
+        self._account_id = account_id
         self._source = token_source
         self._email = ""
 
@@ -129,7 +138,7 @@ class PodGmailConnection(GmailReceiptsService):
     def _fetch_connection_row(self, *, user_id: str) -> dict[str, Any] | None:
         if user_id != self._owner:
             return None
-        credential = _held()
+        credential = _held(self._account_id)
         if credential is None:
             return None
         scopes = list(credential.granted_scopes)
@@ -160,6 +169,10 @@ class PodGmailConnection(GmailReceiptsService):
         if user_id != self._owner:
             raise GmailMetadataError("permission_denied")
         try:
+            if self._account_id:
+                return str(
+                    await self._tokens().access_token(GMAIL, level, account_id=self._account_id)
+                )
             return str(await self._tokens().access_token(GMAIL, level))
         except ConnectorTokenError as exc:
             raise GmailMetadataError(_TOKEN_CODES.get(exc.code, "retryable")) from None
@@ -179,7 +192,9 @@ class PodGmailConnection(GmailReceiptsService):
     ) -> None:
         # Google refused a fresh token: drop it so the next read refreshes, and a dead
         # login then surfaces as needs_reauth from the token source itself.
-        self._tokens().forget(GMAIL)
+        self._tokens().forget(
+            GMAIL, account_id=self._account_id
+        ) if self._account_id else self._tokens().forget(GMAIL)
 
     def _derive_connection_state(self, row: dict[str, Any] | None) -> str:
         if not row:
@@ -187,7 +202,7 @@ class PodGmailConnection(GmailReceiptsService):
         return "connected" if row.get("status") == "connected" else "needs_reauth"
 
     def modify_permission_granted(self, row: dict[str, Any] | None) -> bool:
-        credential = _held()
+        credential = _held(self._account_id)
         return (
             self._derive_connection_state(row) == "connected"
             and credential is not None
@@ -250,6 +265,18 @@ class PodLocalEmailReadPort(PodEmailReadPort):
         if not self._owner_session:
             raise PermissionError("Email on this agent answers only the owner's own session")
 
+    async def preflight_mail_read_status(self, *, user_id: str) -> str | None:
+        """Check owner-local Gmail readiness before spending a planner LLM turn."""
+        self.require_owner_session()
+        if user_id != self._owner:
+            raise PermissionError("Email owner mismatch")
+        try:
+            return await self._connection.preflight_mail_read_status(user_id=user_id)
+        except GmailMetadataError as exc:
+            return exc.code if exc.code in MAIL_READ_ERROR_CODES else "unavailable"
+        except Exception:  # noqa: BLE001 - storage failure never leaks store details
+            return "unavailable"
+
     def metadata_reader(
         self, *, gmail: Any, user_id: str, require_access: Any, expect_account: str = ""
     ) -> GmailMetadataReader:
@@ -273,6 +300,7 @@ class PodLocalEmailReadPort(PodEmailReadPort):
             user_id=user_id,
             require_access=authorized,
             expect_account=expect_account or None,
+            expose_message_links=True,
         )
 
     def _context(self) -> tuple[Any, str]:
@@ -346,12 +374,45 @@ def email_read_port(
     local port serves only an owner-session turn (:func:`owner_session_turn`); a turn
     the hub admitted gets a local port that refuses, never the hub door.
     """
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if owner_cloud_agent():
+    if personal_sandbox_workspace_runtime():
         session = owner_session_turn(turn_token, verifier)
         return PodLocalEmailReadPort(owner_user_id, owner_session=session)
     return PodEmailReadPort(owner_user_id, scope_token)
+
+
+def current_calendar_mail_grant(owner_id: str, credential_id: str, account: str) -> bool:
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+
+    if not owner_cloud_agent() or not owner_id or owner_id != pod_owner_user_id():
+        return False
+    held = _held()
+    return bool(
+        held
+        and held.credential_id == credential_id
+        and held.account_subject == account
+        and held.status == store.STATUS_CONNECTED
+        and _satisfies(held, "read")
+    )
+
+
+async def calendar_mail_source(
+    *, owner_id: str, credential_id: str, account: str, message_id: str, require_access: Any
+) -> tuple[dict[str, Any], str]:
+    async def authorized() -> None:
+        await require_access()
+        if not current_calendar_mail_grant(owner_id, credential_id, account):
+            raise GmailMetadataError("connection_changed")
+
+    await authorized()
+    port = PodLocalEmailReadPort(owner_id, owner_session=True)
+    reader = port.metadata_reader(
+        gmail=port, user_id=owner_id, require_access=authorized, expect_account=account
+    )
+    message = await reader.reply_source(message_id)
+    await authorized()
+    return message, port._connection._email
 
 
 __all__ = [

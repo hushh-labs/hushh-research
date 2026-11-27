@@ -1,19 +1,20 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import { NativeLocationLayer } from "./redesign/native-location-workspace";
+import { SavedLocationCategoryIcon, savedLocationCategoryPresentation } from "./saved-location-category-icon";
+import { checkedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Briefcase,
   ChevronRight,
-  Home,
   Loader2,
-  MapPin,
   Pencil,
   RefreshCw,
   ShieldCheck,
   Star,
   Trash2,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
@@ -56,32 +57,15 @@ import { useVault } from "@/lib/vault/vault-context";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 
-function CategoryIcon({ category }: { category: SavedLocationCategory }) {
-  const config: {
-    Icon: typeof Home;
-    bg: string;
-    fg: string;
-  } = category === "home"
-    ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
-    : category === "work"
-      ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
-      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[color:var(--app-accent-deep)]" };
-  return (
-    <span
-      className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
-        config.bg,
-        config.fg,
-      )}
-      data-testid={`saved-location-icon-${category}`}
-      aria-hidden="true"
-    >
-      <config.Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
-    </span>
-  );
-}
+type SavedLocationsSession = {
+  userId: string | null;
+  vaultKey: string | null;
+  vaultOwnerToken: string | null;
+};
+const EMPTY_SAVED_LOCATIONS: SavedLocation[] = [];
 
-export function SavedLocationsSection() {
+export function SavedLocationsSection({ nativeActive = false, onNativeBack }: { nativeActive?: boolean; onNativeBack?: () => void } = {}) {
+  const [nativePage, setNativePage] = useState(0);
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const pkmChangeRevision = usePkmDomainChangeRevision(
@@ -97,7 +81,12 @@ export function SavedLocationsSection() {
     vaultOwnerToken,
   });
   const locationControl = useOneLocationControlState(userId);
-  const [locations, setLocations] = useState<SavedLocation[]>([]);
+  const [retainedLocations, setLocations] = useState<SavedLocation[]>([]);
+  const [locationsSession, setLocationsSession] = useState<SavedLocationsSession | null>(null);
+  // A completed load attempt does not establish ownership of retained data.
+  const locations = isVaultUnlocked && locationsSession?.userId === userId &&
+    locationsSession?.vaultKey === vaultKey && locationsSession?.vaultOwnerToken === vaultOwnerToken
+    ? retainedLocations : EMPTY_SAVED_LOCATIONS;
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -107,6 +96,8 @@ export function SavedLocationsSection() {
     Record<string, string | null>
   >({});
   const addressLookupsRef = useRef(new Set<string>());
+  const categoryLookupsRef = useRef(new Set<string>());
+  const [resolvedCategories, setResolvedCategories] = useState<Record<string, CheckedInPlaceCategory | null>>({});
   // One row open at a time: this is a short list a person scans, not a set of
   // panels they compare, and several open rows push the rest off the screen.
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -144,14 +135,38 @@ export function SavedLocationsSection() {
   const reconcileTaskRef = useRef<Promise<void> | null>(null);
   const reconcileQueuedRef = useRef(false);
 
+  const resetPrivatePlaces = useCallback(() => {
+    captureRequestIdRef.current += 1;
+    addressResolutionIdRef.current += 1;
+    setLocations([]);
+    setLocationsSession(null);
+    setLoadError(null);
+    setExpandedId(null);
+    setEditingLocation(null);
+    setOfferPrefill(null);
+    setSaveLocationModalOpen(false);
+    setSaveLocationPoint(null);
+    setSaveLocationAddress(null);
+    setSaveLocationAddressLoading(false);
+    setSaveLocationSaving(false);
+    setCapturing(false);
+    setRemovingId(null);
+    setFavoritingId(null);
+    setRepairingId(null);
+    setLoading(false);
+  }, []);
+
   // Keep a "latest session" ref so async callbacks can detect when the vault
   // session changed mid-flight. Updated in an effect (not during render) to
   // satisfy the react-hooks/refs rule.
   useEffect(() => {
     vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+    resetPrivatePlaces();
     addressLookupsRef.current.clear();
+    categoryLookupsRef.current.clear();
     setResolvedAddresses({});
-  }, [userId, vaultKey, vaultOwnerToken]);
+    setResolvedCategories({});
+  }, [resetPrivatePlaces, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     setRendererDisclosureAccepted(
@@ -208,6 +223,7 @@ export function SavedLocationsSection() {
         !isCurrentVaultSession(session)
       ) return;
       setLocations(sortSavedLocationsForDisplay(list));
+      setLocationsSession(session);
     } catch {
       if (
         requestId !== reloadRequestIdRef.current ||
@@ -319,20 +335,46 @@ export function SavedLocationsSection() {
 
   useEffect(() => {
     if (hasVaultAccess) return;
-    captureRequestIdRef.current += 1;
-    addressResolutionIdRef.current += 1;
-    setLocations([]);
-    setSaveLocationModalOpen(false);
-    setSaveLocationPoint(null);
-    setSaveLocationAddress(null);
-    setSaveLocationAddressLoading(false);
-    setSaveLocationSaving(false);
-    setCapturing(false);
-    setRemovingId(null);
-    setFavoritingId(null);
-    setRepairingId(null);
-    setLoading(false);
-  }, [hasVaultAccess]);
+    resetPrivatePlaces();
+  }, [hasVaultAccess, resetPrivatePlaces]);
+
+  useEffect(() => {
+    if (!hasVaultAccess || !userId || !vaultOwnerToken || loadedUserId !== userId ||
+      !rendererDisclosureAccepted || locationControl.paused) return;
+    const session = { userId, vaultKey, vaultOwnerToken };
+    let cancelled = false;
+    const lookups = categoryLookupsRef.current;
+    const requested = new Set<string>();
+    const resolve = async () => {
+      for (const location of locations) {
+        if (cancelled || !isCurrentVaultSession(session)) return;
+        if (location.savedFrom !== "check_in" || location.placeCategory || !location.placeId) continue;
+        const key = `${location.id}:${location.placeId}`;
+        if (lookups.has(key)) continue;
+        lookups.add(key);
+        requested.add(key);
+        let category: CheckedInPlaceCategory | null = null;
+        try {
+          const details = await OneLocationService.placeDetails({ vaultOwnerToken, placeId: location.placeId });
+          category = checkedInPlaceCategory(details.categories);
+        } catch {
+          // Older records remain readable while their provider metadata is unavailable.
+        }
+        requested.delete(key);
+        if (cancelled || !isCurrentVaultSession(session)) return;
+        // Retry unavailable metadata on the next focus/online reconciliation.
+        // A recognized "other" category remains a successful, deduplicated lookup.
+        if (!category) lookups.delete(key);
+        setResolvedCategories((current) => ({ ...current, [key]: category }));
+      }
+    };
+    void resolve();
+    return () => {
+      cancelled = true;
+      requested.forEach((key) => lookups.delete(key));
+    };
+  }, [hasVaultAccess, isCurrentVaultSession, loadedUserId, locationControl.paused, locations,
+    rendererDisclosureAccepted, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (!locationControl.paused) return;
@@ -348,12 +390,12 @@ export function SavedLocationsSection() {
   const handleAdd = useCallback(async () => {
     if (!userId || !vaultKey || !vaultOwnerToken || capturing) {
       if (!hasVaultAccess) {
-        toast.error("Unlock your vault before adding a saved location.");
+        toast.error("Unlock your vault before adding a saved location.", { className: connectTypography.toast });
       }
       return;
     }
     if (readOneLocationControlState(userId).paused) {
-      toast.error("Resume Location before adding a saved place.");
+      toast.error("Resume Location before adding a saved place.", { className: connectTypography.toast });
       return;
     }
 
@@ -431,7 +473,7 @@ export function SavedLocationsSection() {
       ) {
         return;
       }
-      toast.error("Check location permission and try again.");
+      toast.error("Check location permission and try again.", { className: connectTypography.toast });
     } finally {
       if (
         captureRequestIdRef.current === captureRequestId &&
@@ -470,7 +512,7 @@ export function SavedLocationsSection() {
       addressLine?: string | null,
     ) => {
       if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
-        toast.error("Unlock your vault and capture the location again.");
+        toast.error("Unlock your vault and capture the location again.", { className: connectTypography.toast });
         return;
       }
 
@@ -497,7 +539,7 @@ export function SavedLocationsSection() {
         saveLocationPoint,
       );
       if (duplicate) {
-        toast.error(duplicateSavedLocationMessage(duplicate));
+        toast.error(duplicateSavedLocationMessage(duplicate), { className: connectTypography.toast });
         return;
       }
 
@@ -546,19 +588,20 @@ export function SavedLocationsSection() {
         }));
         addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
+        setLocationsSession(session);
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         setEditingLocation(null);
         setOfferPrefill(null);
         toast.success(
-          editing ? "Location updated." : "Location saved securely.",
+          editing ? "Location updated." : "Location saved securely.", { className: connectTypography.toast },
         );
       } catch (error) {
         if (!isCurrentVaultSession(session)) return;
         toast.error(
           error instanceof DuplicateSavedLocationError
             ? error.message
-            : "Could not save this location. Please try again.",
+            : "Could not save this location. Please try again.", { className: connectTypography.toast },
         );
       } finally {
         if (isCurrentVaultSession(session)) {
@@ -582,7 +625,7 @@ export function SavedLocationsSection() {
   const handleEditSavedLocation = useCallback(
     (location: SavedLocation) => {
       if (!hasVaultAccess) {
-        toast.error("Unlock your vault before editing a saved location.");
+        toast.error("Unlock your vault before editing a saved location.", { className: connectTypography.toast });
         return;
       }
       addressResolutionIdRef.current += 1;
@@ -617,10 +660,11 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
-        toast.success("Saved location removed.");
+        setLocationsSession(session);
+        toast.success("Saved location removed.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
-        toast.error("Could not remove this location. Please try again.");
+        toast.error("Could not remove this location. Please try again.", { className: connectTypography.toast });
       } finally {
         if (isCurrentVaultSession(session)) {
           setRemovingId(null);
@@ -638,10 +682,11 @@ export function SavedLocationsSection() {
       const next = await favoriteSavedLocation({ context: session, id: location.id });
       if (!isCurrentVaultSession(session)) return;
       setLocations(sortSavedLocationsForDisplay(next));
+      setLocationsSession(session);
       setExpandedId(null);
-      toast.success("Added to favorites.");
+      toast.success("Added to favorites.", { className: connectTypography.toast });
     } catch {
-      if (isCurrentVaultSession(session)) toast.error("Couldn't add to favorites. Try again.");
+      if (isCurrentVaultSession(session)) toast.error("Couldn't add to favorites. Try again.", { className: connectTypography.toast });
     } finally {
       if (isCurrentVaultSession(session)) setFavoritingId(null);
     }
@@ -661,7 +706,7 @@ export function SavedLocationsSection() {
         if (!isCurrentVaultSession(session)) return;
         const address = (place.formattedAddress || place.name || "").trim();
         if (!address) {
-          toast.error("No street address was found for this location.");
+          toast.error("No street address was found for this location.", { className: connectTypography.toast });
           return;
         }
         const next = await updateSavedLocationAddress({
@@ -671,10 +716,11 @@ export function SavedLocationsSection() {
         });
         if (!isCurrentVaultSession(session)) return;
         setLocations(sortSavedLocationsForDisplay(next));
-        toast.success("Address updated.");
+        setLocationsSession(session);
+        toast.success("Address updated.", { className: connectTypography.toast });
       } catch {
         if (!isCurrentVaultSession(session)) return;
-        toast.error("Could not find the address. Please try again.");
+        toast.error("Could not find the address. Please try again.", { className: connectTypography.toast });
       } finally {
         if (isCurrentVaultSession(session)) {
           setRepairingId(null);
@@ -758,16 +804,78 @@ export function SavedLocationsSection() {
       locations: locations.filter((location) => location.savedFrom === "check_in"),
     },
   ].filter(
-    (group) => group.key === "favorite" || (hasVaultAccess && !loading && !loadError),
+    (group) =>
+      group.key === "favorite" ||
+      (hasVaultAccess && (locations.length > 0 || (!loading && !loadError))),
   );
 
+  const page = Math.min(nativePage, Math.max(0, Math.ceil(locations.length / 24) - 1));
+  const visibleIds = new Set(locations.slice(page * 24, (page + 1) * 24).map(location => location.id));
+  const nativeSections = [
+    { key: "add", rows: [{ key: "add-place", label: capturing ? "Finding location…" : "Add place", prominent: true, enabled: hasVaultAccess && !locationControl.paused && !capturing, pending: capturing, run: handleAdd },
+      ...(!hasVaultAccess ? [{ key: "locked", label: "Unlock your vault to view saved places" }] : []),
+      ...(loadError ? [{ key: "error", label: "Saved places unavailable", detail: loadError }, { key: "retry", label: "Retry", enabled: !loading, run: reload }] : []),
+    ] },
+    ...(!locations.length ? [{ key: "empty", rows: [{ key: "empty", label: loading ? "Loading saved places…" : "No saved places yet", detail: "Save home, work or a favorite place." }] }] : []),
+    ...placeGroups.map(group => ({ key: group.key, title: group.title, rows: group.locations.filter(location => visibleIds.has(location.id)).flatMap(location => {
+      const checkedIn = location.savedFrom === "check_in", venue = checkedIn || location.placeName ? splitCheckInPlaceLabel(location.label) : null;
+      const name = location.category === "other" ? location.placeName || venue?.name || location.label : location.label;
+      const address = location.address || resolvedAddresses[location.id] || venue?.address;
+      const finding = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
+      const icon = savedLocationCategoryPresentation({
+        ...location, placeCategory: location.placeCategory ?? resolvedCategories[`${location.id}:${location.placeId}`],
+      });
+      return [{
+        key: location.id,
+        label: name,
+        detail: address || (finding ? "Finding address…" : "Address unavailable"),
+        selected: expandedId === location.id,
+        symbol: icon.symbol,
+        iconHex: icon.color,
+        trailing: checkedIn
+          ? new Date(location.checkedInAt || location.savedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+          : undefined,
+        run: () => setExpandedId(current => current === location.id ? null : location.id),
+      },
+        ...(expandedId === location.id ? [
+          { key: `${location.id}:date`, label: "Saved", detail: new Date(location.checkedInAt || location.savedAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) },
+          ...(!location.address && (resolvedAddresses[location.id] === null || (!address && !finding)) ? [{ key: `${location.id}:repair`, label: "Find address", enabled: repairingId === null, pending: repairingId === location.id, run: () => handleRepairAddress(location) }] : []),
+          checkedIn ? { key: `${location.id}:favorite`, label: "Add to favorites", enabled: favoritingId === null && removingId === null, pending: favoritingId === location.id, run: () => handleFavorite(location) } : { key: `${location.id}:edit`, label: "Edit", enabled: removingId === null && repairingId === null && !capturing && !locationControl.paused, run: () => handleEditSavedLocation(location) },
+          { key: `${location.id}:remove`, label: "Remove", destructive: true, enabled: removingId === null && favoritingId === null, pending: removingId === location.id, run: () => handleRemove(location.id) },
+        ] : []),
+      ];
+    }) })),
+    { key: "navigation", rows: [
+      ...(locations.length > 24 ? [{ key: "page", label: `${page * 24 + 1}–${Math.min((page + 1) * 24, locations.length)} of ${locations.length}` }, { key: "previous", label: "Previous places", enabled: page > 0, run: () => setNativePage(value => value - 1) }, { key: "next", label: "More places", enabled: (page + 1) * 24 < locations.length, run: () => setNativePage(value => value + 1) }] : []),
+      ...(onNativeBack ? [{ key: "back", label: "Back to settings", run: onNativeBack }] : []),
+    ] },
+  ];
   return (
-    <>
+    <NativeLocationLayer flow="settings" nested when={nativeActive} title="Saved places" viewKey="settings:saved-places" navigationDepth={4} sections={nativeSections}><>
       <section
         aria-label="Saved Locations"
+        aria-busy={loading}
         className="w-full min-w-0 space-y-6"
         data-testid="settings-saved-locations"
       >
+        {hasVaultAccess && locations.length > 0 && loadError ? (
+          <div role="status" className="flex min-w-0 items-center justify-between gap-3">
+            <p
+              data-location-type-role="helper"
+              className="text-sm text-[color:var(--app-secondary-label)]"
+            >
+              Couldn’t refresh saved places. Your saved list is still shown.
+            </p>
+            <button
+              data-location-type-role="utility-action"
+              type="button"
+              onClick={() => void reload()}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center px-3 text-[color:var(--app-accent)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
         {placeGroups.map((group) => (
           <section key={group.key} aria-label={group.title} className="min-w-0">
             <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
@@ -808,7 +916,7 @@ export function SavedLocationsSection() {
                     </p>
                   </div>
                 </div>
-              ) : loading ? (
+              ) : loading && locations.length === 0 ? (
                 <div
                   className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
                   role="status" data-location-type-role="status"
@@ -816,7 +924,7 @@ export function SavedLocationsSection() {
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   Loading saved places…
                 </div>
-              ) : loadError ? (
+              ) : loadError && locations.length === 0 ? (
                 <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
                   <p data-location-type-role="helper" className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
                     {loadError}
@@ -824,7 +932,7 @@ export function SavedLocationsSection() {
                   <button
                     data-location-type-role="utility-action" type="button"
                     onClick={() => void reload()}
-                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                   >
                     Retry
                   </button>
@@ -854,6 +962,7 @@ export function SavedLocationsSection() {
                     : location.label;
                   const address = location.address || resolvedAddresses[location.id] || venue?.address;
                   const findingAddress = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
+                  const iconLocation = { ...location, placeCategory: location.placeCategory ?? resolvedCategories[`${location.id}:${location.placeId}`] };
                   const dateValue = location.checkedInAt || location.savedAt;
                   const visitDate = checkedIn && Number.isFinite(Date.parse(dateValue))
                     ? new Date(dateValue)
@@ -875,7 +984,7 @@ export function SavedLocationsSection() {
                         aria-expanded={expanded}
                         className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
                       >
-                        <CategoryIcon category={location.category} />
+                        <SavedLocationCategoryIcon location={iconLocation} />
                         <div className="min-w-0 flex-1">
                           <p data-location-type-role="row-title" className="truncate text-[17px] font-normal leading-[22px] text-foreground">
                             {name}
@@ -885,14 +994,13 @@ export function SavedLocationsSection() {
                           </p>
                         </div>
                         {visitDate ? (
-                          <time data-location-type-role="row-description"
+                          <time
                             dateTime={dateValue}
                             title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
-                            className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
+                            className="shrink-0 self-start whitespace-nowrap pt-0.5 text-right text-[10px] font-normal leading-[14px] tabular-nums text-[color:var(--app-secondary-label)]"
                           >
-                            {!location.checkedInAt ? <span className="block">Saved</span> : null}
-                            {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                            <span className="block">{visitDate.getFullYear()}</span>
+                            {!location.checkedInAt ? <span>Saved </span> : null}
+                            {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
                           </time>
                         ) : null}
                         <ChevronRight
@@ -903,13 +1011,13 @@ export function SavedLocationsSection() {
                       </button>
 
                       {expanded ? (
-                        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
+                        <div data-no-auto-fade="true" className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
                           {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
                             <button
                               type="button"
                               data-location-type-role="utility-action" onClick={() => void handleRepairAddress(location)}
                               disabled={repairingId !== null}
-                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                             >
                               <RefreshCw
                                 className={cn(
@@ -941,7 +1049,7 @@ export function SavedLocationsSection() {
                               capturing ||
                               locationControl.paused
                             }
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             <Pencil
                               className="h-[15px] w-[15px]"
@@ -954,7 +1062,7 @@ export function SavedLocationsSection() {
                             type="button"
                             data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
                               <Loader2
@@ -1045,6 +1153,6 @@ export function SavedLocationsSection() {
           setOfferPrefill(null);
         }}
       />
-    </>
+    </></NativeLocationLayer>
   );
 }

@@ -1,4 +1,4 @@
-import { MessageCircle, type LucideIcon } from "@/components/icons";
+import { MessageCircle, Target, type LucideIcon } from "@/components/icons";
 
 import {
   FinanceAgentIcon,
@@ -18,6 +18,7 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { areGoalsAvailable } from "@/lib/goals/availability";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
@@ -116,7 +117,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
-  availability?: "enabled" | "paused" | "local-only" | "development-only";
+  availability?: "enabled" | "paused" | "local-only" | "development-only" | "non-production";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -144,6 +145,17 @@ export interface OneCapability {
  * Canonical, ordered list of One's capabilities. Order mirrors the dashboard.
  */
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
+  {
+    id: "goals",
+    agentId: null,
+    title: "Goals",
+    description: "Plan goals and manage tasks and schedules.",
+    href: ROUTES.ONE_GOALS,
+    icon: customCapabilityIcon(Target),
+    tone: "pkm",
+    group: "workflow",
+    requiresVault: true,
+  },
   {
     id: "messages",
     agentId: null,
@@ -304,7 +316,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     requiresVault: true,
     // Match the specialist's authored rollout; workspace admission still
     // verifies placement, unlocked ownership, installed capability and analysis consent.
-    availability: "development-only",
+    availability: "non-production",
   },
   {
     id: "marketplace",
@@ -405,6 +417,9 @@ export function isOneCapabilityEnabled(
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  if (resolved.id === "goals") return areGoalsAvailable();
+  if (resolved.availability === "non-production")
+    return resolveAppEnvironment() !== "production";
   if (resolved.availability === "development-only")
     return resolveAppEnvironment() === "development";
   return true;

@@ -1,4 +1,5 @@
 /** Browser QA boundaries only. The production workspace and typed transport remain real. */
+export { isMarketInsightsEmptyError, MarketNewsSnapshotChangedError } from "../../lib/services/market-errors";
 import { useSyncExternalStore } from "react";
 import { advanceVaultSessionEpoch } from "../../lib/vault/session-epoch";
 
@@ -17,15 +18,21 @@ export function lockSyntheticVault() {
   vaultSnapshot = { vaultOwnerToken: null, ownerTokenStatus: "locked" };
   for (const listener of listeners) listener();
 }
+const getVaultOwnerToken = () => vaultSnapshot.vaultOwnerToken;
+
 export function useVault() {
   const snapshot = useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, () => vaultSnapshot);
-  return { ...snapshot, isVaultUnlocked: Boolean(snapshot.vaultOwnerToken), retryOwnerTokenRenewal: async () => authorizeSyntheticVault() };
+  return { ...snapshot, getVaultOwnerToken, isVaultUnlocked: Boolean(snapshot.vaultOwnerToken), retryOwnerTokenRenewal: async () => authorizeSyntheticVault() };
 }
 export function useRouter() {
   return { push: () => {}, replace: () => {}, prefetch: () => {} };
 }
 export function usePathname() { return "/one/calendar"; }
 export function useSearchParams() { return new URLSearchParams(); }
+// The shared cache can import market readers, but this fixture serves only
+// Calendar. Preserve the error imports without admitting market requests.
+export class MarketNewsSnapshotChangedError extends Error {}
+export function isMarketInsightsEmptyError() { return false; }
 export class ApiService {
   static apiFetch(path: string, init?: RequestInit) { return globalThis.fetch(path, init); }
   static async getPersonalAgentStatus() { return { hostingMode: "shared" }; }

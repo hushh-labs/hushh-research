@@ -6,6 +6,7 @@ describe("deriveVoiceRouteScreen", () => {
   it.each([
     ["/one/welcome", "one_welcome"],
     ["/one/messages", "one_messages"],
+    ["/one/pkm/logins", "pkm_logins"],
     ["/one/wallet-card", "one_wallet_card"],
     ["/one/connected-systems/customer-crm", "connected_systems"],
     ["/one/email", "email_agent"],
@@ -102,9 +103,10 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("does not reintroduce the retired One KYC voice screen through Email", () => {
+    // The KYC screen reuses the Mail voice surface; the retired `one_kyc` screen and its agent stay retired.
     expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
-      screen: "app",
-      subview: null,
+      screen: "gmail",
+      subview: "kyc",
     });
     expect(deriveVoiceRouteScreen("/one/email", "panel=aliases")).toEqual({
       screen: "email_agent",

@@ -28,6 +28,7 @@ tests/test_native_ship_artifact_workflows.py
 
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
 tests/services/test_external_connector_lifecycle_postgres.py
+tests/services/test_calendar_chat_availability_postgres.py
 tests/test_isolated_postgres_guard.py
 # Shared ciphertext writes cannot outlive account-erasure fencing.
 tests/services/test_shared_files_lifecycle_postgres.py
@@ -109,6 +110,24 @@ tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
+# Calendar current-turn authority and existing Follow-ups producer/read contracts.
+tests/test_calendar_routes.py
+tests/agents/test_calendar_shared_opening_tools.py
+tests/agents/test_calendar_request_scope.py
+tests/agents/test_calendar_contract_matrix.py
+tests/agents/test_calendar_guest_clarification.py
+tests/agents/test_calendar_conversation_compatibility.py
+tests/agents/test_calendar_slot_matrix.py
+tests/services/test_calendar_email_followup_boundaries.py
+tests/services/test_calendar_email_followup_extraction.py
+tests/services/test_calendar_email_followup_relevance.py
+tests/services/test_calendar_email_followup_scan.py
+tests/services/test_calendar_email_followup_incremental_postgres.py
+tests/services/test_calendar_email_followup_jhumma_postgres.py
+tests/services/test_calendar_email_followup_oauth_postgres.py
+tests/services/test_calendar_email_followup_reassess_postgres.py
+tests/services/test_calendar_email_followup_reminder_timing_postgres.py
+tests/services/test_calendar_email_followup_store_postgres.py
 tests/services/test_drive_live_search_parity.py
 tests/services/test_drive_live_rule_contract.py
 tests/services/test_drive_live_journey.py
@@ -194,6 +213,11 @@ tests/services/test_drive_live_query_lifecycle.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
+tests/services/test_gmail_chat_tools.py
+tests/services/test_mail_overview.py
+tests/test_mail_overview_routes.py
+tests/services/test_mail_overview_brief.py
+tests/test_mail_overview_brief_routes.py
 tests/services/test_email_delegated_read.py
 tests/services/test_receipt_memory_read.py
 tests/test_email_agent_a2a.py
@@ -213,6 +237,7 @@ tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
 tests/test_mcp_log_redaction.py
 
+tests/quality/test_architecture_compliance.py
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_developer_oauth.py
@@ -255,6 +280,7 @@ tests/test_finance_sharing_contract.py
 tests/test_finance_recipient_hub_authority.py
 tests/test_advisor_review_contract.py
 tests/test_advisor_review_authority.py
+tests/services/test_one_portfolio_review.py
 tests/test_advisor_review_postgres.py
 tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
@@ -332,6 +358,7 @@ tests/test_ria_picks_routes.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_portfolio_import_gene_runtime.py
+tests/test_portfolio_import_incremental.py
 tests/test_stream_path_query_bounds_cwe400.py
 tests/performance/test_market_cache_instrumentation.py
 tests/test_llm_operon_stream_error_leak.py
@@ -488,6 +515,7 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
+tests/test_secret_list_edit_and_invariants.py
 tests/test_auth_health_lease_rest.py
 tests/test_auth_health_read_diagnostics.py
 tests/test_auth_health_deployment.py
@@ -500,6 +528,9 @@ tests/services/test_account_service_export.py
 tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
+tests/test_firebase_auth_migration_operator.py
+tests/test_firebase_auth_activation_operator.py
+tests/test_firebase_authority_isolation.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/services/test_account_deletion_provider_cleanup.py
 # The owner's deletion notice follows only a committed erasure; admission wakes the drain.
@@ -646,6 +677,7 @@ tests/test_one_follow_up_suggestions.py
 # Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
 tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
+tests/test_chat_memory_manager.py
 tests/test_conversation_titles.py
 tests/scripts/test_eval_one_first_tool.py
 tests/scripts/test_eval_one_first_tool_context.py
@@ -784,6 +816,7 @@ tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
+tests/test_plaid_nws_vault_routes.py
 tests/test_plaid_server_custody_retire.py
 
 # Hosting, pod authority/recovery, exact-reviewed MCP and dev candidate acceptance.
@@ -805,6 +838,7 @@ tests/test_pod_browser_information.py
 tests/test_pod_browser_adk.py
 tests/test_pod_browser_adk_continuation.py
 tests/test_pod_browser_sessions.py
+tests/test_website_credentials.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
 tests/test_pod_consent_wire_scope.py
@@ -815,6 +849,11 @@ tests/test_pod_turn_memory_authority.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
+# Managed Files updates must stay owner-fenced and never infer cleanup from a cancelled task.
+tests/test_hosted_files_analysis.py
+tests/test_hosted_files_provisioning.py
+tests/test_hosted_files_routes.py
+tests/test_pod_files_checkpoint_join.py
 tests/test_pod_scheduled_tasks.py
 tests/test_pod_scheduled_authority.py
 tests/test_pod_scheduled_continuation.py
@@ -839,6 +878,8 @@ tests/test_pod_upgrade_admission.py
 tests/test_pod_upgrade_control_auth.py
 tests/test_pod_upgrade_handoff.py
 tests/test_pod_upgrade_rollback_guard.py
+tests/test_pod_upgrade_notification_cli.py
+tests/test_gcp_notification_upgrade_recovery_postgres.py
 tests/test_pod_update_detection.py
 tests/test_pod_image_upgrade_path.py
 tests/test_pod_connector_configuration.py
@@ -1027,6 +1068,8 @@ tests/test_health_ready_pod_fleet.py
 tests/test_hosted_cloud_choice.py
 tests/test_hosted_tier_guard.py
 tests/test_hosted_gcp_backend.py
+tests/test_hosted_retained_authority.py
+tests/test_pod_qualification_inspector.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
@@ -1207,6 +1250,8 @@ tests/test_azure_vm_upgrade_postgres.py
 tests/test_azure_resource_teardown.py
 tests/test_azure_cleanup_lifecycle.py
 tests/test_personal_agent_cloud_removal_postgres.py
+tests/test_legacy_cloud_removal_postgres.py
+tests/test_legacy_cloud_removal_operator.py
 tests/test_azure_resource_teardown_postgres.py
 tests/test_gcp_runtime_quota_grant_postgres.py
 tests/test_azure_partial_setup_erasure_postgres.py
@@ -1346,12 +1391,17 @@ tests/test_pod_drive_local.py
 tests/test_pod_external_ingress_admission_strict.py
 tests/test_pod_gmail_doorbell.py
 tests/test_pod_gmail_local.py
+tests/test_pod_mail_followups.py
+tests/test_pod_mail_receipts.py
+tests/test_pod_mail_accounts.py
+tests/test_pod_mail_account_doors.py
 tests/test_pod_gmail_push_config.py
 tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
 tests/test_pod_todo_sources.py
 
 tests/test_personal_agent_notification_checkpoint.py
+tests/test_personal_agent_notification_account_limit.py
 tests/test_pod_browser_azure_probe.py
 tests/services/test_chat_notification_state.py
 
@@ -1425,6 +1475,7 @@ tests/test_answer_composer.py
 tests/test_pkm_answer_payment.py
 tests/test_answer_work_drain.py
 tests/services/test_pkm_answer_requests_postgres.py
+tests/services/test_pkm_answer_receiving_postgres.py
 tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
 
@@ -1607,7 +1658,6 @@ tests/test_phone_transfer_postgres.py
 tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
-tests/test_phone_binding_policy.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
@@ -1638,6 +1688,8 @@ tests/test_hosted_pod_bootstrap_postgres.py
 tests/test_hosted_bootstrap_reconciliation_postgres.py
 tests/test_hosted_pod_direct_postgres.py
 tests/test_hosted_pod_preparation_postgres.py
+tests/test_hosted_files_admission_postgres.py
+tests/test_hosted_files_erasure_postgres.py
 
 tests/test_hosted_private_runtime.py
 tests/test_pod_runtime_writer.py
@@ -1656,26 +1708,83 @@ tests/test_one_runtime_configuration.py
 
 # Protected Main release clearance and current-attempt consumer boundaries.
 tests/test_deployment_security.py
+tests/test_uat_paused_drive_maintenance.py
+
+# Device-authorized calls, route-key custody and PostgreSQL endpoint races.
+tests/services/test_direct_call_policy.py
+tests/test_direct_calls_postgres.py
+tests/test_direct_calls_routes.py
+tests/test_direct_calls_voip.py
+tests/services/test_direct_message_route_cipher.py
+
+# Calendar Follow-ups temporal, scoped read, and migration 454 contracts.
+tests/services/test_calendar_email_followup_temporal_postgres.py
+tests/test_secret_metadata_inventory.py
+tests/test_managed_provider_collection.py
+
+# Wave 1 atomic ledger execution, forward >=459 SQL governance, and parked lane freeze.
+tests/test_forward_migration_governance.py
+tests/test_migration_ledger_atomicity_postgres.py
+
+# Wave 3 pod process dumpable/core hardening, SSRF browser guardrails, and ACE custody port.
+tests/test_pod_browser_ssrf_and_dumpable_hardening.py
+tests/test_pod_custody_port_and_ace.py
+
+# Personal Wiki Memory (#9370 Phase 0, Phase 1 / #8814, Phase 2, Phase 3, Phase 4, Phase 5, & Phase 6 / #8242): reserved scope guards, eval baseline, archive import, versioned wiki foundation, capture/recall, PKM projections, cohort migration/Forget, Floci wire conformance, and classic-writer retirement.
+tests/test_source_library_scope_policy.py
+tests/eval_wiki_memory/test_phase0_baseline.py
+tests/eval_wiki_memory/test_archive_import_9429.py
+tests/services/test_wiki_memory_foundation.py
+tests/services/test_wiki_capture_and_recall.py
+tests/services/test_wiki_pkm_projections.py
+tests/services/test_wiki_phase4_migration_and_forget.py
+tests/services/test_wiki_phase5_floci_conformance.py
+tests/services/test_wiki_pkm_unification_and_shared_recall.py
+tests/services/test_pkm_scope_exposure_preserves_vault_owner.py
+
+# Wave 4 multi-cloud capability registry, Landlock browser uniformity, AWS/ACE parity.
+tests/test_provider_capability_registry_and_aws_parity.py
+
+# Wave 5 active control-plane TTL runner, enforced retention parity, and Floci wire conformance.
+tests/test_control_plane_retention_runner.py
+tests/test_floci_aws_wire_conformance.py
+# Wave 6 Hub Zero-Role Capability & Custody Broker and Tri-Cloud Floci (GCP + Azure) wire conformance.
+tests/test_floci_gcp_azure_wire_conformance.py
+tests/test_floci_umbrella_cell_and_hosted_azure.py
+tests/test_pod_prefix_storage_gateway.py
+tests/test_pod_capability_broker.py
+tests/test_pod_activation_and_upgrade_clearance.py
+tests/services/test_pod_workspace_9511.py
+tests/test_pooled_sandbox_cutover.py
+
+# Wave 17 Dev Horizontal Umbrella Cell scale-out and 14-day two-key source-pod retirement policy.
+tests/services/test_umbrella_scaleout_and_source_retirement.py
+tests/test_source_pod_retirement_postgres.py
 
 # Calendar email follow-ups: relevance gate, incremental sync, retry/backoff,
 # Calendar reconciliation, account isolation and durable reminders. The model,
 # Gmail and Calendar are synthetic doubles; no live mailbox or model is called.
 tests/services/test_calendar_email_followup_account.py
-tests/services/test_calendar_email_followup_extraction.py
 tests/services/test_calendar_email_followup_notifications.py
 tests/services/test_calendar_email_followup_reader.py
-tests/services/test_calendar_email_followup_relevance.py
-tests/services/test_calendar_email_followup_scan.py
 tests/test_calendar_followup_scheduler_contract.py
 tests/test_calendar_followup_deploy_gate.py
-tests/services/test_calendar_email_followup_oauth_postgres.py
-tests/services/test_calendar_email_followup_jhumma_postgres.py
-tests/services/test_calendar_email_followup_incremental_postgres.py
-tests/services/test_calendar_email_followup_store_postgres.py
-tests/services/test_calendar_email_followup_reassess_postgres.py
-tests/services/test_calendar_email_followup_reminder_timing_postgres.py
-tests/services/test_calendar_email_followup_boundaries.py
-tests/test_uat_paused_drive_maintenance.py
-tests/test_secret_metadata_inventory.py
-tests/test_managed_provider_collection.py
 tests/scripts/test_db_data_health.py
+
+# #9744 Wave 1 FedRAMP High Agent Sandbox warm pool, CAS sync, Sentinel egress, and ADK Terminal.
+tests/services/test_agent_sandbox_fedramp_controls.py
+tests/services/test_workspace_cas_sync_store.py
+tests/services/test_agent_sandbox_process_and_adk_terminal.py
+tests/services/test_agent_sandbox_phase2_routing_and_proxy.py
+tests/services/test_agent_sandbox_phase3_edge_and_puppy.py
+tests/test_personal_sandbox_harness_parity.py
+tests/test_dev_ace_deploy_parity.py
+
+# Paid scope sharing UX, live incoming consent cards, and Pod consent continuation/history parity.
+tests/test_paid_scope_chat_ux_and_live_cards.py
+
+# M8 Files-Chat bridge, ADK resilience, dev phone simulation lane, and Shared-to-ACE continuity.
+tests/one_adk/test_m8_files_and_adk_resilience.py
+tests/test_shared_to_ace_continuity.py
+tests/test_simulation_phone_lane.py
+tests/test_ace_lifecycle_deletion_and_byoc.py

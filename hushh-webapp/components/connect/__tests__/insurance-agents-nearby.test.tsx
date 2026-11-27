@@ -247,7 +247,7 @@ describe("InsuranceAgentsNearby", () => {
     await waitFor(() =>
       expect(screen.getByTestId("insurance-agents-empty")).toBeTruthy(),
     );
-    expect(screen.getByText("Nothing nearby")).toBeTruthy();
+    expect(screen.getByText(/No insurance agents within/)).toBeTruthy();
     expect(screen.getByTestId("insurance-agents-postal-input")).toBeTruthy();
   });
 

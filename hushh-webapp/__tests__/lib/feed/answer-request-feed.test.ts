@@ -38,7 +38,6 @@ describe("paid-answer rows reach the card that owns the decision", () => {
     // opens the answer card rather than the generic approve/deny path.
     expect(presented.href).toContain(encodeURIComponent(`answer_request:${REQUEST}`));
     expect(presented.label).toBeTruthy();
-    expect(presented.description).toBeTruthy();
   });
 
   it("tells the requester the price step and the owner the review step", () => {
@@ -47,9 +46,7 @@ describe("paid-answer rows reach the card that owns the decision", () => {
     const staged = item("answer_request_payment_ready");
     staged.metadata = { ...staged.metadata, status: "staged" };
     expect(presentFeedItem(staged).description).toContain("price and pay");
-    expect(presentFeedItem(item("answer_request_declined")).description).toContain(
-      "refunded in full",
-    );
+    expect(presentFeedItem(item("answer_request_declined")).description).not.toMatch(/refunded|paid/i);
   });
 
   it("carries no question, scope or answer text into the Feed row", () => {

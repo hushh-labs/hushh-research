@@ -1,112 +1,89 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { ImportProgressView } from "@/components/kai/views/import-progress-view";
 import { replaceLiveHoldingPreviewRows } from "@/lib/kai/import/live-holdings-preview";
 
 describe("ImportProgressView", () => {
-  it("retains a waiting stream area when raw events contain only structured payloads", () => {
-    render(<ImportProgressView stage="extracting" isStreaming rawStreamLines={['{"holdings_preview":[]}']} />);
-    expect(screen.getByText("Waiting for stream events...")).toBeVisible();
+  it("reports the current step with a forward-only progress bar and no stream", () => {
+    const { rerender } = render(<ImportProgressView stage="extracting" onCancel={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Finding holdings");
+    const first = Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));
+    expect(first).toBeGreaterThan(0);
+    expect(screen.queryByText("AI stream")).toBeNull();
+    rerender(<ImportProgressView stage="validating" onCancel={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Checking holdings");
+    expect(Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"))).toBeGreaterThan(first);
+    expect(screen.queryByRole("button", { name: "Review holdings" })).toBeNull();
   });
 
-  it("keeps the same progress element from unknown through zero, measured and stopped progress", () => {
-    const { rerender } = render(<ImportProgressView stage="extracting" isStreaming />);
-    const bar = screen.getByRole("progressbar", { name: "Import progress" });
-    expect(bar).not.toHaveAttribute("aria-valuenow");
-    rerender(<ImportProgressView stage="extracting" isStreaming progressPct={0} />);
-    expect(screen.getByRole("progressbar")).toBe(bar);
-    expect(bar).toHaveAttribute("aria-valuenow", "0");
-    rerender(<ImportProgressView stage="extracting" isStreaming progressPct={77} />);
-    expect(bar).toHaveAttribute("aria-valuenow", "77");
-    rerender(<ImportProgressView stage="error" progressPct={77} />);
-    expect(screen.getByRole("progressbar")).toBe(bar);
-    expect(bar).toHaveAttribute("aria-valuenow", "77");
-    rerender(<ImportProgressView stage="complete" progressPct={77} />);
-    expect(bar).toHaveAttribute("aria-valuenow", "100");
+  it("keeps moving and says it is still working when extraction runs long", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ImportProgressView stage="extracting" onCancel={vi.fn()} />);
+      const at = () => Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));
+      const start = at();
+      expect(screen.queryByText(/still working/i)).toBeNull();
+      act(() => { vi.advanceTimersByTime(20_000); });
+      expect(at()).toBeGreaterThan(start);
+      expect(at()).toBeLessThan(89);
+      expect(screen.getByText(/still working/i)).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("never reports completion for a failed import without measured progress", () => {
-    render(<ImportProgressView stage="error" />);
-    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
-    expect(screen.getByText("Stopped")).toBeVisible();
-    expect(screen.queryByText("100%")).toBeNull();
+  it("offers a single back action and retry after a failed import", () => {
+    const back = vi.fn();
+    const retry = vi.fn();
+    render(<ImportProgressView stage="error" onCancel={back} onRetry={retry} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Try again or choose a different statement.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(back).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
+
+describe("ImportProgressView placeholders", () => {
+  it("shows the review layout as placeholders with the file name while the statement is read", () => {
+    render(<ImportProgressView stage="extracting" fileName="statement.pdf" fileSize={1_258_291} onCancel={vi.fn()} />);
+    expect(screen.getByText("statement.pdf · 1.2 MB")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Review holdings" })).toBeVisible();
+    expect(screen.getByText("Portfolio value")).toBeVisible();
+    // Nothing is known yet, so no holding is shown and the rows are placeholders.
+    expect(screen.queryByRole("list", { name: "Holdings found so far" })).toBeNull();
   });
 
-  it("keeps a visible AI stream panel during parsing", () => {
-    render(
-      <ImportProgressView
-        stage="extracting"
-        isStreaming
-        progressPct={42}
-        statusMessage="Extracting portfolio statement data..."
-        rawStreamLines={[
-          "[STAGE/EXTRACTING] Extracting portfolio statement data...",
-          "[THINKING] Locating the holdings table before parsing quantities.",
-          "{\"holdings_preview\":[]}",
-        ]}
-      />
-    );
-
-    expect(screen.getByText("AI stream")).toBeTruthy();
-    expect(screen.getAllByText(/Extracting portfolio statement data/i).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(/Locating the holdings table before parsing quantities/i).length
-    ).toBeGreaterThan(0);
-    expect(screen.queryByText("Reviewing your statement...")).toBeNull();
-  });
-
-  it("does not add repeated live holding snapshots into impossible totals", () => {
-    render(
+  it("streams confirmed holdings without inventing final totals or enabling edits", () => {
+    const { rerender } = render(
       <ImportProgressView
         stage="normalizing"
-        isStreaming
-        progressPct={85}
-        statusMessage="Confirmed 2 of 4 holdings"
+        holdingsTotal={40}
         liveHoldings={[
-          { symbol: "AAPL", name: "Apple Inc.", quantity: 10, market_value: 100 },
-          { symbol: "AAPL", name: "Apple Inc.", quantity: 20, market_value: 200 },
+          { symbol: "AAPL", name: "Apple Inc.", quantity: 10, market_value: 24310 },
+          { symbol: "MSFT", name: "Microsoft Corp.", quantity: null, market_value: 18942.5 },
         ]}
-        holdingsExtracted={2}
-        holdingsTotal={4}
-      />
+        onCancel={vi.fn()}
+      />,
     );
-
-    expect(screen.getByText("AAPL")).toBeTruthy();
-    expect(screen.getByText("Qty: 20")).toBeTruthy();
-    expect(
-      screen.getByText((_, node) => node?.textContent?.replace(/\s+/g, " ").trim() === "Value: $200")
-    ).toBeTruthy();
-    expect(screen.queryByText("Qty: 30")).toBeNull();
-    expect(screen.queryByText("$300")).toBeNull();
+    const found = screen.getByRole("region", { name: "Holdings found so far" });
+    expect(found).toHaveTextContent("AAPL");
+    expect(found).toHaveTextContent("Microsoft Corp.");
+    expect(found).not.toHaveTextContent("$24,310.00");
+    expect(screen.getByText("Positions").nextElementSibling).not.toHaveTextContent("40");
+    expect(screen.queryByRole("button", { name: /manage|save|start over/i })).toBeNull();
+    rerender(<ImportProgressView stage="complete" liveHoldings={[{ symbol: "AAPL", name: "Apple Inc." }]} onCancel={vi.fn()} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+    // 100% is presentation, not terminal-success authority to edit or save.
+    expect(screen.queryByRole("button", { name: /manage|save|start over/i })).toBeNull();
   });
 
-  it("hides implausible interim quantity and value values", () => {
-    render(
-      <ImportProgressView
-        stage="extracting"
-        isStreaming
-        progressPct={55}
-        statusMessage="Confirming live holdings"
-        liveHoldings={[
-          {
-            symbol: "AAPL",
-            name: "Apple Inc.",
-            quantity: 9_999_999_999_999,
-            market_value: 900_000_000_000_000,
-          },
-        ]}
-        holdingsExtracted={1}
-      />
-    );
-
-    expect(screen.getByText("AAPL")).toBeTruthy();
-    expect(screen.getByText("Qty: —")).toBeTruthy();
-    expect(
-      screen.getByText((_, node) => node?.textContent?.replace(/\s+/g, " ").trim() === "Value: —")
-    ).toBeTruthy();
-    expect(screen.queryByText(/9,999,999,999,999/)).toBeNull();
-    expect(screen.queryByText(/\$900,000,000,000,000/)).toBeNull();
+  it("shows no placeholder after a failed import", () => {
+    render(<ImportProgressView stage="error" fileName="statement.pdf" onCancel={vi.fn()} onRetry={vi.fn()} />);
+    expect(screen.queryByText("Portfolio value")).toBeNull();
   });
 });
 
@@ -133,4 +110,26 @@ describe("replaceLiveHoldingPreviewRows", () => {
       },
     ]);
   });
+});
+
+
+it("fills source facts as they arrive without treating missing values as zero or enabling save", () => {
+  const progress = {
+    ownerId: "synthetic", streamId: "run", resetSeq: 0, foundCount: 2, retainedCount: 2,
+    units: { "pdf:1": { index: 1, rows: [
+      { source_id: "pdf:1:1", symbol: "SAME", name: "First lot", quantity: 0, market_value: 0 },
+      { source_id: "pdf:1:2", symbol: "SAME", name: "Second lot", market_value: 123.45 },
+    ] } },
+    facts: { total_value: 123.45, cash_balance: 0, statement_details: { institution_name: "Synthetic broker" }, portfolio_summary: { income: 0 } },
+  };
+  const { rerender } = render(<ImportProgressView stage="extracting" extractionProgress={progress} />);
+  expect(screen.getByText("Synthetic broker")).toBeVisible();
+  expect(screen.getByText("Positions found").nextElementSibling).toHaveTextContent("2");
+  expect(screen.getByText("Cash").nextElementSibling).toHaveTextContent("0");
+  expect(screen.getAllByText("First lot").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Second lot").length).toBeGreaterThan(0);
+  expect(screen.queryByText(/\$123/)).toBeNull();
+  expect(screen.queryByRole("button", { name: /manage|save|start over/i })).toBeNull();
+  rerender(<ImportProgressView stage="extracting" extractionProgress={{ ...progress, facts: { ...progress.facts, currency: "USD" } }} />);
+  expect(screen.getByText("Portfolio value").nextElementSibling).toHaveTextContent("$123.45");
 });

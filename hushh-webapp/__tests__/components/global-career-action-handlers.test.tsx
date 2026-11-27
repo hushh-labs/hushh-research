@@ -58,7 +58,7 @@ beforeEach(() => {
   applyToRole.mockReset().mockResolvedValue({ reference: "HR-1", statusLink: "https://s", emailed: true });
   issueConsentReceipt.mockReset().mockResolvedValue("cr_server_issued");
   load.mockReset().mockResolvedValue({ resume: RESUME, applications: [] });
-  recordApplication.mockReset().mockResolvedValue(undefined);
+  recordApplication.mockReset().mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
 });
 
 describe("careers from Agent One chat", () => {
@@ -87,6 +87,17 @@ describe("careers from Agent One chat", () => {
       expect.objectContaining({ shared: expect.objectContaining({ name: "Ada Lovelace" }) }),
     );
     expect(applyToRole).toHaveBeenCalledWith(expect.objectContaining({ consentReceiptId: "cr_server_issued" }));
+  });
+
+  it.each(["unsaved", "rejected"])("keeps a sent application successful when receipt persistence is %s", async (outcome) => {
+    if (outcome === "rejected") recordApplication.mockRejectedValue(new Error("synthetic receipt failure"));
+    else recordApplication.mockResolvedValue({ success: false, saveState: "failed", fullBlob: {} });
+    render(<GlobalCareerActionHandlers />);
+    const result = await run("careers.apply", { slug: "agent-engineer", family: "vacancy" });
+    expect(result.status).toBe("succeeded");
+    expect(result.summary).toContain("HR-1");
+    expect(result.summary).toContain("The receipt couldn't be saved");
+    expect(applyToRole).toHaveBeenCalledTimes(1);
   });
 
   it("sends nothing when hussh cannot record the confirmation", async () => {

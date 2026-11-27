@@ -5,11 +5,58 @@ import { describe, expect, it, vi } from "vitest";
 import ts from "typescript";
 import { publishValidatedAuthSessionPrincipal, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import type { ComponentProps } from "react";
+import type { EmailDraftCard } from "@/components/agent/email-draft-card";
+import { createSourceBoundEmailReply } from "@/lib/chat/email-draft-review";
+import { EmailDeliveryService, type EmailDraft } from "@/lib/services/email-delivery-service";
 
 const source = readFileSync(
   join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
   "utf8",
 );
+const transformsSource = readFileSync(
+  join(process.cwd(), "components/agent/workspace/agent-message-transforms.ts"),
+  "utf8",
+);
+const bubbleSource = readFileSync(
+  join(process.cwd(), "components/agent/workspace/agent-bubble.tsx"),
+  "utf8",
+);
+const workspaceUnitSource = `${source}\n${transformsSource}\n${bubbleSource}`;
+
+// Execute the authored render callback and actual reply adapter; the element
+// factory observes props without mounting the native workspace or copying policy.
+function renderedEmailDraft(input: {
+  draft: EmailDraft; workflowId?: string; kycEnvelope?: { to: string; subject: string };
+}): ComponentProps<typeof EmailDraftCard> {
+  const start = source.indexOf("  const renderEmailDraftCard = () => {");
+  const end = source.indexOf("  const latestRetryableAssistantId =", start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const compiled = ts.transpileModule(source.slice(start, end) + "\nreturn renderEmailDraftCard();", {
+    fileName: "email-draft-render.tsx",
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React, jsxFactory: "element" },
+  }).outputText;
+  const deps = {
+    element: (_type: unknown, props: unknown, ...children: unknown[]) => ({ props, children }),
+    EmailDraftCard: "EmailDraftCard", emailDraftOpen: true,
+    gmailKycEmailDraftWorkflowId: input.workflowId ?? null,
+    emailDraftInitialValue: input.draft, gmailKycEmailDraftEnvelope: input.kycEnvelope ?? null,
+    workspaceOwnerIdRef: { current: "draft-owner" },
+    emailScopeRef: { current: { ownerId: "draft-owner", epoch: snapshotVaultSessionEpoch() } },
+    isVaultSessionEpochCurrent, emailDraftAnchorMessageId: "draft-message",
+    emailDraftInstruction: "Review the reply", emailDraftAutoDraft: false,
+    closeEmailDraft: vi.fn(), handleEmailSendStarted: vi.fn(), handleEmailDraftChange: vi.fn(),
+    setIsEmailDrafting: vi.fn(), openConnectorSurface: vi.fn(), emailDraftGmailSend: null,
+    gmailSendConnect: { pending: null }, createSourceBoundEmailReply,
+    // What the workspace resolves before rendering: unrenewed, the draft as opened.
+    emailDraftReply: { sourceMailRef: input.draft.sourceMailRef, envelope: input.draft, renewal: undefined },
+  };
+  const tree = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as {
+    children: { props: ComponentProps<typeof EmailDraftCard> }[];
+  };
+  return tree.children[0].props;
+}
 
 // Execute the same workspace callbacks at their service ports. The native
 // workspace cannot be mounted here; no authorization logic is copied to this fixture.
@@ -37,6 +84,7 @@ function historyCallbacks() {
     toast: { success: vi.fn(), error: vi.fn(), promise: vi.fn() },
     historyInteractionDisabled: false, conversationId: "selected-chat", conversationIdRef: { current: "selected-chat" },
     currentDraftRef: { current: { input: "Unsent synthetic draft", attachment: { text: "Synthetic attachment" } } },
+    chatMemory: { withdrawConversation: vi.fn(async () => undefined) },
     handleHistoryDrawerOpenChange: vi.fn(), handleCreateNewChat: vi.fn(),
   };
   const callbacks = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as {
@@ -90,16 +138,17 @@ describe("History caller authority", () => {
     deps.deleteAgentChatConversation.mockResolvedValueOnce(undefined);
     deps.warmAgentChatHistoryCache.mockResolvedValue({ conversations: [] });
     await callbacks.handleDeleteConversation("selected-chat");
-    expect(deps.handleCreateNewChat).toHaveBeenCalledTimes(1);
+    expect(deps.chatMemory.withdrawConversation).toHaveBeenCalledWith("selected-chat");
+    expect(deps.handleCreateNewChat).toHaveBeenCalledWith({ triggerMemory: false });
     expect(deps.setConversations).toHaveBeenCalledTimes(1);
-    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner");
+    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner", { includeDevice: true });
     expect(deps.clearAgentChatHistoryCache.mock.invocationCallOrder[0]).toBeLessThan(deps.warmAgentChatHistoryCache.mock.invocationCallOrder[0]);
     publishValidatedAuthSessionPrincipal(null);
   });
 });
 
 describe("Initial history warm return", () => {
-  it.each(["current", "watched turn", "selection", "typed turn", "owner ABA", "vault change", "cache invalidation", "refresh failure"])(
+  it.each(["current", "watched turn", "selection", "typed turn", "foreground stream", "owner ABA", "vault change", "cache invalidation", "refresh failure"])(
     "renders expired memory before network and fences %s", async (transition) => {
       publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 });
       const start = source.indexOf('    const loadKey = `${applicationOwnerId}:${vaultOwnerToken.slice(0, 12)}`;');
@@ -116,6 +165,7 @@ describe("Initial history warm return", () => {
         applicationOwnerId: "history-owner", user: { uid: "history-owner" }, vaultOwnerToken: "synthetic-token", vaultKeyRef: { current: "synthetic-key" },
         skipInitialHistoryLoadRef: { current: false }, historyLoadKeyRef: { current: null }, historyRestoreEpochRef: { current: 1 },
         chatSessionRef: { current: { value: 1, isCurrent: (value: number) => value === chatEpoch } },
+        streamAbortControllerRef: { current: null as AbortController | null },
         workspaceOwnerIdRef: { current: "history-owner" }, historyListOwner: { current: null },
         snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, snapshotVaultSessionEpoch, isVaultSessionEpochCurrent,
         peekAgentChatHistoryCache: () => cached,
@@ -123,19 +173,26 @@ describe("Initial history warm return", () => {
         warmAgentChatHistoryCache: vi.fn(() => new Promise<typeof cached>((resolve, reject) => { settle = resolve; fail = reject; })),
         loadAgentChatConversationHistory: vi.fn(async () => [{ id: "refreshed" }]),
         selectedInAppChat: () => "selected-chat", isAgentTurnWatched: () => watched,
-        setIsChatLoading: vi.fn(), responseOutputRef: { current: false }, setHasResponseOutput: vi.fn(), setIsStreaming: vi.fn(), stampNow: () => ({}),
+        setIsChatLoading: vi.fn(), setActiveToolCalls: vi.fn(),
+        responseOutputRef: { current: false }, setHasResponseOutput: vi.fn(), setIsStreaming: vi.fn(), stampNow: () => ({}),
         storedMessagesToAgentMessages: (value: unknown) => value,
         mergePendingConsentMessages: (value: unknown) => value, createGreetingMessage: () => ({ id: "greeting" }),
         setConversations: vi.fn(), setMessages: vi.fn(), updateConversationId: vi.fn(),
         setHistoryReadyForSlot: vi.fn(), setIsLoadingHistory: vi.fn(), setSlotHistoryFailed: vi.fn(),
         restorePendingMcpReviews: vi.fn(async () => undefined),
+        isPinnedOneStreamConversation: (item: { title?: string }) =>
+          String(item.title ?? "").trim().toLowerCase() === "one",
+        pendingMainChatIdRef: { current: null },
+        setPendingMainChatId: vi.fn(),
+        isOneStreamDraftRef: { current: true },
+        setIsOneStreamDraft: vi.fn(),
       };
       const restore = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as () => Promise<void>;
       const pending = restore();
       await vi.waitFor(() => expect(deps.setHistoryReadyForSlot).toHaveBeenCalledWith(true));
       expect(deps.warmAgentChatHistoryCache).toHaveBeenCalledTimes(1);
       expect(deps.setIsLoadingHistory).not.toHaveBeenCalledWith(true);
-      expect(deps.setMessages.mock.calls[0][0]([])[0]).toEqual({ id: "cached" });
+      expect(deps.setMessages.mock.calls[0][0]([])[0]).toEqual({ id: "cached", restoredFromHistory: true });
       if (watched) {
         expect(deps.setMessages.mock.calls[0][0]([])[1]).toMatchObject({ status: "streaming" });
         watched = false;
@@ -143,6 +200,7 @@ describe("Initial history warm return", () => {
       deps.setMessages.mockClear(); deps.setConversations.mockClear(); deps.setSlotHistoryFailed.mockClear();
       if (transition === "selection") chatEpoch++;
       if (transition === "typed turn") deps.historyRestoreEpochRef.current++;
+      if (transition === "foreground stream") deps.streamAbortControllerRef.current = new AbortController();
       if (transition === "owner ABA") { publishValidatedAuthSessionPrincipal({ firebaseUid: "other-owner", ownerId: "other-owner", accountGeneration: 0 }); publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 }); }
       if (transition === "vault change") advanceVaultSessionEpoch();
       if (transition === "cache invalidation") cacheCurrent = false;
@@ -151,9 +209,13 @@ describe("Initial history warm return", () => {
       await pending;
       if (transition === "current" || transition === "watched turn") {
         expect(deps.loadAgentChatConversationHistory).toHaveBeenCalledWith(expect.objectContaining({ force: true }));
-        expect(deps.setMessages.mock.calls[0][0]([])).toEqual([{ id: "refreshed" }]);
+        expect(deps.setMessages.mock.calls[0][0]([])).toEqual([{ id: "refreshed", restoredFromHistory: true }]);
       } else {
         expect(deps.setMessages).not.toHaveBeenCalled();
+      }
+      if (transition === "foreground stream") {
+        expect(deps.setConversations).toHaveBeenCalledWith(cached.conversations);
+        expect(deps.loadAgentChatConversationHistory).not.toHaveBeenCalled();
       }
       expect(deps.setSlotHistoryFailed).not.toHaveBeenCalled();
       publishValidatedAuthSessionPrincipal(null);
@@ -163,53 +225,84 @@ describe("Initial history warm return", () => {
 
 describe("Agent Chat email draft layout contract", () => {
   it("keeps a draft in the conversation scroller, then hands send work to a collapsible history item", () => {
-    expect(source).toContain("emailDraftOpen");
-    expect(source).toContain("initialInstruction={emailDraftInstruction}");
-    expect(source).toContain(
+    expect(workspaceUnitSource).toContain("emailDraftOpen");
+    expect(workspaceUnitSource).toContain("initialInstruction={emailDraftInstruction}");
+    expect(workspaceUnitSource).toContain(
       "emailDraftInstruction = handoff.emailDraftInstruction?.trim()",
     );
-    expect(source).toContain("openGmailEmailDraftFromDirective");
-    expect(source).toContain('event.raw.toolName !== "open_gmail_email_draft"');
-    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft?.body);");
-    expect(source).toContain("getGmailInformationRequestReplyPayload");
-    expect(source).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
-    expect(source).toContain(
+    expect(workspaceUnitSource).toContain("openGmailEmailDraftFromDirective");
+    expect(workspaceUnitSource).toContain('event.raw.toolName !== "open_gmail_email_draft"');
+    expect(workspaceUnitSource).toContain("setEmailDraftAutoDraft(!payload.initialDraft?.body);");
+    expect(workspaceUnitSource).toContain("getGmailInformationRequestReplyPayload");
+    expect(workspaceUnitSource).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
+    expect(workspaceUnitSource).toContain(
       '"Reply to the selected Gmail email with appropriate details from my memory."',
     );
-    expect(source).not.toContain("appropriate details from my PKM");
-    expect(source).toContain("gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id");
-    expect(source).not.toContain("prepareScopedGmailInformationRequestDraft");
-    expect(source).toContain("autoDraft={emailDraftAutoDraft}");
-    expect(source).toContain("onSendStarted={handleEmailSendStarted}");
-    expect(source).toContain("EmailDeliveryHistoryCard");
-    expect(source).toContain("bucketEmailDeliveryTimelineItems");
-    expect(source).toContain("emailDraftAnchorMessageId");
-    expect(source).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
-    expect(source).toContain("message.id === emailDraftAnchorMessageId");
-    expect(source).toContain("renderEmailDraftCard()");
-    expect(source).toContain("sourceBoundReply=");
-    expect(source).toContain("sourceBoundEnvelope={gmailKycEmailDraftEnvelope}");
-    expect(source).toContain("source.reply_to?.trim() || source.from.trim()");
-    expect(source).not.toContain("sourceBoundContext=");
-    expect(source).not.toContain("gmailKycRequestSummary");
-    expect(source).toContain("sourceWorkflowId: workflowId");
-    expect(source).toContain("const prepared = await EmailDeliveryService.prepare");
-    expect(source).not.toContain("GmailInformationRequestsService.prepareReply");
-    expect(source).not.toContain("GmailKycReplyCard");
-    expect(source).toContain("itemsAfterMessage.get(message.id)");
-    expect(source).toContain(
+    expect(workspaceUnitSource).not.toContain("appropriate details from my PKM");
+    expect(workspaceUnitSource).toContain("gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id");
+    expect(workspaceUnitSource).not.toContain("prepareScopedGmailInformationRequestDraft");
+    expect(workspaceUnitSource).toContain("autoDraft={emailDraftAutoDraft}");
+    expect(workspaceUnitSource).toContain("onSendStarted={handleEmailSendStarted}");
+    expect(workspaceUnitSource).toContain("EmailDeliveryHistoryCard");
+    expect(workspaceUnitSource).toContain("bucketEmailDeliveryTimelineItems");
+    expect(workspaceUnitSource).toContain("emailDraftAnchorMessageId");
+    expect(workspaceUnitSource).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
+    expect(workspaceUnitSource).toContain("message.id === emailDraftAnchorMessageId");
+    expect(workspaceUnitSource).toContain("renderEmailDraftCard()");
+    expect(workspaceUnitSource).toContain("sourceBoundReply=");
+    expect(workspaceUnitSource).toContain("sourceBoundReply={createSourceBoundEmailReply(");
+    expect(workspaceUnitSource).toContain("source.reply_to?.trim() || source.from.trim()");
+    expect(workspaceUnitSource).not.toContain("sourceBoundContext=");
+    expect(workspaceUnitSource).not.toContain("gmailKycRequestSummary");
+    expect(workspaceUnitSource).not.toContain("GmailInformationRequestsService.prepareReply");
+    expect(workspaceUnitSource).not.toContain("GmailKycReplyCard");
+    expect(workspaceUnitSource).toContain("itemsAfterMessage.get(message.id)");
+    expect(workspaceUnitSource).toContain(
       "openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);",
     );
-    expect(source).toContain("kycInformationSaveConfirmed:");
-    expect(source).toContain("gmailInformationRequestWorkflowId:");
-    expect(source).not.toContain(
+    expect(workspaceUnitSource).toContain("kycInformationSaveConfirmed:");
+    expect(workspaceUnitSource).toContain("gmailInformationRequestWorkflowId:");
+    expect(workspaceUnitSource).not.toContain(
       "current.filter((message) => message.id !== assistantMessageId)",
     );
-    expect(source).toContain("setQueuedHandoffPrompt({ text: emailDraftInstruction });");
-    expect(source).not.toContain('aria-label="Draft an email"');
-    expect(source).not.toContain(
+    expect(workspaceUnitSource).toContain("setQueuedHandoffPrompt({ text: emailDraftInstruction });");
+    expect(workspaceUnitSource).not.toContain('aria-label="Draft an email"');
+    expect(workspaceUnitSource).not.toContain(
       'className="shrink-0 border-t border-border/70 bg-background px-3 pt-3 sm:px-5"',
     );
+  });
+
+  it.each(["KYC", "generic", "compose"] as const)("preserves the authored %s envelope and reply authority through the send owner", async (kind) => {
+    const draft: EmailDraft = { to: "original@example.com", cc: "", bcc: "", subject: "Re: Original", body: "Reviewed reply." };
+    const sourceMailRef = "rs1.nX4-qL9_c2VhbGVkLXJlcGx5LXNvdXJjZQ";
+    const kycEnvelope = { to: "verifier@example.com", subject: "Re: Verification" };
+    const prepare = vi.spyOn(EmailDeliveryService, "prepare").mockResolvedValue({ actionId: "prepared-action", senderToken: "sender-review", expiresAt: null });
+    const send = vi.spyOn(EmailDeliveryService, "send").mockResolvedValue({ actionId: "prepared-action", messageId: "sent-message", threadId: "original-thread", outcomeUnknown: false });
+    try {
+      const props = renderedEmailDraft({ draft: kind === "generic" ? { ...draft, sourceMailRef } : draft,
+        ...(kind === "KYC" ? { workflowId: "kyc-workflow", kycEnvelope } : {}) });
+      expect(prepare).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(props.sourceBoundEnvelope).toEqual(kind === "KYC" ? kycEnvelope : kind === "generic" ? { ...draft, sourceMailRef } : null);
+      if (kind === "compose") {
+        expect(props.sourceBoundReply).toBeNull();
+        return;
+      }
+      expect(props.sourceBoundReply?.reportsSendStart).toBe(true);
+      await props.sourceBoundReply!.send({ firebaseIdToken: "firebase-token", vaultOwnerToken: "owner-token", idempotencyKey: "reviewed-send",
+        draft: { ...draft, to: "redirect@example.com", cc: "extra@example.com", sourceWorkflowId: "other-workflow", sourceMailRef: "untrusted-reference" } });
+      const reviewedDraft = prepare.mock.calls[0][0].draft;
+      expect(reviewedDraft).toMatchObject(kind === "KYC" ? { sourceWorkflowId: "kyc-workflow", sourceMailRef: undefined }
+        : { ...draft, sourceMailRef, sourceWorkflowId: undefined });
+      expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ actionId: "prepared-action", senderToken: "sender-review", draft: reviewedDraft }));
+      send.mockClear();
+      prepare.mockRejectedValueOnce(new Error("Preparation refused"));
+      await expect(props.sourceBoundReply!.send({ firebaseIdToken: "firebase-token", vaultOwnerToken: "owner-token", draft, idempotencyKey: "refused-review" })).rejects.toThrow("Preparation refused");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      send.mockRestore();
+    }
   });
 
   it("keeps the composer open while a mail draft waits for review", () => {
@@ -236,7 +329,8 @@ describe("Agent Chat email draft layout contract", () => {
   });
 
   it("reserves the expanded editor's full action rail on phones", () => {
-    expect(source).toContain("pb-14 pr-32 pt-4");
+    expect(source).toContain("pb-14 pt-4");
+    expect(source).toContain('canInterruptAndSend && canSend ? "pr-44 sm:pr-48" : "pr-32 sm:pr-36"');
   });
 });
 

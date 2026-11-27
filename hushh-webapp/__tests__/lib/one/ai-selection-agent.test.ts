@@ -7,8 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 import {
+  activateAgentAiSelection,
   agentAiReadiness,
   clearAgentAiSelectionFor,
+  clearAgentAiSelectionProvider,
   sendAiSelectionToAgent,
   shareGeminiSelectionWithAgent,
   verifyAgentCloudAi,
@@ -53,6 +55,28 @@ beforeEach(() => {
 });
 
 describe("ai-selection agent client", () => {
+  it("does not change cloud AI after the owning visit retires during the status read", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.status.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    let current = true;
+    const result = verifyAgentCloudAi(() => current);
+    current = false;
+    finish({ ...CAPABLE, deploymentTarget: "user_gcp" });
+    expect(await result).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
+
+  it("does not clear a provider after the owning visit retires during the status read", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.status.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    let current = true;
+    const result = clearAgentAiSelectionFor(null, false, () => current);
+    current = false;
+    finish({ ...CAPABLE, deploymentTarget: "user_gcp" });
+    expect(await result).toBe("failed");
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
+
   it("checks the admitted cloud default when the hub heartbeat advert is missing", async () => {
     mocks.status.mockResolvedValue({ hostingMode: "byoc", state: "active", deploymentTarget: "user_azure", aiSelection: null });
     mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "azure_openai", defaultModel: "owner-deployment", checkedAtMs: 1 }));
@@ -63,6 +87,10 @@ describe("ai-selection agent client", () => {
     mocks.status.mockResolvedValueOnce({ hostingMode: "shared", state: "active" });
     expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
     expect(mocks.pod).not.toHaveBeenCalled();
+    mocks.status.mockResolvedValueOnce({ hostingMode: "hussh_pods", state: "active", deploymentTarget: "azure", aiSelection: null });
+    mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "azure_openai", defaultModel: "managed-azure", checkedAtMs: 2 }));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: true, provider: "azure_openai", model: "managed-azure", checkedAtMs: 2 });
+    mocks.pod.mockClear();
     mocks.status.mockResolvedValueOnce({ hostingMode: "byoc", state: "active", deploymentTarget: "unknown" });
     expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
     expect(mocks.pod).not.toHaveBeenCalled();
@@ -127,6 +155,14 @@ describe("ai-selection agent client", () => {
     });
     expect(agentAiReadiness(CAPABLE as never, "openai")).toEqual({
       kind: "ready",
+    });
+    expect(
+      agentAiReadiness(
+        { hostingMode: "byoc", state: "failed", aiSelection: null },
+        "openai",
+      ),
+    ).toEqual({
+      kind: "unknown",
     });
   });
 
@@ -283,4 +319,98 @@ it.each(["clear", "share"])("refuses %s after an owner change during status look
   expect(result).toBe(operation === "clear" ? "failed" : "Your account changed. Try again.");
   expect(mocks.pod).not.toHaveBeenCalled();
   expect(mocks.record).not.toHaveBeenCalled();
+});
+
+it("skips DELETE when clearAgentAiSelectionFor(null) sees configured=false, and treats non-failed ace readiness as ready", async () => {
+  expect(
+    agentAiReadiness(
+      { hostingMode: "hussh_pods", deploymentTarget: "ace", state: "reserved" },
+      "openai",
+    ),
+  ).toEqual({ kind: "ready" });
+  expect(
+    agentAiReadiness(
+      { hostingMode: "hussh_pods", deploymentTarget: "ace", state: "failed" },
+      "openai",
+    ),
+  ).toEqual({ kind: "unknown" });
+
+  mocks.status.mockResolvedValue(CAPABLE);
+  mocks.pod.mockResolvedValueOnce(json({ configured: false }));
+  expect(await clearAgentAiSelectionFor(null)).toBe("not_needed");
+  expect(mocks.pod).toHaveBeenCalledTimes(1);
+  expect(mocks.pod.mock.calls[0][1]).toMatchObject({ method: "GET" });
+});
+
+it("retries boundedly when the pod responds 503 with x-hussh-pod-state=waking", async () => {
+  mocks.pod
+    .mockResolvedValueOnce(
+      new Response("waking", {
+        status: 503,
+        headers: { "x-hussh-pod-state": "waking" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      json({
+        status: "active",
+        provider: "openai",
+        model: "gpt-5",
+        checkedAtMs: 9,
+      }),
+    );
+  const outcome = await sendAiSelectionToAgent(OPENAI);
+  expect(outcome).toEqual({
+    ok: true,
+    provider: "openai",
+    model: "gpt-5",
+    checkedAtMs: 9,
+  });
+  expect(mocks.pod).toHaveBeenCalledTimes(2);
+});
+
+it("activateAgentAiSelection sends metadata only without plaintext apiKey and supports clearInactiveSlot", async () => {
+  mocks.pod.mockResolvedValueOnce(
+    json({ status: "active", provider: "openai", model: "gpt-5", checkedAtMs: 11 }),
+  );
+  const activated = await activateAgentAiSelection({
+    configId: "cfg_openai_1",
+    selection: OPENAI,
+  });
+  expect(activated).toEqual({
+    ok: true,
+    provider: "openai",
+    model: "gpt-5",
+    checkedAtMs: 11,
+  });
+  expect(mocks.pod).toHaveBeenCalledWith(
+    "ai-selection/activate",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ provider: "openai", configId: "cfg_openai_1" }),
+    }),
+    false,
+    undefined,
+    undefined,
+    expect.any(Function),
+  );
+  const sentBody = JSON.parse(String(mocks.pod.mock.calls[0][1].body));
+  expect("apiKey" in sentBody).toBe(false);
+
+  mocks.pod.mockReset();
+  mocks.status.mockResolvedValue(CAPABLE);
+  mocks.pod.mockResolvedValueOnce(
+    json({ configured: true, provider: "openai", model: null, checkedAtMs: 1, lastFailure: null }),
+  );
+  expect(await clearAgentAiSelectionProvider("gemini")).toBe("not_needed");
+  expect(mocks.pod).toHaveBeenCalledTimes(1);
+
+  mocks.pod.mockReset();
+  mocks.pod
+    .mockResolvedValueOnce(
+      json({ configured: true, provider: "openai", model: null, checkedAtMs: 1, lastFailure: null }),
+    )
+    .mockResolvedValueOnce(json({ status: "cleared" }));
+  expect(await clearAgentAiSelectionProvider("gemini", () => true, { clearInactiveSlot: true })).toBe("cleared");
+  expect(mocks.pod.mock.calls[1][0]).toBe("ai-selection?provider=gemini");
+  expect(mocks.pod.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
 });

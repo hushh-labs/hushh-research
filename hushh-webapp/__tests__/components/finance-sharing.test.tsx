@@ -11,12 +11,13 @@ vi.mock("@/lib/services/finance-sharing-service", () => ({ FinanceSharingService
 vi.mock("@/lib/finance-sharing/saved-source", () => ({ readSavedFinance: mocks.saved }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer?: ReactNode }) => open ? <section role="dialog" aria-label={title}><h1>{title}</h1>{children}{footer}</section> : null }));
 vi.mock("@/components/app-ui/shell-action-surface", () => ({ ShellActionSurface: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button disabled={disabled} onClick={onClick}>{children}</button> }));
-vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection }: { projection: unknown }) => <pre>{JSON.stringify(projection)}</pre> }));
+vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection, section }: { projection: unknown; section?: string }) => !section || section === "portfolio" ? <pre>{JSON.stringify(projection)}</pre> : null }));
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharedDetail } from "@/components/kai/sharing/finance-shared-detail";
 import { FinanceSharingManager } from "@/components/kai/sharing/finance-sharing-manager";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 
 function goToAccess() {
   for (let index = 0; index < 2; index++) {
@@ -50,15 +51,39 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+it("opens a recipient portrait without changing the sharing selection", async () => {
+  const opened = vi.fn((event: Event) => event.preventDefault());
+  window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened);
+  try {
+    const { container } = render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
+    const checkbox = await screen.findByRole("checkbox", { name: "Synthetic connection" });
+    const avatar = container.querySelector<HTMLButtonElement>("[data-avatar-size] button") ?? container.querySelector<HTMLButtonElement>("button[data-avatar-size]");
+    expect(avatar).not.toBeNull();
+    fireEvent.click(avatar!);
+    expect(checkbox).not.toBeChecked();
+    expect((opened.mock.calls[0][0] as CustomEvent).detail.userId).toBe("recipient");
+    fireEvent.click(checkbox);
+    fireEvent.click(avatar!);
+    expect(checkbox).toBeChecked();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
+});
+
 it("allows a recipient without a portfolio to manage received access but not create shares", async () => {
   mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "received" ? [grant] : [], nextCursor: null }));
   render(<FinancePortfolioSharing />);
   expect(screen.queryByRole("button", { name: "Ask an advisor" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Share portfolio" })).toBeDisabled();
+  // The hint appears only once the person asks to share, not before.
+  expect(screen.queryByText("Add a portfolio to share.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Share portfolio" }));
   expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
   expect(await screen.findByText("Owner")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Shared by you" })).toBeDisabled();
+  // The manager is terse: no subtitle, no share-count chip, no Agent One review line.
+  expect(screen.queryByText(/person by person|Agent One review|^\d+ shares?$/)).toBeNull();
+  expect(screen.getByText(/Real time|Snapshot/)).toBeVisible();
+  expect(screen.queryByRole("tab", { name: "Shared by you" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View", exact: true }));
   expect(await screen.findByText(/decrypted-sentinel/)).toBeVisible();
   expect(mocks.recipients).not.toHaveBeenCalled();
@@ -73,9 +98,7 @@ it("keeps existing outgoing access revocable after its portfolio is removed", as
   await screen.findByText("Recipient");
   view.rerender(<FinanceSharingManager open hasPortfolio={false} onOpenChange={vi.fn()} />);
   await waitFor(() => expect(screen.queryByText("Recipient")).toBeNull());
-  const byYou = screen.getByRole("button", { name: "Shared by you" });
-  await waitFor(() => expect(byYou).not.toBeDisabled());
-  fireEvent.click(byYou);
+  fireEvent.click(await screen.findByRole("tab", { name: "Shared by you" }));
   await screen.findByText("Recipient");
   fireEvent.click(screen.getByRole("button", { name: "Stop sharing", exact: true }));
   const confirmation = screen.getByRole("dialog", { name: "Stop sharing with Recipient?" });
@@ -96,7 +119,7 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
   await waitFor(() => expect(mocks.history).toHaveBeenCalled());
 });
 
-it.each([false, true])("uses the same controls for an advisor, with Always available (model review: %s)", async allowModel => {
+it("uses the same controls for an advisor, with Always available and no Agent One review option", async () => {
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
     { userId: "other", publicPersonRef: "other", keyId: "other-key", publicKeyJwk: {}, displayName: "Other person", isFinanceAdvisor: false },
@@ -109,11 +132,11 @@ it.each([false, true])("uses the same controls for an advisor, with Always avail
   expect(screen.getByRole("checkbox", { name: /^Other person/ })).toBeTruthy();
   goToAccess();
   fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: "until_stopped" } });
-  if (allowModel) fireEvent.click(screen.getByRole("checkbox", { name: "Allow their Agent One to review" }));
+  expect(screen.queryByRole("checkbox", { name: /Agent One/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
   fireEvent.click(await screen.findByRole("button", { name: "Share with 1 person" }));
   await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
-  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: allowModel } });
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: false } });
 });
 
 it("supports a custom connection duration and blocks invalid values before preview", async () => {
@@ -147,7 +170,7 @@ it("opens an advisor snapshot in the recipient account without offering AI proce
   mocks.view.mockResolvedValue(advisorGrant);
   mocks.decrypt.mockResolvedValue({ schema: "finance-share-v2", source: "statement", sourcePeriod: null, allocation: [], performance: { balanceChangePct: null, unit: "USD", history: [] }, holdings: [], cashBalance: { value: 100, currency: "USD" } });
   render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
-  expect(await screen.findByText(/reply to the owner in your connection conversation/)).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "Portfolio" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Review with Agent One" })).toBeNull();
 });
 
@@ -159,7 +182,7 @@ it("requires the exact preview and explicit confirmation, with synchronous dupli
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
   goToAccess();
   expect(screen.getByRole("checkbox", { name: /^Show dollar amounts/ })).not.toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /^Allow their Agent One/ })).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: /Agent One/ })).toBeNull();
   expect(mocks.publish).not.toHaveBeenCalled();
   openPreview();
   const send = await screen.findByRole("button", { name: "Share with 1 person" });
@@ -183,29 +206,28 @@ it("unwinds the reviewed sharing layer before Portfolio and releases it on unmou
   expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(false);
 });
 
-it.each(["expired", "stopped"])("clears decrypted contents and derived review when a viewed share becomes %s", async status => {
+it.each(["expired", "stopped"])("clears decrypted contents when a viewed share becomes %s", async status => {
   vi.useFakeTimers();
   render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
   expect(screen.getByText(/decrypted-sentinel/)).toBeVisible();
-  expect(mocks.review).not.toHaveBeenCalled();
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
-  expect(screen.getByText("derived-review-sentinel")).toBeVisible();
   mocks.view.mockResolvedValue({ ...grant, status });
   await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
   expect(screen.queryByText(/decrypted-sentinel/)).toBeNull();
-  expect(screen.queryByText("derived-review-sentinel")).toBeNull();
   expect(screen.getByRole("alert")).toHaveTextContent(status === "expired" ? "expired" : "stopped");
 });
 
-it("renders the Agent One review as formatted text instead of raw markdown", async () => {
-  mocks.review.mockResolvedValue(["Here is the snapshot:", "", "- **Mostly equities**: 80% stocks", "- **Known limit**: history is incomplete"].join("\n"));
-  render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
+it("returns from allocation to the portfolio before closing the shared view", async () => {
+  const close = vi.fn();
+  render(<FinanceSharedDetail grantId="grant" onClose={close} />);
   await screen.findByText(/decrypted-sentinel/);
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
-  expect(screen.getByText("Mostly equities").tagName).toBe("STRONG");
-  expect(screen.getAllByRole("listitem")).toHaveLength(2);
-  expect(document.body.textContent).not.toContain("**");
+  fireEvent.click(screen.getByRole("tab", { name: "Allocation" }));
+  expect(screen.getByRole("tab", { name: "Allocation" })).toHaveAttribute("aria-selected", "true");
+  act(() => { expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(true); });
+  expect(screen.getByRole("tab", { name: "Portfolio" })).toHaveAttribute("aria-selected", "true");
+  expect(close).not.toHaveBeenCalled();
+  act(() => { expect(unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio"))).toBe(true); });
+  expect(close).toHaveBeenCalledOnce();
 });
 
 it("selects and clears every stock with one button", async () => {
@@ -231,7 +253,7 @@ it("does not append a late outgoing page after the owner switches to received sh
   render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
   await screen.findByText("outgoing");
   fireEvent.click(screen.getByRole("button", { name: "More shares" }));
-  fireEvent.click(screen.getByRole("button", { name: "Shared with you" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Shared with you" }));
   await screen.findByText("received");
   await act(async () => { finish({ items: [{ ...grant, id: "late", recipientName: "Late outgoing", senderName: "Late outgoing" }], nextCursor: null }); });
   expect(screen.queryByText("Late outgoing")).toBeNull();
@@ -262,6 +284,9 @@ it("keeps selections through all three sharing steps and preview Back without pu
   expect(screen.getByRole("checkbox", { name: /^Synthetic connection/ })).toBeChecked();
   expect(close).not.toHaveBeenCalled();
   expect(mocks.publish).not.toHaveBeenCalled();
+  act(() => { unwindBackLayer("/one/kai", new URLSearchParams("tab=portfolio")); });
+  expect(close).toHaveBeenCalledWith(false);
+  expect(mocks.publish).not.toHaveBeenCalled();
 });
 
 it("uses the other person's identity in either sharing direction @feature_connected_profiles", async () => {
@@ -271,7 +296,7 @@ it("uses the other person's identity in either sharing direction @feature_connec
     render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "View Recipient's profile" }));
     expect(preview.mock.calls[0][0].detail).toMatchObject({ personRef: "recipient-public", userId: "recipient" });
-    fireEvent.click(screen.getByRole("button", { name: "Shared with you" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Shared with you" }));
     fireEvent.click(await screen.findByRole("button", { name: "View Owner's profile" }));
     expect(preview.mock.calls[1][0].detail.userId).toBe("sender");
     expect(preview.mock.calls[1][0].detail.personRef).toBeUndefined();
@@ -285,11 +310,11 @@ it("appends repeat shares under one person while retaining each approved view an
     { ...grant, id: "newer", ownerUserId: "owner", direction: "outgoing", createdAt: "2026-10-28T00:00:00Z" },
   ] : [], nextCursor: null }));
   render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
-  await screen.findByText("Earlier shares (1)");
+  await screen.findByText("Earlier (1)");
   expect(screen.getAllByTestId("finance-sharing-person")).toHaveLength(1);
   expect(screen.getAllByRole("heading", { name: "Recipient" })).toHaveLength(1);
   expect(screen.getAllByRole("button", { name: "View", exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByText("Earlier shares (1)"));
+  fireEvent.click(screen.getByText("Earlier (1)"));
   expect(document.querySelectorAll("[data-finance-grant]")).toHaveLength(2);
 });
 

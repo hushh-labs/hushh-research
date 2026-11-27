@@ -10,6 +10,7 @@ from sqlalchemy import text
 from hushh_mcp.services import location_command_effect_receipts as receipts
 from hushh_mcp.services import one_location_nearby_presence_service as presence
 from hushh_mcp.services import one_location_place_rating_service as ratings
+from hushh_mcp.services import product_value_receipts
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.one_location_nearby_presence_service import OneLocationNearbyPresenceService
 from tests.services.test_location_command_postgres import (
@@ -46,6 +47,60 @@ def prepared(service, place="synthetic-cafe"):
         longitude=2.0,
         checked_in_at=datetime.now(timezone.utc),
     )
+
+
+@pytest.mark.asyncio
+async def test_nearby_without_phone_uses_the_real_roster_and_leaves_connect_guarded(
+    db, monkeypatch
+):
+    store, _, _, _, _ = await nearby_command(db, monkeypatch)
+    monkeypatch.setattr(presence, "VAULT_DATA_KEY", "12" * 32)
+    monkeypatch.setattr(product_value_receipts, "capture_value_epoch_sync", lambda _: None)
+    monkeypatch.setattr(product_value_receipts, "record_location_effect_sync", lambda **_: None)
+    db.execute_raw("""
+        CREATE TABLE actor_identity_cache (
+            user_id TEXT PRIMARY KEY, display_name TEXT, phone_verified BOOLEAN
+        );
+        INSERT INTO actor_identity_cache VALUES ('other', 'Nearby tester', TRUE);
+        CREATE TABLE connections (user_a_id TEXT, user_b_id TEXT, status TEXT);
+        CREATE TABLE connection_requests (requester_user_id TEXT, addressee_user_id TEXT, status TEXT);
+    """)
+    service = OneLocationNearbyPresenceService(store=store, place_rating_factory=lambda: None)
+
+    assert service.get_state(user_id="owner") == {"presence": None, "attendees": []}
+    for user_id in ("other", "owner"):
+        result = service.check_in(
+            user_id=user_id,
+            place_id="synthetic-venue",
+            place_label="Synthetic venue",
+            current_lat=1.0,
+            current_lng=2.0,
+            place_lat=1.0,
+            place_lng=2.0,
+            accuracy_m=10,
+            captured_at=datetime.now(timezone.utc),
+            duration_minutes=30,
+            consent_accepted=True,
+            allow_connection_requests=True,
+        )
+        assert result["presence"]["status"] == "active"
+        assert result["presence"]["allowConnectionRequests"] is (user_id == "other")
+
+    assert [(a["displayName"], a["canConnect"]) for a in result["attendees"]] == [
+        ("Nearby tester", False)
+    ]
+    other_view = service.get_state(user_id="other")
+    assert [(a["displayName"], a["canConnect"]) for a in other_view["attendees"]] == [
+        ("One attendee", False)
+    ]
+    with pytest.raises(presence.NearbyPresenceError) as exc:
+        service.request_connection(
+            user_id="other", participant_alias=other_view["attendees"][0]["participantAlias"]
+        )
+    assert exc.value.code == "NEARBY_ATTENDEE_UNAVAILABLE"
+    assert service.extend(user_id="owner", increment_minutes=30)["presence"]["status"] == "active"
+    assert service.checkout(user_id="owner")["checkedOut"] is True
+    assert service.get_state(user_id="other")["attendees"] == []
 
 
 @pytest.mark.asyncio

@@ -18,17 +18,9 @@ import { useRouter } from "next/navigation";
 import { Plus, Pencil, Trash2, Save, Loader2, Undo2 } from "@/components/icons";
 import { Kbd } from "@/components/ui/kbd";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { Button } from "@/lib/morphy-ux/button";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -46,6 +38,8 @@ import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -104,15 +98,6 @@ function hasValidFinancialShape(value: unknown): value is PortfolioData {
 // HELPER FUNCTIONS
 // =============================================================================
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function _formatPercent(value: number): string {
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
@@ -143,6 +128,7 @@ const SpinningLoader = (props: any) => (
 // =============================================================================
 
 export function ManagePortfolioView() {
+  useMarketCurrency();
   const router = useRouter();
   const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
@@ -163,9 +149,6 @@ export function ManagePortfolioView() {
   const { registerSteps, completeStep, reset } = useStepProgress();
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
   const activeHoldings = useMemo(
     () => holdings.filter((holding) => !holding.pending_delete),
     [holdings]
@@ -589,9 +572,8 @@ export function ManagePortfolioView() {
             {holdings.length > 0 ? (
               <>
                 {holdings
-                  .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                   .map((holding, index) => {
-                    const actualIndex = (currentPage - 1) * itemsPerPage + index;
+                    const actualIndex = index;
                     const gainLoss = holding.unrealized_gain_loss || 0;
                     const isPositive = gainLoss >= 0;
 
@@ -687,40 +669,6 @@ export function ManagePortfolioView() {
                       </Card>
                     );
                   })}
-
-                {holdings.length > itemsPerPage && (
-                  <div className="mt-6">
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious 
-                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                            className={cn("cursor-pointer", currentPage === 1 && "pointer-events-none opacity-50")}
-                          />
-                        </PaginationItem>
-                        
-                        {Array.from({ length: Math.ceil(holdings.length / itemsPerPage) }).map((_, i) => (
-                          <PaginationItem key={i}>
-                            <PaginationLink
-                              isActive={currentPage === i + 1}
-                              onClick={() => setCurrentPage(i + 1)}
-                              className="cursor-pointer"
-                            >
-                              {i + 1}
-                            </PaginationLink>
-                          </PaginationItem>
-                        ))}
-
-                        <PaginationItem>
-                          <PaginationNext 
-                            onClick={() => setCurrentPage(prev => Math.min(Math.ceil(holdings.length / itemsPerPage), prev + 1))}
-                            className={cn("cursor-pointer", currentPage === Math.ceil(holdings.length / itemsPerPage) && "pointer-events-none opacity-50")}
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
-                )}
               </>
             ) : (
               <Card variant="muted" effect="glass" showRipple={false}>

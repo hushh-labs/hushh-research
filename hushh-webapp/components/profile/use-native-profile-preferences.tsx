@@ -14,6 +14,7 @@ import type { NativeProfileStyleScenePort } from "@/lib/capacitor/native-profile
 import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presentation";
 import { useCommunicationPreferencesEditor, type CommunicationPreferencesProps } from "./communication-preferences-section";
 import { NativeStyleSheet } from "./native-writing-style-editor";
+import { useExperimentalNativeInterface } from "./experimental-native-interface";
 
 /** A complete settings page projection. Existing theme, Settings and encrypted
  * writing-style writers remain the only operation owners. No native persistence. */
@@ -25,6 +26,7 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
   const [palette, setPalette] = useState(readAccentPalette);
   useLayoutEffect(() => { setPalette(current => current ?? readAccentPalette()); }, []);
   const [settings, updateSettings] = useSettings();
+  const nativeInterface = useExperimentalNativeInterface();
   const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const openDeviceSettings = deliveryMode === "push_active" || deliveryMode === "push_blocked" ||
@@ -62,6 +64,12 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
           { id: "haptics-on", label: "On", selected: settings?.hapticFeedback === true },
           { id: "haptics-off", label: "Off", selected: settings?.hapticFeedback !== true },
         ] },
+      ...(nativeInterface.available ? [{ id: "preferences-native-interface", label: "Native interface", detail: nativeInterface.description,
+        enabled: nativeInterface.ready && !nativeInterface.saving, pending: nativeInterface.saving, toggle: true, artworkId: "appearance",
+        options: [
+          { id: "native-interface-on", label: "On", selected: nativeInterface.selected },
+          { id: "native-interface-off", label: "Off", selected: !nativeInterface.selected },
+        ] }, ...(nativeInterface.pendingChange ? [{ id: "preferences-native-interface-undo", label: "Keep current interface", detail: "Cancel the pending change.", enabled: !nativeInterface.saving, artworkId: "appearance", chevron: true }] : [])] : []),
     ] },
     { id: "preferences-notifications", title: "Notifications", rows: [
       { id: "preferences-notifications", label: openDeviceSettings ? "Notification settings" : "Turn on notifications",
@@ -82,6 +90,8 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
     ["theme-light", () => selectTheme("light")], ["theme-dark", () => selectTheme("dark")], ["theme-system", () => selectTheme("system")],
     ["accent-blue", () => { writeAccent("blue"); }], ["accent-gold", () => { writeAccent("gold"); }],
     ["haptics-on", () => changeHaptics(true)], ["haptics-off", () => changeHaptics(false)],
+    ["native-interface-on", () => nativeInterface.change(true)], ["native-interface-off", () => nativeInterface.change(false)],
+    ["preferences-native-interface-undo", () => nativeInterface.change(nativeInterface.active)],
     ["preferences-notifications", async () => {
       if (!enabled || isRetryingPushRegistration) return;
       if (!openDeviceSettings) {

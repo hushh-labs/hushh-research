@@ -1,5 +1,6 @@
 "use client";
 
+import { referralDisplayName } from "@/lib/referral/leaderboard-presentation";
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -74,7 +75,7 @@ export function IndividualReferralRankingsBody({ model, user }: { model: Individ
   return <div className={styles.pagedList} aria-busy={busy}>
     {data.entries.length ? <ReferralRankingList label="Individual standings">
       {data.entries.map((entry) => <ReferralRankingRow key={entry.rank} rank={entry.rank}
-        name={entry.display_name ?? entry.handle}
+        name={referralDisplayName(entry)}
         photoUrl={entry.photo_url ?? (entry.is_viewer && entry.display_name ? user?.photoURL : null)}
         score={entry.points} scoreLabel="coins" isViewer={entry.is_viewer} />)}
     </ReferralRankingList> : <p role="status" className={styles.empty}>{data.stale ? "Standings are unavailable." : "No entries yet."}</p>}

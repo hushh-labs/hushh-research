@@ -41,6 +41,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: {
     error: vi.fn(),
     promise: vi.fn(),
+    promiseText: vi.fn(),
   },
 }));
 
@@ -90,7 +91,7 @@ describe("ProfileAvatarEditor", () => {
         imageDataUrl,
       );
     });
-    expect(morphyToast.promise).toHaveBeenCalledWith(expect.any(Promise), {
+    expect(morphyToast.promiseText).toHaveBeenCalledWith(expect.any(Promise), {
       loading: "Updating photo...",
       success: "Profile photo updated.",
       error: expect.any(Function),
@@ -133,13 +134,13 @@ describe("ProfileAvatarEditor truthful settlement", () => {
       dataUrl: "data:image/jpeg;base64,x",
     });
     vi.mocked(AccountIdentityService.uploadAvatar).mockResolvedValue(null);
-    vi.mocked(morphyToast.promise).mockClear();
+    vi.mocked(morphyToast.promiseText).mockClear();
 
     render(<ProfileAvatarEditor />);
     fireEvent.click(screen.getByRole("button", { name: "Change profile photo" }));
 
-    await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledTimes(1));
-    const [settled] = vi.mocked(morphyToast.promise).mock.calls[0] as [Promise<unknown>];
+    await waitFor(() => expect(morphyToast.promiseText).toHaveBeenCalledTimes(1));
+    const [settled] = vi.mocked(morphyToast.promiseText).mock.calls[0] as [Promise<unknown>];
     await expect(settled).rejects.toThrow("Photo wasn't saved. Try again.");
   });
 
@@ -147,7 +148,7 @@ describe("ProfileAvatarEditor truthful settlement", () => {
     vi.mocked(pickAvatar).mockResolvedValue({ kind: "cancelled" });
     vi.mocked(AccountIdentityService.uploadAvatar).mockClear();
     vi.mocked(morphyToast.error).mockClear();
-    vi.mocked(morphyToast.promise).mockClear();
+    vi.mocked(morphyToast.promiseText).mockClear();
 
     render(<ProfileAvatarEditor />);
     fireEvent.click(screen.getByRole("button", { name: "Change profile photo" }));
@@ -155,7 +156,7 @@ describe("ProfileAvatarEditor truthful settlement", () => {
     await waitFor(() => expect(pickAvatar).toHaveBeenCalled());
     expect(AccountIdentityService.uploadAvatar).not.toHaveBeenCalled();
     expect(morphyToast.error).not.toHaveBeenCalled();
-    expect(morphyToast.promise).not.toHaveBeenCalled();
+    expect(morphyToast.promiseText).not.toHaveBeenCalled();
   });
 
   it("a plugin failure names only that the picker did not open, and uploads nothing", async () => {
@@ -176,15 +177,15 @@ describe("ProfileAvatarEditor truthful settlement", () => {
     avatarState.url = "data:image/jpeg;base64,current";
     try {
       vi.mocked(AccountIdentityService.removeAvatar).mockResolvedValue(null);
-      vi.mocked(morphyToast.promise).mockClear();
+      vi.mocked(morphyToast.promiseText).mockClear();
 
       render(<ProfileAvatarEditor />);
       fireEvent.click(screen.getByRole("button", { name: "View profile photo" }));
       fireEvent.click(await screen.findByRole("button", { name: "Photo options" }));
       fireEvent.click(await screen.findByRole("button", { name: /remove photo/i }));
 
-      await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledTimes(1));
-      const [settled] = vi.mocked(morphyToast.promise).mock.calls[0] as [Promise<unknown>];
+      await waitFor(() => expect(morphyToast.promiseText).toHaveBeenCalledTimes(1));
+      const [settled] = vi.mocked(morphyToast.promiseText).mock.calls[0] as [Promise<unknown>];
       await expect(settled).rejects.toThrow("Photo wasn't removed. Try again.");
     } finally {
       avatarState.url = null;

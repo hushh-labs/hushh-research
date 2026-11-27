@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { buildOnboardingFixture, openFixture } from "./fixtures/render-location-onboarding";
 
 test.beforeAll(buildOnboardingFixture);
@@ -8,8 +8,7 @@ const VIEWPORTS = [
   { width: 768, height: 1024 }, { width: 1440, height: 900 },
 ];
 
-// Retain the protected height sweep after merging the illustrated intro into
-// Your place. Measure the actual map visual and copy, rather than dead artwork.
+// Keep the map and save controls usable across onboarding viewport heights.
 test("the artwork is not positioned from the viewport", async ({ page }) => {
   let firstPinOffset: number | undefined;
   for (const height of [667, 812, 844, 932]) {
@@ -45,7 +44,8 @@ for (const viewport of VIEWPORTS) {
   test(`fits the place and atomic save at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await openFixture(page, { dark: viewport.width === 430 });
-    await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Save your first place" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText("Share live · Check in · SMS (Save My Soul)", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Set up later" })).toBeInViewport({ ratio: 1 });
@@ -60,18 +60,36 @@ for (const viewport of VIEWPORTS) {
       const { x, width } = range.getBoundingClientRect();
       return { x, width };
     });
-    expect(hint.x).toBeGreaterThanOrEqual(map!.x + 8);
-    expect(hint.x + hint.width).toBeLessThanOrEqual(map!.x + map!.width - 8);
+    expect(hint.x).toBeGreaterThanOrEqual(map!.x + 7.5);
+    expect(hint.x + hint.width).toBeLessThanOrEqual(map!.x + map!.width - 7.5);
     await page.getByTestId("save-location-modal").screenshot({ path: testInfo.outputPath("your-place.png"), animations: "disabled" });
     await page.getByRole("button", { name: "Edit address details" }).click();
     await page.getByRole("textbox", { name: "House or flat" }).fill("Flat 4B");
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Save & continue" }).click();
-    await expect(page.getByRole("heading", { name: "Your people." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Find your circle" })).toBeVisible();
     await page.getByRole("button", { name: "Go back" }).click();
     await expect(page.getByText("Place saved.", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
   });
+}
+
+async function expectCompactJoinActions(page: Page) {
+  const preview = page.getByTestId("onboarding-join-circle-preview");
+  const join = preview.getByRole("button", { name: "Join circle", exact: true });
+  const reset = preview.getByRole("button", { name: "Use a different code", exact: true });
+  await expect(join).toBeVisible();
+  await expect(reset).toBeVisible();
+  const previewBox = (await preview.boundingBox())!;
+  const joinBox = (await join.boundingBox())!;
+  const resetBox = (await reset.boundingBox())!;
+  expect(joinBox.width).toBeLessThanOrEqual(224);
+  expect(joinBox.width).toBeLessThan(previewBox.width);
+  expect(resetBox.width).toBeCloseTo(joinBox.width, 0);
+  for (const box of [joinBox, resetBox]) {
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(Math.abs(box.x + box.width / 2 - previewBox.x - previewBox.width / 2)).toBeLessThanOrEqual(1);
+  }
 }
 
 test("uses local Back and keeps optional work in focused sheets", async ({ page }) => {
@@ -80,10 +98,17 @@ test("uses local Back and keeps optional work in focused sheets", async ({ page 
   await page.getByRole("button", { name: "Set up later" }).click();
   await page.getByRole("button", { name: "Join with a code" }).click();
   await expect(page.getByRole("dialog", { name: "Join with a code" })).toBeVisible();
-  await expect.poll(async () => Math.round((await page.getByRole("dialog", { name: "Join with a code" }).boundingBox())?.width ?? 0)).toBe(560);
+  const joinDialog = page.getByRole("dialog", { name: "Join with a code" });
+  const bounds = (await joinDialog.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(16);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(544);
+  expect(Math.abs(bounds.y + bounds.height / 2 - 422)).toBeLessThanOrEqual(2);
   await page.getByRole("textbox", { name: "Circle code" }).fill("ZXCVBNMASDFG");
-  await page.getByRole("button", { name: "Look up" }).click();
-  await page.getByRole("button", { name: "Join Family" }).click();
+  await page.getByRole("button", { name: "Preview circle" }).click();
+  await expectCompactJoinActions(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expectCompactJoinActions(page);
+  await page.getByRole("button", { name: "Join circle", exact: true }).click();
   await expect(page.getByText(/You'll join Family after setup/)).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Find contacts" }).click();
@@ -92,7 +117,7 @@ test("uses local Back and keeps optional work in focused sheets", async ({ page 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open One Location" })).toBeInViewport({ ratio: 1 });
   await page.evaluate(() => window.onboardingBack());
-  await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Save your first place" })).toBeVisible();
   await page.evaluate(() => window.onboardingBack());
   await expect(page.getByText("Agents home")).toBeVisible();
 });
@@ -118,10 +143,36 @@ test("keeps actions reachable in a short landscape or zoomed viewport", async ({
   await openFixture(page);
   await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
   await page.getByRole("button", { name: "Save & continue" }).click();
-  await expect(page.getByRole("heading", { name: "Your people." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Find your circle" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open One Location" })).toBeInViewport({ ratio: 1 });
   await page.getByRole("button", { name: "Find contacts" }).scrollIntoViewIfNeeded();
   await page.getByRole("button", { name: "Find contacts" }).click();
   await expect(page.getByRole("button", { name: "Check my contacts" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+});
+
+test("keeps the join dialog reachable above a simulated keyboard on a short screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 540 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openFixture(page, { ready: true, dark: true });
+  await page.getByRole("button", { name: "Join with a code" }).click();
+  const dialog = page.getByRole("dialog", { name: "Join with a code" });
+  await page.evaluate(() => {
+    document.documentElement.classList.add("kb-open");
+    document.documentElement.style.setProperty("--kb-height", "220px");
+  });
+  await expect.poll(async () => {
+    const bounds = (await dialog.boundingBox())!;
+    return bounds.y >= 16 && bounds.y + bounds.height <= 304;
+  }).toBe(true);
+  const code = dialog.getByRole("textbox", { name: "Circle code" });
+  const preview = dialog.getByRole("button", { name: "Preview circle" });
+  await code.fill("ZXCVBNMASDFG");
+  await expect(preview).toBeInViewport({ ratio: 1 });
+  const codeBox = (await code.boundingBox())!;
+  const previewBox = (await preview.boundingBox())!;
+  expect(codeBox.width).toBeGreaterThanOrEqual(180);
+  expect(previewBox.y).toBeGreaterThanOrEqual(codeBox.y + codeBox.height);
+  await preview.click();
+  await expectCompactJoinActions(page);
 });

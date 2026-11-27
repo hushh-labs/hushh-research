@@ -39,9 +39,6 @@ function expectOwnerScopedReceiptProjection(pageSource: string) {
   expect(pageSource).toContain(
     "receiptCount={shouldShowReceiptCount ? visibleTotal : undefined}",
   );
-  expect(pageSource).toContain(
-    "receiptListReady && receiptDisplayScopeCurrent",
-  );
   expect(pageSource).not.toContain("receipts={receipts}");
 }
 

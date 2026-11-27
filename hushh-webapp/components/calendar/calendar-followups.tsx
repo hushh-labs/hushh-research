@@ -1,123 +1,193 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Mail, MoreHorizontal } from "@/components/icons";
-import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { followupResourceKey, followupSnapshot, saveFollowupSnapshot, clearFollowupSnapshot } from "@/lib/calendar/calendar-followup-resource";
+import presentationStyles from "./calendar-presentation.module.css";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { CalendarNativeSection, CalendarNativeRow } from "./native-calendar-workspace";
+import { ExternalLink } from "@/components/icons";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { CalendarFollowupRow } from "./calendar-followup-row";
+import styles from "./calendar-insights.module.css";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import {
-  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
+  SYNCED_NOTICE, coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, rememberSyncedNotice, reminderText, rowSummary,
+  primaryRequest, shortDate, syncedNoticeSeen,
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
-import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
-import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
+import { initializeFollowupMonitor, rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
+import { FollowupRequestError, CalendarFollowupsService, type FollowupConversation, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupStatus, type FollowupView } from "@/lib/services/calendar-followups-service";
 
 type Props = {
   userId: string; accountId: string; accountEmail: string; zone: string; expanded: boolean;
-  getIdToken: () => Promise<string>; getVaultOwnerToken: () => string | null;
+  getIdToken: () => Promise<string>;
+  connectionRevision?: number; providerBinding?: string;
   onViewAll: () => void; onConnectMail?: (accountId: string) => Promise<boolean>;
   onReviewMeeting: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
   refreshRevision?: number;
   deepLinkRequestId?: string | null;
   onDeepLinkHandled?: () => void;
+  renderPresentation?: (content: ReactNode, summary: CalendarNativeSection, covered: boolean) => ReactNode;
 };
 
 // Opening Insights again soon must not repeat work. The server also refuses a
 // scan that is not due, so this only avoids pointless round trips.
 const CATCH_UP_INTERVAL_MS = 5 * 60_000;
 const lastCatchUp = new Map<string, number>();
-// A quiet progress check while the first scan is still running; bounded so a
-// stuck account never polls forever.
-const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
+// A first scan reads the most recent month only; later passes are incremental.
+const FIRST_SCAN_DAYS = 30;
 // Each scan call does one bounded step on the server. While it reports more work
 // the card keeps asking, so the first results arrive in seconds, not scheduler
 // ticks. Capped, and it stops the moment the card goes away.
 const CATCH_UP_MAX_CALLS = 20;
 const FOLLOWUP_PAGE_SIZE = 15;
+type ActiveView = Exclude<FollowupView, "history">;
+const FOLLOWUP_VIEWS: Record<ActiveView, string> = {
+  all: "All",
+  upcoming: "Upcoming",
+  overdue: "Overdue",
+  snoozed: "Snoozed",
+};
 
-export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
-  const [status, setStatus] = useState<FollowupStatus | null>(null);
-  const [list, setList] = useState<FollowupList | null>(null);
+function isVisible(request: FollowupRequest) {
+  return isActive(request) && request.bucket !== "history";
+}
+
+export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, connectionRevision = 0, providerBinding = "", onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled, renderPresentation }: Props) {
+  const resourceKey = followupResourceKey(userId, accountId, connectionRevision, providerBinding);
+  const cached = followupSnapshot(resourceKey);
+  const authGeneration = getAuthSessionGeneration();
+  const [status, setStatus] = useState<FollowupStatus | null>(cached?.status ?? null);
+  const [list, setList] = useState<FollowupList | null>(cached?.list ?? null);
   const [detail, setDetail] = useState<FollowupDetail | null>(null);
-  const [source, setSource] = useState<FollowupSource | null>(null);
+  const [removal, setRemoval] = useState<{ conversationId: string; requestId: string; title: string } | null>(null);
+  const removeTrigger = useRef<HTMLButtonElement | null>(null);
+  const removing = useRef(false);
   const [emailLinks, setEmailLinks] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [loadingPage, setLoadingPage] = useState(false);
   const [pageOffset, setPageOffset] = useState(0);
+  const [view, setView] = useState<ActiveView>("all");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [historyDays, setHistoryDays] = useState(30);
-  const [notify, setNotify] = useState<boolean | null>(null);
   const [reminderInput, setReminderInput] = useState("");
   const [reminderOpen, setReminderOpen] = useState<string | null>(null);
   const detailSeq = useRef(0);
-  const sourceSeq = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
+  const activeReads = useRef(0);
+  const hasVerifiedRows = useRef(Boolean(cached?.list.conversations.length));
   const pageOffsetRef = useRef(0);
-  const firstPageRef = useRef<FollowupList | null>(null);
+  const viewRef = useRef<ActiveView>("all");
+  const firstPageRef = useRef<FollowupList | null>(cached?.list ?? null);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
   const tokenGetter = useRef(getIdToken); tokenGetter.current = getIdToken;
-  const ownerTokenGetter = useRef(getVaultOwnerToken); ownerTokenGetter.current = getVaultOwnerToken;
   const trigger = useRef<HTMLButtonElement | null>(null);
   const handledIntent = useRef<string | null>(null);
   const focusedCard = useRef<HTMLDivElement | null>(null);
   const rebound = useRef(false);
-  const progressChecks = useRef(0);
-  const vaultAvailable = Boolean(getVaultOwnerToken());
-  const remind = notify ?? Boolean(status?.background_available);
+  const clearPresentation = useCallback(() => {
+    clearFollowupSnapshot(resourceKey);
+    firstPageRef.current = null; hasVerifiedRows.current = false;
+    detailSeq.current += 1; selectedIdRef.current = null;
+    setStatus(null); setList(null); setDetail(null); setSelectedId(null); setEmailLinks({});
+    setRemoval(null); setFocusedRequestId(null); setReminderInput(""); setReminderOpen(null);
+  }, [resourceKey]);
+  const clearRejectedAuthority = useCallback((failure: unknown) => {
+    if (failure instanceof FollowupRequestError &&
+        ([401, 403].includes(failure.status) || ["mail_grant_changed", "monitor_changed", "monitoring_off"].includes(failure.code))) {
+      clearPresentation(); setLoading(false); setError(followupErrorText(failure));
+    }
+  }, [clearPresentation]);
+
+  const currentIdToken = async () => {
+    const controller = lifetime.current;
+    const idToken = await tokenGetter.current();
+    if (controller !== lifetime.current || controller?.signal.aborted || getAuthSessionGeneration() !== authGeneration || snapshotValidatedAuthSessionOwner()?.userId !== userId) {
+      throw new DOMException("Follow-up session changed", "AbortError");
+    }
+    return idToken;
+  };
 
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
+    if (snapshotValidatedAuthSessionOwner()?.userId !== userId) return;
     const seq = ++requestSeq.current;
+    activeReads.current += 1;
     // A refresh supersedes a pending page request, including its loading state.
     setLoadingPage(false);
-    const alive = () => !signal?.aborted && requestSeq.current === seq;
+    const alive = () => !signal?.aborted && requestSeq.current === seq && getAuthSessionGeneration() === authGeneration;
     if (!quiet) { setLoading(true); setError(""); }
     try {
       const idToken = await tokenGetter.current();
       if (!alive()) return;
-      const nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
+      let nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
       if (!alive()) return;
+      if (nextStatus.mail_connected && !nextStatus.monitoring_enabled) {
+        if (!alive()) return;
+        if (await initializeFollowupMonitor(userId, accountId, nextStatus, zone, idToken, signal)) {
+          nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
+          if (!alive()) return;
+        }
+      }
+      if (nextStatus.mail_connected && nextStatus.monitoring_enabled && nextStatus.monitor_current === false) {
+        await rebindFollowupMonitor(userId, accountId, nextStatus, zone, idToken, signal);
+        if (!alive()) return;
+        nextStatus = await CalendarFollowupsService.status(userId, accountId, idToken, signal);
+        if (!alive()) return;
+      }
       setStatus(nextStatus);
       if (!nextStatus.mail_connected || !nextStatus.monitoring_enabled) {
-        setList(null); setLoading(false); return;
+        clearPresentation(); setStatus(nextStatus); setLoading(false); return;
       }
-      const ownerToken = ownerTokenGetter.current();
-      if (!ownerToken) { if (!quiet) setError("Unlock One to view follow-ups."); setLoading(false); return; }
+      if (!alive()) return;
       let offset = pageOffsetRef.current;
-      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset);
+      const selectedView = viewRef.current;
+      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, signal, offset, selectedView);
       if (!alive()) return;
       if (offset > 0 && offset >= nextList.total_conversations) {
         offset = Math.max(0, Math.ceil(nextList.total_conversations / FOLLOWUP_PAGE_SIZE) - 1) * FOLLOWUP_PAGE_SIZE;
-        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset);
+        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, signal, offset, selectedView);
       }
       if (alive()) {
-        if (offset === 0) firstPageRef.current = nextList;
+        if (offset === 0 && selectedView === "all") {
+          firstPageRef.current = nextList;
+          saveFollowupSnapshot(resourceKey, { status: nextStatus, list: nextList });
+        }
+        hasVerifiedRows.current = nextList.conversations.length > 0;
         pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
       }
     } catch (failure) {
-      // A background refresh never replaces verified items with an error.
-      if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
-    }
-  }, [userId, accountId]);
+      if (alive()) clearRejectedAuthority(failure);
+      // Neither a background refresh nor a failed reload replaces items the owner
+      // is already looking at with an error: the last verified list stays.
+      if (alive() && !quiet) { if (!hasVerifiedRows.current) setError(followupErrorText(failure)); setLoading(false); }
+    } finally { activeReads.current -= 1; }
+  }, [userId, accountId, zone, resourceKey, authGeneration, clearRejectedAuthority, clearPresentation]);
 
   useEffect(() => {
     if (expanded) return;
     // Collapse also cancels a first Next request that has not applied its offset.
     if (loadingPage) { requestSeq.current += 1; setLoadingPage(false); }
-    if (pageOffsetRef.current === 0) return;
+    if (pageOffsetRef.current === 0 && viewRef.current === "all") return;
     pageOffsetRef.current = 0;
+    viewRef.current = "all";
+    setView("all");
     setPageOffset(0);
     setList(firstPageRef.current);
     void refresh(lifetime.current?.signal, true);
@@ -125,18 +195,18 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
-    void refresh(controller.signal);
+    void refresh(controller.signal, Boolean(followupSnapshot(resourceKey)));
     return () => { controller.abort(); requestSeq.current += 1; };
-  }, [refresh, refreshRevision, vaultAvailable]);
+  }, [refresh, refreshRevision, connectionRevision, resourceKey]);
 
-  const rebindMonitor = useCallback(async (current: FollowupStatus, ownerToken: string, signal?: AbortSignal) => {
-    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), ownerToken, signal);
+  const rebindMonitor = useCallback(async (current: FollowupStatus, signal?: AbortSignal) => {
+    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), signal);
   }, [userId, accountId, zone]);
 
   /** The previous scan call reported more work: keep going, showing results as they land. */
-  const continueScan = useCallback(async (ownerToken: string, signal?: AbortSignal) => {
+  const continueScan = useCallback(async (signal?: AbortSignal) => {
     const finished = await scanWhilePending({
-      userId, accountId, ownerToken, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
+      userId, accountId, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
       getIdToken: () => tokenGetter.current(), refresh: () => refresh(signal, true),
     });
     if (!finished) lastCatchUp.delete(`${userId}:${accountId}`);
@@ -147,17 +217,17 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // repeats within the interval, so navigating around cannot trigger rescans.
   useEffect(() => {
     if (!status?.monitoring_enabled || !status.mail_connected) return;
-    const ownerToken = ownerTokenGetter.current();
     const signal = lifetime.current?.signal;
-    if (!ownerToken || signal?.aborted) return;
-    if (status.monitor_current === false) {
-      // The Mail grant was renewed elsewhere: rebind this account's monitor to
-      // it without asking again, keeping every decision and the scan progress.
+    if (signal?.aborted) return;
+    if (!status.notifications_enabled && status.background_available) {
+      // The Mail grant was renewed elsewhere, or reminders were left off: rebind
+      // this account's monitor (reminders on) without asking again, keeping every
+      // decision and the scan progress.
       if (rebound.current) return;
       rebound.current = true;
       void (async () => {
         try {
-          await rebindMonitor(status, ownerToken, signal);
+          await rebindMonitor(status, signal);
           await refresh(signal, true);
         } catch {
           // Nothing is shown for a background rebind, but a failure must not
@@ -174,9 +244,9 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     lastCatchUp.set(key, Date.now());
     void (async () => {
       try {
-        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
+        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), {}, signal);
         await refresh(signal, true);
-        if (result?.state === "pending") await continueScan(ownerToken, signal);
+        if (result?.state === "pending") await continueScan(signal);
       } catch { /* the scheduler continues without the page */ }
     })();
   }, [status, userId, accountId, zone, refresh, rebindMonitor, continueScan]);
@@ -184,14 +254,43 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // While the first pass is still catching up, check back a few times so new
   // items appear without a manual refresh. Bounded; the scheduler does the work.
   const catchingUp = status?.monitoring_enabled && (status.coverage?.coverage === "catching_up" || status.scan_state === "pending");
+  // "Catching up" ends with one plain "synced" line, shown the first time the
+  // check is seen finished and not again on later loads. Catching up again (new
+  // mail, a rule change) arms it for the next finish.
+  const emailSynced = Boolean(status?.monitoring_enabled && status.scan_state === "complete" && status.coverage?.coverage === "complete");
+  const [showSynced, setShowSynced] = useState(false);
   useEffect(() => {
-    if (!catchingUp || progressChecks.current >= PROGRESS_CHECKS_MS.length) return;
-    const timer = window.setTimeout(() => {
-      progressChecks.current += 1;
-      void refresh(lifetime.current?.signal, true);
-    }, PROGRESS_CHECKS_MS[progressChecks.current]);
-    return () => window.clearTimeout(timer);
-  }, [catchingUp, status, list, refresh]);
+    if (catchingUp) { rememberSyncedNotice(userId, accountId, false); setShowSynced(false); return; }
+    if (!emailSynced || syncedNoticeSeen(userId, accountId)) return;
+    rememberSyncedNotice(userId, accountId, true);
+    setShowSynced(true);
+  }, [catchingUp, emailSynced, userId, accountId]);
+  useEffect(() => {
+    if (!status?.monitoring_enabled) return;
+    const wake = () => {
+      if (document.visibilityState !== "hidden" && navigator.onLine !== false) {
+        void refresh(lifetime.current?.signal, true);
+      }
+    };
+    // Passive polling never supersedes an unfinished read or page selection.
+    const timer = window.setInterval(() => {
+      if (activeReads.current === 0) wake();
+    }, catchingUp ? 5_000 : 60_000);
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [catchingUp, status?.monitoring_enabled, refresh]);
+
+  useEffect(() => subscribeAuthSessionGeneration(() => {
+    lifetime.current?.abort(); requestSeq.current += 1; detailSeq.current += 1;
+    clearPresentation();
+  }), [clearPresentation]);
 
   useEffect(() => {
     if (!focusedRequestId || !detail || !focusedCard.current) return;
@@ -204,53 +303,49 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // a normal link that browsers allow to open.
   useEffect(() => {
     if (!detail) return;
-    const ownerToken = ownerTokenGetter.current();
-    if (!ownerToken) return;
-    let current = true;
-    void Promise.all(detail.requests.map(async request => {
+    const controller = new AbortController();
+    void Promise.all(detail.requests.filter(isVisible).map(async request => {
       try {
-        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), ownerToken);
+        const link = await CalendarFollowupsService.sourceLink(userId, accountId, request.id, await tokenGetter.current(), controller.signal);
         return [request.id, gmailMessageUrl(accountEmail, link.gmail_message_id)] as const;
       } catch { return null; }
     })).then(entries => {
-      if (current) setEmailLinks(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
+      if (!controller.signal.aborted) setEmailLinks(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
     });
-    return () => { current = false; };
+    return () => controller.abort();
   }, [detail, userId, accountId, accountEmail]);
 
-  const selected = list?.conversations.find(entry => entry.id === selectedId) || null;
   const openDetail = async (conversationId: string, from?: HTMLButtonElement | null, focusRequestId?: string): Promise<boolean> => {
+    const operation = lifetime.current;
     const seq = ++detailSeq.current;
-    sourceSeq.current += 1;
     selectedIdRef.current = conversationId;
-    if (from) trigger.current = from;
-    setSelectedId(conversationId); setDetail(null); setSource(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
+    if (from !== undefined) trigger.current = from;
+    setSelectedId(conversationId); setDetail(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to review this follow-up.");
-      const value = await CalendarFollowupsService.detail(userId, accountId, conversationId, await getIdToken(), ownerToken);
-      if (lifetime.current?.signal.aborted || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
+      const value = await CalendarFollowupsService.detail(userId, accountId, conversationId, await currentIdToken());
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
       setDetail(value);
       return true;
-    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
+    } catch (failure) { clearRejectedAuthority(failure); if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
   };
 
   const act = async (request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null = null) => {
     setBusy(true); setActionError("");
+    const operation = lifetime.current;
     const currentSelection = selectedIdRef.current;
     const seq = detailSeq.current;
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to change this follow-up.");
-      await CalendarFollowupsService.change(userId, accountId, request, action, reminderAt, await getIdToken(), ownerToken);
+      await CalendarFollowupsService.change(userId, accountId, request, action, reminderAt, await currentIdToken());
+      clearFollowupSnapshot(resourceKey); firstPageRef.current = null;
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       if (currentSelection) {
-        const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await getIdToken(), ownerToken);
-        if (detailSeq.current === seq && selectedIdRef.current === currentSelection) setDetail(next);
+        const next = await CalendarFollowupsService.detail(userId, accountId, currentSelection, await currentIdToken());
+        if (operation === lifetime.current && !operation?.signal.aborted && detailSeq.current === seq && selectedIdRef.current === currentSelection) setDetail(next);
       }
       await refresh(lifetime.current?.signal, true);
       setReminderInput(""); setReminderOpen(null);
-    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
+    } catch (failure) { clearRejectedAuthority(failure); if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -259,34 +354,32 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
    * it asks for that permission once; if it already is, nothing is asked again.
    */
   const turnOn = async () => {
+    const operation = lifetime.current;
     setBusy(true); setError("");
     try {
       // Asking Google first would waste the owner's consent on a step that cannot finish.
-      if (!getVaultOwnerToken()) throw new Error("Unlock One before turning on email follow-ups.");
-      let mailReady = Boolean(status?.mail_connected);
+      const latest = await CalendarFollowupsService.status(userId, accountId, await tokenGetter.current(), lifetime.current?.signal);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
+      let mailReady = latest.mail_connected;
       if (!mailReady) {
         if (!onConnectMail) return;
         mailReady = await onConnectMail(accountId);
         if (!mailReady) { setError("Email access was not allowed. Calendar works as before."); return; }
       }
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One before turning on email follow-ups.");
       // Renewing access for an account that is already monitored keeps its
       // approved period, timing and reminders; only a first opt-in chooses them.
       const existing = status?.monitoring_enabled ? status : null;
-      const historical = existing?.historical_start_at || new Date(Date.now() - historyDays * 86_400_000).toISOString();
+      const historical = existing?.historical_start_at || new Date(Date.now() - FIRST_SCAN_DAYS * 86_400_000).toISOString();
       await CalendarFollowupsService.post("preferences", {
         user_id: userId, account_id: accountId, enabled: true,
-        notifications_enabled: existing ? existing.notifications_enabled : remind && Boolean(status?.background_available),
+        notifications_enabled: Boolean(status?.background_available),
         historical_start_at: historical,
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
-      }, await getIdToken(), ownerToken);
-      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
-      lastCatchUp.set(`${userId}:${accountId}`, Date.now());
-      progressChecks.current = 0;
+      }, await currentIdToken());
+      lastCatchUp.delete(`${userId}:${accountId}`);
+      // Connection is ready; inference continues without blocking its action.
       await refresh(lifetime.current?.signal);
-      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
     } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
@@ -295,28 +388,27 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const checkAgain = async () => {
     setBusy(true); setError("");
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to check your email again.");
-      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
-      progressChecks.current = 0;
+      const first = await CalendarFollowupsService.scan(userId, accountId, await currentIdToken(), { retry: true });
       await refresh(lifetime.current?.signal, true);
-      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
+      if (first?.state === "pending") void continueScan(lifetime.current?.signal).catch(() => undefined);
     } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
   const reconnect = async () => {
     if (!onConnectMail) return;
+    const operation = lifetime.current;
     setBusy(true); setError("");
     try {
-      if (!getVaultOwnerToken()) throw new Error("Unlock One to renew email access.");
-      const connected = await onConnectMail(accountId);
+      const latest = await CalendarFollowupsService.status(userId, accountId, await tokenGetter.current(), lifetime.current?.signal);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
+      const connected = latest.mail_connected || await onConnectMail(accountId);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
       if (connected) {
         // Reconnecting changes the Mail grant, so point the monitor at it first;
         // otherwise this scan would still see the old one and ask to reconnect again.
-        const ownerToken = getVaultOwnerToken();
-        if (ownerToken && status?.monitoring_enabled) {
-          try { await rebindMonitor(status, ownerToken); } catch { /* the scan below reports what is still wrong */ }
+        if (status?.monitoring_enabled) {
+          try { await rebindMonitor(status, operation?.signal); } catch { /* the scan below reports what is still wrong */ }
         }
         await checkAgain();
       }
@@ -325,50 +417,59 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     finally { setBusy(false); }
   };
 
-  const changePage = async (offset: number) => {
-    if (!expanded || loadingPage || offset < 0 || offset === pageOffset) return;
+  const changePage = async (offset: number, targetView = view) => {
+    if (!expanded || loadingPage || offset < 0 || (offset === pageOffset && targetView === view)) return;
     const seq = ++requestSeq.current;
+    activeReads.current += 1;
     setLoadingPage(true); setError("");
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
       const page = await CalendarFollowupsService.list(
-        userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset,
+        userId, accountId, await currentIdToken(), lifetime.current?.signal, offset, targetView,
       );
       if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
-      if (offset === 0) firstPageRef.current = page;
+      if (offset === 0 && targetView === "all") firstPageRef.current = page;
+      viewRef.current = targetView;
+      setView(targetView);
       pageOffsetRef.current = offset;
       setPageOffset(offset);
       setList(page);
-    } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
-    finally { if (requestSeq.current === seq) setLoadingPage(false); }
+    } catch (failure) { clearRejectedAuthority(failure); if (requestSeq.current === seq) setError(followupErrorText(failure)); }
+    finally { activeReads.current -= 1; if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
-  const disable = async () => {
-    setBusy(true); setError("");
+  const askRemove = (entry: FollowupConversation, from: HTMLButtonElement) => {
+    const request = primaryRequest(entry);
+    if (!request || removing.current) return;
+    removeTrigger.current = from;
+    setRemoval({ conversationId: entry.id, requestId: request.id, title: request.title });
+  };
+
+  const removeRequest = async () => {
+    if (!removal || removing.current) return;
+    removing.current = true;
+    const operation = lifetime.current;
+    setBusy(true);
     try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to turn off monitoring.");
-      await CalendarFollowupsService.post("preferences", {
-        user_id: userId, account_id: accountId, enabled: false,
-      }, await getIdToken(), ownerToken);
-      setSelectedId(null); setDetail(null); setSource(null);
+      const idToken = await currentIdToken();
+      const latest = await CalendarFollowupsService.detail(userId, accountId, removal.conversationId, idToken);
+      if (operation !== lifetime.current || operation?.signal.aborted || getAuthSessionGeneration() !== authGeneration) return;
+      const request = latest.requests.find(item => item.id === removal.requestId && isVisible(item));
+      if (!request) {
+        await refresh(lifetime.current?.signal);
+        toast.info("This follow-up is no longer available.", { className: presentationStyles.toast });
+        return;
+      }
+      await CalendarFollowupsService.change(userId, accountId, request, "dismiss", null, await currentIdToken());
+      clearFollowupSnapshot(resourceKey); firstPageRef.current = null;
+      if (lifetime.current?.signal.aborted) return;
+      toast.success("Removed from Follow-ups", { className: presentationStyles.toast });
       await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(followupErrorText(failure)); }
-    finally { setBusy(false); }
-  };
-
-  const openSource = async (request: FollowupRequest) => {
-    const seq = ++sourceSeq.current;
-    const currentSelection = selectedIdRef.current;
-    setBusy(true); setActionError("");
-    try {
-      const ownerToken = getVaultOwnerToken();
-      if (!ownerToken) throw new Error("Unlock One to open this email.");
-      const value = await CalendarFollowupsService.source(userId, accountId, request.id, await getIdToken(), ownerToken);
-      if (!lifetime.current?.signal.aborted && sourceSeq.current === seq && selectedIdRef.current === currentSelection) setSource(value);
-    } catch (failure) { if (sourceSeq.current === seq) setActionError(followupErrorText(failure)); }
-    finally { setBusy(false); }
+    } catch (failure) {
+      if (!lifetime.current?.signal.aborted) toast.error(followupErrorText(failure), { className: presentationStyles.toast });
+    } finally {
+      removing.current = false;
+      setBusy(false);
+    }
   };
 
   const finishDeepLink = (requestId: string) => {
@@ -381,7 +482,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   const retryDetail = async () => {
     if (!selectedId) return;
-    if (await openDetail(selectedId, undefined, deepLinkRequestId || undefined) && deepLinkRequestId) {
+    if (await openDetail(selectedId, undefined, focusedRequestId || deepLinkRequestId || undefined) && deepLinkRequestId) {
       finishDeepLink(deepLinkRequestId);
     }
   };
@@ -390,13 +491,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!deepLinkRequestId || !status?.monitoring_enabled || !list || handledIntent.current === deepLinkRequestId) return;
     void (async () => {
       try {
-        const ownerToken = getVaultOwnerToken();
-        if (!ownerToken) throw new Error("Unlock One to open this follow-up.");
-        const conversationId = await CalendarFollowupsService.resolve(
-          userId, accountId, deepLinkRequestId, await getIdToken(), ownerToken, lifetime.current?.signal,
+        const target = await CalendarFollowupsService.resolve(
+          userId, accountId, deepLinkRequestId, await currentIdToken(), lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
-        if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
+        if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
         finishDeepLink(deepLinkRequestId);
       } catch (failure) { setError(followupErrorText(failure)); }
     })();
@@ -404,57 +503,64 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
-  const rows = expanded ? list?.conversations || [] : pageOffset === 0 ? (list?.conversations || []).slice(0, 2) : [];
-  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
+  const rows = expanded ? list?.conversations || [] : pageOffset === 0 && view === "all" ? (list?.conversations || []).slice(0, 2) : [];
+  const viewCounts = list?.view_counts;
+  const hasMoreViews = Boolean(viewCounts && (viewCounts.overdue || viewCounts.snoozed));
+  const notice = status?.monitoring_enabled && !loading && !error ? coverageNotice(status.coverage ?? list?.coverage, true) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
-  const card = <SectionCard title="Follow-ups" description="Meeting requests, documents, and deadlines from email">
-    <div className="space-y-2" aria-busy={loading}>
-      {!status && loading ? <p className="text-sm text-muted-foreground" role="status">Checking this account…</p> : null}
-      {needsMailChoice && renewing ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span>Email access for {accountEmail} was removed. Your follow-ups stay as they are.</span>
+  const emptyFollowupLabel = view === "all" ? "No follow-ups right now." : viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups.";
+  const card = <SectionCard title="Follow-ups" className={styles.followupCard}>
+    <div className="min-w-0 space-y-2" aria-busy={loading}>
+      {loading && (!status || (status.monitoring_enabled && !list)) ? <p className={styles.muted} role="status">Checking follow-ups…</p> : null}
+      {needsMailChoice && renewing ? <div className={`${styles.muted} flex flex-wrap items-center justify-between gap-2`}>
+        <span>Renew email access for {accountEmail}.</span>
         <Button size="compact" disabled={busy || !onConnectMail} onClick={() => void turnOn()}>Allow email access</Button>
       </div> : null}
-      {needsMailChoice && !renewing ? <div className="space-y-3 text-sm">
+      {needsMailChoice && !renewing ? <div className="space-y-3">
         <div className="space-y-1">
-          <p className="font-medium">Find meeting requests and reminders in my email.</p>
-          <p className="text-muted-foreground">
+          <p className={presentationStyles.windowPrimary}>Find Calendar follow-ups in email.</p>
+          <p className={styles.muted}>
             {status?.mail_connected
-              ? `Your private agent already has read access to ${accountEmail}. Choose how far back to look.`
-              : `This asks Google for one extra permission to read ${accountEmail}. Your private agent uses it only to find requests and proposed times. Calendar works the same without it.`}
+              ? `Checks the last ${FIRST_SCAN_DAYS} days of ${accountEmail}, then only new mail.`
+              : `Allow your private agent to check ${accountEmail} for meetings and deadlines.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">Look back<select className="min-h-10 rounded-md border bg-background px-2" value={historyDays} onChange={event => setHistoryDays(Number(event.target.value))} disabled={busy}>
-            <option value={30}>30 days</option><option value={90}>90 days</option>
-          </select></label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={remind && Boolean(status?.background_available)} onChange={event => setNotify(event.target.checked)} disabled={busy || !status?.background_available} />Remind me</label>
           <Button size="compact" disabled={busy || (!status?.mail_connected && !onConnectMail)} onClick={() => void turnOn()}>{status?.mail_connected ? "Turn on" : "Allow email access"}</Button>
         </div>
-        {status && !status.background_available ? <p className="text-muted-foreground">Background reminders are unavailable right now.</p> : null}
+        {status && !status.background_available ? <p className={styles.muted}>Background reminders are unavailable right now.</p> : null}
       </div> : null}
-      {status?.monitoring_enabled && rows.map(entry => {
-        const summary = rowSummary(entry, zone);
-        return <div key={entry.id} className="flex min-w-0 items-center gap-3 border-t py-2 first:border-t-0">
-          <Mail className="size-4 shrink-0 text-blue-600" aria-hidden />
-          <div className="min-w-0 flex-1"><strong className="block line-clamp-2 break-words text-sm">{summary.title}</strong>
-            <span className="block line-clamp-2 break-words text-xs text-muted-foreground">{summary.detail}</span>
-            {summary.more ? <span className="block text-xs text-muted-foreground">{summary.more === 1 ? "1 more in this email" : `${summary.more} more in this email`}</span> : null}
-          </div>
-          <Button size="compact" variant="ghost" onClick={event => void openDetail(entry.id, event.currentTarget)} aria-label={`Review ${summary.title}`}>Review</Button>
-        </div>;
-      })}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">No pending follow-ups.</p> : null}
-      {notice ? <div className={notice.tone === "action" ? "flex flex-wrap items-center justify-between gap-2 text-sm" : "text-xs text-muted-foreground"} role="status">
+      {expanded && viewCounts ? <div className="flex flex-wrap gap-1" role="group" aria-label="Follow-up views">
+        {(Object.keys(FOLLOWUP_VIEWS) as ActiveView[]).map(option => <Button
+          key={option} size="compact" variant={view === option ? "default" : "ghost"}
+          aria-pressed={view === option} disabled={loadingPage}
+          onClick={() => void changePage(0, option)}
+        >{FOLLOWUP_VIEWS[option]} ({viewCounts[option] ?? (option === "all" ? list?.total_conversations ?? 0 : 0)})</Button>)}
+      </div> : null}
+      {status?.monitoring_enabled && rows.length > 0 ? <div>
+        {rows.map(entry => {
+          const summary = rowSummary(entry, zone);
+          if (!primaryRequest(entry)) return null;
+          return <CalendarFollowupRow key={entry.id} title={summary.title} description={summary.detail} busy={busy}
+            onReview={from => void openDetail(entry.id, from)}
+            onKeep={() => toast.success("Kept in Follow-ups", { className: presentationStyles.toast })} onRemove={from => askRemove(entry, from)} />;
+        })}
+      </div> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{emptyFollowupLabel}</p> : null}
+      {notice ? <div className={notice.tone === "action" ? `${styles.muted} flex flex-wrap items-center justify-between gap-2` : styles.muted} role="status">
         <span>{notice.text}</span>
-        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void (notice.action === "reconnect" ? reconnect() : checkAgain())}>{notice.action === "reconnect" ? "Reconnect email" : "Check again"}</Button> : null}
+        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
       </div> : null}
-      {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+      {!notice && showSynced && emailSynced ? <p className={styles.muted} role="status">{SYNCED_NOTICE}</p> : null}
+      {error ? <div className="space-y-2">
+        <p role="alert" className={`${presentationStyles.support} text-destructive`}>{error}</p>
+        {error ? <Button size="compact" disabled={loading} onClick={() => void refresh(lifetime.current?.signal)}>Try again</Button> : null}
+      </div> : null}
       <div className="flex items-center justify-between gap-2">
-        {!expanded && (list?.total_conversations || 0) > 2 ? <Button size="compact" variant="ghost" onClick={onViewAll}>View all</Button> : <span />}
-        {status?.monitoring_enabled ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
+        {!expanded && hasMoreViews ? <span className={styles.muted}>{viewCounts?.overdue ?? 0} overdue · {viewCounts?.snoozed ?? 0} snoozed</span> : null}
+        {!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews) ? <Button size="compact" variant="text" onClick={onViewAll}>View all</Button> : <span />}
       </div>
       {expanded && list ? <PaginatedListFooter
         page={Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1}
@@ -464,63 +570,122 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         pending={loadingPage || loading}
         onPrevious={() => void changePage(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}
         onNext={() => { if (list.next_offset != null) void changePage(list.next_offset); }}
-        className="px-0"
+        className={`px-0 ${presentationStyles.support}`}
+        buttonSize="compact"
       /> : null}
     </div>
   </SectionCard>;
 
-  return <>
+  const requests = detail?.requests.filter(isVisible) ?? [];
+  const content = <>
     {card}
-    <AdaptiveDetailSurface open={Boolean(selectedId)} onOpenChange={open => { if (!open) { detailSeq.current += 1; sourceSeq.current += 1; selectedIdRef.current = null; setSelectedId(null); setDetail(null); setSource(null); setFocusedRequestId(null); } }}
-      onCloseAutoFocus={event => { if (trigger.current?.isConnected) { event.preventDefault(); trigger.current.focus(); } }}
-      mobilePresentation="sheet" title={source?.subject || detail?.subject || selected?.subject || "Follow-up"}
-      description={source ? `${senderName(source.sender)} · ${new Date(source.internal_date_ms).toLocaleDateString()}` : detail ? `${senderName(detail.sender)} · ${new Date(detail.latest_internal_date_ms).toLocaleDateString()}` : "Checking conversation…"}
-      headerTextOverflow="wrap">
-      <div className="space-y-4 text-sm">
-        {actionError ? <div><p role="alert" className="text-red-600">{actionError}</p>{!detail && selectedId ? <Button size="compact" variant="outline" onClick={() => void retryDetail()}>Retry</Button> : null}</div> : null}
-        {source ? <><Button variant="ghost" size="compact" onClick={() => setSource(null)}>Back to follow-up</Button>
-          <p className="text-xs text-muted-foreground">Text of the email in {accountEmail}. Links and images are hidden here; use Open original email for the full message.</p>
-          <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border p-3">{source.body}</div></> : detail ? <>
-          {detail.source_completeness === "partial" ? <p className="text-xs text-muted-foreground">Still checking the rest of this conversation.</p> : null}
-          {detail.requests.map((request, index) => {
-            const closed = !isActive(request);
-            // Several requests often come from one email: link it once, on the first.
-            const link = detail.requests.findIndex(item => emailLinks[item.id] === emailLinks[request.id]) === index ? emailLinks[request.id] : undefined;
-            return <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="space-y-2 rounded-lg border p-3">
-              <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="break-words">{request.title}</strong>
-                <p className="text-muted-foreground">{request.kind === "meeting" ? meetingStatus(request, zone) : dueText(request, zone)}</p>
-                {request.kind !== "meeting" && request.linked_event ? <p className="text-muted-foreground">About: {request.linked_event[1]}{shortDate(request.linked_event[2]) ? ` · ${shortDate(request.linked_event[2])}` : ""}</p> : null}
+    <Dialog modal open={Boolean(selectedId)} onOpenChange={open => {
+      if (open) return;
+      detailSeq.current += 1;
+      selectedIdRef.current = null;
+      setSelectedId(null); setDetail(null); setFocusedRequestId(null);
+    }}>
+      <DialogContent data-connect-type-scale="page" className={`${styles.reviewDialog} ${presentationStyles.portal}`} srDescription="Review Calendar follow-ups"
+        onCloseAutoFocus={event => {
+          if (trigger.current?.isConnected) { event.preventDefault(); trigger.current.focus(); }
+        }}>
+        <DialogTitle className={styles.reviewTitle}>Follow-up{requests.length > 1 ? "s" : ""}</DialogTitle>
+        <div className="min-w-0 space-y-3">
+          {actionError ? <div><p role="alert" className={`${presentationStyles.support} text-destructive`}>{actionError}</p>{!detail && selectedId ? <Button size="compact" variant="outline" onClick={() => void retryDetail()}>Retry</Button> : null}</div> : null}
+          {detail?.source_completeness === "partial" ? <p className={styles.muted}>Still checking this conversation.</p> : null}
+          {requests.map((request, index) => {
+            const href = emailLinks[request.id];
+            const link = href && requests.findIndex(item => emailLinks[item.id] === href) === index ? href : null;
+            return <div key={request.id} ref={request.id === focusedRequestId ? focusedCard : undefined} tabIndex={request.id === focusedRequestId ? -1 : undefined} className="min-w-0 space-y-2 rounded-lg border p-3">
+              <div className={styles.reviewHeader}>
+                <div className="min-w-0">
+                  <h3 className={styles.followupTitle}>{request.title}</h3>
+                  <p className={styles.muted}>{request.kind === "meeting" ? meetingStatus(request, zone) : dueText(request, zone)}</p>
+                </div>
+                {link ? <Button asChild variant="text" size="compact" className={styles.sourceAction}>
+                  <a href={link} target="_blank" rel="noopener noreferrer" aria-label="Open original email"><span>Open original email</span><ExternalLink className="size-4" aria-hidden /></a>
+                </Button> : null}
               </div>
-                {request.kind !== "meeting" && !closed ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label={`More actions for ${request.title}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void act(request, "dismiss")}>Dismiss</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
-              </div>
-              {request.source_excerpt ? <p className="line-clamp-3 whitespace-pre-wrap break-words text-muted-foreground">“{request.source_excerpt}”</p> : null}
-              <div className="flex flex-wrap items-center gap-1">
-                {link ? <Button asChild variant="ghost" size="compact"><a href={link} target="_blank" rel="noopener noreferrer">Open original email<ExternalLink className="ml-1 size-3" aria-hidden /></a></Button> : null}
-                <Button variant="ghost" size="compact" disabled={busy} onClick={() => void openSource(request)}>View email text</Button>
-              </div>
+              {request.kind !== "meeting" && request.linked_event ? <p className={styles.muted}>{request.linked_event[1]}{shortDate(request.linked_event[2]) ? ` · ${shortDate(request.linked_event[2])}` : ""}</p> : null}
               {request.kind === "meeting" ? <>
-                <MeetingReview key={request.id} request={request} zone={zone} busy={busy} onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
-              </> : <>
-                <p>{reminderText(request, zone)}</p>
-                {!closed ? <div className="flex flex-wrap items-end gap-2"><Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
-                  <Button variant="ghost" size="compact" disabled={busy} onClick={() => void act(request, "snooze", new Date(Date.now() + 86_400_000).toISOString())}>Snooze 1 day</Button>
-                  <Button variant="ghost" size="compact" aria-expanded={reminderOpen === request.id} onClick={() => setReminderOpen(reminderOpen === request.id ? null : request.id)}>Change reminder</Button>
-                  {reminderOpen === request.id ? <><label>Reminder<Input type="datetime-local" value={reminderInput} onChange={event => setReminderInput(event.target.value)} /></label>
-                    <Button variant="outline" size="compact" disabled={busy || !reminderInput} onClick={() => {
-                      try {
-                        const [date, time] = reminderInput.split("T");
-                        if (!date || !time) throw new Error("invalid reminder");
-                        const reminder = bookingInstant(date, time, zone);
-                        if (Date.parse(reminder) <= Date.now()) throw new Error("past reminder");
-                        void act(request, "set_reminder", reminder);
-                      } catch { setActionError("Choose a future reminder."); }
-                    }}>Set reminder</Button></> : null}
+                {request.reminder_at ? <p className={styles.muted}>{reminderText(request, zone)}</p> : null}
+                <MeetingReview key={request.id} request={request} zone={zone} busy={busy}
+                onReview={(item, startAt, endAt, timeZone) => { onReviewMeeting(item, startAt, endAt, timeZone); setSelectedId(null); }} />
+              </>
+              : <>
+                {request.reminder_at ? <p className={styles.muted}>{reminderText(request, zone)}</p> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="compact" disabled={busy} onClick={() => void act(request, "done")}>Mark done</Button>
+                  <Button variant="text" size="compact" aria-expanded={reminderOpen === request.id}
+                    onClick={() => setReminderOpen(reminderOpen === request.id ? null : request.id)}>Reminder</Button>
+                </div>
+                {reminderOpen === request.id ? <div className="flex min-w-0 flex-wrap items-end gap-2">
+                  <label className="min-w-0 max-w-full">Reminder time<Input type="datetime-local" value={reminderInput} onChange={event => setReminderInput(event.target.value)} /></label>
+                  <Button variant="outline" size="compact" disabled={busy || !reminderInput} onClick={() => {
+                    try {
+                      const [date, time] = reminderInput.split("T");
+                      if (!date || !time) throw new Error("invalid reminder");
+                      const reminder = bookingInstant(date, time, zone);
+                      if (Date.parse(reminder) <= Date.now()) throw new Error("past reminder");
+                      void act(request, "set_reminder", reminder);
+                    } catch { setActionError("Choose a future reminder."); }
+                  }}>Save reminder</Button>
                 </div> : null}
               </>}
             </div>;
           })}
-        </> : <p role="status">Checking follow-up…</p>}
-      </div>
-    </AdaptiveDetailSurface>
+          {!detail && !actionError ? <p role="status" className={styles.muted}>Checking follow-up…</p> : null}
+          {detail && !requests.length ? <p role="status" className={styles.muted}>No active follow-ups.</p> : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+    <AlertDialog open={Boolean(removal)} onOpenChange={open => { if (!open) setRemoval(null); }}>
+      <AlertDialogContent size="sm" className={`${styles.reviewDialog} ${presentationStyles.portal}`} data-connect-type-scale="page"
+        onCloseAutoFocus={event => {
+          if (removeTrigger.current?.isConnected) {
+            event.preventDefault();
+            removeTrigger.current.focus();
+          }
+        }}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove follow-up?</AlertDialogTitle>
+          <AlertDialogDescription>{removal?.title}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void removeRequest()}>Remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </>;
+  if (!renderPresentation) return content;
+  // Keep this controller mounted above native admission; only its authored
+  // presentation moves into the fallback after retirement is acknowledged.
+  const nativeRows: CalendarNativeRow[] = [];
+  if (loading) nativeRows.push({ key: "followups-loading", label: "Checking follow-ups…", pending: true });
+  if (needsMailChoice) nativeRows.push({ key: "followups-mail", label: renewing ? "Allow email access" : "Find Calendar follow-ups in email.",
+    detail: renewing ? `Renew email access for ${accountEmail}.`
+      : status?.mail_connected ? `Checks the last ${FIRST_SCAN_DAYS} days of ${accountEmail}, then only new mail.`
+      : `Allow your private agent to check ${accountEmail} for meetings and deadlines.`,
+    web: true, enabled: !busy, run: onViewAll });
+  if (status?.monitoring_enabled) {
+    for (const entry of rows) {
+      const summary = rowSummary(entry, zone), first = entry.preview_requests[0];
+      const overdue = first?.bucket === "overdue" && (first.due_date || first.proposed_date) ? `Overdue · was due ${shortDate(first.due_date || first.proposed_date)}` : null;
+      nativeRows.push({ key: `followup:${entry.id}`, label: summary.title, symbol: "envelope",
+        detail: [overdue && !summary.detail.includes("Overdue") ? overdue : null, summary.detail].filter(Boolean).join(" · "),
+        enabled: !busy, web: true, run: () => openDetail(entry.id, null) });
+    }
+    if (list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading)
+      nativeRows.push({ key: "followups-empty", label: emptyFollowupLabel });
+    if (!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews)) nativeRows.push({ key: "followups-all", label: "View all follow-ups", web: true, run: onViewAll });
+    nativeRows.push({ key: "followups-settings", label: "Follow-up settings", symbol: "ellipsis", menuOnTap: true, inlineActions: [
+      { key: "followups-check", label: "Check email again", tone: "ghost", placement: "menu", enabled: !busy, run: checkAgain },
+    ] });
+  }
+  if (notice) nativeRows.push({ key: "followups-coverage", label: notice.text, ...(notice.action ? { inlineActions: [{ key: "followups-coverage-action",
+    label: "Reconnect email", tone: "ghost" as const, enabled: !busy,
+    web: true, run: reconnect }] } : {}) });
+  if (error) nativeRows.push({ key: "followups-error", label: error });
+  return renderPresentation(content, { key: "followups", title: "Follow-ups", layout: "cards", rows: nativeRows }, Boolean(selectedId || removal));
 }

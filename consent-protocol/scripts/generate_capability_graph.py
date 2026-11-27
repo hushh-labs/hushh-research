@@ -491,7 +491,7 @@ def _workflow_change_is_additive(
     if "catalog_capability_ids" in new.get("knowledge_package", {}):
         new["knowledge_package"]["catalog_capability_ids"] = old_catalog
     # Discovered endpoints have no executor binding. A new owner-authenticated
-    # DELETE is inventory metadata just like an authenticated GET: the compiler
+    # DELETE or existing-boundary PATCH is metadata just like a GET: the compiler
     # excludes it from the model's selectable capabilities. Preserve every
     # existing endpoint and the complete executable plan exactly; admitting a
     # bound endpoint or changing an existing authority still requires migration.
@@ -514,6 +514,9 @@ def _workflow_change_is_additive(
             and value.get("authorization") in allowed_read_authorities
             or value.get("method") == "DELETE"
             and value.get("authorization") == "vault_owner"
+            or value.get("method") == "PATCH"
+            and value.get("authorization") == "firebase_auth"
+            and "firebase_auth" in existing_read_authorities
         )
         or value.get("binding_status") != "discovered_unbound"
         for value in endpoint_additions
@@ -794,12 +797,20 @@ def _merge_workflow_predecessor(
             raise RuntimeError(f"Workflow predecessor is not compatible: {workflow_id}")
         entry = entries[workflow_id]
         prior = _previous_workflow_compatibility(predecessor, workflow_id)
+        current_rejected = set(_clean_revisions(entry.get("rejected_graph_revisions")))
+        if str(predecessor["revision"]) in current_rejected:
+            raise RuntimeError(f"Workflow predecessor is already rejected: {workflow_id}")
         for field in (
             "compatible_graph_revisions",
             "migration_required_graph_revisions",
             "rejected_graph_revisions",
         ):
-            revisions = set(_clean_revisions(entry.get(field)) + _clean_revisions(prior.get(field)))
+            incoming = set(_clean_revisions(prior.get(field)))
+            if field == "compatible_graph_revisions":
+                # A reviewed target retirement dominates stale ancestral compatibility.
+                # Do not hide existing malformed policy or an incoming rejection.
+                incoming -= current_rejected
+            revisions = set(_clean_revisions(entry.get(field))) | incoming
             if field == "compatible_graph_revisions":
                 revisions.add(str(predecessor["revision"]))
                 revisions.discard(str(graph["revision"]))

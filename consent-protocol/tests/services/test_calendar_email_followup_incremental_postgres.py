@@ -7,6 +7,7 @@ quality.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from datetime import UTC, datetime
 
@@ -57,6 +58,11 @@ class _Gmail:
         return sum(1 for path, _ in self.calls if path.endswith("/messages/" + message_id))
 
 
+# The scan clock these tests freeze. Reads use it too: which list a request
+# belongs to depends on the date, so the read must see the same day the scan did.
+SCAN_DAY = datetime(2026, 10, 11, tzinfo=UTC)
+
+
 def _make_due(engine) -> None:
     with engine.begin() as connection:
         connection.execute(text("UPDATE calendar_email_followup_monitors SET next_scan_at=NOW()"))
@@ -76,7 +82,6 @@ async def _enable(selected: str, *, lookback=datetime(2026, 10, 1, tzinfo=UTC), 
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
 
 
@@ -155,16 +160,17 @@ async def test_incremental_sync_reads_only_new_mail_and_reopening_repeats_nothin
 def _paged_provider(state: dict):
     """Five messages over three result pages: short, long, flaky, image-only, last."""
     day = 24 * 3600 * 1000
-    base = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp() * 1000)
+    # All inside the 30 days a first scan reads, although the approved period is longer.
+    base = int(datetime(2026, 10, 5, tzinfo=UTC).timestamp() * 1000)
     long_body = ("Background paragraph with ordinary detail. " * 500) + (
         "\n\nPlease send the signed agreement before 30 October."
     )
     bodies = {
         "m1": ("Thanks for yesterday, nothing needed from you.", base + 1 * day, "t1"),
-        "m2": (long_body, base + 20 * day, "t2"),
-        "m3": ("Could we have a call on 28 October?", base + 30 * day, "t3"),
-        "m4": (None, base + 40 * day, "t4"),
-        "m5": ("Plain note with no request.", base + 50 * day, "t5"),
+        "m2": (long_body, base + 5 * day, "t2"),
+        "m3": ("Could we have a call on 28 October?", base + 10 * day, "t3"),
+        "m4": (None, base + 15 * day, "t4"),
+        "m5": ("Plain note with no request.", base + 20 * day, "t5"),
     }
     pages = {None: (["m1", "m2"], "p2"), "p2": (["m3", "m4"], "p3"), "p3": (["m5"], None)}
 
@@ -311,7 +317,18 @@ async def test_initial_scan_reads_every_page_long_body_and_recovers_a_provider_f
     assert done["coverage"]["unreadable_count"] == 1
     assert done["incomplete_source_count"] == 0
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
-    listing = await store.list_conversations(monitor, limit=10)
+    # The deadline (30 Oct) is before the scan day (1 Nov): it is unresolved work,
+    # so it leaves Upcoming but stays reachable as Overdue; nothing is closed.
+    upcoming = await store.list_conversations(monitor, limit=10, now=now)
+    assert upcoming["total_conversations"] == 0
+    assert upcoming["view_counts"] == {
+        "all": 1,
+        "upcoming": 0,
+        "overdue": 1,
+        "snoozed": 0,
+        "history": 0,
+    }
+    listing = await store.list_conversations(monitor, limit=10, now=now, view="overdue")
     titles = {
         item["title"]
         for conversation in listing["conversations"]
@@ -344,10 +361,10 @@ async def test_each_account_scan_uses_only_its_own_mailbox_and_results(followup_
     assert {token for _, token in gmail_a.calls} == {"Bearer synthetic-mail-access-synthetic-iso-a"}
     assert {token for _, token in gmail_b.calls} == {"Bearer synthetic-mail-access-synthetic-iso-b"}
     listing_a = await store.list_conversations(
-        await store.monitor(user_id=OWNER, account_id=account_a), limit=10
+        await store.monitor(user_id=OWNER, account_id=account_a), limit=10, now=now
     )
     listing_b = await store.list_conversations(
-        await store.monitor(user_id=OWNER, account_id=account_b), limit=10
+        await store.monitor(user_id=OWNER, account_id=account_b), limit=10, now=now
     )
     assert listing_a["total_conversations"] == 1
     assert listing_b["total_conversations"] == 0
@@ -419,7 +436,9 @@ async def test_existing_calendar_meeting_is_linked_not_recreated_and_new_one_nee
     await _drain(store, engine, selected, gmail.transport, now=datetime(2026, 10, 11, tzinfo=UTC))
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
     # The proposal is the meeting that is already on the Calendar: no follow-up.
-    assert (await store.list_conversations(monitor, limit=10))["total_conversations"] == 0
+    assert (await store.list_conversations(monitor, limit=10, now=SCAN_DAY))[
+        "total_conversations"
+    ] == 0
 
     async def empty_calendar(**_kwargs):
         return {"events": [], "truncated": False}
@@ -436,8 +455,57 @@ async def test_existing_calendar_meeting_is_linked_not_recreated_and_new_one_nee
     monkeypatch.setattr(scan, "reconcile_candidates", reconcile_new)
     await _drain(store, engine, selected, gmail.transport, now=datetime(2026, 10, 11, tzinfo=UTC))
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
-    listing = await store.list_conversations(monitor, limit=10)
+    listing = await store.list_conversations(monitor, limit=10, now=SCAN_DAY)
     request = listing["conversations"][0]["preview_requests"][0]
-    # Nothing was booked: it is surfaced as a proposal that still needs the owner.
+    # Nothing was booked: it is surfaced as a proposal that still needs the owner,
+    # with its day-before reminder scheduled (27 Oct call, scanned 11 Oct).
     assert request["kind"] == "meeting" and request["meeting_state"] == "proposed"
-    assert request["state"] == "needs_review"
+    assert request["state"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_committed_message_is_listed_while_next_message_is_still_scanning(
+    followup_pg, monkeypatch
+):
+    service, store, engine = followup_pg
+    selected = await _add_calendar(service, "synthetic-progress", "progress@example.test")
+    await _connect_mail(service, selected, "synthetic-progress")
+    await _enable(selected)
+    provider = {"corrected": True, "deleted": False, "read_ids": []}
+    gmail = _Gmail(lambda request: _response(request, provider, _mock_messages()))
+    entered, release = asyncio.Event(), asyncio.Event()
+    assessed = []
+
+    async def model(**kwargs):
+        mid = kwargs["message"].message_id
+        assessed.append(mid)
+        if mid == "msg-correction":
+            entered.set()
+            await release.wait()
+        return await _assess_with_synthetic_model(**kwargs)
+
+    monkeypatch.setattr(scan, "assess_section", model)
+    monkeypatch.setattr(scan, "reconcile_candidates", _reconcile_with_empty_calendar)
+    task = asyncio.create_task(
+        _drain(store, engine, selected, gmail.transport, now=datetime(2026, 10, 21, tzinfo=UTC))
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=10)
+        result = await routes.list_followups(
+            routes.ListSelection(user_id=OWNER, account_id=selected, view="all"),
+            response=Response(),
+            firebase_uid=OWNER,
+        )
+        assert result["scan_state"] != "complete"
+        assert result["conversations"]
+        first_id = result["conversations"][0]["id"]
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+    result = await routes.list_followups(
+        routes.ListSelection(user_id=OWNER, account_id=selected, view="all"),
+        response=Response(),
+        firebase_uid=OWNER,
+    )
+    assert result["conversations"][0]["id"] == first_id
+    assert assessed.count("msg-jhumma") == 1

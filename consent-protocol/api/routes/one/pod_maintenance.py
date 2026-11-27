@@ -74,17 +74,44 @@ async def pod_tick(
     # recorded provider consent; a pod without a bank reports and does nothing.
     report = await memory_bank_rebuild_job()
     gmail = await gmail_notification_job()
+    wake_payload: dict[str, Any] | None = None
+    if request is not None:
+        try:
+            parsed = await request.json()
+            if isinstance(parsed, dict):
+                wake_payload = parsed
+        except Exception:  # noqa: BLE001 - empty or bodyless scheduler ticks are normal
+            wake_payload = None
+    background = await background_prep_job(wake_payload=wake_payload)
     logger.info(
-        "pod_maintenance.tick email=%s memory_bank_rebuild=%s",
+        "pod_maintenance.tick email=%s memory_bank_rebuild=%s background_prep=%s",
         getattr(identity, "email", "<none>"),
         report.get("outcome"),
+        background.get("status"),
     )
+    work = "none"
+    if report.get("outcome") == "rebuilt":
+        work = "memory_bank_rebuild"
+    elif background.get("status") == "completed":
+        work = "background_prep"
     return {
         "ok": True,
-        "work": "memory_bank_rebuild" if report.get("outcome") == "rebuilt" else "none",
+        "work": work,
         "memoryBankRebuild": report,
         "gmailNotifications": gmail,
+        "backgroundPrep": background,
     }
+
+
+async def background_prep_job(*, wake_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run bounded, quarantined Stage 2a background preparation when woken."""
+    from hushh_mcp.services.pod_background_prep import run_pod_background_prep  # noqa: PLC0415
+
+    try:
+        return dict(await run_pod_background_prep(wake_payload=wake_payload))
+    except Exception as exc:  # noqa: BLE001 - tick never fails closed past auth on prep error
+        logger.warning("pod_maintenance.background_prep_failed reason=%s", type(exc).__name__)
+        return {"status": "failed", "reason": type(exc).__name__, "quarantineActive": True}
 
 
 class _GmailNotificationWork(Protocol):
@@ -98,9 +125,9 @@ async def gmail_notification_job(
 ) -> dict[str, Any]:
     """Renew an opted-in watch and continue bounded durable notification work."""
     from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         return {"status": "disabled"}
     try:
         bell: _GmailNotificationWork = doorbell if doorbell is not None else pod_gmail_doorbell()

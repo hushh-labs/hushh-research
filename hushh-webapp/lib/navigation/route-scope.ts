@@ -44,12 +44,15 @@ export function getRouteScope(pathname: string): RouteScope {
     isRoute(pathname, ROUTES.LEGACY_CONSENTS) ||
     isRoute(pathname, ROUTES.GMAIL) ||
     isRoute(pathname, ROUTES.ONE_TODOS) ||
+    isRoute(pathname, ROUTES.ONE_TASKS) ||
+    isRoute(pathname, ROUTES.ONE_GOALS) ||
     isRoute(pathname, ROUTES.LEGACY_GMAIL) ||
     isRoute(pathname, ROUTES.PKM) ||
     isRoute(pathname, ROUTES.LEGACY_PKM) ||
     isRoute(pathname, ROUTES.CONNECTED_SYSTEMS) ||
     isRoute(pathname, ROUTES.LEGACY_CONNECTED_SYSTEMS) ||
     isRoute(pathname, ROUTES.ONE_KYC) ||
+    isRoute(pathname, ROUTES.EMAIL_AGENT) ||
     isRoute(pathname, ROUTES.ONE_LOCATION) ||
     isRoute(pathname, ROUTES.PROFILE) ||
     isRoute(pathname, ROUTES.CONNECT) ||

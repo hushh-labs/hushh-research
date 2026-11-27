@@ -10,6 +10,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import mailStyles from "@/components/gmail/mail-workspace.module.css";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
@@ -26,6 +27,10 @@ import {
   primeConnectorStatus,
 } from "@/lib/profile/gmail-connector-store";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import {
+  clearGmailConnectReturn,
+  readGmailConnectReturn,
+} from "@/lib/profile/gmail-connect-return";
 import {
   clearOnboardingConnectorIntent,
   type OnboardingConnectorIntent,
@@ -215,9 +220,11 @@ export default function ProfileGmailOAuthReturnPageClient({
       }
     };
   }, [renderedOwnerId]);
+  const [calendarOwner, setCalendarOwner] = useState<string | null>(null);
   const [stage, setStage] = useState<CompleteStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnToSetup, setReturnToSetup] = useState(false);
+  const [returnToKyc, setReturnToKyc] = useState(false);
 
   useEffect(() => {
     if (loading || startedRef.current) return;
@@ -233,6 +240,17 @@ export default function ProfileGmailOAuthReturnPageClient({
     const oauthError = liveError || initialError;
     const onboardingIntent = readOnboardingConnectorIntent();
     setReturnToSetup(Boolean(onboardingIntent));
+    // A connection started from the KYC screen comes back to it. Mail and setup
+    // keep the return they always had, and setup is never overridden.
+    const afterConnect: string =
+      !onboardingIntent && readGmailConnectReturn(userId) === ROUTES.ONE_KYC
+        ? ROUTES.ONE_KYC
+        : ROUTES.GMAIL;
+    setReturnToKyc(afterConnect === ROUTES.ONE_KYC);
+    const goAfterConnect = () => {
+      clearGmailConnectReturn();
+      router.replace(afterConnect);
+    };
 
     const persistEarlyCallbackOutcome = async (
       callbackState: "cancelled" | "failed",
@@ -277,6 +295,8 @@ export default function ProfileGmailOAuthReturnPageClient({
       window.setTimeout(() => window.close(), 0);
       return;
     }
+
+    if (popupAttempt) setCalendarOwner(popupAttempt.presentation === "calendar" ? userId : null);
 
     if (oauthError) {
       const oauthErrorDescription =
@@ -385,7 +405,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       // Preserve code/state only in this in-flight closure. Putting either in
       // the Gmail URL or storage would make the faster handoff less safe.
       beginGmailOAuthCompletion(userId);
-      router.replace(ROUTES.GMAIL);
+      goAfterConnect();
     } else {
       // The main Gmail window already has its shell mounted. Bring it forward
       // while this popup safely finishes the exchange, rather than leaving the
@@ -473,7 +493,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         }
 
         void settleSuccessfulSetupInBackground();
-        if (!completesInBackground) router.replace(ROUTES.GMAIL);
+        if (!completesInBackground) goAfterConnect();
       } catch (completeError) {
         if (completeError instanceof GmailOAuthCompletionPendingError) {
           const status = await reconcileGmailConnection(
@@ -495,7 +515,7 @@ export default function ProfileGmailOAuthReturnPageClient({
               if (settlePopupOpener({ outcome: "succeeded" })) return;
             }
             void settleSuccessfulSetupInBackground();
-            if (!completesInBackground) router.replace(ROUTES.GMAIL);
+            if (!completesInBackground) goAfterConnect();
             return;
           }
         }
@@ -522,7 +542,7 @@ export default function ProfileGmailOAuthReturnPageClient({
               }
 
               void settleSuccessfulSetupInBackground();
-              if (!completesInBackground) router.replace(ROUTES.GMAIL);
+              if (!completesInBackground) goAfterConnect();
               return;
             }
           } catch {
@@ -580,14 +600,16 @@ export default function ProfileGmailOAuthReturnPageClient({
   ]);
 
   const isCloudReturn = (searchParams.get("state") || initialState || "").startsWith("byoc.");
-  const mailPresentation = isCloudReturn ? "" : `${mailStyles.typography} ${mailStyles.callback}`;
+  const calendar = !isCloudReturn && Boolean(userId && calendarOwner === userId);
+  const presentationClass = isCloudReturn ? "" : calendar ? calendarType.scope : `${mailStyles.typography} ${mailStyles.callback}`;
 
   if (stage !== "error") {
     return (
       <AppPageShell
         as="div"
         width="reading"
-        className={`${mailPresentation} flex min-h-[60vh] items-center justify-center`}
+        className={`${presentationClass} flex min-h-[60vh] items-center justify-center`}
+        data-connect-type-scale={calendar ? "page" : undefined}
         nativeTest={{
           routeId: "/one/profile/gmail/oauth/return",
           marker: "native-route-profile-gmail-return",
@@ -600,7 +622,8 @@ export default function ProfileGmailOAuthReturnPageClient({
       >
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
-            className={isCloudReturn ? undefined : mailStyles.callbackStatus}
+            className={isCloudReturn || calendar ? undefined : mailStyles.callbackStatus}
+            labelClassName={calendar ? calendarType.support : undefined}
             label={
               isCloudReturn
                 ? "Setting up your cloud. This can take a few minutes…"
@@ -618,7 +641,8 @@ export default function ProfileGmailOAuthReturnPageClient({
     <AppPageShell
       as="div"
       width="reading"
-      className={`${mailPresentation} flex min-h-[60vh] items-center justify-center`}
+      className={`${presentationClass} flex min-h-[60vh] items-center justify-center`}
+      data-connect-type-scale={calendar ? "page" : undefined}
       nativeTest={{
         routeId: "/one/profile/gmail/oauth/return",
         marker: "native-route-profile-gmail-return",
@@ -630,15 +654,24 @@ export default function ProfileGmailOAuthReturnPageClient({
     >
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">
+          <h1 className={calendar ? `${calendarType.setup} text-foreground` : "text-lg font-semibold text-foreground"}>
             Mail connection needs attention
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <p className={`mt-2 text-muted-foreground ${calendar ? calendarType.support : "text-sm"}`}>{error}</p>
           <Button
-            onClick={() => router.replace(returnToSetup ? ROUTES.ONE_SETUP : buildProfileGmailReturnPath())}
+            onClick={() => {
+              clearGmailConnectReturn();
+              router.replace(
+                returnToSetup
+                  ? ROUTES.ONE_SETUP
+                  : returnToKyc
+                    ? ROUTES.ONE_KYC
+                    : buildProfileGmailReturnPath(),
+              );
+            }}
             className="mt-4 w-full"
           >
-            {returnToSetup ? "Back to setup" : "Back to Mail"}
+            {returnToSetup ? "Back to setup" : returnToKyc ? "Back to KYC" : "Back to Mail"}
           </Button>
         </div>
       </AppPageContentRegion>

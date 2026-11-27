@@ -1,24 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
+import { useRef, useState } from "react";
+import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  FinancePersonaBadge,
-  FinancePersonaForm,
-} from "@/components/kai/onboarding/finance-persona-form";
-import {
-  KaiProfileService,
-  type KaiPreferences,
-  type KaiPreferencesUpdate,
-} from "@/lib/services/kai-profile-service";
+import { ChevronRight } from "@/components/icons";
+import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
+import { FinancePersonaBadge } from "@/components/kai/onboarding/finance-persona-form";
+import { portfolioPlanningSignals } from "@/lib/kai/investing-persona";
+import { KaiProfileService, type KaiPreferences } from "@/lib/services/kai-profile-service";
 import {
   requireFinanceSession,
   type FinanceShareContext,
@@ -27,120 +16,64 @@ import styles from "./advisor-review.module.css";
 
 export function PortfolioPersona({
   context,
+  preferences,
   onSaved,
 }: {
   context: FinanceShareContext;
-  onSaved?: () => void;
+  preferences: KaiPreferences;
+  onSaved: (preferences: KaiPreferences) => void;
 }) {
-  const [preferences, setPreferences] = useState<KaiPreferences | null>(null);
-  const [mode, setMode] = useState<"starter" | "detailed" | null>(null);
+  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const { horizon, lossCapacity } = portfolioPlanningSignals(preferences);
+  const action = horizon && lossCapacity ? "Refine persona" : "Complete persona";
 
-  useEffect(() => {
-    let active = true;
-    if (context.isCurrent())
-      void KaiProfileService.getProfile(context).then((profile) => {
-        if (active && context.isCurrent()) setPreferences(profile.preferences);
-      });
-    return () => {
-      active = false;
-    };
-  }, [context]);
-
-  if (!preferences || !context.isCurrent()) return null;
-  const hasAnswers = Boolean(
-    preferences.investment_horizon ||
-    preferences.drawdown_response ||
-    preferences.volatility_preference ||
-    preferences.loss_capacity,
-  );
-  const detailed = preferences.detailed_assessment_v1 != null;
-  const save = async (updates: KaiPreferencesUpdate) => {
-    requireFinanceSession(context);
-    const profile = await KaiProfileService.savePreferences({
-      ...context,
-      mode: "edit",
-      updates,
-      beforeEffect: async () => requireFinanceSession(context),
-    });
-    requireFinanceSession(context);
-    setPreferences(profile.preferences);
-    onSaved?.();
-  };
   return (
-    <section className={styles.card} aria-label="Investing persona">
-      <div className={styles.row}>
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="ui-text-section-label">Investing persona</h2>
-            <FinancePersonaBadge preferences={preferences} />
-          </div>
-          <p className="ui-text-helper-text">
-            {detailed
-              ? "Detailed profile · Hushh assessment"
-              : "Starting profile · Your investing preferences"}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {!detailed ? (
-            <ShellActionSurface
-              variant="pill"
-              onClick={() => setMode("starter")}
-            >
-              {hasAnswers ? "Retake questions" : "Build your persona"}
-            </ShellActionSurface>
-          ) : null}
-          <ShellActionSurface
-            variant="pill"
-            onClick={() => setMode("detailed")}
-          >
-            {detailed ? "Retake assessment" : "Refine your persona"}
-          </ShellActionSurface>
-        </div>
+    <div className={styles.row}>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="ui-text-section-label">Investing persona</h3>
+        <FinancePersonaBadge preferences={preferences} />
       </div>
-      <Sheet
-        modal
-        open={mode !== null}
-        onOpenChange={(value) => {
-          if (!value && !saving) setMode(null);
+      <ShellActionSurface ref={trigger} variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => setOpen(true)}>
+        {action}
+        <ChevronRight className="size-4" aria-hidden="true" />
+      </ShellActionSurface>
+      <AdaptiveDetailSurface
+        open={open}
+        onOpenChange={(next) => { if (!saving) setOpen(next); }}
+        title={<span className="ui-text-section-label">{action}</span>}
+        description={<span className="sr-only">13 questions about risk, cash needs and timing.</span>}
+        surfaceClassName={styles.reviewSheet}
+        bodyClassName="px-4"
+        mobilePresentation="sheet"
+        showMobileCloseButton
+        desktopMaxWidthClassName="sm:!max-w-[34rem]"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          trigger.current?.focus();
         }}
       >
-        <SheetContent side="bottom" className="max-h-[92dvh] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>
-              {mode === "detailed"
-                ? "Refine your persona"
-                : "Let’s build your financial persona"}
-            </SheetTitle>
-            <SheetDescription>
-              {mode === "detailed"
-                ? "Hushh assessment · 13 questions about risk comfort, cash needs and timing."
-                : "Update the preferences One uses in your portfolio review."}
-            </SheetDescription>
-          </SheetHeader>
-          {mode ? (
-            <div className="mx-auto w-full max-w-3xl px-4 pb-6">
-              {mode === "detailed" ? (
-                <DetailedPersonaForm
-                  initial={preferences}
-                  onSavingChange={setSaving}
-                  onDone={() => setMode(null)}
-                  onSave={(answers) =>
-                    save({ detailed_assessment_v1: answers })
-                  }
-                />
-              ) : (
-                <FinancePersonaForm
-                  initial={hasAnswers ? preferences : undefined}
-                  onSavingChange={setSaving}
-                  onDone={() => setMode(null)}
-                  onSave={save}
-                />
-              )}
-            </div>
-          ) : null}
-        </SheetContent>
-      </Sheet>
-    </section>
+        {open ? (
+          <DetailedPersonaForm
+            initial={preferences}
+            onSavingChange={setSaving}
+            onDone={() => setOpen(false)}
+            onSave={async (answers) => {
+              requireFinanceSession(context);
+              const profile = await KaiProfileService.savePreferences({
+                ...context,
+                mode: "edit",
+                updates: { detailed_assessment_v1: answers },
+                beforeEffect: async () => requireFinanceSession(context),
+              });
+              requireFinanceSession(context);
+              onSaved(profile.preferences);
+              return profile.preferences;
+            }}
+          />
+        ) : null}
+      </AdaptiveDetailSurface>
+    </div>
   );
 }

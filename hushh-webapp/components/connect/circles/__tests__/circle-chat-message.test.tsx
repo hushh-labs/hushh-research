@@ -1,11 +1,13 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import { CircleChatMessage, type OpenChatMessage } from "../circle-chat-message";
 import { ChatSharedFile } from "../circle-chat-media";
 import { CircleMembershipEventPill } from "../circle-chat-system-event";
 
-const api = vi.hoisted(() => ({ react: vi.fn(), image: vi.fn() }));
+const api = vi.hoisted(() => ({ react: vi.fn(), image: vi.fn(), copy: vi.fn(), copied: vi.fn(), copyFailed: vi.fn() }));
 vi.mock("@/lib/services/circle-chat-service", () => ({ CircleChatService: api }));
+vi.mock("@/lib/utils/clipboard", () => ({ copyToClipboard: api.copy }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { success: api.copied, error: api.copyFailed } }));
 
 const session = { circleId: "circle-1", userId: "alice", vaultOwnerToken: "token", vaultKey: "key" };
 const message: OpenChatMessage = {
@@ -13,7 +15,7 @@ const message: OpenChatMessage = {
   createdAt: "2026-10-10T08:00:00Z", ciphertext: "cipher", iv: "iv", hasImage: false,
   envelope: {} as OpenChatMessage["envelope"], content: { text: "Hello" }, failed: false, reactions: [],
 };
-beforeEach(() => { api.react.mockReset(); api.image.mockReset(); window.localStorage.clear(); });
+beforeEach(() => { api.react.mockReset(); api.image.mockReset(); api.copy.mockReset().mockResolvedValue(true); api.copied.mockReset(); api.copyFailed.mockReset(); window.localStorage.clear(); });
 
 test("hides contact-only Circle sender, reply and membership labels without changing identity targets", () => {
   const target = { ...message, id: "original", senderName: "member@example.test", content: { text: "Quoted body" } };
@@ -34,8 +36,10 @@ test("hides contact-only Circle sender, reply and membership labels without chan
 });
 
 test("touch actions wait for a stationary hold, cancel on scroll, and retain quick reactions", async () => {
-  api.react.mockResolvedValue({ messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] });
-  const props = { message, session, visible: true, layoutBlocked: false, scrollRoot: { current: null }, onMediaError: () => {}, onViewerChange: () => {}, onAction: vi.fn() };
+  const savedReaction = { messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] };
+  let finishReaction!: (value: typeof savedReaction) => void;
+  api.react.mockImplementationOnce(() => new Promise(resolve => { finishReaction = resolve; }));
+  const props = { message, session, messagesLane: true, visible: true, layoutBlocked: false, scrollRoot: { current: null }, onMediaError: () => {}, onViewerChange: () => {}, onAction: vi.fn() };
   const view = render(<CircleChatMessage {...props} />);
   const bubble = screen.getByText("Hello");
   const pointer = (type: string, x = 20) => fireEvent(bubble, Object.assign(new Event(type, { bubbles: true }), { pointerType: "touch", button: 0, clientX: x, clientY: 20 }));
@@ -47,20 +51,52 @@ test("touch actions wait for a stationary hold, cancel on scroll, and retain qui
     pointer("pointerdown"); pointer("pointermove", 40);
     act(() => vi.advanceTimersByTime(1_100));
     expect(screen.queryByRole("menu")).toBeNull();
+    pointer("pointerdown"); pointer("pointercancel");
+    act(() => vi.advanceTimersByTime(1_100));
+    expect(screen.queryByRole("menu")).toBeNull();
     pointer("pointerdown");
-    act(() => vi.advanceTimersByTime(999));
+    act(() => vi.advanceTimersByTime(499));
     expect(screen.queryByRole("menu")).toBeNull();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByRole("menu")).toBeTruthy();
     pointer("pointerup");
   } finally { vi.useRealTimers(); }
+  const copyAction = screen.getByRole("menuitem", { name: "Copy text" });
+  expect(copyAction.querySelector("svg")).not.toBeNull();
+  fireEvent.click(copyAction, { detail: 1 });
+  expect(api.copy).not.toHaveBeenCalled();
+  expect(screen.getByRole("menu")).toBeTruthy();
+  fireEvent.pointerDown(screen.getByRole("menuitem", { name: "Copy text" }), { pointerType: "touch", button: 0 });
+  await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Copy text" }), { detail: 1 }));
+  expect(api.copy).toHaveBeenCalledWith("Hello", expect.any(Function));
+  expect(api.copied).toHaveBeenCalledWith("Copied.");
+  const copyIsCurrent = api.copy.mock.calls[0][1] as () => boolean;
+  expect(copyIsCurrent()).toBe(true);
+  fireEvent.contextMenu(bubble);
+  const quickReactions = screen.getByRole("group", { name: "Quick reactions" });
+  expect(within(quickReactions).getAllByRole("menuitem", { name: /^React / })).toHaveLength(5);
+  const moreReactions = within(quickReactions).getByRole("menuitem", { name: "More reactions…" });
+  expect(moreReactions.textContent).toBe("");
+  expect(screen.queryByText("More reactions…")).toBeNull();
+  fireEvent.click(moreReactions);
+  expect(await screen.findByRole("dialog", { name: "Emoji picker" })).toHaveFocus();
+  expect(screen.queryByRole("menu")).toBeNull();
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "Emoji picker" }), { key: "Escape" });
+  fireEvent.contextMenu(bubble);
   await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "React ❤️" })));
   expect(api.react).toHaveBeenCalledWith(session, message, "❤️", true);
+  fireEvent.contextMenu(bubble);
+  const busyMore = screen.getByRole("menuitem", { name: "More reactions…" });
+  expect(busyMore).toHaveAttribute("aria-disabled", "true");
+  fireEvent.click(busyMore);
+  expect(screen.queryByRole("dialog", { name: "Emoji picker" })).toBeNull();
+  await act(async () => finishReaction(savedReaction));
   expect(screen.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeTruthy();
   // Retained panes must discard pending holds before they can open a portal.
   pointer("pointerdown");
   view.rerender(<CircleChatMessage {...props} visible={false} />);
   expect(screen.queryByRole("menu")).toBeNull();
+  expect(copyIsCurrent()).toBe(false);
 });
 
 test("deleting or revoking a file while it downloads cancels it and discards late bytes", async () => {
@@ -81,6 +117,23 @@ test("deleting or revoking a file while it downloads cancels it and discards lat
   expect(download).not.toHaveBeenCalled();
   expect(error).not.toHaveBeenCalled();
   allocate.mockRestore(); download.mockRestore();
+});
+
+test("switching away from a retained circle pauses its video and releases its bytes", async () => {
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private-video");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  api.image.mockResolvedValue(new Blob(["video bytes"]));
+  const videoMessage: OpenChatMessage = { ...message, content: { text: "", attachment: { kind: "video", type: "video/mp4", name: "clip.mp4" } } };
+  const props = { message: videoMessage, session, visible: true, layoutBlocked: false, scrollRoot: { current: null }, onMediaError: vi.fn(), onViewerChange: vi.fn() };
+  const view = render(<CircleChatMessage {...props} />);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Open video" })));
+  expect(view.container.querySelector("video")).toBeInTheDocument();
+  view.rerender(<CircleChatMessage {...props} visible={false} />);
+  expect(view.container.querySelector("video")).not.toBeInTheDocument();
+  expect(pause).toHaveBeenCalled();
+  expect(revoke).toHaveBeenCalledWith("blob:private-video");
+  pause.mockRestore(); allocate.mockRestore(); revoke.mockRestore();
 });
 
 test("Circle smiley opens the reaction picker, saves immediately, toggles a pill, and closes outside", async () => {

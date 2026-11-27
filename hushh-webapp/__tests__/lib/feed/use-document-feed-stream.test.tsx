@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   onConsentMutated: vi.fn(),
+  onConnectionGraphMutated: vi.fn(),
   onFeedChanged: vi.fn(),
   onFeedHistoryMutated: vi.fn(),
+  onFeedConnectionRequestsChanged: vi.fn(),
   dispatchFeedStateChanged: vi.fn(),
+  dispatchFeedConnectionRequestsChanged: vi.fn(),
   dispatchConsentStateChanged: vi.fn(),
   setPayoutStreamState: vi.fn(),
   // Generation-0 accounts: the application owner equals the Firebase UID.
@@ -24,9 +27,18 @@ vi.mock("@/lib/services/document-feed-transport", () => ({
   observeIdTokenChanges: () => () => {},
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onConsentMutated: mocks.onConsentMutated, onFeedChanged: mocks.onFeedChanged, onFeedHistoryMutated: mocks.onFeedHistoryMutated },
+  CacheSyncService: {
+    onConsentMutated: mocks.onConsentMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
+    onFeedChanged: mocks.onFeedChanged,
+    onFeedHistoryMutated: mocks.onFeedHistoryMutated,
+    onFeedConnectionRequestsChanged: mocks.onFeedConnectionRequestsChanged,
+  },
 }));
-vi.mock("@/lib/feed/feed-events", () => ({ dispatchFeedStateChanged: mocks.dispatchFeedStateChanged }));
+vi.mock("@/lib/feed/feed-events", () => ({
+  dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
+  dispatchFeedConnectionRequestsChanged: mocks.dispatchFeedConnectionRequestsChanged,
+}));
 vi.mock("@/lib/consent/consent-events", () => ({
   dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
 }));
@@ -119,6 +131,21 @@ describe("document Feed stream", () => {
     result.unmount();
   });
 
+  it("reconciles the authenticated viewer's connections when the Feed carries a graph hint", async () => {
+    vi.useFakeTimers();
+    mocks.open.mockResolvedValue(ok(stream('event: feed_changed\ndata: {"connection_graph":true}\n\n')));
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const view = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledExactlyOnceWith("requester", { broadcast: false, reason: "mutation" });
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "sse_document_feed", requestId: undefined, reconcile: true,
+    });
+    view.unmount();
+  });
+
   it("repairs on an opaque event, ignoring malformed request ids", async () => {
     vi.useFakeTimers();
     const body = stream([
@@ -142,6 +169,23 @@ describe("document Feed stream", () => {
     expect(mocks.onConsentMutated).toHaveBeenCalledTimes(2);
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
     expect(JSON.stringify(mocks.dispatchConsentStateChanged.mock.calls)).not.toContain("private.pdf");
+    result.unmount();
+  });
+
+  it("refreshes incoming connections on their own hint without invalidating history or consent", async () => {
+    vi.useFakeTimers();
+    mocks.open.mockResolvedValue(ok(stream(
+      'event: feed_changed\ndata: {"reason":"connection_mutated"}\n\n',
+    )));
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const result = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+
+    expect(mocks.onFeedConnectionRequestsChanged).toHaveBeenCalledWith("requester");
+    expect(mocks.dispatchFeedConnectionRequestsChanged).toHaveBeenCalledOnce();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.onFeedChanged).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
     result.unmount();
   });
 
@@ -194,7 +238,9 @@ describe("document Feed stream", () => {
     view.unmount();
     await advance(10_000);
     expect(dispatched()).toBe(5);
-    expect(mocks.onConsentMutated).toHaveBeenCalledTimes(5);
+    // A reset runs the broader graph invalidation, which includes consent.
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledTimes(2);
+    expect(mocks.onConsentMutated).toHaveBeenCalledTimes(3);
   });
 
   it("repairs general Feed changes without inventing a document request or consent mutation", async () => {
@@ -366,7 +412,7 @@ describe("document Feed stream", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(mocks.open).toHaveBeenCalledTimes(2);
-    expect(mocks.onFeedChanged).toHaveBeenCalledTimes(1);
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledExactlyOnceWith("requester", { broadcast: false, reason: "reconcile" });
     view.unmount();
   });
 

@@ -399,3 +399,194 @@ async def test_expired_cleanup_qualification_refuses_before_policy_read(monkeypa
     with pytest.raises(HostedTierNotPermittedError):
         await require_hosted_pilot_selection("u1", SimpleNamespace(_db=lambda: db))
     assert db.calls == []
+
+
+async def test_dev_extension_slot_admits_detached_owner_on_dev_and_refuses_negative_controls(
+    monkeypatch,
+):
+    import hashlib
+    import json
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash
+    from hushh_mcp.services import pod_release
+    from hushh_mcp.services.hosted_dev_pilot_extension import OVERRIDE_ENV
+    from hushh_mcp.services.hosted_project_gcp_operator import _operator_actor_matches
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pilot_selection
+
+    owner = "owner-slot-3"
+    hushh_id = "ha1_slot3_owner"
+    source_rev = "9" * 40
+    digest = "sha256:" + "8" * 64
+    image = f"gcr.io/hushh-pda-dev/consent-protocol-pod@{digest}"
+    profile = load_profile("dev")
+    operator = "user:pilot-operator@example.test"
+    operator_hash = "sha256:" + hashlib.sha256(operator.encode()).hexdigest()
+
+    ext = {
+        "schemaVersion": 1,
+        "policyId": "7c3d5e91-4b28-4e62-9f14-8a05d1c32611",
+        "environment": "dev",
+        "slotNumber": 3,
+        "sourceRevision": source_rev,
+        "imageDigest": digest,
+        "workBudgetCents": 20000,
+        "cleanupReserveCents": 5000,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "expiresAt": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
+        "modelBinding": {
+            "provider": "gemini",
+            "model": profile["text_model"],
+            "project": profile["project"],
+            "profileHash": profile_hash(profile),
+        },
+        "assignment": {
+            "ownerHash": "sha256:" + hashlib.sha256(owner.encode()).hexdigest(),
+            "hushhId": hushh_id,
+            "project": "hussh-hp-slot3-dev",
+            "projectNumber": None,
+            "region": "us-central1",
+            "bootstrapContract": {
+                "plan": {"tenancy": "hussh-hosted"},
+                "steps": ["enable_services"],
+            },
+            "preparationContract": {
+                "operatorPrincipalHash": operator_hash,
+                "steps": ["create_project"],
+            },
+        },
+    }
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSSH_ONE_POD_IMAGE", image)
+    monkeypatch.setattr(pod_release, "configured_release", lambda _: {"sourceRevision": source_rev})
+    monkeypatch.setenv("HUSHH_DEPLOY_SHA", "f" * 40)  # Application-only deploy moved hub SHA ahead
+    monkeypatch.setenv(OVERRIDE_ENV, json.dumps(ext))
+
+    detached_row = {
+        "user_id": owner,
+        "hushh_id": hushh_id,
+        "status": "unprovisioned",
+        "deployment_target": None,
+        "a2a_route": "/a2a/ha1_slot3_owner",
+        "backend_metadata": {
+            "detachedPlacements": [
+                {
+                    "user_id": owner,
+                    "hushh_id": hushh_id,
+                    "a2a_route": "/a2a/ha1_slot3_owner",
+                    "detachedAt": "2026-11-16T00:00:00Z",
+                }
+            ]
+        },
+    }
+
+    class _FakeDb:
+        def execute_raw(self, query, params):
+            if "hosted_pod_pilot_policy" in query:
+                return SimpleNamespace(data=[])
+            return SimpleNamespace(
+                data=[{"registry_row": detached_row, "tombstoned": False, "claimed_other": False}]
+            )
+
+    repo = SimpleNamespace(_db=lambda: _FakeDb())
+    selected = await require_hosted_pilot_selection(owner, repo)
+    assert selected.owner_id == owner
+    assert selected.hushh_id == hushh_id
+    assert selected.registry_present
+
+    # Hash-bound operator check admits exact operator without storing plaintext email
+    assert _operator_actor_matches(operator, ext["assignment"]["preparationContract"]) is True
+    assert (
+        _operator_actor_matches(
+            "user:intruder@example.test", ext["assignment"]["preparationContract"]
+        )
+        is False
+    )
+
+    # Negative controls: foreign owner, UAT lane, and active assigned host must fail closed
+    with pytest.raises(HostedTierNotPermittedError):
+        await require_hosted_pilot_selection("foreign-owner", repo)
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    with pytest.raises(HostedTierNotPermittedError):
+        await require_hosted_pilot_selection(owner, repo)
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    detached_row["external_agent_id"] = "still-assigned"
+    with pytest.raises(HostedTierNotPermittedError):
+        await require_hosted_pilot_selection(owner, repo)
+
+
+@pytest.mark.asyncio
+async def test_dev_extension_slot_resumes_when_observed_row_contains_datetime_timestamps(
+    monkeypatch,
+):
+    """SQLAlchemy repo.get() returns datetime timestamps; resume & retained checks must normalize."""
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import hosted_dev_pilot_extension as ext_mod
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    owner = "owner-slot-3-dt"
+    hushh_id = "ha1_slot3_dt_owner"
+    attempt_id = "a" * 32
+    ext = json.loads(
+        (
+            Path(__file__).resolve().parents[1] / "config" / "dev-hosted-pilot-extension.json"
+        ).read_text(encoding="utf-8")
+    )
+    ext["expiresAt"] = "2099-01-01T00:00:00Z"
+    ext["assignment"]["ownerHash"] = "sha256:" + hashlib.sha256(owner.encode()).hexdigest()
+    ext["assignment"]["hushhId"] = hushh_id
+    monkeypatch.setenv(ext_mod.OVERRIDE_ENV, json.dumps(ext))
+
+    policy = ext_mod.load_extension_policy()
+    assert policy is not None
+    admission = ext_mod._build_admission(policy)
+    intent = {
+        "user_id": owner,
+        "hushh_id": hushh_id,
+        "phone_e164_hash": "hash123",
+        "deployment_target": "gcp",
+        "model_credential_mode": "fleet_adc",
+    }
+    retained_attempt = {
+        "ownerId": owner,
+        "attemptId": attempt_id,
+        "phase": "reserved",
+        "intent": intent,
+        "hostedAdmission": admission,
+    }
+    ts = datetime(2026, 11, 16, 11, 4, 50, 123456, tzinfo=timezone.utc)
+    observed_with_dt = {
+        "user_id": owner,
+        "hushh_id": hushh_id,
+        "status": "provisioning",
+        "deployment_target": "gcp",
+        "created_at": ts,
+        "updated_at": ts,
+        "backend_metadata": {"provisionAttempt": retained_attempt},
+    }
+
+    captured_params: dict[str, str] = {}
+
+    class _ResumeDb:
+        def execute_raw(self, query, params):
+            assert "jsonb_populate_record" in query
+            captured_params.update(params)
+            # Ensure ISO-8601 'T' separator was emitted, never Python str(datetime) space
+            assert "2026-11-16T11:04:50.123456+00:00" in params["expected"]
+            return SimpleNamespace(data=[{"unchanged": True}])
+
+    resumed = await ext_mod.claim_extension_provision(
+        _ResumeDb(), observed=observed_with_dt, intent=intent, attempt_id=attempt_id
+    )
+    assert resumed == retained_attempt
+    assert "expected" in captured_params

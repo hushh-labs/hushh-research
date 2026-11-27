@@ -1,28 +1,15 @@
-/* Finance consumes the same semantic roles and reading measure as Connect. */
+/* Finance uses Location’s compact text roles on pages and portal surfaces. */
+.workspace { composes: app-type-compact from global; }
+.detail { composes: app-type-compact from global; }
 .workspace, .detail {
   --app-shell-reading: 728px;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
-  --type-row-label-size: 14px;
-  --type-row-label-line: 21px;
-  --type-row-label-weight: 550;
-  --type-row-label-compact-size: 14px;
-  --type-row-label-compact-line: 21px;
-  --type-row-label-compact-weight: 550;
-  --type-row-description-size: 12px;
-  --type-row-description-line: 18px;
-  --type-row-description-compact-size: 12px;
-  --type-row-description-compact-line: 18px;
-  --type-section-label-size: 14px;
-  --type-section-label-line: 22px;
-  --type-section-label-weight: 600;
-  --type-compact-button-label-size: 12px;
-  --type-compact-button-label-line: 18px;
-  --type-compact-button-label-weight: 550;
   --finance-positive: var(--app-success-deep);
   --finance-negative: var(--app-destructive-deep);
-  font-family: var(--font-app-body);
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
 }
 .workspace { min-width: 0; }
 .overviewGrid { display: grid; gap: 20px; align-items: start; }
@@ -31,7 +18,7 @@
 .historyRow:last-child { border-bottom: 0; }
 .historyPrimary { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; padding-block: 16px; text-align: left; overflow-wrap: anywhere; border-radius: var(--radius-sm); }
 .historyPrimary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.summaryFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
+.summaryFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
 .summaryFacts dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .summaryFacts dd { margin-top: 4px; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 @media (min-width: 768px) { .overviewGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: stretch; } }
@@ -51,7 +38,7 @@
 .fact { padding: 14px 0; border-bottom: 1px solid var(--border); min-width: 0; }
 .fact dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .fact dd { margin-top: 4px; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.value { font-size: clamp(30px, 6vw, 40px); line-height: 1.2; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.value { font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .holdingLayout { display: grid; min-width: 0; }
 .holdingDetails { min-width: 0; }
 @media (min-width: 1024px) {
@@ -60,51 +47,633 @@
   .holdingWithHistory > .holdingDetails { border-inline-start: 1px solid var(--border); }
 }
 .toolbar { display: flex; align-items: center; gap: 8px; }
-.toolbar input { height: 48px; font-size: 16px; line-height: 22px; box-shadow: none; }
+.toolbar input { height: 44px; font-size: 16px; line-height: 22px; box-shadow: none; }
 @media (min-width: 621px) { .toolbar input { font-size: 14px; } }
 
-/* Portfolio overview follows the value/briefing, composition and holdings rhythm. */
-.portfolioTop, .portfolioInsights { display: grid; gap: 16px; min-width: 0; }
-.portfolioTop > *, .portfolioInsights > * { min-width: 0; }
-.portfolioTop > :global([data-slot="card"]), .portfolioInsights > :global([data-slot="card"]) { height: 100%; }
-.portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
-.portfolioAllocation > span { min-width: 0; }
-.portfolioList { display: grid; gap: 0; }
-.portfolioListRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-.portfolioListRow:last-child { border-bottom: 0; }
-.portfolioHoldingMark { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border-radius: 12px; background: var(--muted); font-size: 12px; font-weight: 700; }
-@media (min-width: 768px) {
-  .portfolioTop { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-  .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* The Portfolio home pairs a balance card with the saved review. */
+.portfolioHome, .portfolioLead, .portfolioLeadRight { display: grid; gap: 12px; min-width: 0; }
+.portfolioHome .portfolioHero {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+  border-color: #8195ff26;
+  background:
+    radial-gradient(ellipse at 100% 0%, #7774f8a3, transparent 62%),
+    radial-gradient(ellipse at 98% 115%, #40c6c68c, transparent 59%),
+    linear-gradient(132deg, #121b3f, #242c6a 57%, #124c69);
+  color: #f8f9ff;
+}
+.portfolioHero::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: repeating-radial-gradient(circle at 92% 110%, transparent 0 16px, #bfd6ff26 17px 18px);
+  mask-image: linear-gradient(115deg, transparent 43%, black);
+  pointer-events: none;
+}
+.portfolioHeroBody { display: grid; gap: 6px; padding: 16px 18px 14px; }
+.portfolioHeroBody > * { margin-block: 0; }
+.portfolioTopHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.portfolioHeroLabel { margin: 0; color: #e4e6f3; font-size: var(--type-section-label-size); line-height: var(--type-section-label-line); font-weight: 550; }
+.portfolioHeroControls { display: flex; flex: none; align-items: center; gap: 8px; }
+.portfolioSourceBadge { padding: 3px 9px; border-radius: 999px; background: #ffffff24; color: #f8f9ff; font-size: 11px; line-height: 18px; font-weight: 650; }
+.portfolioHeroAction { min-height: 44px; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #f8f9ff; text-align: start; border-radius: var(--app-radius-sm); }
+.portfolioHeroAction:focus-visible { outline: 2px solid #e4e6f3; outline-offset: 3px; }
+.portfolioHeroAction .portfolioValue { min-width: 0; line-height: 1.12; letter-spacing: -0.025em; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.portfolioHeroChevron { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: #d6e7ff20; }
+.portfolioHeroMeta { color: #dce5ff; font-size: 12px; line-height: 18px; }
+.portfolioHeroChange {
+  display: inline-block;
+  margin-inline-end: 3px;
+  padding: 2px 8px;
+  border: 1px solid #e2eaff35;
+  border-radius: 999px;
+  background: #d6e7ff16;
+  color: #fff;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.portfolioTotals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-block-start: 7px;
+  padding-block-start: 10px;
+  border-top: 1px solid #e3edff35;
+  color: #f8f9ff;
+}
+.portfolioTotals > div + div { border-inline-start: 1px solid #e3edff35; padding-inline-start: 14px; }
+.portfolioTotals dt { color: #dce5ff; font-size: 12px; line-height: 18px; }
+.portfolioTotals dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
-.insightCard { display: flex; height: 100%; flex-direction: column; align-items: stretch; gap: 16px; padding: 20px; }
-.cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 8px; }
-.concentrationSummary { display: flex; align-items: center; gap: 16px; padding-block: 8px; }
-.concentrationRing, .concentrationValue { display: grid; place-items: center; flex: none; width: 104px; height: 104px; text-align: center; }
-.concentrationRing { position: relative; isolation: isolate; border-radius: 50%; background: conic-gradient(var(--app-accent-deep) var(--holding-share), var(--muted) 0); }
-.concentrationRing::before { content: ""; position: absolute; inset: 7px; border-radius: inherit; background: var(--app-card-surface-default-solid); z-index: -1; }
-.concentrationRing strong, .concentrationValue strong { display: block; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
-.concentrationRing > span > span, .concentrationValue > span > span { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
-.concentrationLabel { min-width: 0; }
+.portfolioHome .portfolioBriefingCard {
+  display: grid;
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in oklab, var(--app-indigo) 8%, transparent), transparent 74%),
+    var(--app-card-surface-default-solid);
+}
+.portfolioBriefingHeader { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; width: 100%; gap: 6px 10px; }
+.portfolioBriefingHeader :global([data-persona]) { background: color-mix(in oklab, var(--persona-color) 8%, var(--card)); }
+.portfolioBriefingContent { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; height: 100%; min-width: 0; }
+.portfolioBriefingHeading { display: flex; align-items: center; gap: 9px; font-size: 14px; line-height: 21px; font-weight: 630; }
+.portfolioBriefingIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: color-mix(in oklab, var(--app-indigo) 11%, var(--card));
+  color: var(--app-indigo);
+}
+.portfolioReviewTakeaway { font-size: 0.875rem; line-height: 1.45; font-weight: 550; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.portfolioBriefingLink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-block-start: auto;
+  color: var(--app-indigo);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 650;
+}
+
+.portfolioCarousel { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.portfolioCarousel .portfolioBriefingLink { flex: none; margin: 0; margin-inline-start: auto; min-height: 30px; padding-inline: 1px; font-size: 11px; white-space: nowrap; }
+.portfolioSlideStage { height: 6.25rem; overflow: hidden; min-width: 0; }
+.portfolioSlideTrack {
+  display: flex;
+  height: 100%;
+  transition: transform 340ms cubic-bezier(.22, .68, .24, 1);
+}
+.portfolioSlide {
+  flex: 0 0 100%;
+  display: grid;
+  align-content: safe center;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.portfolioSlide h3 { margin: 0; }
+.scenarioCompact .scenarioChart {
+  height: 34px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--scenario-line-color) 6%, var(--card));
+}
+.scenarioCompact .scenarioLine { stroke-linecap: round; stroke-width: 1.75; }
+.scenarioCompact .scenarioAxis { margin-block-start: 3px; }
+.portfolioSlide .scenarioAxis { font-size: 11px; line-height: 15px; }
+@media (prefers-reduced-motion: reduce) { .portfolioSlideTrack { transition: none; } }
+.portfolioSlideTitle { font-size: 13px; line-height: 18px; font-weight: 650; }
+.portfolioScenarioSlide { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; gap: 12px; }
+.portfolioScenarioSlide .portfolioSlideTitle {
+  --foundation-title3-size: 0.875rem;
+  --foundation-title3-line: 18px;
+  --foundation-headline-size: var(--foundation-title3-size);
+  --foundation-headline-line: var(--foundation-title3-line);
+  font-size: var(--foundation-title3-size);
+}
+.portfolioScenarioResult { display: grid; gap: 2px; margin-block-start: 2px; }
+.portfolioScenarioResult strong, .portfolioDepositsValue { font-size: 19px; font-weight: 650; line-height: 22px; font-variant-numeric: tabular-nums; }
+.portfolioScenarioResult strong { color: var(--finance-negative); }
+.portfolioScenarioResult span, .portfolioSlideNote { min-width: 0; color: var(--muted-foreground); font-size: 11px; line-height: 14px; }
+.portfolioSlideNote { margin-block-start: 3px; }
+.portfolioDepositsValue { margin-block-start: 8px; }
+.portfolioSlideControls { display: flex; align-items: center; gap: 6px; margin-block-start: auto; padding-block-start: 5px; border-top: 1px solid color-mix(in oklab, var(--border) 65%, transparent); }
+.portfolioSlideOptions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.portfolioSlideOptions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.portfolioSlideOptions > button[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--app-indigo) 9%, transparent);
+  color: var(--foreground);
+}
+.portfolioSlideOptions .portfolioSlidePlayback { width: 30px; padding: 0; }
+.portfolioSlidePlayback:hover { background: var(--muted); color: var(--foreground); }
+.portfolioSlideOptions > button:focus-visible, .portfolioCarousel .portfolioBriefingLink:focus-visible {
+  outline: 2px solid var(--app-indigo);
+  outline-offset: 2px;
+}
+
+@media (width < 900px) {
+  .portfolioBriefingContent { gap: 7px; padding-block: 12px; }
+  .portfolioSlideStage { flex: none; height: 5.75rem; }
+  .portfolioScenarioSlide { row-gap: 4px; }
+  .portfolioScenarioCopy { display: contents; }
+  .portfolioScenarioSlide .portfolioSlideTitle { grid-column: 1 / -1; }
+  /* The inner slide can scroll independently when the takeaway is long. */
+  .portfolioSlideStage[data-portfolio-review-swipe],
+  .portfolioSlideStage[data-portfolio-review-swipe] .portfolioSlide { touch-action: pan-y pinch-zoom; }
+  .portfolioSlideStage:empty { display: none; }
+  .portfolioSlideControls { flex-wrap: wrap; column-gap: 6px; row-gap: 0; }
+  .portfolioSlideControls:has(> .portfolioBriefingLink:only-child) { border: 0; padding-block-start: 0; }
+  .portfolioSlideControls > .portfolioBriefingLink:only-child { margin-inline-start: 0; }
+  .portfolioSlideOptions > button, .portfolioCarousel .portfolioBriefingLink { min-height: 36px; }
+  .portfolioSlideOptions > button { padding-inline: 4px; }
+}
+
+.portfolioSharingCard {
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in oklab, var(--app-teal) 15%, transparent), transparent 72%),
+    var(--app-card-surface-default-solid);
+}
+.portfolioSharingBody { display: grid; align-items: center; gap: 10px; padding: 14px 16px; }
+.portfolioSharingBody > * { margin-block: 0; }
+.portfolioSharingHeader { display: flex; align-items: center; gap: 9px; }
+.portfolioSharingIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #186d80, #17445f);
+  color: white;
+  box-shadow: 0 3px 9px color-mix(in srgb, var(--app-teal) 24%, transparent);
+}
+.portfolioSharingHeader :global([data-ui-role]) { color: var(--foreground); }
+.portfolioSharingActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.portfolioSharingActions > span { min-width: 0; }
+.portfolioSharingActions > span > button { width: 100%; height: auto; min-height: 44px; padding: 8px; }
+.portfolioSharingActions .portfolioSharingPrimary {
+  border-color: color-mix(in oklab, var(--app-teal) 28%, var(--border));
+  background: color-mix(in oklab, var(--app-teal) 17%, var(--app-card-surface-default-solid));
+}
+.portfolioSharingActions .portfolioSharingPrimary:hover {
+  background: color-mix(in oklab, var(--app-teal) 23%, var(--app-card-surface-default-solid));
+}
+.portfolioSharingStatus { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 13px; line-height: 18px; }
+@media (min-width: 768px) {
+  .portfolioSharingBody { grid-template-columns: minmax(0, 1fr) minmax(0, 340px); padding: 16px 18px; }
+}
+
+.portfolioHomeActions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--app-card-radius-standard);
+  background: var(--app-card-surface-default-solid);
+}
+.portfolioHomeActions .portfolioHomeAction {
+  width: 100%;
+  min-height: 44px;
+  height: auto;
+  padding: 6px 10px;
+  border-color: transparent;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+  line-height: 16px;
+}
+.portfolioHomeActions .portfolioHomeAction:hover { background: var(--muted); }
+.portfolioHomeAction svg { flex: none; color: var(--muted-foreground); }
+.portfolioHomeActions > span { min-width: 0; }
+.portfolioHomeAction > span { text-align: center; }
+
+.portfolioExploreShell { overflow: visible; background: transparent; box-shadow: none; }
+.portfolioExploreRows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.portfolioExploreMix { --portfolio-explore-accent: var(--app-accent-deep); }
+.portfolioExploreHoldings { --portfolio-explore-accent: var(--app-success-deep); }
+.portfolioExploreRows > div {
+  border: 1px solid var(--border);
+  border-radius: var(--app-card-radius-standard);
+  background:
+    linear-gradient(150deg, color-mix(in oklab, var(--portfolio-explore-accent) 7%, var(--app-card-surface-default-solid)), var(--app-card-surface-default-solid) 65%);
+  box-shadow: var(--app-card-shadow-standard);
+}
+.portfolioExploreRows > div > button {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  height: 100%;
+  min-height: 110px;
+  padding: 14px;
+  row-gap: 10px;
+}
+.portfolioExploreRows :global([data-slot="settings-row-main"]),
+.portfolioExploreRows :global([data-slot="settings-row-copy"]) { display: contents; }
+.portfolioExploreRows :global([data-slot="settings-row-icon"]) { grid-column: 1; grid-row: 1; }
+.portfolioExploreRows :global([data-slot="settings-row-trailing"]) { grid-column: 2; grid-row: 1; }
+.portfolioExploreRows :global([data-slot="settings-row-title"]),
+.portfolioExploreRows :global([data-slot="settings-row-description"]) { grid-column: 1 / -1; margin: 0; }
+.portfolioExploreRows :global([data-slot="settings-row-title"]) { grid-row: 2; }
+.portfolioExploreRows :global([data-slot="settings-row-description"]) { grid-row: 3; }
+.portfolioExploreDetail { display: grid; gap: 6px; }
+.portfolioExploreMix .portfolioExploreDetail { gap: 10px; }
+.portfolioExploreFact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.portfolioExploreFact > span { min-width: 0; }
+.portfolioExploreFact strong { color: var(--foreground); font-weight: 600; }
+.portfolioWideOnly, .portfolioExploreLink { display: none; }
+.portfolioMixCategory { display: inline-flex; align-items: center; gap: 5px; }
+.portfolioMixStrip {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+.portfolioMixStrip > span:first-child {
+  border-start-start-radius: inherit;
+  border-end-start-radius: inherit;
+}
+.portfolioMixStrip > span:last-child {
+  border-start-end-radius: inherit;
+  border-end-end-radius: inherit;
+}
+@media (min-width: 900px) {
+  .portfolioLead, .portfolioExploreRows { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .portfolioHomeActions { justify-self: end; }
+  .portfolioLead {
+    position: relative;
+    isolation: isolate;
+    padding-block: 15px;
+  }
+  .portfolioLead::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -8px 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 54% 56% at 27% 46%, color-mix(in oklab, var(--app-indigo) 19%, transparent), transparent),
+      radial-gradient(ellipse 55% 55% at 73% 48%, color-mix(in oklab, var(--app-teal) 14%, transparent), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 6% 94%, transparent);
+  }
+  .portfolioLeadRight { grid-template-rows: minmax(0, 1fr) auto; gap: 10px; }
+  .portfolioLead .portfolioHero { display: grid; }
+  .portfolioLead .portfolioHeroBody { display: flex; flex-direction: column; height: 100%; padding: 19px; }
+  .portfolioLead .portfolioTotals {
+    margin-block-start: auto;
+    padding: 10px 12px;
+    border: 1px solid #e3edff35;
+    border-radius: 12px;
+    background: #11183823;
+  }
+  .portfolioLead .portfolioHeroMeta:last-of-type { padding-block-end: 12px; }
+  .portfolioLead .portfolioHeroReportAction { width: 34px; height: 34px; background: #ffffff18; border-color: #e4ebff40; color: white; }
+  .portfolioLead .portfolioHeroReportAction:hover { background: #ffffff2b; }
+  .portfolioLeadRight .portfolioSharingCard {
+    background: color-mix(in oklab, var(--app-teal) 8%, var(--app-card-surface-default-solid));
+  }
+  .portfolioLeadRight .portfolioSharingBody { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px; }
+  .portfolioLeadRight .portfolioSharingHeader { display: none; }
+  .portfolioLeadRight .portfolioSharingActions { gap: 6px; }
+  .portfolioLeadRight .portfolioSharingActions > span > button { min-height: 34px; padding: 6px 8px; }
+  .portfolioExploreRows > div > button { align-content: space-between; min-height: 102px; padding: 16px; row-gap: 12px; }
+  .portfolioExploreRows > .portfolioExploreMix > button { grid-template-rows: auto 1fr; }
+  .portfolioExploreMix :global([data-slot="settings-row-description"]) { align-self: center; }
+  .portfolioExploreRows :global([data-slot="settings-row-icon"]),
+  .portfolioExploreRows :global([data-slot="settings-row-chevron"]) { display: none; }
+  .portfolioExploreRows :global([data-slot="settings-row-title"]) { grid-column: 1; grid-row: 1; }
+  .portfolioExploreRows :global([data-slot="settings-row-description"]) { grid-row: 2; }
+  .portfolioExploreRows .portfolioExploreLink { display: inline-flex; align-items: center; gap: 4px; color: var(--app-indigo); font-size: 12px; font-weight: 650; }
+  .portfolioMixFacts { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
+  .portfolioMixFacts .portfolioExploreFact { justify-content: flex-start; gap: 7px; }
+  .portfolioMixCategory .allocationDot { display: none; }
+  .portfolioWideOnly { display: flex; }
+}
+
+.portfolioListRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.portfolioListRow:last-child { border-bottom: 0; }
+.insightCard { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+
+.portfolioBreakdown { display: grid; gap: 16px; }
+.allocationGlow { position: relative; isolation: isolate; }
+.allocationGlow::before, .allocationGlow::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  pointer-events: none;
+}
+.allocationGlow::before { filter: blur(9px); opacity: 0.55; }
+.allocationRing {
+  display: grid;
+  place-items: center;
+  inline-size: min(100%, 184px);
+  aspect-ratio: 1;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  margin-inline: auto;
+}
+.allocationRingCenter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  border-radius: 50%;
+  background: var(--app-card-surface-default-solid, var(--background));
+  padding: 12px;
+  text-align: center;
+}
+.allocationRingCenter strong {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.breakdownRows { display: grid; margin: 0; padding: 0; list-style: none; }
+.breakdownRow {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+  padding: 10px 2px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+}
+.breakdownRows > li + li { border-top: 1px solid var(--border); }
+.breakdownRowHeader { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.breakdownCategory { display: inline-flex; align-items: center; gap: 8px; }
+.breakdownCategory, .breakdownAmount { font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: 600; overflow-wrap: anywhere; }
+.breakdownAmount { font-variant-numeric: tabular-nums; }
+.breakdownTrack { height: 4px; border-radius: 999px; background: var(--muted); }
+.breakdownTrack > span { display: block; height: 100%; border-radius: inherit; }
+.portfolioMixStrip > span, .breakdownTrack > span {
+  background: currentColor;
+  box-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent);
+}
+@media (min-width: 768px) {
+  .portfolioBreakdown { grid-template-columns: minmax(0, 208px) minmax(0, 1fr); align-items: center; gap: 16px 32px; }
+  .allocationRing { inline-size: min(100%, 208px); }
+}
+.performanceLegend { flex: 1; min-width: 0; font-size: 12px; line-height: 18px; }
+.performanceLegend > div { display: flex; justify-content: space-between; gap: 8px; padding-block: 3px; }
+.performanceLegend i { display: inline-block; width: 7px; height: 7px; margin-inline-end: 6px; border-radius: 50%; }
+.performanceMovers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.performanceMovers > div { min-width: 0; }
+.performanceMovers > div > span { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; }
 .insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
-.insightHoldingName { margin-block: 5px 3px; font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
 .insightFacts { margin: 0; }
-.insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
+.insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 8px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
 .insightFacts dt { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .insightFacts dd { margin: 0; color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: end; }
-.insightFacts svg, .insightNotice svg { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
-.insightNotice { display: flex; align-items: flex-start; gap: 7px; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
-.balanceChange { padding-top: 8px; }
-.insightAmount { margin-top: 6px; font-size: clamp(28px, 5vw, 36px); line-height: 1.2; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.unavailableChange { margin-top: 6px; color: var(--muted-foreground); font-size: 20px; line-height: 28px; }
-:global(.dark) .concentrationRing { background: conic-gradient(var(--app-accent-bright) var(--holding-share), var(--muted) 0); }
-@media (min-width: 640px) { .insightCard { padding: 24px; } }
+.insightFacts svg { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+.insightAmount { margin-top: 4px; font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.unavailableChange { margin-top: 4px; color: var(--muted-foreground); font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); }
+.importEntry { background: var(--app-accent-surface) !important; border-color: var(--app-accent-border) !important; }
+
+
+.holdingEditor[data-vaul-drawer-direction="bottom"] {
+  max-height: min(calc(90dvh - var(--kb-height, 0px)), 760px);
+}
 @media (min-width: 768px) {
-  .insightShell > div { display: flex; flex: 1; flex-direction: column; }
-  .insightShell .insightCard { flex: 1; height: auto; }
-  .insightCard > .cardFooter { margin-block-start: auto; }
+  .holdingEditor[data-vaul-drawer-direction="bottom"] {
+    top: 0;
+    width: min(560px, calc(100% - 48px));
+    height: fit-content;
+    max-height: min(calc(100dvh - 24px - var(--kb-height, 0px)), 760px);
+    margin: auto;
+    border-radius: var(--app-card-radius-standard);
+    overflow: hidden;
+  }
+  .holdingEditor[data-vaul-drawer-direction="bottom"]::after,
+  .holdingEditor [data-slot="drawer-drag-handle"] {
+    display: none;
+  }
+}
+/* One highlight radius for every tappable Finance row: a compact utility rect (8px), concentric inside the
+   18px card. Set here, unlayered, so a stray rounded-* utility on the row cannot widen it into a pill. */
+.interactiveRow { --finance-row-radius: var(--app-radius-sm); border-radius: var(--finance-row-radius); }
+.interactiveRow:not(button) {
+  background-color: var(--finance-row-fill, revert-layer);
+  box-shadow: var(--finance-row-indicator, revert-layer);
+  transition: background-color 120ms ease;
+}
+button.interactiveRow::before {
+  content: "";
+  position: absolute;
+  inset: 2px 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: var(--finance-row-radius);
+  background-color: var(--finance-row-fill, transparent);
+  box-shadow: var(--finance-row-indicator, none);
+  transition: background-color 120ms ease;
+}
+.stockRows > button.interactiveRow::before { inset-inline: -8px; }
+.mobileHoldingRow {
+  --settings-row-top-radius: var(--app-radius-sm);
+  --settings-row-bottom-radius: var(--app-radius-sm);
+}
+@media (hover: hover) {
+  .interactiveRow:not(.selectedRow):not([data-finance-selected="true"]):hover {
+    --finance-row-fill: color-mix(in oklab, var(--foreground) 9%, transparent);
+  }
+}
+.interactiveRow:active { --finance-row-fill: color-mix(in oklab, var(--foreground) 12%, transparent); }
+.interactiveRow.selectedRow, .interactiveRow[data-finance-selected="true"] {
+  --finance-row-fill: var(--app-accent-tint);
+  --finance-row-indicator: inset 2px 0 var(--app-accent);
+}
+.interactiveRow:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: -2px;
 }
 
-.importEntry { background: var(--app-accent-surface) !important; border-color: var(--app-accent-border) !important; }
-.bankEntry { background: var(--app-accent-surface); border-radius: var(--app-input-radius); }
+.compactPageHeader {
+  --type-page-title-size: var(--type-major-section-title-size);
+  --type-page-title-line: var(--type-major-section-title-line);
+  --foundation-title1-size: var(--type-page-title-size);
+  --foundation-title1-line: var(--type-page-title-line);
+}
+.reviewTable {
+  min-width: 20rem;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.reviewTable th:nth-child(1) { width: 34%; }
+.reviewTable th:nth-child(2) { width: 19%; }
+.reviewTable th:nth-child(3) { width: 20%; }
+.reviewTable th:nth-child(4) { width: 27%; padding-inline-end: calc(max(10px, var(--data-table-cell-px) - 2px) + 52px); }
+.reviewTable :is(th, td) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.reviewTable :is(th, td):not(:first-child) { text-align: end; }
+.reviewTable td[colspan] { text-align: center; }
+@media (max-width: 639px) {
+  .reviewTable th:nth-child(1) { width: 27%; }
+  .reviewTable th:nth-child(2) { width: 18%; }
+  .reviewTable th:nth-child(3) { width: 21%; }
+  .reviewTable th:nth-child(4) { width: 34%; padding-inline-end: 52px; }
+  .reviewTable :is(th, td) { padding-inline: 4px; font-size: 11px; }
+  .reviewTable :is(th, td):first-child { padding-inline-start: 8px; }
+  .reviewTable td { padding-block: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .interactiveRow:not(button), button.interactiveRow::before { transition: none; }
+}
+
+.reviewInsight {
+  --review-stock: #426fc5;
+  --review-bond: #728cba;
+  --review-cash: #a6c1f4;
+  --review-other: #e1e7f1;
+}
+:global(.dark) .reviewInsight {
+  --review-stock: #86adff;
+  --review-bond: #5976ae;
+  --review-cash: #a8bcdf;
+  --review-other: #3e4c63;
+}
+.reviewInsight > div {
+  height: 100%;
+}
+.reviewInsight .scenarioOption {
+  min-height: 1.875rem;
+  padding-inline: 0.5rem;
+  font-size: var(--type-row-description-size, 12px);
+}
+.reviewInsight .scenarioOption[aria-pressed="true"] {
+  color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--card));
+  border-color: color-mix(in srgb, var(--app-accent) 25%, var(--card));
+}
+.scenarioChart {
+  --scenario-line-color: var(--review-stock, var(--app-indigo));
+  display: block;
+  width: 100%;
+  height: 2.625rem;
+  overflow: visible;
+}
+.scenarioGrid,
+.scenarioLine {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.scenarioGrid {
+  stroke: color-mix(in srgb, var(--scenario-line-color) 24%, var(--card));
+  stroke-dasharray: 3 4;
+}
+.scenarioLine {
+  stroke: var(--scenario-line-color);
+  stroke-width: 2;
+}
+.scenarioFill {
+  fill: color-mix(in srgb, var(--scenario-line-color) 12%, var(--card));
+}
+.scenarioPoint {
+  fill: var(--scenario-line-color);
+}
+.scenarioAxis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--type-row-description-size, 12px);
+  color: var(--muted-foreground);
+}
+
+/* Allocation: every card shares one header (14/22/600 title, 12/18 note) and one row pattern
+   (14/21/550 name, 12/18 muted meta, 14/21/550 amount), with no card nested inside a card. */
+.allocationHeader > :first-child { font-size: 14px; line-height: 22px; font-weight: 600; }
+.allocationHeader > :nth-child(2) { margin-top: 2px; font-size: 12px; line-height: 18px; }
+.allocationSection { min-width: 0; padding: 16px; border-bottom: 1px solid var(--border); }
+.allocationSection:last-child { border-bottom: 0; }
+.allocationSection > .allocationHeader { margin-bottom: 8px; }
+.allocationMeter { width: 128px; height: 4px; flex: none; border-radius: 999px; overflow: hidden; background: var(--muted); }
+.allocationMeter > span { display: block; height: 100%; border-radius: inherit; }
+@media (max-width: 420px) { .allocationMeter { display: none; } }
+.allocationRows { display: grid; min-width: 0; }
+.allocationRows > button.interactiveRow::before, .allocationRows > div > button.interactiveRow::before { inset-inline: -8px; }
+.allocationRow { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 48px; padding-block: 5px; text-align: left; border-bottom: 1px solid var(--border); }
+.allocationRows > :last-child > .allocationRow, .allocationRows > .allocationRow:last-child { border-bottom: 0; }
+.allocationDot { width: 10px; height: 10px; flex: none; border-radius: 999px; }
+.allocationText { display: grid; min-width: 0; flex: 1; }
+.allocationName { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--foreground); overflow-wrap: anywhere; }
+.allocationMeta { font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted-foreground); }
+.allocationAmount { display: grid; flex: none; justify-items: end; text-align: right; font-variant-numeric: tabular-nums; }
+.allocationAmount > :first-child { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--foreground); }
+.allocationDetail { padding: 0 0 12px 22px; }
+.allocationChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.allocationChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 10px; background: var(--muted); font-size: 12px; line-height: 18px; }
+.allocationPager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+
+/* Finance bottom sheets share the RIA handshake frame: 728px wide and centred on desktop, at most
+   94dvh tall, with the close button and header nudged for the drag handle. A sheet that pages
+   between tabs also fixes its height (see .handshakeTabbedSheet); a list sheet sizes to content. */
+.sheetFrame.sheetFrame {
+  width: min(100%, 728px);
+  margin-inline: auto;
+  max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important;
+}
+@media (min-width: 640px) {
+  .sheetFrame.sheetFrame:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; }
+  .sheetFrame.sheetFrame:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 20px; }
+}

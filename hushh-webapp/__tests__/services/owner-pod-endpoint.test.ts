@@ -41,6 +41,21 @@ describe("owner pod endpoint", () => {
     }
   });
 
+  it("admits pooled ACE /u/{hushhId} edge URLs and refuses mismatched /u paths", async () => {
+    world.deploymentTarget = "ace";
+    world.hostingMode = undefined;
+    const pooledUrl = "https://sandbox-edge.dev.one.hussh.ai/u/ha1_owner";
+    world.endpoint = endpointBody({ url: pooledUrl });
+    const session = await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    expect(session.url).toBe(pooledUrl);
+
+    await ownerPod.forgetOwnerPodState(USER);
+    world.endpoint = endpointBody({ url: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_other" });
+    await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow(
+      "ENDPOINT_MALFORMED",
+    );
+  });
+
   it("does not enroll a fresh browser during bounded reviewer reads, while normal enrollment remains available", async () => {
     const previous = window.__HUSHH_NATIVE_TEST__;
     try {
@@ -453,6 +468,44 @@ describe("owner pod endpoint", () => {
     expect(pending).toHaveLength(1);
     await ownerPod.clearPendingRevocation(USER, pending[0].intentId);
     expect(await ownerPod.pendingRevocations(USER)).toEqual([]);
+  });
+
+  it("auto-re-enrolls once when a cached browser subject was capped as TRUSTED_DEVICE_NOT_ACTIVE", async () => {
+    world.deploymentTarget = "ace";
+    world.hostingMode = undefined;
+    const pooledUrl = "https://sandbox-edge.uat.one.hussh.ai/u/ha1_owner";
+    world.endpoint = endpointBody({ url: pooledUrl, environment: "dev" });
+
+    // Pre-enroll the browser so IndexedDB caches tdv_app_1 and its non-extractable P-256 key.
+    expect(await ownerPod.ensureAppEnrollment(USER, world.transport())).toBe("tdv_app_1");
+    const firstPublicKey = world.appPublicKey;
+    expect(firstPublicKey).toBeTruthy();
+
+    // First attempt hits 403 TRUSTED_DEVICE_NOT_ACTIVE (MAX_ACTIVE_WEB_BROWSERS cap),
+    // resets subjectId, calls /self-enroll on the same P-256 key, and succeeds on retry.
+    const baseHub = world.hub.bind(world);
+    let failedOnce = false;
+    world.hub = async (path, init) => {
+      if (path === "/api/account/trusted-devices/tdv_app_1/pod-binding" && !failedOnce) {
+        world.calls.push({ target: "hub", url: path, init });
+        if (init.method === "GET") {
+          return json({ detail: { code: "POD_BINDING_NOT_ISSUED" } }, 404);
+        }
+        failedOnce = true;
+        return json({ detail: { code: "TRUSTED_DEVICE_NOT_ACTIVE" } }, 403);
+      }
+      if (path === "/api/account/trusted-devices/self-enroll") {
+        const body = JSON.parse(String(init.body)) as { devicePublicKey: string };
+        expect(body.devicePublicKey).toBe(firstPublicKey);
+      }
+      return baseHub(path, init);
+    };
+
+    const pinned = await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    expect(pinned.url).toBe(pooledUrl);
+    expect(failedOnce).toBe(true);
+    expect(world.calls.filter((call) => call.url === "/api/account/trusted-devices/self-enroll")).toHaveLength(2);
+    expect(world.admitted).toHaveLength(1);
   });
 
   it("canonical JSON matches the pod's byte layout", () => {

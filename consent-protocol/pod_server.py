@@ -54,16 +54,19 @@ from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E
 from api.routes.one.pod_actions import router as pod_actions_router
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
 from api.routes.one.pod_ai_selection import router as pod_ai_selection_router
+from api.routes.one.pod_answer_composition import router as pod_answer_composition_router
 from api.routes.one.pod_browser import router as pod_browser_router
 from api.routes.one.pod_capabilities import (
     ai_selection_capability,
     connectors_capability,
     pod_capabilities,
 )
+from api.routes.one.pod_circle_rules import router as pod_circle_rules_router
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_gmail_push import router as pod_gmail_push_router
+from api.routes.one.pod_mail_followups import router as pod_mail_followups_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_maintenance import (
     scheduled_router as pod_scheduled_maintenance_router,  # noqa: E402
@@ -71,12 +74,14 @@ from api.routes.one.pod_maintenance import (
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_pkm_preparation import router as pod_pkm_preparation_router
+from api.routes.one.pod_plaid_vault import router as pod_plaid_vault_router
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
 from api.routes.one.pod_scheduled_tasks import router as pod_scheduled_tasks_router
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
 from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
 from api.routes.one.pod_todo_sources import router as pod_todo_sources_router
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
+from api.routes.one.pod_website_credentials import router as pod_website_credentials_router
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_providers.azure_openai import model_probe  # noqa: E402
@@ -90,7 +95,6 @@ from hushh_mcp.services.pod_hub_client import (  # noqa: E402
 from hushh_mcp.services.pod_platform import pod_revision_name  # noqa: E402
 from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_key_is_durable,
-    pod_keypair,
     pod_public_key_payload,
     pod_signing_public_payload,
 )
@@ -144,7 +148,9 @@ _POD_ROUTERS = (
     pod_memory_router,
     pod_ai_selection_router,  # the owner's sealed "Bring your own AI"; same two doors
     pod_connectors_router,
+    pod_website_credentials_router,
     pod_todo_sources_router,
+    pod_mail_followups_router,
     pod_actions_router,
     pod_gmail_push_router,
     pod_browser_router,
@@ -163,10 +169,13 @@ _POD_ROUTERS = (
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
     pod_session_router,
+    pod_circle_rules_router,
     pod_files_router,
     pod_scheduled_tasks_router,
     pod_commands_router,
     pod_pkm_preparation_router,
+    pod_plaid_vault_router,
+    pod_answer_composition_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and
     # production; an owner pod brokers its own device. See pod_puppy_relay.py.
@@ -524,41 +533,34 @@ async def _pod_startup() -> None:
     )
 
     from hushh_mcp.services.pod_azure_vm_identity import initialize_vm_installation
-    from hushh_mcp.services.pod_identity_store import restore_durable_private_key
+    from hushh_mcp.services.pod_identity_store import (
+        durable_identity_enabled,
+        initialize_pod_identity,
+    )
     from hushh_mcp.services.pod_storage import resolve_boot_custody
 
     await asyncio.to_thread(initialize_vm_installation)
     boot_storage, boot_dek = await resolve_boot_custody()
     boot_log = getattr(boot_storage, "_log", None)
-    await restore_durable_private_key(storage=boot_storage, dek=boot_dek, log=logger)
-
-    # Generate identity before authority; recover configuration, credentials and
-    # trust together below before admitting any owner turn.
-    keypair_is_durable = False
-    pod_keypair()
-    try:
-        from hushh_mcp.services.pod_self_registration import pod_key_is_durable  # noqa: PLC0415
-
-        keypair_is_durable = pod_key_is_durable()
-    except Exception:  # noqa: BLE001
-        pass
-    # Stated at boot, because "is this pod's identity stable across restarts" is
-    # a question the fleet has been answering wrongly and silently.
-    logger.info("pod.identity durable=%s", keypair_is_durable)
+    await initialize_pod_identity(storage=boot_storage, dek=boot_dek, log=logger)
 
     # Owner-local authority: claim the incarnation fence, replay the trust and
     # tombstone records, derive the session key. Strictly AFTER the keypair, because
     # a binding names this pod by its key id. Any failure leaves the authority
-    # unset and the app surface answering 503 rather than admitting anyone on a
-    # half-built authority; the hub-relayed turn path is unaffected.
+    # unset. Required durable recovery fails startup; only legacy non-durable
+    # deployments retain the hub-relayed path without local authority.
     try:
         from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
             build_pod_session_authority,
         )
 
         await build_pod_session_authority(log=boot_log, dek=boot_dek, recover_owner_state=True)
-    except Exception as exc:  # noqa: BLE001 - the hub path keeps serving
+    except Exception as exc:  # noqa: BLE001 - legacy non-durable pods retain the hub path
         logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
+        if durable_identity_enabled():
+            # Without recovered authority, relayed turns must not bypass the
+            # incarnation fence simply because no active authority was published.
+            raise RuntimeError("POD_DURABLE_AUTHORITY_UNAVAILABLE") from exc
         # Preserve the existing loaders' explicit unreadable states if a fence
         # or recovery failure prevents local authority from being constructed.
         from hushh_mcp.services.pod_startup_recovery import load_owner_state
@@ -628,6 +630,18 @@ async def _stop_files_queue() -> None:
         await browser.close()
         app.state.browser_composition = None
         app.state.browser_task_runtime = None
+
+    import contextlib  # noqa: PLC0415
+
+    from hushh_mcp.services.pod_session_authority import active_session_authority  # noqa: PLC0415
+
+    authority = active_session_authority()
+    projection = getattr(authority, "recovery_projection", None)
+    log = getattr(getattr(authority, "_store", None), "_log", None)
+    if authority is not None and projection is not None and log is not None:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(authority.require_held(), timeout=1.0)
+            await asyncio.wait_for(projection.recover(log, force_save=True), timeout=2.0)
 
 
 async def _continue_gmail_notifications() -> None:

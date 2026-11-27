@@ -44,6 +44,8 @@ export const ApiService = {
     fetch(path, options),
 };
 export const CacheSyncService = { onConsentMutated: () => undefined };
+// Existing-key requester fixtures never publish or replace receiving custody.
+export const OneMarketplaceService = { registerRecipientKey: async () => { throw new Error("Unexpected receiving setup"); } };
 
 // Owner preparation is unreachable in these requester-only fixtures.
 export function AnswerRequestReview() { throw new Error("Unexpected owner review"); }

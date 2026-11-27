@@ -57,6 +57,21 @@ def test_mark_read_requires_a_positive_snapshot_watermark() -> None:
 
     assert response.status_code == 200
     service.mark_read.assert_called_once_with("user-a", up_to_id=POSTGRES_BIGINT_MAX)
+    service.reset_mock()
+    with patch("api.routes.one.feed._service", return_value=service):
+        assert (
+            client.post(
+                "/api/one/feed/read", json={"up_to_id": "12", "snapshot_fingerprint": "a" * 32}
+            ).status_code
+            == 200
+        )
+    service.mark_read.assert_called_once_with("user-a", up_to_id=12, snapshot_fingerprint="a" * 32)
+    assert (
+        client.post(
+            "/api/one/feed/read", json={"up_to_id": "12", "snapshot_fingerprint": "invalid"}
+        ).status_code
+        == 422
+    )
 
     assert (
         client.post(
@@ -91,6 +106,14 @@ def test_dismiss_restore_and_clear_are_auth_scoped_and_validate_bigint() -> None
     service.dismiss.assert_called_once_with("signed-in-owner", item_id=42)
     service.restore.assert_called_once_with("signed-in-owner", item_id=42, dismissal_token=token)
     service.clear.assert_called_once_with("signed-in-owner", up_to_id=99)
+    service.clear.return_value = {"status": "ok", "snapshot_changed": True}
+    with patch("api.routes.one.feed._service", return_value=service):
+        conflict = client.post(
+            "/api/one/feed/clear", json={"up_to_id": "99", "snapshot_fingerprint": "a" * 32}
+        )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "FEED_SNAPSHOT_CHANGED"
+
     assert client.post("/api/one/feed/0/dismiss").status_code == 422
     assert client.post(f"/api/one/feed/{POSTGRES_BIGINT_MAX + 1}/restore").status_code == 422
     assert (
@@ -158,3 +181,92 @@ def test_sos_card_clear_binds_the_vault_owner_and_bounds_the_ids() -> None:
     signed_out = FastAPI()
     signed_out.include_router(router)
     assert TestClient(signed_out).post(path, json={"grant_ids": [grant_id]}).status_code == 401
+
+
+def test_activity_reads_are_owner_scoped_private_and_validate_facets():
+    service = Mock()
+    service.search_activity.return_value = {"items": [], "next_cursor": None}
+    service.operation_detail.return_value = {"item": {"id": "42"}, "milestones": []}
+    client = _client("owner-only")
+    with patch("api.routes.one.feed._service", return_value=service):
+        search = client.post("/api/one/feed/search", json={"agent": "agent_kyc", "person": "Alex"})
+        detail = client.get("/api/one/feed/42/activity?before_id=41")
+        assert search.status_code == detail.status_code == 200
+        assert (
+            search.headers["cache-control"]
+            == detail.headers["cache-control"]
+            == "private, no-store"
+        )
+        assert service.search_activity.call_args.args == ("owner-only",)
+        assert service.search_activity.call_args.kwargs["agent"] == "agent_kyc"
+        service.operation_detail.assert_called_once_with("owner-only", item_id=42, before_id=41)
+        for body in (
+            {"user_id": "another-owner"},
+            {"agent": "unknown"},
+            {"scope": "kai"},
+            {"query": "one/two/three/four/five/six/seven/eight/ninth"},
+            {"from_at": "2026-10-02T00:00:00Z", "before_at": "2026-10-01T00:00:00Z"},
+            {"from_at": "2026-10-01T00:00:00"},
+            {"cursor": 0},
+        ):
+            assert client.post("/api/one/feed/search", json=body).status_code == 422
+        assert client.get("/api/one/feed/0/activity").status_code == 422
+        assert client.get("/api/one/feed/42/activity?before_id=0").status_code == 422
+        service.operation_detail.return_value = None
+        assert client.get("/api/one/feed/42/activity").status_code == 404
+
+
+def test_activity_reads_require_authentication():
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    assert client.post("/api/one/feed/search", json={}).status_code in (401, 403)
+    assert client.get("/api/one/feed/42/activity").status_code in (401, 403)
+
+
+async def test_search_identity_requires_verified_client_workspace_and_rejects_same_names(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import feed_search_people as people
+    from hushh_mcp.services import ria_iam_service as ria
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    contacts = [
+        {"userId": "first", "displayName": "Ankit Kumar Singh", "publicPersonRef": "person-one"}
+    ]
+    monkeypatch.setattr(ConnectionsService, "list_connections", lambda _self, _owner: contacts)
+    assert (await people.identity_top_hit("owner", "Singh Ank", None, "investor"))[
+        "href"
+    ].startswith("/people/person-one")
+    contacts.append(
+        {"userId": "second", "displayName": "Ankit Kumar Singh", "publicPersonRef": "person-two"}
+    )
+    assert await people.identity_top_hit("owner", "Ankit Kumar Singh", None, "investor") is None
+    assert await people.identity_top_hit("owner", "Mom", None, "investor") is None
+    assert await people.identity_top_hit("owner", "Ankit", "finance", "investor") is None
+    client = SimpleNamespace(
+        require_ria_verified=AsyncMock(),
+        list_ria_clients=AsyncMock(
+            return_value={
+                "items": [
+                    {"investor_user_id": "investor", "investor_display_name": "Ankit Kumar Singh"}
+                ],
+                "has_more": False,
+            }
+        ),
+        get_ria_workspace=AsyncMock(return_value={"available_scope_metadata": ["approved scope"]}),
+    )
+    monkeypatch.setattr(ria, "RIAIAMService", lambda: client)
+    hit = await people.identity_top_hit("advisor", "Ank", "advisor", "ria")
+    assert hit["href"].startswith("/ria/clients/investor")
+    client.require_ria_verified.assert_awaited_once_with("advisor")
+    client.get_ria_workspace.assert_awaited_once_with("advisor", "investor")
+    client.get_ria_workspace.side_effect = ria.RIAIAMPolicyError("No current consent", 403)
+    assert await people.identity_top_hit("advisor", "Ank", "advisor", "ria") is None
+    client.require_ria_verified.side_effect = ria.RIAIAMPolicyError("Unverified", 403)
+    client.list_ria_clients.reset_mock()
+    assert await people.identity_top_hit("advisor", "Ank", "advisor", "ria") is None
+    client.list_ria_clients.assert_not_called()

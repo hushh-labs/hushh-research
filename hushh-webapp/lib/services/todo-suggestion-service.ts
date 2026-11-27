@@ -1,11 +1,23 @@
 import { apiJson } from "@/lib/services/api-client";
 import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
-import { taskSuggestionSchema, type TaskEvidence, type TaskSuggestion } from "@/lib/todos/task-suggestion-model";
+import { taskSuggestionSchema, type TaskCapability, type TaskEvidence, type TaskSuggestion } from "@/lib/todos/task-suggestion-model";
+
+async function requestSuggestions<T>(path: string, token: string, init: RequestInit, isCurrent: () => boolean): Promise<T> {
+  if (!isCurrent()) throw new DOMException("Session changed", "AbortError");
+  const privateOwner = await ownerContentIsPrivate();
+  if (!isCurrent()) throw new DOMException("Session changed", "AbortError");
+  if (!privateOwner) return apiJson<T>(`/api/one/todos/${path}`, {
+    ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` }, isEffectCurrent: isCurrent,
+  });
+  const { ApiService } = await import("@/lib/services/api-service");
+  const response = await ApiService.ownerPodRequest(`todos/${path}`, init, false, undefined, undefined, isCurrent);
+  if (!response.ok) throw new Error("Task suggestions are unavailable in your private agent.");
+  return response.json() as Promise<T>;
+}
 
 export async function todoSuggestionsAvailable(vaultOwnerToken: string, signal: AbortSignal): Promise<boolean> {
-  if (await ownerContentIsPrivate()) return false;
-  const result = await apiJson<{ available?: unknown }>("/api/one/todos/suggestions/status", { method: "GET", cache: "no-store", signal, headers: { Authorization: `Bearer ${vaultOwnerToken}` } });
+  const result = await requestSuggestions<{ available?: unknown }>("suggestions/status", vaultOwnerToken, { method: "GET", cache: "no-store", signal }, () => !signal.aborted);
   return result.available === true;
 }
 
@@ -29,23 +41,22 @@ function balancedSources(evidence: TaskEvidence[]): TaskEvidence[] {
 export async function suggestTodoTasks(input: {
   vaultOwnerToken: string;
   sources: TaskEvidence[];
+  selectedCapabilities?: readonly TaskCapability[];
   allowModelProcessing: true;
   signal?: AbortSignal;
   isCurrent: () => boolean;
 }): Promise<TaskSuggestion[]> {
-  // The hub must never become a fallback for a private owner's content.
-  if (await ownerContentIsPrivate()) throw new Error("Open your private agent to ask for task suggestions.");
   if (!input.isCurrent()) throw new DOMException("Session changed", "AbortError");
-  const sources = balancedSources(input.sources);
+  const sources = balancedSources(input.sources.filter(source => !source.pendingTitle && (!input.selectedCapabilities || input.selectedCapabilities.includes(source.capability))));
   if (!sources.length) throw new Error("No task summaries are available to assess.");
   const offered = new Map(sources.map((source, index) => [`s${index + 1}`, source]));
-  const payload = await apiJson<unknown>("/api/one/todos/suggestions", {
+  const payload = await requestSuggestions<unknown>("suggestions", input.vaultOwnerToken, {
     method: "POST", cache: "no-store", signal: input.signal,
-    headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ allow_model_processing: input.allowModelProcessing,
+      ...(input.selectedCapabilities === undefined ? {} : { selected_capabilities: input.selectedCapabilities }),
       sources: [...offered].map(([ref, source]) => ({ ref, capability: source.capability, summary: source.summary, already_pending: Boolean(source.pendingTitle) })) }),
-    isEffectCurrent: input.isCurrent,
-  });
+  }, input.isCurrent);
   if (!input.isCurrent()) throw new DOMException("Session changed", "AbortError");
   const result = taskSuggestionSchema.parse(payload);
   const selected = new Set<string>();

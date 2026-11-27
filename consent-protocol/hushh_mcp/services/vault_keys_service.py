@@ -849,8 +849,62 @@ class VaultKeysService:
         except Exception:
             logger.exception("[vault_keys] referral_qualification_sync_failed user=%s", user_id)
 
-    @staticmethod
-    def _get_allowed_passkey_rp_ids() -> set[str]:
+    _ENV_SIBLING_PASSKEY_RP_IDS: tuple[frozenset[str], ...] = (
+        # Dev: Agent One + hussh/hushh website sibling domains
+        frozenset(
+            {
+                "dev.one.hushh.ai",
+                "dev.one.hussh.ai",
+                "dev.one.hussh.si",
+                "dev.one.hushh.si",
+                "dev.hushh.ai",
+                "dev.hussh.ai",
+                "dev.hussh.si",
+                "dev.hushh.si",
+            }
+        ),
+        # UAT: Agent One + hussh/hushh website sibling domains
+        frozenset(
+            {
+                "uat.one.hushh.ai",
+                "uat.one.hussh.ai",
+                "uat.one.hussh.si",
+                "uat.one.hushh.si",
+                "uat.kai.hushh.ai",
+                "uat.hushh.ai",
+                "uat.hussh.ai",
+                "uat.hussh.si",
+                "uat.hushh.si",
+                "hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+                "one-uat-f2gsa4kfsq-uc.a.run.app",
+                "hushh-ai-website-2hph5fpttq-uc.a.run.app",
+            }
+        ),
+        # Production: Agent One + hussh/hushh website sibling domains
+        frozenset(
+            {
+                "one.hushh.ai",
+                "one.hussh.ai",
+                "one.hussh.si",
+                "one.hushh.si",
+                "kai.hushh.ai",
+                "www.hushh.ai",
+                "hushh.ai",
+                "www.hussh.ai",
+                "hussh.ai",
+                "www.hussh.si",
+                "hussh.si",
+                "www.hushh.si",
+                "hushh.si",
+                "hushh-webapp-rpphvsc3tq-uc.a.run.app",
+                "hushh-webapp-1006304528804.us-central1.run.app",
+                "hushh-ai-website-yb3ojn3jxa-uc.a.run.app",
+            }
+        ),
+    )
+
+    @classmethod
+    def _get_allowed_passkey_rp_ids(cls) -> set[str]:
         # Always allow localhost variants for local tooling and tests.
         allowed = {"localhost", "127.0.0.1"}
 
@@ -886,11 +940,18 @@ class VaultKeysService:
             return allowed
 
         # If explicit RP IDs are not configured, derive from frontend/CORS settings
-        # so domain migrations (run.app <-> custom domain) remain functional.
+        # so domain migrations (run.app <-> custom domain) and first-party website
+        # surfaces in the same environment remain functional without cross-env leakage.
         from hushh_mcp.runtime_settings import get_app_runtime_settings
 
-        allowed.update(collect_from_csv(get_app_runtime_settings().app_frontend_origin))
-        allowed.update(collect_from_csv(os.getenv("CORS_ALLOWED_ORIGINS")))
+        derived_hosts: set[str] = set()
+        derived_hosts.update(collect_from_csv(get_app_runtime_settings().app_frontend_origin))
+        derived_hosts.update(collect_from_csv(os.getenv("CORS_ALLOWED_ORIGINS")))
+        allowed.update(derived_hosts)
+
+        for sibling_group in cls._ENV_SIBLING_PASSKEY_RP_IDS:
+            if derived_hosts & sibling_group:
+                allowed.update(sibling_group)
 
         # Keep legacy production fallback for older deployments that only use defaults.
         allowed.add("hushh-webapp-1006304528804.us-central1.run.app")

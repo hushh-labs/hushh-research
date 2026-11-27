@@ -1721,6 +1721,7 @@ class GmailDeliveryService:
                 SET state = 'cancelled',
                     payload_sealed = NULL,
                     subject = NULL,
+                    recipient_display = NULL,
                     idempotency_hmac = idempotency_hmac || $3 || action_id,
                     updated_at = NOW()
                 WHERE action_id = $1 AND user_id = $2 AND state = 'scheduled'

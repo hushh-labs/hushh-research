@@ -11,19 +11,31 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, date, datetime, timedelta
+from email.utils import getaddresses
 from typing import Any, Awaitable, Callable, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.tools.tool_context import ToolContext
+from pydantic import ValidationError
 
 from hushh_mcp.agents.calendar.read_offer import (
     STATE_CALENDAR_OFFER,
+    STATE_EVENT_ATTENDEES,
     STATE_EVENT_OFFER,
+    STATE_EVENTS_PAGE,
     STATE_INVITATION_OFFER,
+    STATE_OPENING_OFFER,
+    CalendarAttendeeOffer,
+    CalendarEventsPage,
+    CalendarOpeningOffer,
+    CalendarReadOffer,
+    current_calendar_opening_offer,
     current_calendar_read_offer,
     make_calendar_read_offer,
 )
+from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_calendar_service import (
     EVENT_PAGE_MAX,
     get_google_calendar_service,
@@ -34,6 +46,7 @@ from hushh_mcp.services.owner_time import resolve_calendar_time
 logger = logging.getLogger(__name__)
 
 _CALENDAR_UNAVAILABLE_MESSAGE = "I couldn't reach your calendar just now. Try again in a moment."
+_ACCOUNT_UNAVAILABLE_MESSAGE = "I couldn't find that Calendar account. Choose a connected account."
 
 _STATE_USER_ID = "hussh:user_id"
 _STATE_TIMEZONE = "hussh:timezone"
@@ -63,6 +76,139 @@ def _timezone(tool_context: ToolContext) -> str:
         # catch both; this one caught only the narrower of the two.
         return "UTC"
     return value
+
+
+class _AccountSelectionRequired(Exception):
+    def __init__(self, accounts: list[dict[str, Any]]) -> None:
+        self.accounts = accounts
+
+
+def _validate_account_reference(account_id: str) -> None:
+    if not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 128:
+        raise GoogleConnectionError(
+            "Choose a valid Calendar account",
+            status_code=422,
+            reason_code="calendar_account_unavailable",
+        )
+
+
+def _require_shared_calendar_accounts() -> None:
+    from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
+    from hushh_mcp.services.pod_google_connections import calendar_runs_locally
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
+
+    if private_pod_runtime() or calendar_reads_via_door() or calendar_runs_locally():
+        raise GoogleConnectionError(
+            "Additional Calendar accounts are unavailable in this runtime.",
+            status_code=422,
+            reason_code="calendar_account_unavailable",
+        )
+
+
+def _calendar_service(account_id: str, *, expected_email: str | None = None) -> Any:
+    _validate_account_reference(account_id)
+    if account_id == "default" and expected_email is None:
+        return get_google_calendar_service()
+
+    _require_shared_calendar_accounts()
+    from hushh_mcp.services.calendar_account_board_service import account_schedule
+
+    if expected_email is not None:
+        return account_schedule(account_id, expected_email=expected_email).calendar
+    return account_schedule(account_id).calendar
+
+
+async def _read_accounts(service: Any, user_id: str) -> list[dict[str, Any]]:
+    inventory = getattr(getattr(service, "connections", None), "calendar_accounts_status", None)
+    if not callable(inventory):
+        return []
+    status = await inventory(user_id=user_id, include_pictures=False)
+    return [
+        {
+            "account_id": item["account_id"],
+            "account_email": item.get("google_email"),
+            "status": item.get("status"),
+        }
+        for item in status.get("accounts", [])
+        if isinstance(item, dict) and item.get("account_id")
+    ]
+
+
+async def _resolve_read_account(user_id: str, email: str) -> str:
+    """Resolve a full email via the owner's Calendar inventory before calling the provider."""
+    _require_shared_calendar_accounts()
+    matches = [
+        account
+        for account in await _read_accounts(_calendar_service("default"), user_id)
+        if isinstance(account["account_email"], str)
+        and account["account_email"].casefold() == email
+    ]
+    if len(matches) == 1:
+        return matches[0]["account_id"]
+    if matches:
+        raise _AccountSelectionRequired(matches)
+    raise GoogleConnectionError(
+        _ACCOUNT_UNAVAILABLE_MESSAGE,
+        status_code=422,
+        reason_code="calendar_account_unavailable",
+    )
+
+
+async def _read_service(
+    user_id: str, account_id: str | None, *, expected_email: str | None = None
+) -> tuple[Any, str]:
+    if account_id is not None:
+        if expected_email is not None:
+            return _calendar_service(account_id, expected_email=expected_email), account_id
+        return _calendar_service(account_id), account_id
+    service = _calendar_service("default")
+    # Single-account ports (including owner cloud) retain their existing contract.
+    accounts = await _read_accounts(service, user_id)
+    if len(accounts) > 1:
+        raise _AccountSelectionRequired(accounts)
+    if accounts:
+        account_id = accounts[0]["account_id"]
+        return _calendar_service(account_id), account_id
+    return service, "default"
+
+
+def _source_account(
+    tool_context: ToolContext,
+    *,
+    key: str,
+    kind: Literal["events", "calendars", "invitations"],
+    user_id: str,
+    requested: str | None,
+) -> str:
+    try:
+        candidate = CalendarReadOffer.model_validate(tool_context.state.get(key))
+    except (ValidationError, TypeError, ValueError):
+        candidate = None
+    if (
+        candidate is None
+        or current_calendar_read_offer(
+            candidate.model_dump(),
+            kind=kind,
+            owner_id=user_id,
+            conversation_id=_conversation_id(tool_context),
+            grant_binding=tuple(candidate.grant_binding),
+        )
+        is None
+    ):
+        raise GoogleConnectionError(
+            "Show this Calendar list again before choosing a reference.",
+            status_code=422,
+            reason_code="calendar_event_offer_required"
+            if kind == "events"
+            else "calendar_list_offer_required",
+        )
+    if requested is not None and requested != candidate.account_id:
+        raise GoogleConnectionError(
+            "This reference belongs to a different Calendar account. Show the requested account again.",
+            status_code=422,
+            reason_code="calendar_account_mismatch",
+        )
+    return candidate.account_id
 
 
 async def _read_binding(service: Any, user_id: str) -> tuple[str, ...] | None:
@@ -107,6 +253,7 @@ def _remember_offer(
     binding: tuple[str, ...] | None,
     ids: list[str],
     calendar_id: str = "primary",
+    account_id: str = "default",
 ) -> None:
     tool_context.state[key] = (
         make_calendar_read_offer(
@@ -116,6 +263,7 @@ def _remember_offer(
             grant_binding=binding or (),
             ids=ids,
             calendar_id=calendar_id,
+            account_id=account_id,
         )
         if binding
         else None
@@ -135,12 +283,14 @@ def _connection_directive(
     confirm_label: str | None = None,
     reason_code: str | None = None,
     include_calendar_list: bool = False,
+    account_id: str = "default",
 ) -> dict[str, Any]:
     directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
         "payload": {
             "type": "calendar.connect",
+            "accountId": account_id,
             "accessLevel": access_level,
             "reasonCode": reason_code,
             "includeCalendarList": include_calendar_list,
@@ -166,6 +316,7 @@ def _handle_connection_error(
     exc: GoogleConnectionError,
     *,
     access_level: str,
+    account_id: str = "default",
 ) -> dict[str, Any] | None:
     if exc.reason_code not in {
         "google_not_connected",
@@ -185,6 +336,7 @@ def _handle_connection_error(
             confirm_label="Allow calendar list access",
             reason_code=exc.reason_code,
             include_calendar_list=True,
+            account_id=account_id,
         )
     label = "scheduling and editing events" if access_level == "manage" else "reading events"
     if exc.reason_code in {"google_permission_required", "calendar_permission_required"}:
@@ -201,6 +353,7 @@ def _handle_connection_error(
         access_level=access_level,
         message=message,
         reason_code=exc.reason_code,
+        account_id=account_id,
     )
 
 
@@ -239,10 +392,15 @@ async def _serve_via_door(
 
 async def _run_calendar_read(
     tool_context: ToolContext,
-    call: Callable[[str], Awaitable[dict[str, Any]]],
+    call: Callable[[str, Any, str], Awaitable[dict[str, Any]]],
     *,
-    calendar_read: dict[str, Any] | None = None,
+    calendar_read: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
     owner_local_only: bool = False,
+    account_id: str | None = None,
+    source: tuple[str, Literal["events", "calendars", "invitations"]] | None = None,
+    shared_accounts: bool = False,
+    display_time_zone: str | None = None,
+    required_action: Literal["respond"] | None = None,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
     boundary, converting any failure into a clean result instead of letting
@@ -260,8 +418,54 @@ async def _run_calendar_read(
     """
     try:
         user_id = _user_id(tool_context)
+        from hushh_mcp.one_adk.pod_connector_tools import calendar_turn_refusal
+
+        refusal = await calendar_turn_refusal(tool_context)
+        if refusal is not None:
+            return refusal
+        display_zone = normalize_time_zone(
+            display_time_zone
+            if display_time_zone is not None
+            else tool_context.state.get("hussh:timezone")
+        )
+        from hushh_mcp.agents.calendar.request_scope import request_scope, require_action
+
+        # Freeze the request's review ceiling before any provider content arrives.
+        # A failed assessment cannot authorize a review, but does not prevent reads.
+        if required_action is not None:
+            refused = await require_action(tool_context, required_action)
+            if refused is not None:
+                return refused
+        else:
+            await request_scope(tool_context)
         async with asyncio.timeout(25):
-            if owner_local_only:
+            expected_email = None
+            if account_id is not None:
+                _validate_account_reference(account_id)
+                if required_action is None and "@" in account_id:
+                    expected_email = account_id.strip().casefold()
+                    account_id = await _resolve_read_account(user_id, expected_email)
+            if source is not None:
+                account_id = _source_account(
+                    tool_context,
+                    key=source[0],
+                    kind=source[1],
+                    user_id=user_id,
+                    requested=account_id,
+                )
+            if callable(calendar_read):
+                calendar_read = calendar_read()
+            if shared_accounts:
+                from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
+                from hushh_mcp.services.pod_google_connections import calendar_runs_locally
+
+                # Shared account inventory is never a fallback for a private port.
+                if calendar_reads_via_door() or calendar_runs_locally():
+                    return {
+                        "status": "unavailable",
+                        "message": "Cross-account Calendar reads are unavailable in this runtime.",
+                    }
+            if owner_local_only or account_id not in {None, "default"}:
                 from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
 
                 if calendar_reads_via_door():
@@ -269,14 +473,45 @@ async def _run_calendar_read(
                         "status": "unavailable",
                         "message": "This Calendar read requires your owner-cloud agent.",
                     }
+            from hushh_mcp.agents.calendar.read_projection import local_read_result
+
             served = await _serve_via_door(tool_context, calendar_read)
             if served is not None:
-                return served
-            return await call(user_id)
+                return local_read_result(served, display_zone)
+            if shared_accounts:
+                from hushh_mcp.services.calendar_account_board_service import (
+                    CalendarAccountBoardService,
+                )
+
+                service = CalendarAccountBoardService()
+                account_id = ""
+            else:
+                service, account_id = await _read_service(
+                    user_id, account_id, expected_email=expected_email
+                )
+            return local_read_result(
+                {**await call(user_id, service, account_id), "account_id": account_id},
+                display_zone,
+            )
+    except _AccountSelectionRequired as exc:
+        return {
+            "status": "input_required",
+            "reason_code": "calendar_account_required",
+            "accounts": exc.accounts,
+            "message": "Which connected Calendar account should I use?",
+        }
     except TimeoutError:
         return {"status": "timeout", "message": "Calendar took too long. Please try again."}
     except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="read")
+        if account_id not in (None, "default") and exc.reason_code == "calendar_not_connected":
+            return {
+                "status": "input_required",
+                "reason_code": "calendar_account_unavailable",
+                "message": _ACCOUNT_UNAVAILABLE_MESSAGE,
+            }
+        directive = _handle_connection_error(
+            tool_context, exc, access_level="read", account_id=account_id or "default"
+        )
         if directive is not None:
             return directive
         logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
@@ -296,6 +531,12 @@ async def _run_calendar_read(
                 "message": "That Calendar event was not found. Check the event and try again.",
             }
         if exc.status_code == 422:
+            if exc.reason_code == "calendar_page_required":
+                return {
+                    "status": "input_required",
+                    "reason_code": exc.reason_code,
+                    "message": str(exc),
+                }
             if exc.reason_code == "calendar_list_offer_required":
                 return {
                     "status": "input_required",
@@ -308,7 +549,10 @@ async def _run_calendar_read(
                 }
             return {
                 "status": "input_required",
-                "message": "I need a valid Calendar date, time, or selection to check that.",
+                "reason_code": exc.reason_code,
+                "message": str(exc)
+                if exc.reason_code in {"calendar_account_mismatch", "calendar_account_unavailable"}
+                else "I need a valid Calendar date, time, or selection to check that.",
             }
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     except Exception as exc:  # noqa: BLE001 - keep provider information out of diagnostics
@@ -316,24 +560,37 @@ async def _run_calendar_read(
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
 
 
-def _iso_window(tool_context: ToolContext, days: int) -> tuple[str, str]:
+def _iso_window(
+    tool_context: ToolContext, days: int, time_zone: str | None = None
+) -> tuple[str, str]:
     clean_days = max(1, min(int(days), 31))
-    zone = ZoneInfo(_timezone(tool_context))
-    start = datetime.now(zone).replace(second=0, microsecond=0)
+    from hushh_mcp.agents.calendar.read_projection import turn_instant
+
+    zone = ZoneInfo(
+        normalize_time_zone(time_zone if time_zone is not None else _timezone(tool_context))
+    )
+    start = (
+        (turn_instant(tool_context) or datetime.now(UTC))
+        .astimezone(zone)
+        .replace(second=0, microsecond=0)
+    )
     end = start + timedelta(days=clean_days)
     return start.astimezone(UTC).isoformat().replace("+00:00", "Z"), end.astimezone(
         UTC
     ).isoformat().replace("+00:00", "Z")
 
 
-def _calendar_iso(value: str, tool_context: ToolContext) -> str:
+def _calendar_iso(value: str, tool_context: ToolContext, time_zone: str | None = None) -> str:
     """Use the person's declared timezone only when the model omitted an offset."""
     try:
-        resolved = resolve_calendar_time(str(value), timezone_name=_timezone(tool_context))
+        if "T" not in str(value) and " " not in str(value):
+            raise ValueError("calendar_time_missing")
+        zone_name = normalize_time_zone(
+            time_zone if time_zone is not None else tool_context.state.get("hussh:timezone")
+        )
+        resolved = resolve_calendar_time(str(value), timezone_name=zone_name)
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return (
-            parsed if parsed.tzinfo else resolved.astimezone(ZoneInfo(_timezone(tool_context)))
-        ).isoformat()
+        return (parsed if parsed.tzinfo else resolved.astimezone(ZoneInfo(zone_name))).isoformat()
     except (ValueError, OverflowError) as exc:
         raise GoogleConnectionError(
             "Use a valid Calendar time with an explicit offset when local time repeats",
@@ -342,13 +599,21 @@ def _calendar_iso(value: str, tool_context: ToolContext) -> str:
         ) from exc
 
 
-async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str, Any]:
-    """Get calendar events for the next 1–31 days so One can summarize them."""
-    start_at, end_at = _iso_window(tool_context, days)
+async def calendar_summary(
+    tool_context: ToolContext,
+    days: int = 7,
+    account_id: str | None = None,
+    time_zone: str | None = None,
+) -> dict[str, Any]:
+    """Read the next 1–31 days from this turn's clock, including after restoration.
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    Use local_start_at/local_end_at in display_time_zone; pass an explicit IANA time_zone.
+    For a read of a named account, account_id accepts its full email or the exact account ID.
+    """
+
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
+        start_at, end_at = _iso_window(tool_context, days, time_zone)
         tool_context.state[STATE_EVENT_OFFER] = None
-        service = get_google_calendar_service()
         before = await _read_binding(service, user_id)
         result = await service.list_events(
             user_id=user_id, start_at=start_at, end_at=end_at, max_results=EVENT_PAGE_MAX
@@ -360,6 +625,7 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
             kind="events",
             user_id=user_id,
             binding=before,
+            account_id=account_id,
             ids=[item.get("id") or "" for item in result.get("events", [])],
         )
         return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
@@ -367,7 +633,14 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={"operation": "events", "start_at": start_at, "end_at": end_at},
+        account_id=account_id,
+        calendar_read=lambda: dict(
+            operation="events",
+            **dict(
+                zip(("start_at", "end_at"), _iso_window(tool_context, days, time_zone), strict=True)
+            ),
+        ),
+        display_time_zone=time_zone,
     )
 
 
@@ -401,15 +674,27 @@ async def _event_calendar_id(
         )
 
 
+def _creator_email(event: dict[str, Any]) -> str | None:
+    creator = event.get("creator")
+    if not isinstance(creator, dict):
+        return None
+    email = creator.get("email")
+    return email.strip().casefold() if isinstance(email, str) and "@" in email else None
+
+
 async def calendar_events(
     tool_context: ToolContext,
-    start_at: str,
-    end_at: str,
+    start_at: str = "",
+    end_at: str = "",
     query: str | None = None,
     limit: int = 100,
     calendar_id: str = "primary",
     calendar_ordinal: int | None = None,
     page_token: str | None = None,
+    account_id: str | None = None,
+    time_zone: str | None = None,
+    next_page: bool = False,
+    created_by_me: bool | None = None,
 ) -> dict[str, Any]:
     """List events in an exact ISO-8601, time-zone-qualified interval.
 
@@ -417,33 +702,132 @@ async def calendar_events(
     location, attendees and organizer. ``limit`` is 1-250 events. When the
     result says ``truncated``, more events exist than were returned: say so,
     never claim the list is complete. Use this before rescheduling or
-    cancelling so you use the event id returned by Google rather than
-    guessing one.
+    cancelling so you select the returned event by its ordinal, never a raw
+    or guessed provider id.
+    For more of the same search, pass only next_page=true.
+    created_by_me compares creator.email with the verified connected account email,
+    never creator.self, organizer or calendar ownership.
+    Filtering is deterministic over this provider page; unknown creators are reported
+    separately and a partial page never proves a complete matching count.
+    Pass the person's explicit IANA ``time_zone``. Render ``local_start_at`` /
+    ``local_end_at`` in ``display_time_zone``; retain their dates and source instants.
+    For a read of a named account, account_id accepts its full email or the exact account ID.
     """
 
-    async def _call(user_id: str) -> dict[str, Any]:
-        tool_context.state[STATE_EVENT_OFFER] = None
-        service = get_google_calendar_service()
-        selected_id = await _event_calendar_id(
-            tool_context, service, user_id, calendar_id, calendar_ordinal
-        )
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         before = await _read_binding(service, user_id)
+        conversation_id = _conversation_id(tool_context)
+        if next_page:
+            try:
+                page = CalendarEventsPage.model_validate(tool_context.state.get(STATE_EVENTS_PAGE))
+            except ValidationError:
+                page = None
+            if (
+                start_at
+                or end_at
+                or query is not None
+                or calendar_id != "primary"
+                or calendar_ordinal is not None
+                or page_token is not None
+                or limit != 100
+                or created_by_me is not None
+                or page is None
+                or page.account_id != account_id
+                or not page.current(
+                    owner_id=user_id, conversation_id=conversation_id, grant_binding=before
+                )
+            ):
+                raise GoogleConnectionError(
+                    "The Calendar page is no longer available. Run the search again.",
+                    status_code=422,
+                    reason_code="calendar_page_required",
+                )
+            selected_id, lower, upper = page.calendar_id, page.start_at, page.end_at
+            selected_query, selected_limit, cursor = page.query, page.limit, page.page_token
+            selected_creator = page.created_by_me
+        else:
+            tool_context.state[STATE_EVENTS_PAGE] = None
+            tool_context.state[STATE_EVENT_OFFER] = None
+            selected_id = await _event_calendar_id(
+                tool_context, service, user_id, calendar_id, calendar_ordinal
+            )
+            lower, upper = (
+                _calendar_iso(start_at, tool_context, time_zone),
+                _calendar_iso(end_at, tool_context, time_zone),
+            )
+            selected_query, selected_limit, cursor = query, _bounded_limit(limit), page_token
+            if created_by_me is not None and type(created_by_me) is not bool:
+                raise GoogleConnectionError("Choose a valid creator filter.", status_code=422)
+            selected_creator = created_by_me
+        creator_email = (
+            await service.creator_account_email(user_id=user_id, expected_binding=before)
+            if selected_creator is not None
+            else None
+        )
         result = await service.list_events(
             user_id=user_id,
-            start_at=_calendar_iso(start_at, tool_context),
-            end_at=_calendar_iso(end_at, tool_context),
-            max_results=_bounded_limit(limit),
-            query=query,
+            start_at=lower,
+            end_at=upper,
+            max_results=selected_limit,
+            query=selected_query,
             calendar_id=selected_id,
-            page_token=page_token,
+            page_token=cursor,
         )
         await _check_stable_binding(service, user_id, before)
+        if selected_creator is not None:
+            events = result.get("events", [])
+            known = [event for event in events if creator_email and _creator_email(event)]
+            matching = [
+                event
+                for event in known
+                if (_creator_email(event) == creator_email) == selected_creator
+            ]
+            result.update(
+                {
+                    "events": matching,
+                    "provider_returned_count": len(events),
+                    "returned_count": len(matching),
+                    "creator_unknown_count": len(events) - len(known),
+                    "created_by_me": selected_creator,
+                    "creator_identity_available": creator_email is not None,
+                }
+            )
+        following = result.get("next_page_token")
+        tool_context.state[STATE_EVENTS_PAGE] = None
+        if (
+            tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+            and before
+            and conversation_id
+            and isinstance(following, str)
+            and following != cursor
+        ):
+            try:
+                tool_context.state[STATE_EVENTS_PAGE] = CalendarEventsPage(
+                    owner_id=user_id,
+                    conversation_id=conversation_id,
+                    account_id=account_id,
+                    grant_binding=list(before),
+                    created_at_ms=int(datetime.now(UTC).timestamp() * 1000),
+                    calendar_id=selected_id,
+                    start_at=lower,
+                    end_at=upper,
+                    query=selected_query,
+                    limit=selected_limit,
+                    page_token=following,
+                    created_by_me=selected_creator,
+                ).model_dump(mode="json")
+            except ValidationError:
+                pass
+        if tool_context.state.get("temp:one_execution_surface") == "typed_chat":
+            result.pop("next_page_token", None)
+            result["next_page_available"] = tool_context.state.get(STATE_EVENTS_PAGE) is not None
         _remember_offer(
             tool_context,
             key=STATE_EVENT_OFFER,
             kind="events",
             user_id=user_id,
             binding=before,
+            account_id=account_id,
             ids=[item.get("id") or "" for item in result.get("events", [])],
             calendar_id=selected_id,
         )
@@ -452,30 +836,48 @@ async def calendar_events(
             **result,
         }
 
+    if next_page and account_id is None:
+        try:
+            saved = CalendarEventsPage.model_validate(tool_context.state.get(STATE_EVENTS_PAGE))
+            if saved.owner_id == tool_context.state.get(
+                _STATE_USER_ID
+            ) and saved.conversation_id == _conversation_id(tool_context):
+                account_id = saved.account_id
+        except ValidationError:
+            pass
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={
+        account_id=account_id,
+        source=(STATE_CALENDAR_OFFER, "calendars") if calendar_ordinal is not None else None,
+        display_time_zone=time_zone,
+        calendar_read=None
+        if next_page
+        else lambda: {
             "operation": "events",
             "query": query,
             "event_limit": _bounded_limit(limit),
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
+            "start_at": _calendar_iso(start_at, tool_context, time_zone),
+            "end_at": _calendar_iso(end_at, tool_context, time_zone),
         },
-        owner_local_only=calendar_ordinal is not None
+        owner_local_only=next_page
+        or created_by_me is not None
+        or calendar_ordinal is not None
         or calendar_id != "primary"
         or page_token is not None,
     )
 
 
 async def calendar_calendars(
-    tool_context: ToolContext, limit: int = 50, page_token: str | None = None
+    tool_context: ToolContext,
+    limit: int = 50,
+    page_token: str | None = None,
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """List subscribed calendars before selecting a secondary calendar."""
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         tool_context.state[STATE_CALENDAR_OFFER] = None
-        service = get_google_calendar_service()
         before = await _read_binding(service, user_id)
         result = await service.list_calendars(
             user_id=user_id, max_results=_bounded_limit(limit), page_token=page_token
@@ -487,6 +889,7 @@ async def calendar_calendars(
             kind="calendars",
             user_id=user_id,
             binding=before,
+            account_id=account_id,
             ids=[item.get("id") or "" for item in result.get("calendars", [])],
         )
         return {
@@ -494,14 +897,26 @@ async def calendar_calendars(
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call, owner_local_only=True)
+    return await _run_calendar_read(
+        tool_context, _call, owner_local_only=True, account_id=account_id
+    )
 
 
-async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict[str, Any]:
-    """Read one exact event by its position in the last owner-visible list."""
+async def calendar_event_detail(
+    tool_context: ToolContext,
+    ordinal: int,
+    account_id: str | None = None,
+    time_zone: str | None = None,
+) -> dict[str, Any]:
+    """Read one exact event by its position in the last owner-visible list.
 
-    async def _call(user_id: str) -> dict[str, Any]:
-        service = get_google_calendar_service()
+    A complete guest list includes numbered attendee choices for a new invite.
+
+    Pass the requested IANA time_zone; summarize the returned local fields in display_time_zone.
+    The optional account_id may be the exact account ID or full email of the listed account.
+    """
+
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         binding = await _read_binding(service, user_id)
         offer = current_calendar_read_offer(
             tool_context.state.get(STATE_EVENT_OFFER),
@@ -519,15 +934,160 @@ async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict
                 reason_code="calendar_event_offer_required",
             )
         result = await service.get_event(
-            user_id=user_id, calendar_id=offer.calendar_id, event_id=event_id
+            user_id=user_id,
+            calendar_id=offer.calendar_id,
+            event_id=event_id,
+            expected_binding=binding,
         )
         await _check_stable_binding(service, user_id, binding)
+        if binding and tool_context.state.get("temp:one_execution_surface") == "typed_chat":
+            _offer_event_attendees(tool_context, user_id, binding, result)
         return {
             "status": "ok",
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call, owner_local_only=True)
+    tool_context.state[STATE_EVENT_ATTENDEES] = None
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        owner_local_only=True,
+        account_id=account_id,
+        source=(STATE_EVENT_OFFER, "events"),
+        display_time_zone=time_zone,
+    )
+
+
+def _offer_event_attendees(
+    tool_context: ToolContext, user_id: str, binding: tuple[str, ...], result: dict[str, Any]
+) -> None:
+    from hushh_mcp.pod_connectors.contacts_tool import calendar_guest_choices
+
+    event = result.get("event")
+    if (
+        not isinstance(event, dict)
+        or event.get("attendees_omitted")
+        or event.get("status") == "cancelled"
+    ):
+        return
+    participants = list(event.get("attendees") or ())
+    organizer = event.get("organizer")
+    if isinstance(organizer, dict):
+        participants.append(organizer)
+    choices = calendar_guest_choices(
+        [
+            {
+                "name": item.get("display_name") or item.get("displayName") or "",
+                "emails": [item["email"]],
+            }
+            for item in participants
+            if isinstance(item, dict)
+            and not (item.get("self") or item.get("resource"))
+            and isinstance(item.get("email"), str)
+        ]
+    )
+    if not choices:
+        return
+    offer = CalendarAttendeeOffer(
+        owner_id=user_id,
+        conversation_id=_conversation_id(tool_context),
+        grant_binding=list(binding),
+        created_at_ms=int(datetime.now(UTC).timestamp() * 1000),
+        emails=[choice["email"] for choice in choices],
+    )
+    tool_context.state[STATE_EVENT_ATTENDEES] = offer.model_dump(mode="json")
+    result["attendee_choices"] = [
+        {key: value for key, value in choice.items() if key != "email"} for choice in choices
+    ]
+
+
+async def _selected_event_attendees(
+    tool_context: ToolContext, ordinals: list[int]
+) -> tuple[list[str], tuple[str, ...]] | None:
+    if tool_context.state.get("temp:one_execution_surface") != "typed_chat":
+        return None
+    try:
+        offer = CalendarAttendeeOffer.model_validate(tool_context.state.get(STATE_EVENT_ATTENDEES))
+        owner = _user_id(tool_context)
+        binding = await _read_binding(get_google_calendar_service(), owner)
+    except (ValidationError, GoogleConnectionError):
+        return None
+    if (
+        not binding
+        or not offer.current(
+            owner_id=owner, conversation_id=_conversation_id(tool_context), grant_binding=binding
+        )
+        or not 1 <= len(ordinals) <= len(offer.emails)
+        or any(type(value) is not int or not 1 <= value <= len(offer.emails) for value in ordinals)
+    ):
+        return None
+    return [offer.emails[value - 1] for value in ordinals], binding
+
+
+async def _selected_mail_sender(
+    tool_context: ToolContext, ordinal: int, reply_body: str | None
+) -> tuple[str, tuple[str, str], dict[str, Any] | None] | None:
+    from hushh_mcp.one_adk.pod_connector_tools import pod_tool_owner
+    from hushh_mcp.pod_connectors.contacts_tool import calendar_guest_choices
+    from hushh_mcp.services.email_delegated_read import current_mail_read_offer
+    from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError
+    from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
+    from hushh_mcp.services.gmail_reply_source_service import calendar_linked_reply
+    from hushh_mcp.services.pod_gmail_local import calendar_mail_source
+
+    if (
+        tool_context.state.get("temp:one_execution_surface") != "typed_chat"
+        or type(ordinal) is not int
+    ):
+        return None
+    owner = await pod_tool_owner(tool_context, "gmail")
+    if not owner:
+        return None
+    offer = current_mail_read_offer(
+        tool_context.state.get("hussh:mail_read_offer"),
+        owner_id=owner,
+        conversation_id=_conversation_id(tool_context),
+    )
+    message_id = offer.message_id_at(ordinal) if offer else None
+    if offer is None or not offer.pod_credential_id or not message_id:
+        return None
+
+    async def require_access() -> None:
+        if await pod_tool_owner(tool_context, "gmail") != owner:
+            raise GmailMetadataError("permission_denied")
+
+    try:
+        message, owner_email = await calendar_mail_source(
+            owner_id=owner,
+            credential_id=offer.pod_credential_id,
+            account=offer.account,
+            message_id=message_id,
+            require_access=require_access,
+        )
+    except GmailMetadataError:
+        return None
+    if {"SENT", "DRAFT", "TRASH", "SPAM"} & set(message.get("labelIds", [])):
+        return None
+    headers = [
+        item["value"] for item in message["payload"]["headers"] if item["name"].lower() == "from"
+    ]
+    if len(headers) != 1 or any(character in headers[0] for character in "\r\n"):
+        return None
+    parsed = getaddresses(headers, strict=True)
+    if len(parsed) != 1 or not owner_email or parsed[0][1].casefold() == owner_email.casefold():
+        return None
+    choices = calendar_guest_choices([{"name": parsed[0][0], "emails": [parsed[0][1]]}])
+    if not choices:
+        return None
+    try:
+        reply = (
+            calendar_linked_reply(message, owner_email=owner_email, body=reply_body)
+            if reply_body is not None
+            else None
+        )
+    except GmailDeliveryError:
+        return None
+    return choices[0]["email"], (offer.pod_credential_id, offer.account), reply
 
 
 def _bounded_limit(value: object) -> int:
@@ -545,26 +1105,33 @@ async def calendar_availability(
     tool_context: ToolContext,
     start_at: str,
     end_at: str,
+    account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
-    """Check busy periods in an exact ISO-8601, time-zone-qualified interval."""
+    """Check busy periods in an exact ISO-8601, time-zone-qualified interval.
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    Pass an explicit IANA time_zone; display local_start/local_end in display_time_zone.
+    """
+
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         return {
             "status": "ok",
-            **await get_google_calendar_service().freebusy(
+            **await service.freebusy(
                 user_id=user_id,
-                start_at=_calendar_iso(start_at, tool_context),
-                end_at=_calendar_iso(end_at, tool_context),
+                start_at=_calendar_iso(start_at, tool_context, time_zone),
+                end_at=_calendar_iso(end_at, tool_context, time_zone),
             ),
         }
 
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={
+        account_id=account_id,
+        display_time_zone=time_zone,
+        calendar_read=lambda: {
             "operation": "availability",
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
+            "start_at": _calendar_iso(start_at, tool_context, time_zone),
+            "end_at": _calendar_iso(end_at, tool_context, time_zone),
         },
     )
 
@@ -575,96 +1142,302 @@ async def calendar_free_slots(
     end_at: str,
     duration_minutes: int,
     limit: int = 3,
+    account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
     """Find the earliest 1–20 open slots in an exact time window.
 
     Use this when the person gives a scheduling window and a call duration.
-    It searches only the owner's primary Calendar; it does not claim invitee
+    It checks the selected account's Board-included calendars; it does not claim invitee
     availability. Once a person chooses a slot, use the normal proposal tool
     so the browser still presents the final explicit confirmation.
+    Pass the requested IANA ``time_zone``; render the local fields in ``display_time_zone``.
+    ``coverage_complete`` describes provider coverage; ``suggestion_limit`` and
+    ``suggestions_limited`` describe option counts, never incomplete provider coverage.
     """
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    # Even an invalid or failed replacement must retire the old selection.
+    tool_context.state[STATE_OPENING_OFFER] = None
+
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
+        from hushh_mcp.one_adk.pod_connector_tools import owner_cloud_agent
+        from hushh_mcp.services.google_connection_service import CALENDAR_LIST_READ_SCOPE
+
+        before = await _read_binding(service, user_id)
+        start = _calendar_iso(start_at, tool_context, time_zone)
+        end = _calendar_iso(end_at, tool_context, time_zone)
+        include_calendars = not owner_cloud_agent() or await service.connections.has_service_scope(
+            user_id=user_id, service="calendar", scope=CALENDAR_LIST_READ_SCOPE
+        )
+        result = await service.find_openings(
+            user_id=user_id,
+            start_at=start,
+            end_at=end,
+            duration_minutes=duration_minutes,
+            limit=limit,
+            include_subscribed_calendars=include_calendars,
+            **({"expected_binding": before} if before else {}),
+        )
+        await _check_stable_binding(service, user_id, before)
+        if before and result.get("openings"):
+            try:
+                offer = CalendarOpeningOffer.model_validate(
+                    {
+                        "owner_id": user_id,
+                        "conversation_id": _conversation_id(tool_context),
+                        "account_id": account_id,
+                        "grant_binding": list(before),
+                        "created_at_ms": int(time.time() * 1000),
+                        "window": {
+                            "calendar_id": "primary",
+                            "calendar_ids": result.get("calendar_ids", ["primary"]),
+                            "coverage_policy": result.get("coverage_policy", "legacy_primary"),
+                            "query_start": start,
+                            "query_end": end,
+                            "duration_minutes": duration_minutes,
+                            "time_zone": normalize_time_zone(
+                                time_zone if time_zone is not None else _timezone(tool_context)
+                            ),
+                        },
+                        "slots": result["openings"],
+                    }
+                )
+            except (ValidationError, TypeError, ValueError) as exc:
+                raise GoogleConnectionError(
+                    "Calendar openings could not be verified", status_code=502
+                ) from exc
+            tool_context.state[STATE_OPENING_OFFER] = offer.model_dump(mode="json")
+            result["openings"] = [
+                {**item, "opening_ordinal": ordinal}
+                for ordinal, item in enumerate(result["openings"], 1)
+            ]
         return {
             "status": "ok",
-            **await get_google_calendar_service().find_openings(
-                user_id=user_id,
-                start_at=_calendar_iso(start_at, tool_context),
-                end_at=_calendar_iso(end_at, tool_context),
-                duration_minutes=duration_minutes,
-                limit=limit,
+            **result,
+            "calendar_id": "primary",
+            "calendar_ids": result.get("calendar_ids", ["primary"]),
+            "availability_scope": "included_calendars" if include_calendars else "primary_calendar",
+            "time_zone": normalize_time_zone(
+                time_zone if time_zone is not None else _timezone(tool_context)
             ),
         }
 
+    tool_context.state[STATE_OPENING_OFFER] = None
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={
+        account_id=account_id,
+        calendar_read=lambda: {
             "operation": "openings",
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
+            "start_at": _calendar_iso(start_at, tool_context, time_zone),
+            "end_at": _calendar_iso(end_at, tool_context, time_zone),
             "duration_minutes": duration_minutes,
             "limit": limit,
         },
+        display_time_zone=time_zone,
     )
 
 
 async def propose_calendar_event(
     tool_context: ToolContext,
     title: str,
-    start_at: str,
-    end_at: str,
+    start_at: str = "",
+    end_at: str = "",
     attendees: list[str] | None = None,
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
+    account_id: str | None = None,
+    calendar_id: str | None = None,
+    slot_ordinal: int | None = None,
+    clarification: Literal["guests"] | None = None,
+    time_zone: str | None = None,
+    contact_ordinals: list[int] | None = None,
+    opening_ordinal: int | None = None,
+    event_attendee_ordinals: list[int] | None = None,
+    mail_sender_ordinal: int | None = None,
+    mail_reply_body: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    repeat_weekly: bool = False,
+    repeat_count: int | None = None,
+    repeat_until: str | None = None,
+    reminder_minutes: list[int] | None = None,
 ) -> dict[str, Any]:
     """Prepare a meeting for review. It is not created until the owner confirms.
 
+    If an explicitly requested booking needs its guest, call with clarification="guests"
+    BEFORE asking the question. That mode asks only and creates no booking proposal.
+    The next guest reply can complete this review in the same authenticated session.
+    Preserve the original booking date/time; never reinterpret an earlier relative date
+    using the reply's clock. Assistant prose or slot attachments confer no authority.
+    Pass time_zone when the person explicitly names an IANA timezone.
+    A personal calendar block needs no guest. Complete requests go straight to review.
+    If essential information is missing or ambiguous, ask one concise question grouping
+    only those details; retain known date, duration, account, zone and verified recipients.
+
+    For a previously offered slot, supply slot_ordinal and omit start_at/end_at.
+    The private offer supplies its exact account, calendar, UTC interval and zone.
     Preserve a title and description supplied by the owner. Otherwise, write
     for every guest who will see the Calendar invitation: use a neutral topic
     or "Meeting with <verified inviter name>" (not the guest's own name), and
     briefly identify the inviter, date, time range, and timezone in the
     description. If the inviter's name is unavailable, do not guess one.
+
+    Use contact_ordinals only for exact, numbered attendee choices from
+    search_my_contacts(for_calendar=true) in this conversation. Pass literal
+    addresses the owner supplied separately in attendees. Ask which person
+    or address to use when the contact choices are ambiguous.
+    Pass either exact start_at and end_at, or an opening_ordinal from the
+    owner's latest calendar_free_slots result. Leave both times out for an ordinal.
+    Use event_attendee_ordinals for people selected from the latest exact
+    calendar_event_detail guest list.
+    Use mail_sender_ordinal for the sender of one selected inbound message
+    from this conversation's latest Gmail list. This schedules with the From address.
+    Only when the owner explicitly requests both a meeting and a reply in
+    that Gmail thread, include the exact reply text in mail_reply_body.
+    The review shows the Calendar invitation and the threaded Gmail reply.
+    For an all-day event, supply YYYY-MM-DD start_date/end_date (exclusive)
+    and omit start_at/end_at. For weekly creation, set repeat_weekly and either
+    repeat_count (1–52, including the first event) or repeat_until (inclusive civil
+    date, within 52 occurrences). Ask for a missing bound; never invent one.
+    Weekly series use exact times, not a single free-slot reference. Every
+    occurrence is checked for conflicts before review and again at confirmation.
+    reminder_minutes sets up to five popup reminders (0–40320 minutes before).
     """
+    expected_binding = None
+    if opening_ordinal is not None:
+        if slot_ordinal is not None or start_at or end_at:
+            return {
+                "status": "input_required",
+                "message": "Use the selected Calendar opening or provide exact times.",
+            }
+        slot_ordinal = opening_ordinal
+    contact_selection = None
+    calendar_guests: list[str] = []
+    mail_grant = None
+    linked_reply = None
+    if mail_reply_body is not None and mail_sender_ordinal is None:
+        return {
+            "status": "input_required",
+            "message": "Select the original Gmail message for the reply.",
+        }
+    if mail_sender_ordinal is not None:
+        mail_selection = await _selected_mail_sender(
+            tool_context, mail_sender_ordinal, mail_reply_body
+        )
+        if mail_selection is None:
+            return {
+                "status": "input_required",
+                "reason_code": "calendar_mail_source_required",
+                "message": "Show the Gmail message again or provide the guest's exact address.",
+            }
+        mail_guest, mail_grant, linked_reply = mail_selection
+        calendar_guests.append(mail_guest)
+    if event_attendee_ordinals is not None:
+        event_selection = await _selected_event_attendees(tool_context, event_attendee_ordinals)
+        if event_selection is None or (expected_binding and event_selection[1] != expected_binding):
+            return {
+                "status": "input_required",
+                "reason_code": "calendar_attendee_offer_required",
+                "message": "Show the event again and choose the guest from its attendee list.",
+            }
+        selected_guests, expected_binding = event_selection
+        calendar_guests.extend(selected_guests)
+    if contact_ordinals is not None:
+        from hushh_mcp.pod_connectors.contacts_tool import resolve_calendar_contact_attendees
+
+        contact_selection = await resolve_calendar_contact_attendees(tool_context, contact_ordinals)
+        if contact_selection is None:
+            return {
+                "status": "input_required",
+                "reason_code": "contact_selection_unavailable",
+                "message": "The contact choice is no longer available. Look up the guest again.",
+            }
     return await _propose(
         action="create",
         payload={
+            "account_id": account_id,
+            "calendar_id": calendar_id if calendar_id is not None else "primary",
             "title": title,
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
-            "time_zone": _timezone(tool_context) if tool_context else "UTC",
-            "attendees": attendees or [],
+            "start_at": start_at,
+            "end_at": end_at,
+            "time_zone": time_zone
+            if time_zone is not None
+            else ((tool_context.state.get(_STATE_TIMEZONE) or "UTC") if tool_context else "UTC"),
+            "attendees": [*(attendees or ()), *calendar_guests],
             "description": description or "",
             "location": location or "",
             "send_updates": send_updates,
+            **(
+                {"start_date": start_date, "end_date": end_date}
+                if start_date is not None or end_date is not None
+                else {}
+            ),
+            **(
+                {
+                    "repeat_weekly": repeat_weekly,
+                    "repeat_count": repeat_count,
+                    "repeat_until": repeat_until,
+                }
+                if repeat_weekly or repeat_count is not None or repeat_until is not None
+                else {}
+            ),
+            **({"reminder_minutes": reminder_minutes} if reminder_minutes is not None else {}),
         },
         tool_context=tool_context,
+        slot_ordinal=slot_ordinal,
+        clarification=clarification,
+        clarification_time_zone=time_zone,
+        expected_binding=expected_binding,
+        contact_selection=contact_selection,
+        mail_grant=mail_grant,
+        linked_reply=linked_reply,
     )
 
 
 async def propose_calendar_reschedule(
     tool_context: ToolContext,
-    event_id: str,
-    start_at: str,
-    end_at: str,
+    event_id: str = "",
+    start_at: str = "",
+    end_at: str = "",
     title: str | None = None,
     attendees: list[str] | None = None,
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
+    account_id: str | None = None,
+    calendar_id: str | None = None,
+    event_ordinal: int | None = None,
+    recent_booking: bool = False,
+    add_attendees: list[str] | None = None,
+    contact_ordinals: list[int] | None = None,
+    reminder_minutes: list[int] | None = None,
+    add_reminder_minutes: list[int] | None = None,
 ) -> dict[str, Any]:
     """Prepare a reschedule for a real event id. It is not changed until confirmed.
 
-    Only the new time is required. Leave title, attendees, description and
+    Select the event by its position in the latest Calendar list. For an
+    explicit reference to the event just booked in this chat, pass
+    recent_booking=true and omit event_id and event_ordinal. Provide
+    the new time. Leave title, attendees, description and
     location out to keep them exactly as they are. ``attendees`` replaces the
     whole guest list, so pass it only to change who is invited; the review
     shows every attendee it adds or removes. An all-day event stays all-day.
+    For metadata-only changes, omit BOTH times: the server retains the exact
+    current event interval. Use add_attendees for additions without removing any
+    existing guest, or contact_ordinals for verified Contacts choices. Do not mix
+    additions and a replacement attendees list. add_reminder_minutes preserves
+    effective existing reminders; reminder_minutes explicitly replaces them.
     """
     payload: dict[str, Any] = {
+        "account_id": account_id,
+        **({"calendar_id": calendar_id} if calendar_id is not None else {}),
         "event_id": event_id,
-        "start_at": _calendar_iso(start_at, tool_context),
-        "end_at": _calendar_iso(end_at, tool_context),
+        "event_ordinal": event_ordinal,
+        "recent_booking": recent_booking,
+        "start_at": start_at,
+        "end_at": end_at,
         "time_zone": _timezone(tool_context) if tool_context else "UTC",
         "send_updates": send_updates,
     }
@@ -673,22 +1446,120 @@ async def propose_calendar_reschedule(
         "attendees": attendees,
         "description": description,
         "location": location,
+        "add_attendees": add_attendees,
+        "reminder_minutes": reminder_minutes,
+        "add_reminder_minutes": add_reminder_minutes,
     }
-    payload.update({key: value for key, value in changes.items() if value})
-    return await _propose(action="reschedule", payload=payload, tool_context=tool_context)
+    payload.update({key: value for key, value in changes.items() if value is not None})
+    contact_selection = None
+    if contact_ordinals is not None:
+        from hushh_mcp.pod_connectors.contacts_tool import resolve_calendar_contact_attendees
+
+        contact_selection = await resolve_calendar_contact_attendees(tool_context, contact_ordinals)
+        if contact_selection is None:
+            return {
+                "status": "input_required",
+                "reason_code": "contact_selection_unavailable",
+                "message": "The contact choice expired. Look up the guest again.",
+            }
+    return await _propose(
+        action="reschedule",
+        payload=payload,
+        tool_context=tool_context,
+        contact_selection=contact_selection,
+    )
 
 
 async def propose_calendar_cancellation(
     tool_context: ToolContext,
-    event_id: str,
+    event_id: str = "",
     send_updates: bool = True,
+    account_id: str | None = None,
+    calendar_id: str | None = None,
+    event_ordinal: int | None = None,
+    recent_booking: bool = False,
 ) -> dict[str, Any]:
-    """Prepare cancellation of a real event id. It is not cancelled until confirmed."""
+    """Prepare cancellation of the event selected from the latest Calendar list."""
     return await _propose(
         action="cancel",
-        payload={"event_id": event_id, "send_updates": send_updates},
+        payload={
+            "account_id": account_id,
+            **({"calendar_id": calendar_id} if calendar_id is not None else {}),
+            "event_id": event_id,
+            "event_ordinal": event_ordinal,
+            "recent_booking": recent_booking,
+            "send_updates": send_updates,
+        },
         tool_context=tool_context,
     )
+
+
+async def _select_opening(
+    tool_context: ToolContext,
+    *,
+    user_id: str,
+    payload: dict[str, Any],
+    ordinal: int,
+) -> tuple[str, ...]:
+    from hushh_mcp.agents.calendar.opening_tools import select_shared_opening
+
+    shared_binding = await select_shared_opening(
+        tool_context, user_id=user_id, payload=payload, ordinal=ordinal
+    )
+    if shared_binding is not None:
+        return shared_binding
+    message = "Show available slots again, then choose one from that list."
+    try:
+        candidate = CalendarOpeningOffer.model_validate(tool_context.state.get(STATE_OPENING_OFFER))
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise GoogleConnectionError(
+            message, status_code=422, reason_code="calendar_opening_offer_required"
+        ) from exc
+    offer = current_calendar_opening_offer(
+        candidate.model_dump(),
+        owner_id=user_id,
+        conversation_id=_conversation_id(tool_context),
+        grant_binding=tuple(candidate.grant_binding),
+    )
+    slot = offer.slot_at(ordinal) if offer else None
+    if offer is None or slot is None:
+        raise GoogleConnectionError(
+            message, status_code=422, reason_code="calendar_opening_offer_required"
+        )
+    if payload.get("start_at") or payload.get("end_at"):
+        raise GoogleConnectionError(
+            "Choose a slot by position without replacing its times.", status_code=422
+        )
+    if (
+        payload.get("account_id") not in {None, offer.account_id}
+        or payload.get("calendar_id") != offer.window.calendar_id
+    ):
+        raise GoogleConnectionError(
+            "This slot belongs to a different Calendar target. Check openings again.",
+            status_code=422,
+        )
+    binding = await _read_binding(_calendar_service(offer.account_id), user_id)
+    if binding != tuple(offer.grant_binding):
+        tool_context.state[STATE_OPENING_OFFER] = None
+        raise GoogleConnectionError(
+            "Calendar connection changed. Check openings again.",
+            status_code=409,
+            reason_code="calendar_connection_changed",
+        )
+    payload.update(
+        {
+            "account_id": offer.account_id,
+            "calendar_id": offer.window.calendar_id,
+            "start_at": slot.start_at,
+            "end_at": slot.end_at,
+            "time_zone": offer.window.time_zone,
+            "opening_selection": {
+                **offer.window.model_dump(mode="json"),
+                "slot": slot.model_dump(mode="json"),
+            },
+        }
+    )
+    return binding
 
 
 async def _propose(
@@ -696,6 +1567,13 @@ async def _propose(
     action: Literal["create", "reschedule", "cancel"],
     payload: dict[str, Any],
     tool_context: ToolContext,
+    slot_ordinal: int | None = None,
+    clarification: Literal["guests"] | None = None,
+    clarification_time_zone: str | None = None,
+    expected_binding: tuple[str, ...] | None = None,
+    contact_selection: tuple[list[str], tuple[str, ...]] | None = None,
+    mail_grant: tuple[str, str] | None = None,
+    linked_reply: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from hushh_mcp.one_adk.pod_connector_tools import (
         calendar_reads_via_door,
@@ -707,14 +1585,254 @@ async def _propose(
             "status": "runtime_unavailable",
             "message": "Prepare and confirm calendar changes in the owner app.",
         }
+    # A previous card must never remain confirmable after a rejected replacement.
+    pending_key = f"{_STATE_PENDING_DIRECTIVE}:calendar"
+    if tool_context.state.get(pending_key) is not None:
+        tool_context.state[pending_key] = None
+    proof: dict[str, Any] | None = None
     try:
-        proposal = await get_google_calendar_service().propose(
-            user_id=_user_id(tool_context), action=action, payload=payload
+        user_id = _user_id(tool_context)
+        from hushh_mcp.agents.calendar.request_scope import (
+            require_action,
+            scope_receipt,
+            scope_refusal,
         )
+
+        refused = await require_action(tool_context, action)
+        if refused is not None:
+            return refused
+        proof = scope_receipt(tool_context)
+        if proof is None or action not in proof.get("actions", []):
+            return scope_refusal(action, tool_context)
+        extended = (
+            any(
+                key in payload
+                for key in (
+                    "start_date",
+                    "end_date",
+                    "repeat_weekly",
+                    "reminder_minutes",
+                    "add_reminder_minutes",
+                    "add_attendees",
+                )
+            )
+            or contact_selection is not None
+            and action == "reschedule"
+            or (
+                action == "reschedule" and not payload.get("start_at") and not payload.get("end_at")
+            )
+        )
+        if extended and tool_context.state.get("temp:one_calendar_review_contract") is not True:
+            return {
+                "status": "runtime_unavailable",
+                "reason_code": "calendar_review_upgrade_required",
+                "message": "Update or reopen the app to review all-day, recurring, reminder or guest changes.",
+            }
+        if extended:
+            payload["review_contract"] = 1
+        from hushh_mcp.agents.calendar.guest_clarification import (
+            STATE_GUEST_CLARIFICATION,
+            consume_guest_reply,
+            issuing_question,
+            remember_guests,
+        )
+
+        if clarification == "guests":
+            service, account_id = await _read_service(user_id, payload.get("account_id"))
+            binding = await _read_binding(service, user_id)
+            if not binding:
+                raise GoogleConnectionError(
+                    "Verify the Calendar account before asking for its guest.", status_code=422
+                )
+            return remember_guests(
+                tool_context,
+                account_id=account_id,
+                binding=binding,
+                proof=proof,
+                time_zone=clarification_time_zone,
+            )
+        question = issuing_question(tool_context)
+        if question is not None:
+            return question
+        source_binding = await consume_guest_reply(
+            tool_context, payload, proof=proof, requested_time_zone=clarification_time_zone
+        )
+        if source_binding and expected_binding and source_binding != expected_binding:
+            raise GoogleConnectionError("Calendar changed. Show the source again.", status_code=409)
+        source_binding = source_binding or expected_binding
+        tool_context.state[STATE_GUEST_CLARIFICATION] = None
+        if slot_ordinal is not None:
+            if action != "create":
+                raise GoogleConnectionError("Slots prepare new meetings only", status_code=422)
+            slot_binding = await _select_opening(
+                tool_context, user_id=user_id, payload=payload, ordinal=slot_ordinal
+            )
+            if source_binding is not None and slot_binding != source_binding:
+                raise GoogleConnectionError(
+                    "Calendar changed. Check this slot again.", status_code=409
+                )
+            source_binding = slot_binding
+        has_civil_dates = (
+            payload.get("start_date") is not None or payload.get("end_date") is not None
+        )
+        if (
+            action != "cancel"
+            and not has_civil_dates
+            and (action == "create" or payload.get("start_at") or payload.get("end_at"))
+        ):
+            payload["start_at"] = _calendar_iso(
+                payload.get("start_at", ""), tool_context, payload.get("time_zone")
+            )
+            payload["end_at"] = _calendar_iso(
+                payload.get("end_at", ""), tool_context, payload.get("time_zone")
+            )
+        account_id = payload.get("account_id")
+        recent = None
+        if action != "create" and payload.pop("recent_booking", False):
+            local = get_google_calendar_service()
+            reader = getattr(getattr(local, "proposals", None), "recent_calendar_booking", None)
+            if (
+                tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+                and callable(reader)
+                and not payload.get("event_id")
+                and payload.get("event_ordinal") is None
+            ):
+                recent = await reader(
+                    owner_id=user_id, conversation_id=_conversation_id(tool_context)
+                )
+            if (
+                not recent
+                or (account_id is not None and account_id != recent["account_id"])
+                or ("calendar_id" in payload and payload["calendar_id"] != recent["calendar_id"])
+            ):
+                raise GoogleConnectionError(
+                    "I couldn't verify a recent booking in this chat. Select the event from Calendar.",
+                    status_code=422,
+                    reason_code="calendar_event_offer_required",
+                )
+            account_id = recent["account_id"]
+        elif action != "create":
+            account_id = _source_account(
+                tool_context,
+                key=STATE_EVENT_OFFER,
+                kind="events",
+                user_id=user_id,
+                requested=account_id,
+            )
+        service, account_id = await _read_service(user_id, account_id)
+        payload["account_id"] = account_id
+        if recent is not None:
+            binding = await _read_binding(service, user_id)
+            if not binding or list(binding) != recent["grant_binding"]:
+                raise GoogleConnectionError(
+                    "Calendar changed after this booking. Show the event again.",
+                    status_code=409,
+                    reason_code="calendar_connection_changed",
+                )
+            payload["calendar_id"] = recent["calendar_id"]
+            payload["event_id"] = recent["event_id"]
+            source_binding = binding
+        elif action != "create":
+            binding = await _read_binding(service, user_id)
+            offer = current_calendar_read_offer(
+                tool_context.state.get(STATE_EVENT_OFFER),
+                kind="events",
+                owner_id=user_id,
+                conversation_id=_conversation_id(tool_context),
+                grant_binding=binding,
+            )
+            ordinal = payload.pop("event_ordinal", None)
+            if offer is not None and ordinal is not None:
+                target = offer.id_at(ordinal)
+                if not payload["event_id"] or payload["event_id"] == target:
+                    payload["event_id"] = target
+                else:
+                    payload["event_id"] = None
+            if offer is None or payload["event_id"] not in offer.ids:
+                raise GoogleConnectionError(
+                    "Show the events again, then choose the exact meeting to change.",
+                    status_code=422,
+                    reason_code="calendar_event_offer_required",
+                )
+            if "calendar_id" in payload and payload["calendar_id"] != offer.calendar_id:
+                raise GoogleConnectionError(
+                    "Show this meeting again before reviewing a change.", status_code=422
+                )
+            payload["calendar_id"] = offer.calendar_id
+            source_binding = binding
+        proposal = await service.propose(
+            user_id=user_id,
+            action=action,
+            payload=payload,
+            **({"expected_binding": source_binding} if source_binding else {}),
+            **({"contact_selection": contact_selection} if contact_selection is not None else {}),
+            **({"mail_grant": mail_grant} if mail_grant is not None else {}),
+            **({"linked_reply": linked_reply} if linked_reply is not None else {}),
+            **(
+                {"chat_conversation_id": _conversation_id(tool_context)}
+                if action == "create"
+                and tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+                and callable(
+                    getattr(
+                        getattr(service, "proposals", None), "finish_confirmed_chat_booking", None
+                    )
+                )
+                else {}
+            ),
+        )
+    except _AccountSelectionRequired as exc:
+        return {
+            "status": "input_required",
+            "reason_code": "calendar_account_required",
+            "accounts": exc.accounts,
+            "message": "Which connected Calendar account should I use?",
+        }
     except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="manage")
+        if (
+            proof is not None
+            and proof.get("continuation")
+            and exc.reason_code
+            in {
+                "calendar_connection_changed",
+                "google_not_connected",
+                "calendar_not_connected",
+                "google_reauthorization_required",
+                "calendar_reauthorization_required",
+            }
+        ):
+            from hushh_mcp.agents.calendar.guest_clarification import remember_recovery
+
+            return remember_recovery(
+                tool_context,
+                "changed" if exc.reason_code == "calendar_connection_changed" else "revoked",
+            )
+        if exc.status_code == 422:
+            return {
+                "status": "input_required",
+                "reason_code": exc.reason_code or "calendar_invalid_request",
+                "message": str(exc),
+            }
+        directive = _handle_connection_error(
+            tool_context,
+            exc,
+            access_level="manage",
+            account_id=payload.get("account_id") or "default",
+        )
         if directive is not None:
             return directive
+        if exc.reason_code in {
+            "calendar_time_invalid",
+            "calendar_invalid_request",
+            "calendar_event_offer_required",
+            "calendar_destination_unsupported",
+            "calendar_occurrence_required",
+            "calendar_linked_gmail_unavailable",
+        }:
+            return {
+                "status": "input_required",
+                "reason_code": exc.reason_code,
+                "message": str(exc),
+            }
         logger.warning(
             "one_adk_calendar_call_failed status=%s reason=%s", exc.status_code, exc.reason_code
         )
@@ -739,7 +1857,11 @@ async def _propose(
             "status": "failed",
             "message": "Could not prepare that calendar change. Try again in a moment.",
         }
-    verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    verb = (
+        "Update"
+        if plan.get("preserve_time")
+        else {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    )
 
     raw_conflicts = plan.get("conflicts")
     conflicts: list[object] = raw_conflicts if isinstance(raw_conflicts, list) else []
@@ -749,14 +1871,30 @@ async def _propose(
         confirm_label = "Schedule meeting"
     else:
         confirm_label = verb
+    reply_preview = (plan.get("linked_gmail_reply") or {}).get("draft")
+    if isinstance(reply_preview, dict):
+        confirm_label = (
+            "Schedule and send reply" if not conflicts else "Schedule anyway and send reply"
+        )
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
+    display_zone = (
+        plan.get("time_zone", _timezone(tool_context))
+        if plan.get("all_day")
+        or plan.get("opening_selection")
+        or plan.get("shared_opening_selection")
+        or clarification_time_zone is not None
+        or (action == "create" and source_binding is not None)
+        else _timezone(tool_context)
+    )
+    if plan.get("all_day") and plan.get("calendar_time_zone"):
+        display_zone = plan["calendar_time_zone"]
     summary = _proposal_summary(
         action=action,
         plan=plan,
         conflicts=conflicts,
-        display_time_zone=_timezone(tool_context),
+        display_time_zone=display_zone,
     )
     event_fields = _directive_event_fields(action=action, plan=plan)
     # New events always request a unique Google Meet conference after the
@@ -777,15 +1915,47 @@ async def _propose(
             # real card (title/time/attendees) instead of a flattened
             # sentence. `summary` stays authoritative for voice/non-card
             # surfaces -- these are additive, not a replacement.
+            "accountId": plan.get("account_id"),
+            "calendarId": plan.get("calendar_id"),
+            **({"calendarLabel": plan["calendar_label"]} if plan.get("calendar_label") else {}),
             "eventId": plan.get("event_id"),
+            "recurringEventId": plan.get("recurring_event_id"),
+            "originalStartTime": plan.get("original_start_time"),
             "title": event_fields["title"],
             "startAt": event_fields["startAt"],
             "endAt": event_fields["endAt"],
-            "timeZone": _timezone(tool_context),
+            "timeZone": display_zone,
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
             "description": event_fields["description"],
+            "locationCleared": action == "reschedule" and plan.get("location") == "",
+            "descriptionCleared": action == "reschedule" and plan.get("description") == "",
             "googleMeet": google_meet,
+            **(
+                {"reviewContract": 1, "metadataOnly": bool(plan.get("preserve_time"))}
+                if plan.get("review_contract") == 1
+                else {}
+            ),
+            **({"allDay": True} if plan.get("all_day") else {}),
+            **(
+                {
+                    "weeklyRecurrence": {
+                        "count": plan["weekly_recurrence"]["count"],
+                        "lastDate": plan["recurrence_last_date"],
+                        "conflictCoverage": "all_occurrences",
+                    }
+                }
+                if plan.get("weekly_recurrence")
+                else {}
+            ),
+            **(
+                {
+                    "reminders": plan["reminders"],
+                    "remindersReplacesDefaults": bool(plan.get("reminders_replaces_defaults")),
+                }
+                if "reminders" in plan
+                else {}
+            ),
             **(
                 {
                     "attendeesAdded": event_fields["attendeesAdded"],
@@ -795,6 +1965,17 @@ async def _propose(
                 else {}
             ),
             "sendUpdates": bool(plan.get("send_updates")),
+            **(
+                {
+                    "gmailReply": {
+                        "to": reply_preview["to"],
+                        "subject": reply_preview["subject"],
+                        "body": reply_preview["body"],
+                    }
+                }
+                if isinstance(reply_preview, dict)
+                else {}
+            ),
             "conflicts": [
                 {"title": item.get("title"), "startAt": _flat_iso(item.get("start"))}
                 for item in conflicts
@@ -803,10 +1984,30 @@ async def _propose(
         },
     }
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
+    if isinstance(reply_preview, dict):
+        return {
+            "status": "confirmation_required",
+            "proposal_id": proposal_id,
+            "linked_review": True,
+            "message": "The meeting and threaded Gmail reply are ready for the owner's review.",
+        }
     return {
         "status": "confirmation_required",
         "proposal_id": proposal_id,
-        "plan": plan,
+        "plan": {
+            key: value
+            for key, value in plan.items()
+            if key
+            not in {
+                "attendee_grant_binding",
+                "mail_attendee_grant",
+                "connection_binding",
+                "linked_gmail_reply",
+                "shared_opening_selection",
+                "board_accounts",
+                "chat_conversation_id",
+            }
+        },
         "conflicts": conflicts,
         "directive": directive,
         "message": (
@@ -830,7 +2031,11 @@ def _proposal_summary(
     conflicts: list[object],
     display_time_zone: str,
 ) -> str:
-    verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    verb = (
+        "Update"
+        if plan.get("preserve_time")
+        else {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    )
     current = plan.get("current_event")
     current = current if isinstance(current, dict) else {}
 
@@ -847,6 +2052,20 @@ def _proposal_summary(
     else:
         attendee_note = f" and notify {_attendees(count)}" if count else ""
     change_note = _attendee_change_note(plan) if action == "reschedule" else ""
+    if plan.get("weekly_recurrence"):
+        change_note += f" Repeats weekly for {plan['weekly_recurrence']['count']} occurrences through {plan['recurrence_last_date']}."
+    if "reminders" in plan:
+        reminders = plan["reminders"]["overrides"]
+        change_note += (
+            " Reminders: "
+            + (
+                ", ".join(
+                    f"{item['method']} {item['minutes']} minutes before" for item in reminders
+                )
+                or "none"
+            )
+            + "."
+        )
     details = [
         _conflict_detail(item, time_zone=display_time_zone)
         for item in conflicts
@@ -959,13 +2178,17 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
             "attendees": attendees,
             "attendeesAdded": [str(item) for item in change.get("added", [])],
             "attendeesRemoved": [str(item) for item in change.get("removed", [])],
-            "location": plan.get("location") or current.get("location") or None,
-            "description": plan.get("description") or current.get("description") or None,
+            "location": plan["location"] if "location" in plan else current.get("location"),
+            "description": plan["description"]
+            if "description" in plan
+            else current.get("description"),
         }
     return {
         "title": plan.get("title"),
-        "startAt": _flat_iso(plan.get("start_at")),
-        "endAt": _flat_iso(plan.get("end_at")),
+        "startAt": plan.get("start_date")
+        if plan.get("all_day")
+        else _flat_iso(plan.get("start_at")),
+        "endAt": plan.get("end_date") if plan.get("all_day") else _flat_iso(plan.get("end_at")),
         "attendees": [str(item) for item in plan.get("attendees", [])],
         "location": plan.get("location") or None,
         "description": plan.get("description") or None,
@@ -1005,25 +2228,29 @@ async def calendar_invitations(
     selected_calendar_id: str = "",
     selected_event_id: str = "",
     expected_account_email: str = "",
+    account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
     """Read real received invitations; show inline results, never navigate or write.
 
+    Pass an explicit IANA time_zone and preserve returned local dates/times.
     For an RSVP request, read the relevant window first, resolve ambiguity with
     the owner, then call open_calendar_invitation with its returned ordinal.
     """
 
-    async def call(user_id):
-        service = get_google_calendar_service()
+    async def call(user_id, service, account_id):
         binding = await _read_binding(service, user_id)
         tool_context.state[STATE_INVITATION_OFFER] = None
         window = {}
         if start_at:
-            window["start_at"] = _calendar_iso(start_at, tool_context)
+            window["start_at"] = _calendar_iso(start_at, tool_context, time_zone)
         if end_at:
-            window["end_at"] = _calendar_iso(end_at, tool_context)
+            window["end_at"] = _calendar_iso(end_at, tool_context, time_zone)
         result = await service.invitations(
             user_id=user_id,
-            time_zone=_timezone(tool_context),
+            time_zone=normalize_time_zone(
+                time_zone if time_zone is not None else _timezone(tool_context)
+            ),
             selected_calendar_id=selected_calendar_id or None,
             selected_event_id=selected_event_id or None,
             **window,
@@ -1048,6 +2275,7 @@ async def calendar_invitations(
             kind="invitations",
             user_id=user_id,
             binding=binding,
+            account_id=account_id,
             ids=[
                 json.dumps(
                     [e["calendar_id"], e["id"], result["start_at"], result["end_at"], account]
@@ -1062,7 +2290,10 @@ async def calendar_invitations(
                 "type": "calendar.invitations",
                 "filter": filter,
                 "accountEmail": account,
-                "timeZone": _timezone(tool_context),
+                "accountId": account_id,
+                "timeZone": normalize_time_zone(
+                    time_zone if time_zone is not None else _timezone(tool_context)
+                ),
                 "startAt": result["start_at"],
                 "endAt": result["end_at"],
             },
@@ -1079,7 +2310,9 @@ async def calendar_invitations(
             "message": "Invitations are shown inside this conversation. No response was changed. Use open_calendar_invitation to prepare the owner's requested decision; only their explicit browser confirmation can apply it.",
         }
 
-    return await _run_calendar_read(tool_context, call)
+    return await _run_calendar_read(
+        tool_context, call, account_id=account_id, display_time_zone=time_zone
+    )
 
 
 async def open_calendar_invitation(
@@ -1091,6 +2324,8 @@ async def open_calendar_invitation(
     alternative_end_time: str = "",
     alternative_duration_minutes: int = 0,
     organizer_message: str = "",
+    account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
     """Client-only invitation review, never RSVP, Mail preparation or delivery.
 
@@ -1099,8 +2334,7 @@ async def open_calendar_invitation(
     confirmation. No Calendar text can authorize a provider action here.
     """
 
-    async def call(user_id):
-        service = get_google_calendar_service()
+    async def call(user_id, service, account_id):
         binding = await _read_binding(service, user_id)
         offer = current_calendar_read_offer(
             tool_context.state.get(STATE_INVITATION_OFFER),
@@ -1152,8 +2386,11 @@ async def open_calendar_invitation(
                 "eventId": event_id,
                 "decision": decision,
                 "accountEmail": account,
+                "accountId": account_id,
                 **({"terms": terms} if terms else {}),
-                "timeZone": _timezone(tool_context),
+                "timeZone": normalize_time_zone(
+                    time_zone if time_zone is not None else _timezone(tool_context)
+                ),
                 "startAt": start_at,
                 "endAt": end_at,
             },
@@ -1165,4 +2402,11 @@ async def open_calendar_invitation(
             "message": "Review this invitation in the current conversation. Nothing has been changed or sent.",
         }
 
-    return await _run_calendar_read(tool_context, call)
+    return await _run_calendar_read(
+        tool_context,
+        call,
+        account_id=account_id,
+        source=(STATE_INVITATION_OFFER, "invitations"),
+        required_action="respond" if decision != "view" else None,
+        display_time_zone=time_zone,
+    )

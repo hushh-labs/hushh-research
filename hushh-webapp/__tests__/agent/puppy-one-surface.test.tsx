@@ -163,6 +163,16 @@ describe("PuppyOneSurface identity", () => {
     expect(mocks.fetchPuppyResources).not.toHaveBeenCalled();
   });
 
+  it("does not prompt hussh_pods (ace) owners to set up their own cloud", async () => {
+    mocks.localHost = false;
+    mocks.hosting.mockResolvedValueOnce({ hostingMode: "hussh_pods", deploymentTarget: "ace", state: "active" });
+    render(<PuppyOneSurface />);
+    expect(
+      await screen.findByText("Puppy connects when Agent One runs in Bring Your Own Cloud."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Set up your own cloud to connect Puppy.")).not.toBeInTheDocument();
+  });
+
   it("rejects a previous owner's delayed placement response", async () => {
     let resolve!: (value: object) => void;
     mocks.localHost = false;
@@ -259,6 +269,16 @@ describe("PuppyOneSurface when it is not the surface on screen", () => {
     });
     expect(mocks.fetchPuppyStatus).not.toHaveBeenCalled();
     expect(mocks.fetchPuppyResources).not.toHaveBeenCalled();
+  });
+
+  it("does not prompt hussh_pods (ace) owners to set up their own cloud", async () => {
+    mocks.localHost = false;
+    mocks.hosting.mockResolvedValueOnce({ hostingMode: "hussh_pods", deploymentTarget: "ace", state: "active" });
+    render(<PuppyOneSurface />);
+    expect(
+      await screen.findByText("Puppy connects when Agent One runs in Bring Your Own Cloud."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Set up your own cloud to connect Puppy.")).not.toBeInTheDocument();
   });
 
   it("reads again the moment it comes back, rather than showing a stale pill", async () => {

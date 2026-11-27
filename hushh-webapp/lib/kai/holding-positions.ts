@@ -8,7 +8,7 @@ export type HoldingPosition<T extends Holding = Holding> = T & {
 };
 
 function number(value: unknown): number | undefined {
-  if (value === null || value === undefined || value === "" || typeof value === "boolean") return undefined;
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -71,11 +71,15 @@ export function groupHoldingPositions<T extends Holding>(rows: readonly T[]): Ho
     const quantity = sum("quantity", false) ?? 0;
     const marketValue = sum("market_value", false) ?? 0;
     const costBasis = sum("cost_basis", true);
-    const gains = active.map(row => number(row.unrealized_gain_loss) ??
-      (number(row.cost_basis) !== undefined && number(row.market_value) !== undefined
-        ? Number(row.market_value) - Number(row.cost_basis) : undefined));
+    const gains = active.map(row => {
+      const value = row.market_value_unavailable ? undefined : number(row.market_value);
+      const basis = number(row.cost_basis);
+      return number(row.unrealized_gain_loss) ??
+        (value !== undefined && basis !== undefined ? value - basis : undefined);
+    });
     const gain = active.length && gains.every(value => value !== undefined)
       ? gains.reduce<number>((total, value) => total + value!, 0) : undefined;
+    const reportedGainPct = active.length === 1 ? number(first.unrealized_gain_loss_pct) : undefined;
     const price = number(first.price);
     const sameQuote = active.length > 0 && price !== undefined && active.every(row =>
       number(row.price) === price && row.institution_price_as_of === first.institution_price_as_of);
@@ -83,7 +87,8 @@ export function groupHoldingPositions<T extends Holding>(rows: readonly T[]): Ho
     return { ...first, client_id: `position:${key}`, entries, pending_delete: active.length === 0,
       quantity, market_value: marketValue, cost_basis: costBasis,
       unrealized_gain_loss: gain,
-      unrealized_gain_loss_pct: gain !== undefined && costBasis !== undefined && costBasis !== 0 ? gain / costBasis * 100 : undefined,
+      unrealized_gain_loss_pct: reportedGainPct ??
+        (gain !== undefined && costBasis !== undefined && costBasis !== 0 ? gain / costBasis * 100 : undefined),
       price: sameQuote ? price! : 0, price_unavailable: !sameQuote,
       estimated_annual_income: income, est_annual_income: income,
       est_yield: income !== undefined && marketValue > 0 ? income / marketValue * 100 : undefined,

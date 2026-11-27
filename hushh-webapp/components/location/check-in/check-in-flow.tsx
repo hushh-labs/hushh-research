@@ -19,6 +19,7 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Loader2, MapPinCheck, UserRound } from "@/components/icons";
 
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,7 +33,6 @@ import {
   SUBCARD_SURFACE,
 } from "@/lib/morphy-ux/tokens/surfaces";
 import {
-  AvatarBubble,
   EmptyState,
   StatusPill,
   TaskFlowHeader,
@@ -66,17 +66,6 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-
 const SCREEN_ID = "one_location_check_in";
 const VOICE_ACTIONS = deriveLocationVoiceActions(SCREEN_ID);
 const CHECK_IN_HOURS = 1;
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1)
-    return (parts[0] ?? "").slice(0, 2).toUpperCase() || "?";
-  return (
-    `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase() ||
-    "?"
-  );
-}
 
 function stringField(
   result: ToolResultPublic | null,
@@ -544,10 +533,14 @@ export function CheckInFlow({
                           !ready && "opacity-60",
                         )}
                       >
-                        <AvatarBubble userId={recipient.userId}
-                          initials={initialsFor(recipient.displayName)}
-                          imageUrl={recipient.photoUrl}
-                          size={32}
+                        <ConnectionPersonAvatar
+                          userId={recipient.userId}
+                          label={recipient.displayName}
+                          photoUrl={recipient.photoUrl}
+                          verified={recipient.isRia}
+                          fromContacts={recipient.connectedFromContacts}
+                          size="compact"
+                          className="!size-8"
                         />
                         <span className="min-w-0 flex-1">
                           <span className="ui-text-row-label-emphasized block truncate">

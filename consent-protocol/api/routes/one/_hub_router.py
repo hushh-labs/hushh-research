@@ -18,6 +18,7 @@ from .calendar import router as calendar_router
 from .calendar_email_followup_drain import router as calendar_email_followup_drain_router
 from .calendar_email_followups import router as calendar_email_followups_router
 from .calendar_workspace import router as calendar_workspace_router
+from .calls import router as calls_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
 from .circle_chat import router as circle_chat_router
@@ -31,6 +32,7 @@ from .drive_actions import router as drive_actions_router
 from .email_chat import router as email_chat_router
 from .feed import router as feed_router
 from .feed_events import router as feed_events_router
+from .feed_files import router as feed_files_router
 from .finance_sharing import router as finance_sharing_router
 from .first_connect_insights import router as first_connect_insights_router
 from .gmail_delivery import router as gmail_delivery_router
@@ -43,7 +45,9 @@ from .insurance_agents import router as insurance_agents_router
 from .location import public_router as public_location_router
 from .location import router as location_router
 from .location_chat import router as location_chat_router
+from .location_chat_plans import router as location_chat_plans_router
 from .location_settings import router as location_settings_router
+from .mail_overview import router as mail_overview_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .messages import router as messages_router
@@ -61,12 +65,15 @@ from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
 from .plg import router as plg_router
 from .pod_browser_approval import router as pod_browser_approval_router
+from .pod_capability_broker import router as pod_capability_broker_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
 from .pod_lifecycle import router as pod_lifecycle_router
 from .pod_mcp_approval import router as pod_mcp_approval_router
 from .pod_owner_feed import router as pod_owner_feed_router
+from .pod_prefix_storage_gateway import router as pod_prefix_storage_gateway_router
 from .pod_relay import router as pod_relay_router
+from .pod_schedule_delivery import router as pod_schedule_delivery_router
 from .pod_specialist import router as pod_specialist_router
 from .pod_wake import router as pod_wake_router
 from .profile_discovery import router as profile_discovery_router
@@ -78,6 +85,7 @@ from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
+from .sandbox_claims import router as sandbox_claims_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .shared_files import router as shared_files_router
 from .source_journal import router as source_journal_router
@@ -89,6 +97,7 @@ from .world_model import router as world_model_router
 from .world_model_stream import router as world_model_stream_router
 
 router = APIRouter()
+router.include_router(metrics_router)
 router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
 router.include_router(retired_voice_router)
@@ -100,6 +109,7 @@ router.include_router(connections_router)
 router.include_router(connection_presence_router)
 router.include_router(area_discovery_router)
 router.include_router(messages_router)
+router.include_router(calls_router)
 router.include_router(wallet_card_access_router)
 router.include_router(finance_sharing_router)
 router.include_router(calendar_router)
@@ -111,11 +121,13 @@ router.include_router(command_proposals_router)
 router.include_router(client_connectors_router)
 router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
+router.include_router(mail_overview_router)
 router.include_router(scheduled_mail_drain_router)
 router.include_router(calendar_email_followup_drain_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)
+router.include_router(feed_files_router)
 router.include_router(feed_events_router)
 router.include_router(first_connect_insights_router)
 router.include_router(profile_research_router)
@@ -128,6 +140,7 @@ router.include_router(todo_suggestions_router)
 router.include_router(location_router)
 router.include_router(public_location_router)
 router.include_router(location_chat_router)
+router.include_router(location_chat_plans_router)
 router.include_router(location_settings_router)
 router.include_router(information_chat_router)
 router.include_router(information_requests_router)
@@ -146,7 +159,6 @@ router.include_router(payout_balance_router)
 router.include_router(career_router)
 router.include_router(opportunity_signals_router)
 router.include_router(personal_agent_router)
-router.include_router(metrics_router)
 router.include_router(plg_router)
 router.include_router(places_router)
 router.include_router(profile_discovery_router)
@@ -156,6 +168,9 @@ router.include_router(people_router)
 # NEVER mount this -- a pod serving the relay could proxy to other pods. The
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_consent_router)
+router.include_router(pod_capability_broker_router)
+router.include_router(pod_schedule_delivery_router)
+router.include_router(pod_prefix_storage_gateway_router)
 router.include_router(pod_mcp_approval_router)
 router.include_router(pod_browser_approval_router)
 router.include_router(pod_owner_feed_router)
@@ -165,6 +180,7 @@ router.include_router(pod_heartbeat_router)
 router.include_router(pod_lifecycle_router)
 router.include_router(pod_wake_router)
 router.include_router(pod_relay_router)
+router.include_router(sandbox_claims_router)
 router.include_router(puppy_relay_router)
 # Hub-only, like the relay: the broker READS a DB-backed specialist for a
 # keyless pod. A pod holds no DB credential and must never mount this. The

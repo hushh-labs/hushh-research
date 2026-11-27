@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from hushh_mcp.services.pod_owner_cloud import (
+    hosted_ace_runtime,
     owner_cloud_agent,
     pod_owner_user_id,
     private_pod_runtime,
@@ -32,13 +33,22 @@ from hushh_mcp.services.pod_owner_cloud import (
 _PROVIDERS = frozenset({"drive", "gmail", "contacts", "calendar"})
 
 
+def _workspace_connector_pod_runtime() -> bool:
+    return bool(owner_cloud_agent() or hosted_ace_runtime())
+
+
 async def pod_tool_owner(tool_context: Any, provider: str) -> Optional[str]:
     """The owner's user id when this call may use ``provider`` in this agent; else None."""
     from hushh_mcp.one_adk.request_secrets import _PREFIX as REQUEST_SECRET_PREFIX  # noqa: PLC0415
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret  # noqa: PLC0415
     from hushh_mcp.services.pod_session_authority import LOCAL_TOKEN_PREFIX  # noqa: PLC0415
 
-    if provider not in _PROVIDERS or not owner_cloud_agent():
+    if provider not in _PROVIDERS:
+        return None
+    if provider == "contacts":
+        if not owner_cloud_agent():
+            return None
+    elif not _workspace_connector_pod_runtime():
         return None
     state = getattr(tool_context, "state", None)
     if state is None:
@@ -74,9 +84,13 @@ def calendar_reads_via_door() -> bool:
 
 async def calendar_turn_refusal(tool_context: Any) -> Optional[dict[str, Any]]:
     """Refuse a local Calendar call outside the owner's own verified chat."""
-    if private_pod_runtime() and not owner_cloud_agent():
-        return {"status": "failed", "message": "Calendar is not connected in this agent."}
-    if not owner_cloud_agent():
+    if private_pod_runtime() and not _workspace_connector_pod_runtime():
+        return {
+            "status": "failed",
+            "reason": "hosted_pod_unavailable",
+            "message": "Calendar is not connected in this agent.",
+        }
+    if not _workspace_connector_pod_runtime():
         return None
     if await pod_tool_owner(tool_context, "calendar") is None:
         return {
@@ -87,8 +101,8 @@ async def calendar_turn_refusal(tool_context: Any) -> Optional[dict[str, Any]]:
 
 
 def pod_connector_roster() -> list[Any]:
-    """One's connector tools in an owner-cloud agent; nothing anywhere else."""
-    if not owner_cloud_agent():
+    """One's connector tools in an owner-cloud pod or activated Personal Sandbox."""
+    if not _workspace_connector_pod_runtime():
         return []
     from hushh_mcp.agents.email.mailbox_tools import (
         propose_gmail_mailbox_change,
@@ -103,9 +117,8 @@ def pod_connector_roster() -> list[Any]:
         propose_drive_file_share,
         propose_drive_file_trash,
     )
-    from hushh_mcp.pod_connectors.contacts_tool import search_my_contacts
 
-    return [
+    tools: list[Any] = [
         discover_google_drive_tools,
         read_google_drive,
         create_drive_file,
@@ -116,8 +129,12 @@ def pod_connector_roster() -> list[Any]:
         propose_drive_file_trash,
         propose_gmail_mailbox_change,
         propose_gmail_todo,
-        search_my_contacts,
     ]
+    if owner_cloud_agent():
+        from hushh_mcp.pod_connectors.contacts_tool import search_my_contacts
+
+        tools.append(search_my_contacts)
+    return tools
 
 
 __all__ = [

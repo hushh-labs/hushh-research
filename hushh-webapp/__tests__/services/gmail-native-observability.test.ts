@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  ownerPodRequest: vi.fn(),
   getPersonalAgentStatus: vi.fn(),
   trackEvent: vi.fn(),
   currentUserId: "owner" as string | null,
@@ -11,7 +12,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: mocks.apiFetch,
-    getPersonalAgentStatus: mocks.getPersonalAgentStatus,
+    ownerPodRequest: mocks.ownerPodRequest,
+    getPersonalAgentStatusForRouting: mocks.getPersonalAgentStatus,
   },
 }));
 vi.mock("@/lib/observability/client", () => ({
@@ -40,6 +42,49 @@ describe("native Gmail observability", () => {
     mocks.currentUserId = "owner";
     // Provider-observability cases run only after explicit Shared admission.
     mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
+  });
+
+  const privateScan = () => GmailReceiptsService.scanReceipts({
+    idToken: "synthetic-token", vaultOwnerToken: "synthetic-vault-token", userId: "owner",
+    privateMailbox: { accountId: "synthetic-account", credentialId: "synthetic-credential" }, perPage: 6,
+  });
+  const emptyScan = () => ({
+    items: [], page: 1, per_page: 6, returned_count: 0, has_more: false,
+    coverage: { source: "gmail_live", listed_count: 0, candidate_count: 0, matched_count: 0,
+      pages_scanned: 1, max_messages: 6, max_pages: 10, reached_limit: false,
+      query_scope: "receipt_signals_all_mail_except_spam_trash",
+      rejection_counts: { missing_receipt_signal: 0, extractor_not_receipt: 0 },
+      evidence_counts: { gmail_category: 0, subject_signal: 0, body_signal: 0,
+        verified_merchant: 0, order_candidate: 0, total_candidate: 0 } },
+  });
+
+  it.each(["success", "provider error", "invalid response", "transport error"] as const)(
+    "records private receipt scan %s once at its admitted read boundary", async (outcome) => {
+      if (outcome === "transport error") mocks.ownerPodRequest.mockRejectedValueOnce(new Error("Synthetic private failure"));
+      else mocks.ownerPodRequest.mockResolvedValueOnce(response(
+        outcome === "success" ? emptyScan() : outcome === "provider error" ? { detail: "Synthetic private failure" } : {},
+        outcome === "provider error" ? 503 : 200,
+      ));
+      if (outcome === "success") await expect(privateScan()).resolves.toMatchObject({ items: [], returned_count: 0 });
+      else await expect(privateScan()).rejects.toThrow();
+      expect(mocks.ownerPodRequest).toHaveBeenCalledTimes(1);
+      expect(mocks.apiFetch).not.toHaveBeenCalled();
+      expect(mocks.trackEvent.mock.calls).toEqual([
+        ["gmail_receipts_loaded", { result: outcome === "success" ? "success" : "error" }],
+      ]);
+    },
+  );
+
+  it("withholds a private receipt scan result after its admitted owner changes", async () => {
+    let finish!: (value: Response) => void;
+    mocks.ownerPodRequest.mockReturnValueOnce(new Promise<Response>((resolve) => { finish = resolve; }));
+    const scanning = privateScan();
+    await vi.waitFor(() => expect(mocks.ownerPodRequest).toHaveBeenCalledTimes(1));
+    mocks.currentUserId = "other-owner";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "other-owner", ownerId: "other-owner", accountGeneration: 0 });
+    finish(response(emptyScan()));
+    await expect(scanning).rejects.toThrow("Mail session changed");
+    expect(mocks.trackEvent).not.toHaveBeenCalled();
   });
 
   it("does not accept a read-only native result for a send upgrade", async () => {

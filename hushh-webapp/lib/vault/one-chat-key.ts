@@ -12,12 +12,18 @@
  */
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { hexToBytes } from "@/lib/vault/passphrase-key";
-import { isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 export const ONE_CHAT_KEY_HEADER = "X-Hussh-Chat-Key";
 export const ONE_CHAT_KEY_LABEL = "hussh-one-chat-v1";
 const WIRE_PREFIX = "hck1.";
 const VAULT_KEY_HEX = /^[0-9a-fA-F]{64}$/;
+
+let memoizedChatKey: { epoch: number; vaultKeyHex: string; derived: string } | null = null;
+
+function clearMemoizedChatKey(): void {
+  memoizedChatKey = null;
+}
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
@@ -35,7 +41,16 @@ export class ChatKeyUnavailableError extends Error {
 export async function deriveOneChatKey(vaultKeyHex: string | null | undefined): Promise<string> {
   const vaultKey = String(vaultKeyHex || "").trim();
   if (!VAULT_KEY_HEX.test(vaultKey)) {
+    clearMemoizedChatKey();
     throw new ChatKeyUnavailableError();
+  }
+  const epoch = snapshotVaultSessionEpoch();
+  if (
+    memoizedChatKey &&
+    memoizedChatKey.epoch === epoch &&
+    memoizedChatKey.vaultKeyHex === vaultKey
+  ) {
+    return memoizedChatKey.derived;
   }
   const raw = new Uint8Array(32);
   raw.set(hexToBytes(vaultKey));
@@ -57,7 +72,11 @@ export async function deriveOneChatKey(vaultKeyHex: string | null | undefined): 
     256,
   );
   raw.fill(0);
-  return `${WIRE_PREFIX}${toHex(new Uint8Array(bits))}`;
+  const derived = `${WIRE_PREFIX}${toHex(new Uint8Array(bits))}`;
+  if (isVaultSessionEpochCurrent(epoch)) {
+    memoizedChatKey = { epoch, vaultKeyHex: vaultKey, derived };
+  }
+  return derived;
 }
 
 /** Request headers that carry this vault's chat key. */
@@ -146,6 +165,7 @@ function currentOwnerId(): string {
  * refusal from an earlier session never locks the current one.
  */
 export function routeChatKeyRefusal(code: ChatKeyRefusalCode, vaultEpoch: number, retrySafe = false): ChatKeyRefusalError {
+  clearMemoizedChatKey();
   if (!isVaultSessionEpochCurrent(vaultEpoch)) return new ChatKeyRefusalError(code, "stale");
   const owner = currentOwnerId();
   if (!owner || forcedUnlockOwners.has(owner)) return new ChatKeyRefusalError(code, "exhausted");

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" width="1200" height="200" role="img" aria-label="Product &amp; Principles">
+  <defs>
+    <linearGradient id="pillar-product-light-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <radialGradient id="pillar-product-light-glow" cx="90%" cy="35%" r="40%">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="pillar-product-light-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#CBD5E1" stroke-width="0.7" stroke-opacity="0.4"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-product-light-bg)"/>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-product-light-grid)"/>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-product-light-glow)"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="198.5" rx="15.25" fill="none" stroke="#E2E8F0" stroke-width="1.5"/>
+  <rect x="48" y="36" width="4" height="92" rx="2" fill="#0284C7"/>
+  <text x="66" y="50" fill="#0284C7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="600" letter-spacing="0.1em">PILLAR 01 · EXPLANATION &amp; JOURNEYS</text>
+  <text x="66" y="92" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.025em">Product &amp; Principles</text>
+  <text x="66" y="122" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15">What One does for you, how explicit consent works, and what stays under your control.</text>
+  <rect x="48" y="148" width="167" height="28" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/><text x="62" y="166" fill="#1E293B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Personal Data Agent</text><rect x="227" y="148" width="174" height="28" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/><text x="241" y="166" fill="#1E293B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Zero-Knowledge Vault</text><rect x="413" y="148" width="146" height="28" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/><text x="427" y="166" fill="#1E293B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Reviewed Actions</text>
+</svg>

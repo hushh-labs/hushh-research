@@ -69,6 +69,29 @@ afterEach(() => {
 });
 
 describe("OneLocationService SOS additions", () => {
+  it("refuses stale grant creation at the transport boundary", async () => {
+    const calls = stubFetch({ grant: { id: "g1" } });
+    await expect(OneLocationService.createGrant({ vaultOwnerToken: "tok", recipientUserId: "r1",
+      recipientKeyId: "key-r1", shareKind: "sos", isEffectCurrent: () => false })).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses stale publication at the transport boundary", async () => {
+    const calls = stubFetch({ envelope: {} });
+    await expect(OneLocationService.storeEnvelope({ vaultOwnerToken: "tok", grantId: "g1",
+      envelope: {} as Parameters<typeof OneLocationService.storeEnvelope>[0]["envelope"],
+      isEffectCurrent: () => false })).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("does not start an expired email request", async () => {
+    const calls = stubFetch({ emailed: 1 });
+    const result = await OneLocationService.sendSosEmails({ vaultOwnerToken: "tok", grantIds: ["g1"],
+      latitude: 1, longitude: 2, isEffectCurrent: () => false });
+    expect(result.emailed).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
+
   it("uses the complete SMS roster and excludes unrelated recipient projections", async () => {
     const ids = Array.from({ length: 8 }, (_, i) => `recipient-${i}`);
     const calls = stubFetch({ smsContactUserIds: ids, recipients: [...ids, "outsider"].map((userId) => ({

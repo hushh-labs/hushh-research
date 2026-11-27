@@ -682,3 +682,68 @@ def test_route_never_imports_or_forwards_owner_token_or_connector_private_key():
     assert "X-Hushh-Consent" not in source
     assert "connector_private_key" not in source
     assert "owner_token" not in source
+
+
+def test_owner_item_recipient_policy_reuses_the_reader_allowlist(monkeypatch):
+    from hushh_mcp.services.hushh_tech_consent_policy import (
+        hushh_tech_consent_scope_allowed,
+        registered_app_consent_scope_allowed,
+    )
+
+    scope = "attr.credentials.secrets.cred_" + "a" * 32
+    assert not hushh_tech_consent_scope_allowed(scope)
+    assert not registered_app_consent_scope_allowed(_principal(), scope)
+    assert registered_app_consent_scope_allowed(
+        _principal(app_id="ordinary_app", groups=("core_consent",)), scope
+    )
+    # Only existing operator policy can allow an exact product scope. An
+    # owner-started request does not amend that policy or authorize a wildcard.
+    monkeypatch.setenv("HUSSH_TECH_ALLOWED_CONSENT_SCOPES", scope + ",attr.credentials.secrets.*")
+    assert developer._hushh_tech_consent_scope_allowed(scope)
+    assert registered_app_consent_scope_allowed(_principal(), scope)
+    assert not registered_app_consent_scope_allowed(_principal(), "attr.credentials.secrets.*")
+    assert not registered_app_consent_scope_allowed(
+        _principal(groups=(TOOL_GROUP_HUSHH_TECH_CLIENT, "core_consent")), scope
+    )
+
+
+@pytest.mark.asyncio
+async def test_registered_credential_recipient_is_refused_before_a_grant_if_read_policy_denies(
+    monkeypatch,
+):
+    import base64
+
+    from hushh_mcp.services import owner_item_grants as items
+    from hushh_mcp.services.developer_registry_service import DeveloperRegistryService
+
+    app = {
+        "app_id": APP_ID,
+        "agent_id": "developer:" + APP_ID,
+        "display_name": "Synthetic receiver",
+        "status": "active",
+        "allowed_tool_groups": [TOOL_GROUP_HUSHH_TECH_CLIENT],
+        "allowed_capabilities": [],
+    }
+    monkeypatch.setattr(DeveloperRegistryService, "__init__", lambda self: None)
+    monkeypatch.setattr(DeveloperRegistryService, "get_app", lambda self, app_id: dict(app))
+    monkeypatch.setattr(
+        DeveloperRegistryService,
+        "get_active_connector_key",
+        lambda self, *, app_id: {
+            "app_id": app_id,
+            "status": "active",
+            "connector_key_id": "synthetic_key",
+            "connector_public_key": base64.b64encode(b"\x01" * 32).decode(),
+            "connector_wrapping_alg": "X25519-AES256-GCM",
+        },
+    )
+    scope = "attr.credentials.secrets.cred_" + "a" * 32
+    with pytest.raises(items.OwnerItemGrantRefused, match="RECIPIENT_SCOPE_REFUSED"):
+        await items.registered_recipient(APP_ID, scope=scope)
+    app.update(
+        app_id="ordinary_app",
+        agent_id="developer:ordinary_app",
+        allowed_tool_groups=["core_consent"],
+    )
+    recipient = await items.registered_recipient("ordinary_app", scope=scope)
+    assert recipient["app_id"] == "ordinary_app" and recipient["key_id"] == "synthetic_key"

@@ -19,10 +19,8 @@ import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/n
 import { MAX_BINDING_CLOCK_SKEW_MS, POD_SESSION_PREFIX, OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
 export { POD_SESSION_PREFIX, OwnerPodError, canonicalJson, p1363ToDer } from "./owner-pod-crypto";
 
-export const OWNER_POD_DB_NAME = "hushh-owner-pod";
-const DB_VERSION = 1;
-const KEY_STORE = "app_keys";
-const PIN_STORE = "pins";
+export { OWNER_POD_DB_NAME } from "./owner-pod-storage";
+import { KEY_STORE, PIN_STORE, readRecord, writeRecord, deleteOwnerPodRecords } from "./owner-pod-storage";
 
 /** Renew this long before expiry so a turn never starts on a dying session. */
 const SESSION_RENEW_MARGIN_MS = 60 * 60 * 1000;
@@ -42,6 +40,7 @@ type AppKeyRecord = {
   key: CryptoKeyPair;
   publicKeyB64: string;
   subjectId: string | null;
+  communication?: { keyId: string; pair: CryptoKeyPair; publicKey: string };
 };
 
 type PinRecord = {
@@ -64,72 +63,6 @@ export type OwnerPodTransport = {
 
 // -- storage ------------------------------------------------------------------------
 
-const memoryKeys = new Map<string, AppKeyRecord>();
-const memoryPins = new Map<string, PinRecord>();
-function indexedDbAvailable(): boolean {
-  return typeof indexedDB !== "undefined" && indexedDB !== null;
-}
-
-async function openDb(): Promise<IDBDatabase | null> {
-  if (!indexedDbAvailable()) return null;
-  return await new Promise((resolve, reject) => {
-    const request = indexedDB.open(OWNER_POD_DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(KEY_STORE)) {
-        db.createObjectStore(KEY_STORE, { keyPath: "userId" });
-      }
-      if (!db.objectStoreNames.contains(PIN_STORE)) {
-        db.createObjectStore(PIN_STORE, { keyPath: "userId" });
-      }
-    };
-    request.onblocked = () => reject(new OwnerPodError("STORAGE_BLOCKED"));
-    request.onsuccess = () => {
-      const db = request.result;
-      db.onversionchange = () => db.close();
-      resolve(db);
-    };
-    request.onerror = () => reject(request.error ?? new OwnerPodError("STORAGE_UNAVAILABLE"));
-  });
-}
-
-async function readRecord<T>(store: string, userId: string): Promise<T | null> {
-  const db = await openDb();
-  if (!db) {
-    const fallback = store === KEY_STORE ? memoryKeys : memoryPins;
-    return (fallback.get(userId) as T | undefined) ?? null;
-  }
-  try {
-    return await new Promise<T | null>((resolve, reject) => {
-      const request = db.transaction(store, "readonly").objectStore(store).get(userId);
-      request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
-      request.onerror = () => reject(request.error ?? new OwnerPodError("STORAGE_READ_FAILED"));
-    });
-  } finally {
-    db.close();
-  }
-}
-
-async function writeRecord<T extends { userId: string }>(store: string, record: T): Promise<void> {
-  const db = await openDb();
-  if (!db) {
-    const fallback = store === KEY_STORE ? memoryKeys : memoryPins;
-    (fallback as unknown as Map<string, T>).set(record.userId, record);
-    return;
-  }
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(store, "readwrite");
-      tx.objectStore(store).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new OwnerPodError("STORAGE_WRITE_FAILED"));
-      tx.onabort = () => reject(tx.error ?? new OwnerPodError("STORAGE_WRITE_ABORTED"));
-    });
-  } finally {
-    db.close();
-  }
-}
-
 async function readPin(userId: string): Promise<PinRecord> {
   const stored = await readRecord<PinRecord>(PIN_STORE, userId);
   if (stored?.endpoint && stored.endpoint.verificationVersion !== 1) {
@@ -146,24 +79,25 @@ async function readPin(userId: string): Promise<PinRecord> {
     };
 }
 
+const bindingInFlight = new Map<string, Promise<{ binding: Record<string, unknown>; signature: string }>>();
+
 /** Test and sign-out hook: forget everything held for one account. */
 async function forgetOwnerPodStateUnlocked(userId: string): Promise<void> {
-  memoryKeys.delete(userId);
-  memoryPins.delete(userId);
   forgetDirectAdmission(userId);
-  const db = await openDb();
-  if (!db) return;
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([KEY_STORE, PIN_STORE], "readwrite");
-      tx.objectStore(KEY_STORE).delete(userId);
-      tx.objectStore(PIN_STORE).delete(userId);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new OwnerPodError("STORAGE_WRITE_FAILED"));
-    });
-  } finally {
-    db.close();
-  }
+  bindingInFlight.clear();
+  await deleteOwnerPodRecords(userId);
+}
+
+/** Clear cached pod endpoint and session when switching hosting modes while keeping device keys. */
+async function clearPinnedPodEndpointUnlocked(userId: string): Promise<void> {
+  forgetDirectAdmission(userId);
+  bindingInFlight.clear();
+  const pin = await readPin(userId);
+  await writeRecord(PIN_STORE, {
+    ...pin,
+    endpoint: null,
+    session: null,
+  });
 }
 
 // -- the app key ----------------------------------------------------------------------
@@ -208,11 +142,65 @@ function detailCode(body: Record<string, unknown>): string {
 
 // -- enrolment and discovery ---------------------------------------------------------
 
+/** Derive a concise, human-readable browser + OS label for self-enrolled web sessions. */
+export function detectBrowserDeviceLabel(userAgent?: string | null): string {
+  const ua =
+    typeof userAgent === "string"
+      ? userAgent
+      : typeof navigator !== "undefined"
+        ? navigator.userAgent || ""
+        : "";
+  if (!ua.trim()) return "Web browser";
+
+  let browser = "Web browser";
+  if (/Edg\//i.test(ua) || /EdgiOS\//i.test(ua) || /EdgA\//i.test(ua)) {
+    browser = "Edge";
+  } else if (/OPR\//i.test(ua) || /Opera/i.test(ua)) {
+    browser = "Opera";
+  } else if (/Firefox\//i.test(ua) || /FxiOS\//i.test(ua)) {
+    browser = "Firefox";
+  } else if (/CriOS\//i.test(ua) || (/Chrome\//i.test(ua) && !/Chromium\//i.test(ua))) {
+    browser = "Chrome";
+  } else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua) && !/Chromium\//i.test(ua)) {
+    browser = "Safari";
+  }
+
+  let os = "";
+  if (/iPhone/i.test(ua)) {
+    os = "iPhone";
+  } else if (/iPad/i.test(ua)) {
+    os = "iPad";
+  } else if (/Android/i.test(ua)) {
+    os = "Android";
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    os = "macOS";
+  } else if (/Windows/i.test(ua)) {
+    os = "Windows";
+  } else if (/CrOS/i.test(ua)) {
+    os = "ChromeOS";
+  } else if (/Linux/i.test(ua)) {
+    os = "Linux";
+  }
+
+  return os ? `${browser} on ${os}` : browser;
+}
+
+/** Read the current browser installation's enrolled trusted-device subject ID without side effects. */
+export async function readCurrentBrowserSubjectId(userId: string): Promise<string | null> {
+  if (!userId || typeof indexedDB === "undefined") return null;
+  try {
+    const existing = await readRecord<AppKeyRecord>(KEY_STORE, userId);
+    return existing?.subjectId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Enrol THIS installation as an app subject of the owner's pod. Idempotent. */
 async function ensureAppEnrollmentUnlocked(
   userId: string,
   transport: OwnerPodTransport,
-  deviceName = "This browser",
+  deviceName = detectBrowserDeviceLabel(),
 ): Promise<string> {
   const existing = await readRecord<AppKeyRecord>(KEY_STORE, userId);
   if (existing?.subjectId) return existing.subjectId;
@@ -276,11 +264,12 @@ async function refreshEndpointFromHubUnlocked(
   } catch {
     // The malformed-record branch below supplies the stable refusal code.
   }
+  const expectedSandboxPath = `/u/${encodeURIComponent(candidate.hushhId)}`;
   if (
     endpointUrl?.protocol !== "https:" ||
     endpointUrl.username ||
     endpointUrl.password ||
-    endpointUrl.pathname !== "/" ||
+    (endpointUrl.pathname !== "/" && endpointUrl.pathname !== expectedSandboxPath) ||
     endpointUrl.search ||
     endpointUrl.hash ||
     candidate.hushhId === "" ||
@@ -323,6 +312,30 @@ export async function loadPinnedEndpoint(userId: string): Promise<PinnedEndpoint
 // -- sessions ---------------------------------------------------------------------------
 
 async function fetchBinding(
+  subjectId: string,
+  transport: OwnerPodTransport,
+  endpoint: PinnedEndpoint,
+  refreshGrant = false,
+): Promise<{ binding: Record<string, unknown>; signature: string }> {
+  if (refreshGrant) {
+    return fetchBindingUncached(subjectId, transport, endpoint, true);
+  }
+  const key = `${subjectId}:${endpoint.hushhId}:${endpoint.endpointVersion}:${endpoint.url}`;
+  const existingFlight = bindingInFlight.get(key);
+  if (existingFlight) return existingFlight;
+
+  const work = fetchBindingUncached(subjectId, transport, endpoint, false);
+  bindingInFlight.set(key, work);
+  try {
+    return await work;
+  } finally {
+    if (bindingInFlight.get(key) === work) {
+      bindingInFlight.delete(key);
+    }
+  }
+}
+
+async function fetchBindingUncached(
   subjectId: string,
   transport: OwnerPodTransport,
   endpoint: PinnedEndpoint,
@@ -382,6 +395,27 @@ function sessionFromResponse(body: Record<string, unknown>, subjectId: string): 
   };
 }
 
+function isStaleTrustedDeviceBindingError(error: unknown): boolean {
+  if (!(error instanceof OwnerPodError)) return false;
+  return (
+    error.message === "BINDING_UNAVAILABLE:TRUSTED_DEVICE_NOT_ACTIVE" ||
+    error.message === "BINDING_UNAVAILABLE:TRUSTED_DEVICE_NOT_FOUND" ||
+    error.message === "POD_CHALLENGE_REFUSED:unknown_subject" ||
+    error.message === "POD_CHALLENGE_REFUSED:subject_revoked"
+  );
+}
+
+async function resetStaleBrowserEnrollmentUnlocked(
+  userId: string,
+  record: AppKeyRecord,
+): Promise<void> {
+  forgetDirectAdmission(userId);
+  bindingInFlight.clear();
+  await writeRecord(KEY_STORE, { ...record, subjectId: null });
+  const pin = await readPin(userId);
+  await writeRecord(PIN_STORE, { ...pin, session: null });
+}
+
 /**
  * Open a pod session: binding from the hub, challenge and proof at the pod.
  * The role is whatever the signed binding says; the app never asks for one.
@@ -391,10 +425,28 @@ async function admitEndpoint(
   transport: OwnerPodTransport,
   endpoint: PinnedEndpoint,
   refreshGrant = false,
+  allowDeviceReEnroll = true,
 ): Promise<PodSessionRecord> {
   const record = await ensureAppKey(userId);
+  const hadCachedSubject = Boolean(record.subjectId);
   const subjectId = record.subjectId ?? (await ensureAppEnrollmentUnlocked(userId, transport));
-  const { binding, signature } = await fetchBinding(subjectId, transport, endpoint, refreshGrant);
+  let bindingResult: { binding: Record<string, unknown>; signature: string };
+  try {
+    bindingResult = await fetchBinding(subjectId, transport, endpoint, refreshGrant);
+  } catch (error) {
+    if (
+      hadCachedSubject &&
+      allowDeviceReEnroll &&
+      !shouldSkipReviewerBackgroundWritesForAutomation() &&
+      isStaleTrustedDeviceBindingError(error)
+    ) {
+      await resetStaleBrowserEnrollmentUnlocked(userId, record);
+      await ensureAppEnrollmentUnlocked(userId, transport);
+      return admitEndpoint(userId, transport, endpoint, refreshGrant, false);
+    }
+    throw error;
+  }
+  const { binding, signature } = bindingResult;
   if (String(binding.pod_key_id ?? "") !== endpoint.podKeyId) {
     throw new OwnerPodError("BINDING_POD_KEY_MISMATCH");
   }
@@ -429,7 +481,20 @@ async function admitEndpoint(
   });
   if (!challengeResponse.ok) {
     const code = detailCode(await readJson(challengeResponse));
-    throw new OwnerPodError(code ? `POD_CHALLENGE_REFUSED:${code}` : `POD_CHALLENGE_REFUSED:${challengeResponse.status}`);
+    const challengeErr = new OwnerPodError(
+      code ? `POD_CHALLENGE_REFUSED:${code}` : `POD_CHALLENGE_REFUSED:${challengeResponse.status}`,
+    );
+    if (
+      hadCachedSubject &&
+      allowDeviceReEnroll &&
+      !shouldSkipReviewerBackgroundWritesForAutomation() &&
+      isStaleTrustedDeviceBindingError(challengeErr)
+    ) {
+      await resetStaleBrowserEnrollmentUnlocked(userId, record);
+      await ensureAppEnrollmentUnlocked(userId, transport);
+      return admitEndpoint(userId, transport, endpoint, refreshGrant, false);
+    }
+    throw challengeErr;
   }
   const challenge = await readJson(challengeResponse);
   const signingPayload = String(challenge.signingPayload ?? "");
@@ -685,10 +750,54 @@ export function decodePodSessionClaims(session: string): Record<string, unknown>
 // Authority mutations share the owner lock; internal composition never re-enters it.
 export const refreshEndpointFromHub = serializeOwnerPodOperation(refreshEndpointFromHubUnlocked);
 export const ensureAppEnrollment = serializeOwnerPodOperation(ensureAppEnrollmentUnlocked);
+
+/** Purpose-separated encryption handle below the existing installation identity.
+ * No extractable private key, second device registry or plaintext key backup.
+ */
+export const communicationIdentity = serializeOwnerPodOperation(async (
+  userId: string, transport: OwnerPodTransport, assertCurrent: () => void = () => undefined,
+): Promise<{ deviceId: string; keyId: string; pair: CryptoKeyPair; publicKey: string; signingKey: string }> => {
+  assertCurrent();
+  const deviceId = await ensureAppEnrollmentUnlocked(userId, transport);
+  assertCurrent();
+  const record = await ensureAppKey(userId);
+  assertCurrent();
+  let communication = record.communication;
+  if (!communication) {
+    const pair = await subtle().generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    communication = { pair, keyId: crypto.randomUUID(), publicKey: bytesToBase64(
+      new Uint8Array(await subtle().exportKey("spki", pair.publicKey))) };
+    assertCurrent();
+    await writeRecord(KEY_STORE, { ...record, communication });
+  }
+  assertCurrent();
+  return { deviceId, ...communication, signingKey: record.publicKeyB64 };
+});
+
+/** Sign only the versioned communications domain using canonical device custody. */
+export const signCommunicationCommand = serializeOwnerPodOperation(async (
+  userId: string, operation: string, payload: Record<string, unknown>,
+  assertCurrent: () => void = () => undefined,
+): Promise<{ deviceId: string; nonce: string; expiresAt: number; signature: string }> => {
+  assertCurrent();
+  const record = await ensureAppKey(userId);
+  assertCurrent();
+  if (!record.subjectId) throw new OwnerPodError("COMMUNICATION_DEVICE_NOT_ENROLLED");
+  const proof = { deviceId: record.subjectId, nonce: crypto.randomUUID(), expiresAt: Math.floor(Date.now() / 1000) + 90 };
+  const hash = new Uint8Array(await subtle().digest("SHA-256", new TextEncoder().encode(canonicalJson(payload))));
+  const digest = Array.from(hash, byte => byte.toString(16).padStart(2, "0")).join("");
+  assertCurrent();
+  const signature = await signWithAppKey(record, canonicalJson([
+    "hussh-communications-command-v1", userId, operation, proof.deviceId, proof.nonce, proof.expiresAt, digest,
+  ]));
+  assertCurrent();
+  return { ...proof, signature };
+});
 export const openPodSession = serializeOwnerPodOperation(openPodSessionUnlocked);
 export const renewPodSession = serializeOwnerPodOperation(renewPodSessionUnlocked);
 export const currentPodSession = serializeOwnerPodOperation(currentPodSessionUnlocked);
 export const currentPodConnection = serializeOwnerPodOperation(currentPodConnectionUnlocked);
 export const revokeAtPod = serializeOwnerPodOperation(revokeAtPodUnlocked);
 export const clearPendingRevocation = serializeOwnerPodOperation(clearPendingRevocationUnlocked);
+export const clearPinnedPodEndpoint = serializeOwnerPodOperation(clearPinnedPodEndpointUnlocked);
 export const forgetOwnerPodState = serializeOwnerPodOperation(forgetOwnerPodStateUnlocked);

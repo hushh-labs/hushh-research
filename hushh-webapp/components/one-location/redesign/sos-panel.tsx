@@ -1,5 +1,8 @@
 "use client";
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "./native-location-workspace";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   useCallback,
   useEffect,
@@ -38,10 +41,14 @@ import type {
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import { withLocationTypography } from "./location-typography";
 import { SosHoldProgress } from "./sos-hold-progress";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 const HOLD_DURATION_MS = 2_000;
+// Allow ordinary timer scheduling jitter, but never complete an old intent
+// when a suspended WebView resumes after its confirmation window.
+const HOLD_COMPLETION_GRACE_MS = 1_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
 /** Presets populate the same editable message that either send control uses. */
 const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
@@ -49,13 +56,18 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
   "Come get me",
 ];
 
+export type SosDispatchStatus = "sending" | "sent" | "email-only" | "failed" | "unconfirmed";
+
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   contactCount?: number;
   /** The authoritative SMS Circle roster is still being reconciled. */
   recipientsLoading?: boolean;
   active: boolean;
+  dispatchStatus?: SosDispatchStatus;
   busy: boolean;
+  sendBlocked?: boolean;
+  requireTrustedInput?: boolean;
   /**
    * Returning the handler's promise is load-bearing: the panel awaits it to
    * learn whether the trigger actually started work. `handleTriggerSos` bails
@@ -64,6 +76,7 @@ export type SosPanelProps = {
    * release the fired latch instead of sitting on a dead progress ring.
    */
   onTrigger: (message?: string | null) => void | Promise<void>;
+  onPrepareSend?: (signal: AbortSignal) => void;
   /**
    * Stop a live SMS session: revokes the location grants created by the
    * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
@@ -87,16 +100,30 @@ export function SosPanel({
   contactCount,
   recipientsLoading = false,
   active,
+  dispatchStatus,
   busy,
+  sendBlocked = false,
+  requireTrustedInput = false,
   onTrigger,
+  onPrepareSend,
   onStopSos,
   stopBusy,
   onEditContacts,
+  onClose,
 }: SosPanelProps) {
+  const native = useNativeLocationEnabled();
+  const [nativeSafetyRevision, setNativeSafetyRevision] = useState(0);
+  const [nativeMessageEditing, setNativeMessageEditing] = useState(false);
+
   const [customMessage, setCustomMessage] = useState("");
   const [holdTarget, setHoldTarget] = useState<"sms" | "composer" | null>(null);
   const [tapCountdownActive, setTapCountdownActive] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  useBackLayer(ROUTES.ONE_LOCATION, native && (nativeMessageEditing || stopConfirmOpen) ? 4 : 0, () => {
+    if (stopConfirmOpen) { if (!stopBusy) setStopConfirmOpen(false); }
+    else setNativeMessageEditing(false);
+    return true;
+  }, { action: "sos" });
 
   /**
    * The message that actually went out, held for as long as the alert is live.
@@ -110,8 +137,10 @@ export function SosPanel({
 
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendPreparationRef = useRef<AbortController | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef<number | null>(null);
+  const holdWallStartedAtRef = useRef<number | null>(null);
   const holdTargetRef = useRef<"sms" | "composer" | null>(null);
   const countdownModeRef = useRef<"hold" | "tap" | null>(null);
   const tapCountdownRef = useRef(false);
@@ -133,10 +162,22 @@ export function SosPanel({
   // A cached key projection is not send-time authority. The owning trigger
   // refreshes the exact Circle and reports actual delivery, even if this
   // screen first opened with pending or incomplete recipient metadata.
-  const disabled = hardDisabled || noContacts;
+  const disabled = hardDisabled || noContacts || sendBlocked;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
-  const alertedSummary = "Live location sharing is active";
+  const activeStatus = dispatchStatus === "sending" ? "Sending alert…"
+    : dispatchStatus === "failed" ? "Alert could not be sent"
+    : dispatchStatus === "unconfirmed" ? "Delivery not confirmed"
+    : dispatchStatus === "email-only" ? "Alert sent by email"
+    : dispatchStatus === "sent" ? "SMS alert sent" : "Alert active";
+  const alertedSummary = dispatchStatus === "failed"
+    ? "Call for help directly. Stop the pending alert before trying again."
+    : dispatchStatus === "unconfirmed"
+      ? "Call for help directly if you need it. You can still stop this alert."
+      : dispatchStatus === "sending"
+        ? "Checking delivery."
+        : dispatchStatus === "email-only" ? "In-app delivery could not be confirmed."
+        : dispatchStatus === "sent" ? "Live location sharing is active" : "You can stop this alert.";
   const messageDescribedBy = customMessageLimitExceeded
     ? "sos-short-message-error sos-short-message-count"
     : "sos-short-message-count";
@@ -154,7 +195,10 @@ export function SosPanel({
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     timeoutRef.current = null;
     frameRef.current = null;
+    sendPreparationRef.current?.abort();
+    sendPreparationRef.current = null;
     holdStartedAtRef.current = null;
+    holdWallStartedAtRef.current = null;
     holdTargetRef.current = null;
     countdownModeRef.current = null;
     tapCountdownRef.current = false;
@@ -176,7 +220,7 @@ export function SosPanel({
    * so release the latch here.
    */
   const fireTrigger = useCallback(() => {
-    if (firedRef.current || disabled) return;
+    if (firedRef.current || disabled || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
     firedRef.current = true;
     clearHold(false);
     setProgress(1);
@@ -191,6 +235,19 @@ export function SosPanel({
   }, [clearHold, disabled, onTrigger, selectedMessage]);
 
   const completeHold = useCallback(() => {
+    const startedAt = holdStartedAtRef.current;
+    const wallStartedAt = holdWallStartedAtRef.current;
+    const elapsed = startedAt === null ? NaN : performance.now() - startedAt;
+    // Some mobile clocks pause during sleep. Wall time is an additional stale
+    // intent veto; monotonic elapsed still owns completion of the two seconds.
+    const wallElapsed = wallStartedAt === null ? NaN : Date.now() - wallStartedAt;
+    const maximumAge = HOLD_DURATION_MS + HOLD_COMPLETION_GRACE_MS;
+    if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > maximumAge ||
+        !Number.isFinite(wallElapsed) || wallElapsed < 0 || wallElapsed > maximumAge) {
+      suppressSendClickRef.current = true;
+      clearHold();
+      return;
+    }
     // A browser emits click after pointerup/Space keyup. A completed hold has
     // already sent, so that trailing click must not arm a second countdown.
     if (countdownModeRef.current === "hold" && holdTargetRef.current === "composer") {
@@ -199,7 +256,7 @@ export function SosPanel({
       // beyond two seconds. A new deliberate press clears it in startHold.
     }
     fireTrigger();
-  }, [fireTrigger]);
+  }, [clearHold, fireTrigger]);
 
   const updateProgress = useCallback(function tickProgress() {
     if (holdStartedAtRef.current === null || firedRef.current) return;
@@ -210,17 +267,26 @@ export function SosPanel({
     }
   }, []);
 
+  const prepareSend = useCallback(() => {
+    if (!onPrepareSend) return;
+    const preparation = new AbortController();
+    sendPreparationRef.current = preparation;
+    onPrepareSend(preparation.signal);
+  }, [onPrepareSend]);
+
   const startHold = useCallback((target: "sms" | "composer") => {
     if (disabled || holdStartedAtRef.current !== null || firedRef.current || tapCountdownRef.current) return;
     suppressSendClickRef.current = false;
     holdStartedAtRef.current = performance.now();
+    holdWallStartedAtRef.current = Date.now();
     holdTargetRef.current = target;
     countdownModeRef.current = "hold";
     setHoldTarget(target);
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, disabled, updateProgress]);
+    prepareSend();
+  }, [completeHold, disabled, prepareSend, updateProgress]);
 
   const startTapCountdown = useCallback(() => {
     if (disabled || !customMessage.trim() || holdStartedAtRef.current !== null || firedRef.current) return;
@@ -228,14 +294,20 @@ export function SosPanel({
     countdownModeRef.current = "tap";
     holdTargetRef.current = "composer";
     holdStartedAtRef.current = performance.now();
+    holdWallStartedAtRef.current = Date.now();
     setTapCountdownActive(true);
     setHoldTarget("composer");
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, customMessage, disabled, updateProgress]);
+    prepareSend();
+  }, [completeHold, customMessage, disabled, prepareSend, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
+  const interruptPendingSend = useCallback(() => {
+    if (countdownModeRef.current !== null) suppressSendClickRef.current = true;
+    cancelHold();
+  }, [cancelHold]);
 
   const handleSendClick = () => {
     if (suppressSendClickRef.current) {
@@ -250,18 +322,22 @@ export function SosPanel({
   };
 
   useEffect(() => {
-    const onWindowBlur = () => cancelHold();
+    const releaseLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state !== "active") interruptPendingSend();
+    });
+    const onWindowBlur = () => interruptPendingSend();
     const onVisibility = () => {
-      if (document.hidden) cancelHold();
+      if (document.hidden) interruptPendingSend();
     };
     window.addEventListener("blur", onWindowBlur);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      releaseLifecycle();
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibility);
       clearHold();
     };
-  }, [cancelHold, clearHold]);
+  }, [clearHold, interruptPendingSend]);
 
   useEffect(() => {
     if (busy) observedBusyRef.current = true;
@@ -280,7 +356,7 @@ export function SosPanel({
     event: PointerEvent<HTMLButtonElement>,
     target: "sms" | "composer",
   ) => {
-    if (event.button > 0) return;
+    if (event.button > 0 || (requireTrustedInput && !event.nativeEvent.isTrusted)) return;
     if (tapCountdownRef.current) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     startHold(target);
@@ -308,10 +384,18 @@ export function SosPanel({
         (event.type === "pointercancel" || performance.now() - holdStartedAtRef.current >= 250)) {
       suppressSendClickRef.current = true;
     }
+    // Clear the hold before releasing capture: a normal short tap must still
+    // reach its click handler when release emits lostpointercapture.
+    if (!tapCountdownRef.current) cancelHold();
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (!tapCountdownRef.current) cancelHold();
+  };
+
+  const handleLostPointerCapture = () => {
+    if (countdownModeRef.current !== "hold") return;
+    suppressSendClickRef.current = true;
+    cancelHold();
   };
 
   const handleKeyDown = (
@@ -358,10 +442,23 @@ export function SosPanel({
   const quickPill =
     "ui-text-compact-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
+  const nativeSections = active ? [
+    { key: "active", rows: [{ key: "active", label: "Save My Soul is active", detail: alertedSummary }, ...(sentMessage !== null ? [{ key: "sent", label: "Sent message", detail: sentMessage || "No message" }] : []),
+      { key: "stop", label: "Stop sharing", destructive: true, enabled: !stopBusy, pending: stopBusy, run: () => setStopConfirmOpen(true) }] },
+    { key: "close", rows: [{ key: "close", label: "Back", run: onClose }] },
+  ] : [
+    { key: "contacts", rows: [{ key: "contacts", label: recipientCountLabel, detail: recipientsLoading ? "Checking emergency contacts…" : noContacts ? "Add emergency contacts before sending an alert." : "Your emergency contacts receive your live location." }, { key: "edit-contacts", label: "Edit emergency contacts", enabled: !busy, run: onEditContacts }] },
+    ...(!nativeMessageEditing ? [{ key: "message", rows: [...QUICK_MESSAGES.map(message => ({ key: message, label: message, selected: customMessage === message, enabled: !hardDisabled, run: () => { cancelHold(); setNativeSafetyRevision(value => value + 1); setCustomMessage(message); } })),
+      { key: "edit-message", label: customMessage ? "Edit message" : "Add a message", detail: customMessage || "Optional", enabled: !busy, run: () => setNativeMessageEditing(true) },
+    ] }, { key: "activation", rows: [{ key: `sos-trigger:${nativeSafetyRevision}`, label: selectedMessage ? "Send alert" : "Save My Soul", sosActivation: selectedMessage ? "countdown" as const : "hold" as const, enabled: !disabled, run: fireTrigger },
+      ...(customMessageInvalid ? [{ key: "message-error", label: "Message is too long", detail: `${customMessageLength} / ${ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}` }] : []),
+      { key: "close", label: "Cancel", enabled: !busy, run: onClose },
+    ] }] : []),
+  ];
   return (
-    <section
+    <NativeLocationLayer flow="sos" title="Save My Soul" viewKey={nativeMessageEditing ? "sos:message" : active ? "sos:active" : "sos:ready"} sections={nativeSections} textEditor={nativeMessageEditing && !active ? { key: "sos-message", label: "Optional message", placeholder: "What should they know?", maximum: ONE_LOCATION_SHARE_NOTE_MAX_LENGTH, value: customMessage, change: setCustomMessage, enabled: !customMessageInvalid, busy, submitLabel: "Done", submit: () => setNativeMessageEditing(false), cancel: () => setNativeMessageEditing(false) } : undefined} confirmation={stopConfirmOpen ? { title: "Stop sharing?", description: "End the live location sharing started by this alert.", confirm: { key: "stop-sos", label: "Stop sharing", destructive: true, enabled: !stopBusy, pending: stopBusy, run: () => { setStopConfirmOpen(false); onStopSos(); } }, cancelLabel: "Keep sharing", cancel: () => setStopConfirmOpen(false) } : undefined}><section
       data-testid="sms-safety-screen"
-      className="mx-auto flex w-full max-w-[560px] flex-col px-4 pb-6 pt-4 sm:px-0 sm:pt-8"
+      className="flex min-w-0 w-full flex-col pb-6"
     >
       <header className="space-y-2">
         <h1 className="ui-text-page-title">
@@ -381,7 +478,7 @@ export function SosPanel({
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
               data-location-type-role="utility-action"
-              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
             >
               Edit
             </button>
@@ -403,7 +500,9 @@ export function SosPanel({
             type="button"
             size="prominent"
             onClick={onEditContacts}
-            className="h-[52px] min-h-[52px] w-full px-5"
+            data-location-action-fit=""
+            data-location-type-role="primary-action"
+            className="h-auto min-h-[52px] w-full px-5 py-3"
           >
             Add emergency contacts
           </Button>
@@ -412,13 +511,17 @@ export function SosPanel({
         <div className="mt-6 space-y-6">
           <div className="flex flex-col items-center rounded-[20px] bg-[color:var(--app-card-surface-default-solid)] px-6 py-7 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--app-destructive)]/10 text-[color:var(--app-destructive)]">
-              <Check className="h-7 w-7" aria-hidden />
+              {dispatchStatus === "sending" ? <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
+                : dispatchStatus === "failed" || dispatchStatus === "unconfirmed"
+                  ? <span className="text-2xl" aria-hidden>!</span>
+                  : <Check className="h-7 w-7" aria-hidden />}
             </span>
             <p
               data-testid="sos-status-label"
+              role="status"
               className="ui-text-medium-row-label mt-4"
             >
-              Alert active
+              {activeStatus}
             </p>
             <RowDescription className="mt-1">
               {alertedSummary}
@@ -432,24 +535,24 @@ export function SosPanel({
                 {sentMessage}
               </RowLabel>
             ) : null}
-            <span data-testid="sos-sent-face" className="sr-only">
-              SENT
-            </span>
+
           </div>
 
-          <button
+          <Button
             type="button"
+            size="standard"
+            variant="destructive"
             onClick={() => setStopConfirmOpen(true)}
             disabled={stopBusy}
-            aria-label="Stop Save My Soul alert"
+            aria-label="Stop SMS alert"
             data-testid="sos-cancel-alert"
-            className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-[16px] bg-[color:var(--sos-control-surface)] px-5 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60"
+            className="mx-auto flex max-w-full"
           >
             {stopBusy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             ) : null}
             {stopBusy ? "Stopping..." : "Stop alert"}
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -516,15 +619,26 @@ export function SosPanel({
                 aria-label={tapCountdownActive
                   ? "Cancel pending Save My Soul alert"
                   : "Send message: tap for a two-second countdown or hold for two seconds"}
-                aria-describedby={customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint"}
-                onClick={handleSendClick}
+                aria-describedby={
+                  customMessageLimitExceeded
+                    ? "sos-short-message-error"
+                    : tapCountdownActive ? "sos-send-hint" : undefined
+                }
+                onClick={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleSendClick();
+                }}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
+                onLostPointerCapture={handleLostPointerCapture}
                 onPointerLeave={handlePointerLeave}
-                onKeyDown={(event) => handleKeyDown(event, "composer")}
-                onKeyUp={(event) => handleKeyUp(event, "composer")}
-                onBlur={cancelHold}
+                onKeyDown={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleKeyDown(event, "composer");
+                }}
+                onKeyUp={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleKeyUp(event, "composer");
+                }}
+                onBlur={interruptPendingSend}
                 onContextMenu={(event) => event.preventDefault()}
                 className="ui-text-compact-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
@@ -536,7 +650,7 @@ export function SosPanel({
                     : "Send · 2s"}
               </button>
             </div>
-            <div className="mt-1 flex min-h-5 items-baseline justify-between gap-3">
+            <div className="mt-1 flex min-h-5 items-baseline gap-3">
               {customMessageLimitExceeded ? (
                 <HelperText
                   id="sos-short-message-error"
@@ -546,18 +660,16 @@ export function SosPanel({
                 >
                   Message is too long
                 </HelperText>
-              ) : (
+              ) : tapCountdownActive ? (
                 <HelperText id="sos-send-hint" as="p" className="text-[color:var(--sos-label)]">
-                  {tapCountdownActive
-                    ? `Sending in ${remainingSeconds}s · Tap Cancel`
-                    : "Hold Send for 2 seconds, or tap to start a 2-second countdown"}
+                  Sending in {remainingSeconds}s · Tap Cancel
                 </HelperText>
-              )}
+              ) : null}
               <HelperText
                 as="div"
                 id="sos-short-message-count"
                 className={cn(
-                  "shrink-0 text-right",
+                  "ml-auto shrink-0 text-right",
                   customMessageLimitExceeded
                     ? "text-[color:var(--app-destructive)]"
                     : "text-[color:var(--sos-label)]",
@@ -577,12 +689,15 @@ export function SosPanel({
                 disabled={disabled}
                 aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${recipientCountLabel}`}
                 onPointerDown={(event) => handlePointerDown(event, "sms")}
+                onLostPointerCapture={handleLostPointerCapture}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
                 onPointerLeave={handlePointerLeave}
-                onKeyDown={(event) => handleKeyDown(event, "sms")}
+                onKeyDown={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleKeyDown(event, "sms");
+                }}
                 onKeyUp={(event) => handleKeyUp(event, "sms")}
-                onBlur={cancelHold}
+                onBlur={interruptPendingSend}
                 onContextMenu={(event) => event.preventDefault()}
                 data-sos-core={busy ? "" : undefined}
                 className={cn(
@@ -601,35 +716,38 @@ export function SosPanel({
 
             <StatusText
               as="p"
+              role="status"
               data-testid="sos-status-label"
               className="mt-3 text-center text-[color:var(--sos-label)]"
             >
-              {statusLabel}
+              {dispatchStatus === "failed" && !busy && !isHolding ? "Alert not sent · Hold to retry" : statusLabel}
             </StatusText>
             <HelperText as="p" className="mt-1 text-center text-[color:var(--sos-label)]">
-              Alerts your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
+              Alert your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
             </HelperText>
           </div>
         </>
       )}
 
-      <AlertDialog open={stopConfirmOpen} onOpenChange={setStopConfirmOpen}>
+      <AlertDialog open={stopConfirmOpen && !native} onOpenChange={setStopConfirmOpen}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Stop Save My Soul alert?</AlertDialogTitle>
+            <AlertDialogTitle>Stop SMS alert?</AlertDialogTitle>
             <AlertDialogDescription>
-              Your emergency contacts will stop receiving your live location. Each recipient dismisses their own alarm.
+              Your emergency contacts will stop receiving your live location.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={stopBusy}>
+            <AlertDialogCancel size="standard" disabled={stopBusy}>
               Keep active
             </AlertDialogCancel>
             <AlertDialogAction
+              size="standard"
               variant="destructive"
               disabled={stopBusy}
               onClick={(event) => {
                 event.preventDefault();
+                if (requireTrustedInput && !event.nativeEvent.isTrusted) return;
                 onStopSos();
                 setStopConfirmOpen(false);
               }}
@@ -639,6 +757,6 @@ export function SosPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </section></NativeLocationLayer>
   );
 }

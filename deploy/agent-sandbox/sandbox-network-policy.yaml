@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+# Default-deny Ingress and Egress NetworkPolicy enforcing Sentinel proxy mediation (NIST SC-7(5)).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hussh-one-sandbox-egress-fence
+  namespace: hussh-agents
+spec:
+  podSelector:
+    matchLabels:
+      app: hussh-one-sandbox
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hussh-hub-router
+          podSelector:
+            matchLabels:
+              app: hussh-consent-hub
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hussh-sandbox-system
+          podSelector:
+            matchLabels:
+              app: sentinel-egress-proxy
+      ports:
+        - protocol: TCP
+          port: 3128
+        - protocol: TCP
+          port: 8082
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - ipBlock:
+            cidr: 169.254.20.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

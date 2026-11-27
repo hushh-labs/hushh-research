@@ -75,6 +75,12 @@ Archive small sanitized evidence envelopes beside the existing release artifacts
 under `pod-releases/<image-source>/<prepare-run>/qualification-<kind>.json`.
 Retain original authenticated native execution observations and reviewed probe
 code. Do not replace those observations with authored success booleans.
+The offline `scripts/ops/inspect-pod-release-evidence.py` inspector checks consistency
+of retained image, recovery and reviewed-envelope records. For metadata-only
+publication, supply both `--image-release-json` and `--image-preparation-json`
+for the original build alongside the current publication files. Its output
+does not verify live object generations, current native state, adapter journeys
+or physical purge and does not authorize catalog activation.
 
 A subsequent reviewed Main change may add an activation pin (`pod-publication.json` in the `deploy` directory). It has
 `schemaVersion=1`, `descriptorSourceRevision`, the existing four-field `release`
@@ -154,6 +160,36 @@ Verify the running release, readiness and memory/authority continuity before
 reporting success. Keep the automatic sweep disabled until the deployed hub
 enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
+### First-attempt GCP notification recovery
+
+The operator-only `pod_upgrade.py --recover-notification-upgrade` mode handles
+the reviewed `351d975545b4` executor's first blocked, image-only attempt. Deploy
+the 445/976 account-ID correction first. Preserve the approved pod image through
+an application-only Dev deployment; this repair needs no new pod release.
+
+Independently verify the failed executor's exact source and target through the
+Dev revision inventory, retaining a sanitized evidence artifact and its SHA-256.
+The command records this as operator-verified provenance, not a live source read.
+Run it in the existing Dev hub identity, with the normal secret references and
+Cloud SQL connection; never grant new impersonation rights to make it run.
+
+```bash
+python3 scripts/ops/pod_upgrade.py --recover-notification-upgrade \
+  --user-id "$OWNER_USER_ID" --operation-id "$OWNER_OPERATION_ID" \
+  --target-image "$HUSSH_ONE_POD_IMAGE" --running-hub-source "$HUSHH_DEPLOY_SHA" \
+  --reviewed-executor-revision "$FAILED_HUB_REVISION" \
+  --review-evidence-sha256 "$SOURCE_EVIDENCE_SHA256"
+```
+
+The default verifies without writing. Both modes require the owner-bound failure
+event, corrected validator, two unchanged native predecessor observations and
+the authenticated sealed handoff release. Explicit `--execute` additionally
+performs the exact snapshot CAS, closing only that failed lease and rescheduling the same approval,
+preserving failure history, prior receipts and cooldown. It never performs the
+provider update or reports installation. Missing evidence, later attempts,
+capability upgrades and concurrent changes refuse recovery. Use one task, no
+automatic job retries, and verify temporary-job cleanup after terminal execution.
+
 ### Release metadata and compatibility
 
 For private Browser/connector reviews, also inspect the installed action-ledger
@@ -183,6 +219,12 @@ the cohort; native restored Firebase metadata does not. Cosmetic acknowledgement
 is scoped to owner, environment and release on that installation, persists through
 ordinary sign-out and is erased on account deletion. Web Locks serialize tabs
 where supported; cross-device acknowledgement is not a server guarantee.
+
+For Azure Container Apps, provider `external` ingress and admitted `direct`
+access describe different layers. Image publication and observation-only recovery
+preserve `direct` only for the same service, incarnation, URL and current-key
+readiness receipt. The host-bound SQL lease still rejects changed authority; an
+acknowledged installation is reconciled through observation rather than replayed.
 
 Pod completion uses `completedUpdate`, retained independently of later offers.
 It requires the exact successful owner operation, current incarnation and
@@ -608,6 +650,17 @@ signed admission. Remove any bounded operator impersonation grant afterward.
 This is same-image configuration maintenance, not software-update approval.
 Record its receipt separately from the owner's durable update operation.
 
+**Owner-feed verification after an update.** Existing-image updates must carry
+`OWNER_FEED_ED25519_PUBLIC_KEYS` through the same frozen public-configuration
+receipt as connector callbacks. Initial setup already renders this public map;
+preserving an older environment without backfilling it leaves private answer
+preparation unavailable. Never copy the feed signing key into a pod. Reject
+conflicting, duplicate or secret-reference verifier entries; retain the exact
+smaller configuration contract when observing historical acknowledgements.
+An already-completed image update is not authority for another replacement:
+qualify any same-image maintenance separately with the handoff and identity
+checks above, and retain its own intent, acknowledgement and native readback.
+
 For a standalone Hermes relay, an HTTPS admission success does not prove WSS
 trust configuration. Use the relay's verified CA context (configured trust store
 or its pinned certificate bundle); never disable certificate or hostname checks.
@@ -750,10 +803,12 @@ hosting, then invokes the existing owner-authorized provision route. Keep the
 existing automation flag; do not use it to bypass fixed-cohort admission.
 
 The October 26 pilot keeps two synthetic hosted owners in separate Hussh-funded
-projects. Shared and BYOC remain separate choices. Use the existing image build,
+projects (`Cohort-1`, preserved untouched). On 16 November, the governed Dev-only extension (`consent-protocol/config/dev-hosted-pilot-extension.json`, [#9609](https://github.com/hushh-labs/hushh-research/pull/9609), [#9627](https://github.com/hushh-labs/hushh-research/pull/9627)) admitted **Slot #3** under explicit owner-hash binding, the same US$200 work / US$50 cleanup ceiling, and monotonic checkpoint serialization, proving isolated GCP project bootstrap and `Dev 39` direct-ingress streaming chat while keeping general hosted provisioning closed outside `Dev`. Shared and BYOC remain separate choices. Use the existing image build,
 release catalog and upgrade approval contracts. Copy the same immutable digest
 into each project; do not rebuild per owner or claim an older digest contains new
 runtime changes.
+
+Post-`execve` worker non-dumpability (`PR_SET_DUMPABLE=0`) across Cloud Run Gen1 (gVisor) and Linux microVM/VM hosts must be verified via `prctl(PR_GET_DUMPABLE) == 0` (`browser_runtime/gunicorn_lifecycle.py`, [#9618](https://github.com/hushh-labs/hushh-research/pull/9618)), never by parsing `Dumpable:` from `/proc/self/status` (which gVisor omits). Local storage, KMS AAD, and capability-prefix changes should run Tier-1.5 [Floci multi-cloud wire verification](../../development/quality/floci-multicloud-wire-verification.md) before preparing a new pod digest.
 
 `PrivateGcpDeployment` is the common rendering/readback contract. The hosted
 adapter preserves pure planning for unbound specifications. An internal spec with
@@ -823,8 +878,10 @@ handoff fences generic expiry takeover; an upgraded revision must carry that exa
 writer operation. Read-only recovery uses frozen retained model bindings so retiring
 a model profile cannot strand inspection; new mutations still require current policy.
 
-Complete partial-provision cleanup, operator adapter, archive and reconciliation
-acceptance remains required before either pilot owner is provisioned.
+The two synthetic pilot owners were provisioned in October 2026. Complete
+partial-provision cleanup, operator adapter, archive and reconciliation
+acceptance remain separate requirements for the pilot; those prior provisions
+do not establish them.
 Pre-host abort uses the same frozen erasure reservation, without inventing a
 running service UID or successful Memory deletion. `HostedPrefixAbortOperator`
 retains native inventory before disabling the runtime writer, removes retained
@@ -865,6 +922,18 @@ BYOC rendering is unchanged. An empty mail inventory alone never permits key
 destruction: SQL requires the exact admitted managed plan, a valid matching
 inventory, and no declared mail resource, including legacy resources. Any
 declared mail resource still requires its own deletion evidence.
+
+Hosted Files remains unavailable until the reviewed database custody family can
+prove that an interrupted Files executor has exited and its provider effects have
+settled. The current 974 custody functions alone do not establish that proof.
+A retained update may be inspected and its late receipt recorded, but neither
+lease age nor that receipt alone authorizes a new write or erasure completion.
+Cancellation now fences managed Files provider work and joins its local worker
+and named late-receipt callbacks. These joins are not durable executor-exit or
+provider-settlement evidence; the erasure gate remains closed without that proof.
+When qualified, Files uses the existing managed storage offer and owner-approved
+update; the hosted pilot does not enable document model analysis. Normal Files
+reads and writes must not require an available model.
 
 Cleanup receipt payload checks are separate from dependency ordering: validate
 inventory and IAM dependencies once per completion pass, then each exact pair.
@@ -961,7 +1030,6 @@ first-quota-stop rule and requirement for an actual nonempty, non-truncated repl
 This is a probe budget correction, not a claim that private model or memory
 acceptance has passed.
 
-
 ### One-time legacy bootstrap exception
 
 An installed release may predate the handoff protocol. Check with the configured
@@ -995,7 +1063,6 @@ Do not add a permanent bypass flag or silently bootstrap other owners.
 
 Record bootstrap results separately from the subsequent owner-approved update
 acceptance. Do not repeat a bootstrap merely because later authentication fails.
-
 
 ### Dev hosted pilot: memory consent transport
 

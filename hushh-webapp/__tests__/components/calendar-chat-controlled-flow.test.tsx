@@ -46,9 +46,12 @@ describe("controlled Calendar tool → visible action → confirmation", () => {
     expect(screen.getByText(/29 min 59 sec/)).toBeVisible();
   });
 
-  it("shows details and attendees for sufficient access and executes only the confirmed proposal", async () => {
+  it.each([undefined, 1] as const)("shows details and executes only the confirmed proposal with contract %s", async reviewContract => {
     const event = project(results.write_authorized)!;
-    const payload = results.write_authorized.directive.payload;
+    const payload = { ...results.write_authorized.directive.payload, ...(reviewContract === 1 ? {
+      reviewContract, reminders: { useDefault: false as const, overrides: [{ method: "popup" as const, minutes: 15 }] },
+    } : {}) };
+    event.directive = { ...event.directive, payload };
     expect(event.directive.payload.type).toBe("calendar.execute_proposal");
     const execute = vi.spyOn(GoogleCalendarService, "executeProposal").mockResolvedValue({
       action: "create", event: { id: "synthetic-confirmed-event", title: "Planning", conference_url: "https://meet.google.com/abc-defg-hij" },
@@ -58,13 +61,14 @@ describe("controlled Calendar tool → visible action → confirmation", () => {
     const view = render(<AgentCalendarProposalCard {...props} />);
     expect(screen.getByText(/person@example\.com/)).toBeVisible();
     expect(screen.getByText("Planning")).toBeVisible();
+    if (reviewContract === 1) expect(screen.getByText(/15 min/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Allow Calendar scheduling" })).toBeNull();
     expect(execute).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
     view.rerender(<AgentCalendarProposalCard {...props} busy />);
     fireEvent.click(screen.getByRole("button", { name: /Scheduling|Schedule meeting|Working/i }));
     await waitFor(() => expect(result).toHaveBeenCalledOnce());
-    expect(execute).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "synthetic-token", userId: "synthetic-owner", proposalId: "gcal_example" });
+    expect(execute).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "synthetic-token", userId: "synthetic-owner", proposalId: "gcal_example", accountId: "default", ...(reviewContract === 1 ? { reviewContract } : {}) });
     expect(result.mock.calls[0][0]).toMatchObject({ status: "completed", type: "calendar.create" });
   });
 });

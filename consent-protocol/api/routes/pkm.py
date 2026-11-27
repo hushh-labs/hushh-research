@@ -23,6 +23,7 @@ from fastapi import (
     Query,
     status,
 )
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -105,6 +106,11 @@ from api.routes.pkm_routes_shared import (
     validate_store_domain as _validate_store_domain,
 )
 from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
+from hushh_mcp.services.chat_memory_manager import (
+    RewriteMemoryRequest,
+    RewriteMemoryResponse,
+    rewrite_chat_memory,
+)
 from hushh_mcp.services.domain_contracts import validate_dynamic_top_level_domain
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -416,6 +422,21 @@ async def get_stock_context(
     token_data: dict = Depends(hub_content_owner),
 ):
     return await _get_stock_context(request, token_data)
+
+
+@router.post("/memory/rewrite", response_model=RewriteMemoryResponse)
+async def rewrite_memory_document(
+    request: RewriteMemoryRequest,
+    token_data: dict = Depends(hub_content_owner),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(403, detail="Memory owner mismatch")
+    try:
+        result = await rewrite_chat_memory(request)
+        return JSONResponse(result.model_dump(), headers={"Cache-Control": "private, no-store"})
+    except Exception:
+        # Never log provider exceptions: their text can contain private input.
+        raise HTTPException(503, detail="Memory rewrite unavailable") from None
 
 
 async def _generate_pkm_memory_proposals(

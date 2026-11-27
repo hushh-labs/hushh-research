@@ -45,6 +45,7 @@ import {
 import { connectPersonReviewHref } from "@/lib/navigation/connect-routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { LOCATION_REQUEST_SENT_TOAST } from "@/lib/one-location/request-message";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationAccessRequest,
@@ -64,6 +65,7 @@ export type AskPerson = {
   photoUrl: string | null;
   relationship: ConnectionRelationship;
   verified: boolean;
+  fromContacts?: boolean;
 };
 
 type ResolveStatus = "idle" | "loading" | "ready" | "not_found" | "error";
@@ -77,7 +79,8 @@ function fromRecipient(recipient: OneLocationRecipient): AskPerson {
     name: recipient.displayName,
     photoUrl: recipient.photoUrl ?? null,
     relationship: "connected",
-    verified: recipient.phoneVerified,
+    verified: recipient.isRia === true,
+    fromContacts: recipient.connectedFromContacts,
   };
 }
 
@@ -146,7 +149,7 @@ export function useAskPerson(
           name: context.person.displayName || "This person",
           photoUrl: context.person.photoUrl,
           relationship: context.person.relationship,
-          verified: false,
+          verified: context.person.isRia === true,
         });
         setStatus("ready");
       } catch {
@@ -265,11 +268,7 @@ export function AskForLocationFlow({
       setSentRequest(request);
       OneLocationStateResource.invalidate(workspace.userId);
       await workspace.refresh({ invalidate: true });
-      morphyToast.success(
-        request.status === "approved"
-          ? `${person.name} approved automatically.`
-          : `Asked ${person.name}. You'll be told when they answer.`,
-      );
+      morphyToast.success(LOCATION_REQUEST_SENT_TOAST);
     } catch (error) {
       morphyToast.error(
         error instanceof Error && error.message
@@ -384,6 +383,7 @@ export function AskForLocationFlow({
               label={person.name}
               photoUrl={person.photoUrl}
               verified={person.verified}
+              fromContacts={person.fromContacts}
             />
             <div className="min-w-0 flex-1">
               <p className="ui-text-row-label-emphasized truncate">

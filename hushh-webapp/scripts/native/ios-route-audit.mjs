@@ -28,7 +28,10 @@ const repoRoot = process.cwd();
 const webDir = repoRoot;
 const monorepoRoot = path.resolve(webDir, "..");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
-const reportPath = path.join(repoRoot, "native-ios-parity-report.json");
+const reportPath = path.resolve(
+  repoRoot,
+  process.env.IOS_ROUTE_AUDIT_REPORT_PATH || "native-ios-parity-report.json",
+);
 const screenshotDir = path.join(
   repoRoot,
   process.env.IOS_ROUTE_AUDIT_SCREENSHOT_DIR || "native-ios-screenshots"
@@ -54,7 +57,12 @@ const noProgressTimeoutMs = Math.min(
     Number(process.env.IOS_ROUTE_AUDIT_NO_PROGRESS_TIMEOUT_MS || "20000"),
   ),
 );
-const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
+const routeFilters = new Set(
+  (process.env.IOS_ROUTE_FILTER || "")
+    .split(",")
+    .map((route) => route.trim())
+    .filter(Boolean),
+);
 const maxConsecutiveFailures = Math.max(
   1,
   Number(process.env.IOS_ROUTE_AUDIT_MAX_CONSECUTIVE_FAILURES || "3"),
@@ -377,7 +385,7 @@ function runAudit() {
   const inventory = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
   const auditedRoutes = inventory.routes
     .filter((route) => route.classification.startsWith("native-required"))
-    .filter((route) => !routeFilter || route.route === routeFilter);
+    .filter((route) => !routeFilters.size || routeFilters.has(route.route));
 
   console.log(`==> native iOS route audit (${auditedRoutes.length} routes)`);
   console.log(`==> destination: ${destination}`);

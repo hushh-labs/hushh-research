@@ -258,6 +258,25 @@ for (const dark of [false, true]) {
         expect(await copySurface.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       }
       if (width === 393 || width === 1440) await page.screenshot({ path: testInfo.outputPath("invite-link-actions.png"), fullPage: true });
+
+      if (width === 320) {
+        const enlarged = await copySurface.evaluate((element) => {
+          const pill = element as HTMLElement;
+          pill.style.setProperty("font-size", "24px", "important");
+          pill.style.setProperty("line-height", "36px", "important");
+          pill.lastChild!.textContent = "Copying…";
+          const label = document.createRange();
+          label.selectNodeContents(pill.lastChild!);
+          const text = label.getBoundingClientRect();
+          const icon = pill.querySelector("svg")!.getBoundingClientRect();
+          const box = pill.getBoundingClientRect();
+          return { left: Math.min(icon.left, text.left) - box.left, right: box.right - text.right, width: box.width, viewportRight: innerWidth - box.right };
+        });
+        expect(enlarged.width).toBeGreaterThan(copyWidth);
+        expect(enlarged.left).toBeGreaterThanOrEqual(0);
+        expect(enlarged.right).toBeGreaterThanOrEqual(0);
+        expect(enlarged.viewportRight).toBeGreaterThanOrEqual(0);
+      }
     });
 
     test(`People actions and icon-free Circles summary at ${width}px ${dark ? "dark" : "light"}`, async ({

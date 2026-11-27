@@ -16,15 +16,24 @@ export function nativeSearchSuggestions(html: string): { text: string; links: re
   return { text: doc.body.textContent?.trim() ?? "", links };
 }
 
-/** Native provider attribution is isolated from app privileges and saved facts. */
+// Google supplies the strip's markup and styling. This only styles the frame
+// around it and gives links without a target a direct path to Google results.
+const SEARCH_SUGGESTION_FRAME_HEAD = [
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:">`,
+  '<meta name="referrer" content="no-referrer">',
+  '<meta name="color-scheme" content="light dark">',
+  '<base target="_blank">',
+  '<style>body { margin: 2px; }</style>',
+].join("");
+
 export function SearchSuggestions({ html, index }: { html: string; index: number }) {
   return (
     <iframe
       title={`Google Search suggestions ${index + 1}`}
       sandbox="allow-popups allow-popups-to-escape-sandbox"
       referrerPolicy="no-referrer"
-      className="h-36 w-full border-0"
-      srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:">${html}`}
+      className="block h-14 w-full min-w-0 border-0 scheme-light dark:scheme-dark"
+      srcDoc={SEARCH_SUGGESTION_FRAME_HEAD + html}
     />
   );
 }

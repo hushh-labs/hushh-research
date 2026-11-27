@@ -83,6 +83,7 @@ describe("encrypted saved-locations PKM store", () => {
         label: "Dezzerto",
         placeName: "Dezzerto",
         placeId: "venue-1",
+        placeCategory: "cafes",
         address: "Shop 9, Tower 1, Pune",
         checkedInAt: "2026-10-21T19:30:00.000Z",
         latitude: 18.57,
@@ -112,6 +113,7 @@ describe("encrypted saved-locations PKM store", () => {
         category: "other",
         savedFrom: "check_in",
         label: "Coffee shop",
+        placeCategory: "cafes",
         latitude: 28.6139,
         longitude: 77.209,
       },
@@ -131,6 +133,7 @@ describe("encrypted saved-locations PKM store", () => {
       id: saved.id,
       savedFrom: "check_in",
       label: "Favorite coffee shop",
+      placeCategory: "cafes",
     });
   });
 
@@ -528,7 +531,7 @@ describe("encrypted saved-locations PKM store", () => {
     // Read normalizes the v2 fields onto a v1 entry, so it loads with the
     // parts explicitly absent rather than undefined.
     expect(await loadSavedLocations(CONTEXT)).toEqual([
-      { ...concurrentlySavedHome, addressBase: null, addressDetails: null, placeName: null, placeId: null, checkedInAt: null },
+      { ...concurrentlySavedHome, addressBase: null, addressDetails: null, placeName: null, placeId: null, placeCategory: null, checkedInAt: null },
     ]);
   });
 

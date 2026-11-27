@@ -95,7 +95,14 @@ async def test_a_blank_owner_resolves_to_nothing(tmp_path):
 
 async def test_the_pod_rebuilds_its_own_index_from_its_own_log(tmp_path, monkeypatch):
     monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
-    log = await _log_with(tmp_path, [_commit("owner-a", "travel"), _commit("owner-a", "food")])
+    log = await _log_with(
+        tmp_path,
+        [
+            _commit("owner-a", "travel"),
+            _commit("owner-a", "food"),
+            _commit("owner-a", "credentials"),
+        ],
+    )
 
     store = await resolve_pod_pkm_store("owner-a", log=log)
 
@@ -445,6 +452,7 @@ async def test_local_grounding_projects_the_index_into_context(tmp_path, monkeyp
     assert text is not None
     assert "travel: travel summary" in text
     assert "food: food summary" in text
+    assert "credentials" not in text
 
 
 async def test_local_grounding_is_empty_when_there_is_nothing_to_say(tmp_path, monkeypatch):
@@ -490,7 +498,7 @@ async def test_the_turn_prefers_the_browsers_projection_over_the_local_index(mon
 
     source = Path("api/routes/one/pod_turn.py").read_text(encoding="utf-8")
 
-    pushed = source.index("grounding = (payload.pkm_context")
+    pushed = source.index("grounding = payload.pkm_context")
     local = source.index("local_grounding(user_id)")
     guard = source.index("if grounding is None:")
 

@@ -1,423 +1,120 @@
-/**
- * ImportProgressView Component
- *
- * Real-time streaming progress UI for portfolio import.
- * Stream panels:
- * 1. AI stream
- * 2. Confirmed Holdings
- */
-
 "use client";
 
-import { useMemo, useState } from "react";
-import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
-import {
-  AppStreamSection,
-  AppStreamEventList,
-  type AppStreamProgressItem,
-} from "@/components/app-ui/stream-progress-panel";
-import { cn } from "@/lib/morphy-ux";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import { Progress } from "@/components/ui/progress";
-import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { Activity, CheckCircle2, ChevronDown, ChevronUp, FileChartColumn, X } from "@/components/icons";
-import { Icon } from "@/lib/morphy-ux/ui";
-import { toInvestorStreamText } from "@/lib/copy/investor-language";
+import { useEffect, useState } from "react";
+import { PortfolioReviewFrame } from "./portfolio-review-layout";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Button } from "@/components/ui/button";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
-import {
-  getLiveHoldingPositionSide,
-  normalizeLiveHoldingPreviewRows,
-} from "@/lib/kai/import/live-holdings-preview";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import type { ImportExtractionProgress } from "@/lib/kai/import/extraction-progress";
+import { ImportReviewPlaceholder } from "./import-review-placeholder";
+import { AppStreamProgressMeter } from "@/components/app-ui/stream-progress-panel";
 
-export type ImportStage =
-  | "idle"
-  | "uploading"
-  | "indexing"
-  | "scanning"
-  | "thinking"
-  | "extracting"
-  | "normalizing"
-  | "validating"
-  | "complete"
-  | "error";
+const stageLabels = {
+  idle: "Preparing your statement",
+  uploading: "Uploading your statement",
+  indexing: "Reading your statement",
+  scanning: "Reading your statement",
+  thinking: "Reading your statement",
+  extracting: "Finding holdings",
+  normalizing: "Checking holdings",
+  validating: "Checking holdings",
+  complete: "Ready to review",
+  error: "Statement import stopped",
+} as const;
 
-export interface ImportProgressViewProps {
-  stage: ImportStage;
-  isStreaming: boolean;
-  progressPct?: number;
-  statusMessage?: string;
-  stageTrail?: string[];
-  thoughts?: string[];
-  rawStreamLines?: string[];
-  thoughtCount?: number;
-  liveHoldings?: LiveHoldingPreview[];
-  holdingsExtracted?: number;
-  holdingsTotal?: number;
+export type ImportStage = keyof typeof stageLabels;
+
+// Where the bar sits while a stage runs: it starts at the first number and
+// eases toward the second, never reaching the next stage's start, so it only
+// ever moves forward. The extraction stage is the long one, so it gets the
+// widest range. This is an estimate shown for reassurance, not a measurement.
+const stageRange = {
+  idle: [3, 8],
+  uploading: [10, 24],
+  indexing: [26, 36],
+  scanning: [38, 46],
+  thinking: [48, 56],
+  extracting: [58, 88],
+  normalizing: [90, 94],
+  validating: [95, 98],
+  complete: [100, 100],
+  error: [0, 0],
+} as const satisfies Record<keyof typeof stageLabels, readonly [number, number]>;
+
+const EASE_SECONDS = 15;
+const STILL_WORKING_AFTER_SECONDS = 8;
+
+function useImportProgress(stage: keyof typeof stageLabels) {
+  // The shared clock wakes every consumer together, after a frame and never
+  // while the page is hidden, instead of a timer of this component's own.
+  const now = Math.max(Date.now(), useCoarseClock(1_000));
+  const [began] = useState(() => Date.now());
+  const [current, setCurrent] = useState({ stage, at: Date.now() });
+  const failed = stage === "error";
+
+  useEffect(() => {
+    setCurrent({ stage, at: Date.now() });
+  }, [stage]);
+
+  const [start, ceiling] = stageRange[stage];
+  const inStage = current.stage === stage ? Math.max(0, now - current.at) / 1000 : 0;
+  const percent = Math.round(start + (ceiling - start) * (1 - Math.exp(-inStage / EASE_SECONDS)));
+  return { percent, slow: !failed && (now - began) / 1000 >= STILL_WORKING_AFTER_SECONDS };
+}
+
+function fileSizeLabel(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+interface ImportProgressViewProps {
+  stage: keyof typeof stageLabels;
   errorMessage?: string;
+  /** The statement being read, shown at once so the card says what is happening to what. */
+  fileName?: string;
+  fileSize?: number;
+  /** Holdings the server has confirmed so far; they fill the placeholder list as they arrive. */
+  liveHoldings?: readonly LiveHoldingPreview[];
+  holdingsTotal?: number;
+  extractionProgress?: ImportExtractionProgress | null;
   onCancel?: () => void;
   onRetry?: () => void;
-  onContinue?: () => void;
-  onBackToDashboard?: () => void;
-  className?: string;
 }
 
-const stageMessages: Record<ImportStage, string> = {
-  idle: "Ready to import",
-  uploading: "Processing uploaded file...",
-  indexing: "Indexing document...",
-  scanning: "Scanning pages and sections...",
-  thinking: "Preparing your portfolio details...",
-  extracting: "Extracting financial information...",
-  normalizing: "Normalizing extracted information...",
-  validating: "Validating extracted holdings...",
-  complete: "Import complete!",
-  error: "Import failed",
-};
+type ImportStatusProps = Pick<ImportProgressViewProps, "stage" | "fileName" | "fileSize" | "errorMessage">;
 
-function normalizeStreamLine(rawLine: string): string {
-  const normalized = String(rawLine || "")
-    .replace(/```(?:json)?/gi, " ")
-    .replace(/```/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!normalized) return "";
-  if (/^[\]\[\{\},:]+$/.test(normalized)) return "";
-  const tagged = normalized.match(/^\[([^\]]+)\]\s*(.*)$/);
-  const payloadText = tagged ? (tagged[2] || "").trim() : normalized;
-  const looksStructuredPayload =
-    (!tagged && /^\s*[\[{]/.test(normalized)) ||
-    /"[^"]+"\s*:/.test(payloadText) ||
-    /(?:portfolio_data_v2|raw_extract_v2|analytics_v2|quality_report_v2|holdings_preview|progress_pct|chunk_count|total_chars|run_id|cursor|seq)\b/i.test(
-      payloadText
-    );
-  if (tagged) {
-    const tag = (tagged[1] || "").trim().toUpperCase();
-    const cleaned = (tagged[2] || "").trim();
-    const message = looksStructuredPayload ? "" : toInvestorStreamText(cleaned);
-    return message ? `[${tag}] ${message}` : "";
-  }
-  if (looksStructuredPayload) {
-    return "";
-  }
-  return toInvestorStreamText(normalized);
+function ImportStatusContent({ stage, fileName, fileSize, errorMessage, percent, slow }: ImportStatusProps & { percent: number; slow: boolean }) {
+  const failed = stage === "error";
+  return <section aria-label="Statement import status" className="space-y-2">
+    <div role="status" className="min-h-10 ui-text-row-description text-muted-foreground">
+      <p>{failed ? errorMessage || "Try again or choose a different statement." : stage === "complete" ? "Ready to review" : slow ? `${stageLabels[stage]}. Still working. Larger statements take a little longer.` : stageLabels[stage]}</p>
+      <p className="min-h-4 truncate">{fileName}{typeof fileSize === "number" && fileSize > 0 ? ` · ${fileSizeLabel(fileSize)}` : ""}</p>
+    </div>
+    {!failed ? <AppStreamProgressMeter value={percent} label="Statement import progress" className="h-1.5 bg-muted" indicatorClassName="bg-[var(--app-accent)] motion-safe:duration-300 motion-safe:ease-out" /> : null}
+  </section>;
 }
 
-function streamLineKey(line: string): string {
-  const normalized = normalizeStreamLine(line);
-  const match = normalized.match(/^\[([^\]]+)\]\s*(.*)$/);
-  if (!match) return normalized.toLowerCase();
-  const tag = (match[1] || "").trim().toUpperCase();
-  const message = (match[2] || "").trim().toLowerCase();
-  return `[${tag}] ${message}`;
+function ActiveImportStatus(props: ImportStatusProps) {
+  const progress = useImportProgress(props.stage);
+  return <ImportStatusContent {...props} {...progress} />;
 }
 
-function splitTaggedLine(line: string): { tag?: string; message: string } {
-  const normalized = normalizeStreamLine(line);
-  const match = normalized.match(/^\[([^\]]+)\]\s*(.*)$/);
-  if (!match) return { message: normalized };
-  const tag = (match[1] || "").trim();
-  const message = (match[2] || "").trim();
-  return { tag: tag || undefined, message: message || normalized };
+export function ImportProgressStatus(props: ImportStatusProps) {
+  // A completed review (or stopped import) has no running clock to subscribe to.
+  return props.stage === "complete" || props.stage === "error"
+    ? <ImportStatusContent {...props} percent={props.stage === "complete" ? 100 : 0} slow={false} />
+    : <ActiveImportStatus {...props} />;
 }
 
-export function ImportProgressView({
-  stage,
-  isStreaming,
-  progressPct,
-  statusMessage,
-  stageTrail = [],
-  rawStreamLines = [],
-  thoughtCount: _thoughtCount = 0,
-  liveHoldings = [],
-  holdingsExtracted = 0,
-  holdingsTotal,
-  errorMessage,
-  onCancel,
-  onRetry,
-  onContinue,
-  onBackToDashboard,
-  className,
-}: ImportProgressViewProps) {
-  const [streamExpanded, setStreamExpanded] = useState<boolean>(() => stage !== "error");
-  const [holdingsExpanded, setHoldingsExpanded] = useState<boolean>(() => stage !== "error");
-
-  const hasMeasuredProgress = useMemo(
-    () => typeof progressPct === "number" && Number.isFinite(progressPct) && progressPct >= 0,
-    [progressPct]
-  );
-
-  const resolvedProgress = useMemo(() => {
-    if (stage === "complete") return 100;
-    if (hasMeasuredProgress) return Math.max(0, Math.min(100, progressPct as number));
-    return 0;
-  }, [hasMeasuredProgress, progressPct, stage]);
-
-  const fallbackRawLines = useMemo(() => {
-    const lines = stageTrail.length > 0 ? stageTrail : [statusMessage || stageMessages[stage]];
-    const seen = new Set<string>();
-    const normalized: string[] = [];
-    for (const line of lines) {
-      const next = normalizeStreamLine(line);
-      if (!next) continue;
-      const key = streamLineKey(next);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      normalized.push(next);
-    }
-    return normalized;
-  }, [stageTrail, statusMessage, stage]);
-
-  const effectiveRawLines = useMemo(() => {
-    if (rawStreamLines.length > 0) {
-      return rawStreamLines
-        .map((line) => normalizeStreamLine(line))
-        .filter(Boolean);
-    }
-    return fallbackRawLines;
-  }, [rawStreamLines, fallbackRawLines]);
-
-  const uniqueLiveHoldings = useMemo(() => {
-    return normalizeLiveHoldingPreviewRows(liveHoldings);
-  }, [liveHoldings]);
-  const streamLinesForDisplay = useMemo(() => effectiveRawLines.slice(-80), [effectiveRawLines]);
-  const streamItemsForDisplay = useMemo<AppStreamProgressItem[]>(
-    () =>
-      streamLinesForDisplay.map((line, idx) => {
-        const { tag, message } = splitTaggedLine(line);
-        return {
-          id: `${idx}-${line}`,
-          badge: tag,
-          message: message || line,
-          status: stage === "error" ? "error" : stage === "complete" ? "done" : "running",
-        };
-      }),
-    [streamLinesForDisplay, stage]
-  );
-  const showConfirmedHoldings = uniqueLiveHoldings.length > 0 || stage === "complete";
-  const displayHoldings = showConfirmedHoldings ? uniqueLiveHoldings : [];
-  const holdingsCount =
-    showConfirmedHoldings && displayHoldings.length > 0
-      ? displayHoldings.length
-      : holdingsExtracted;
-  const displayStatusMessage = useMemo(
-    () => normalizeStreamLine(statusMessage || stageMessages[stage]),
-    [statusMessage, stage]
-  );
-
-  return (
-    <Card className={cn(financeStyles.detail, "w-full", className)}>
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Icon icon={FileChartColumn} size="md" className={cn(isStreaming && "text-primary")} />
-            <CardTitle className="text-lg">Importing Portfolio</CardTitle>
-          </div>
-          {onCancel && stage !== "complete" && (
-            <MorphyButton
-              variant="muted"
-              size="sm"
-              onClick={onCancel}
-              className="h-8 rounded-lg"
-              icon={{ icon: X }}
-            >
-              Cancel
-            </MorphyButton>
-          )}
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Import progress</span>
-            <span>
-              {hasMeasuredProgress || stage === "complete"
-                ? `${Math.round(resolvedProgress)}%`
-                : stage === "error" ? "Stopped" : "Tracking stages"}
-            </span>
-          </div>
-          <Progress
-            aria-label="Import progress"
-            value={hasMeasuredProgress || stage === "complete" ? resolvedProgress : undefined}
-            className="h-2"
-            indicatorClassName={cn(
-              "duration-300 ease-out motion-reduce:transition-none data-[state=indeterminate]:opacity-0",
-              (stage === "error" || !isStreaming) && "transition-none",
-            )}
-          />
-        </div>
-
-        <p className="min-h-10 text-sm text-muted-foreground">{displayStatusMessage}</p>
-
-        <AppStreamSection
-          title="AI stream"
-          content={<AppStreamEventList items={streamItemsForDisplay} ariaLabel="AI stream events"
-              emptyLabel="Waiting for stream events..." className="h-44" />}
-          icon={Activity}
-          count={effectiveRawLines.length}
-          items={streamItemsForDisplay}
-          open={streamExpanded}
-          onOpenChange={setStreamExpanded}
-          emptyLabel="Waiting for stream events..."
-          className={cn(isStreaming && "border-primary/25")}
-          bodyClassName="bg-background/50"
-        />
-
-        <Collapsible open={holdingsExpanded} onOpenChange={setHoldingsExpanded}>
-          <div className="border-t border-border pt-4">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="mb-2 flex min-h-11 w-full items-center justify-between gap-3 text-left text-sm font-medium"
-              >
-                <span>Confirmed Holdings</span>
-                <span className="inline-flex items-center gap-1">
-                  {holdingsCount}
-                {typeof holdingsTotal === "number" && holdingsTotal > 0 ? `/${holdingsTotal}` : ""}
-                  {holdingsExpanded ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                </span>
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="max-h-80 divide-y divide-border overflow-y-auto">
-                {displayHoldings.length === 0 ? (
-                  <div className="rounded-lg border border-border/40 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
-                    {showConfirmedHoldings
-                      ? "No confirmed holdings were returned for this import."
-                      : "Confirmed holdings will appear here after parsing completes."}
-                  </div>
-                ) : (
-                  displayHoldings.map((holding, idx) => (
-                    <div
-                      key={`${holding.symbol || holding.name || "holding"}-${idx}`}
-                      className="py-4 text-sm"
-                    >
-                      {(() => {
-                        const side = getLiveHoldingPositionSide(holding);
-                        const sideClass =
-                          side === "short"
-                            ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                            : side === "liability"
-                              ? "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                              : "border-emerald-500/35 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-                        const quantityValue =
-                          typeof holding.quantity === "number" && Number.isFinite(holding.quantity)
-                            ? holding.quantity
-                            : null;
-                        const quantityLabel =
-                          quantityValue === null
-                            ? "—"
-                            : (side === "short" || side === "liability"
-                                ? Math.abs(quantityValue).toLocaleString()
-                                : quantityValue.toLocaleString());
-                        return (
-                          <>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-foreground/90">
-                            {holding.symbol || `Holding ${idx + 1}`}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {holding.name || "Security captured from statement"}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className={cn("rounded border px-1.5 py-0.5 text-xs", sideClass)}>
-                            {side}
-                          </span>
-                          {holding.asset_type && (
-                            <span className="rounded border border-border/50 px-1.5 py-0.5 text-xs text-muted-foreground">
-                              {holding.asset_type}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Qty: {quantityLabel}</span>
-                        <span>
-                          Value:{" "}
-                          {typeof holding.market_value === "number"
-                            ? `$${holding.market_value.toLocaleString()}`
-                            : "—"}
-                        </span>
-                      </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  ))
-                )}
-              </div>
-            </CollapsibleContent>
-          </div>
-        </Collapsible>
-
-        {stage === "error" && (
-          <div className="border-t border-border pt-4">
-            <p className="text-sm font-medium text-red-600 dark:text-red-400">
-              {errorMessage || statusMessage || "Import failed while processing the statement."}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {onRetry && (
-                <MorphyButton variant="none" size="sm" onClick={onRetry}>
-                  Retry Import
-                </MorphyButton>
-              )}
-              {onCancel && (
-                <MorphyButton variant="muted" size="sm" onClick={onCancel}>
-                  Back
-                </MorphyButton>
-              )}
-            </div>
-          </div>
-        )}
-
-        {stage === "complete" && (
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-2">
-              <Icon icon={CheckCircle2} size="md" className="text-emerald-500" />
-              <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                Successfully extracted portfolio data
-              </p>
-            </div>
-            {holdingsExtracted > 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Final holdings extracted: {holdingsExtracted}
-                {typeof holdingsTotal === "number" && holdingsTotal > 0 ? ` / ${holdingsTotal}` : ""}
-              </p>
-            )}
-            {onContinue && (
-              <MorphyButton
-                variant="none"
-                size="sm"
-                className="mt-3"
-                onClick={onContinue}
-              >
-                Review Extracted Portfolio
-              </MorphyButton>
-            )}
-            {onBackToDashboard && (
-              <MorphyButton
-                variant="muted"
-                size="sm"
-                className="ml-2 mt-2"
-                onClick={onBackToDashboard}
-              >
-                Cancel
-              </MorphyButton>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+export function ImportProgressView({ stage, errorMessage, fileName, fileSize, liveHoldings, holdingsTotal, extractionProgress, onCancel, onRetry }: ImportProgressViewProps) {
+  const failed = stage === "error";
+  return <PortfolioReviewFrame
+    status={<ImportProgressStatus stage={stage} fileName={fileName} fileSize={fileSize} errorMessage={errorMessage} />}
+    actions={<div className="flex min-h-11 items-center gap-2">
+      {onCancel ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onCancel}>{failed ? "Back" : "Cancel"}</ShellActionSurface> : null}
+      {failed && onRetry ? <Button size="compact" onClick={onRetry}>Try again</Button> : null}
+    </div>}
+  >
+    {!failed ? <ImportReviewPlaceholder rows={liveHoldings} total={holdingsTotal} extraction={extractionProgress} /> : null}
+  </PortfolioReviewFrame>;
 }

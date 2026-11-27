@@ -45,15 +45,15 @@ export function useGoogleConnectorTransitionReview(ownerId: string | undefined, 
   const cancelReview = () => settle(false, terms?.request ?? null);
   const approveTransition = () => settle(true, terms?.request ?? null);
   const transitionDialog = <Dialog open={terms !== null} onOpenChange={(open) => { if (!open) cancelReview(); }}>
-    <DialogContent className={terms?.presentation === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={terms?.presentation === 'calendar' || undefined}>
+    <DialogContent className={terms?.presentation === 'calendar' ? calendarPresentation.portal : undefined} data-connect-type-scale={terms?.presentation === 'calendar' ? "page" : undefined}>
       <DialogHeader className="pr-8 text-left">
         <DialogTitle>Replace Google access?</DialogTitle>
         <DialogDescription>This replaces all Google grants in the affected Google projects. Existing Google connections, including Agent One, will need sign-in again.</DialogDescription>
       </DialogHeader>
-      {terms && <p className="text-sm">{terms.review.services.map((service) => LABELS[service]).join(', ')}</p>}
+      {terms && <p className={terms?.presentation === 'calendar' ? calendarPresentation.support : "text-sm"}>{terms.review.services.map((service) => LABELS[service]).join(', ')}</p>}
       <DialogFooter>
         <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? `${calendarPresentation.utility} !border-transparent !bg-transparent !shadow-none` : 'min-h-11'} onClick={cancelReview}>Not now</ShellActionSurface>
-        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? 'min-h-11 !border-transparent !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]' : 'min-h-11'} rippleEffect={terms?.presentation === 'calendar' ? 'fill' : 'glass'} onClick={approveTransition}>Replace and sign in</ShellActionSurface>
+        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? `${calendarPresentation.action} min-h-11 !border-transparent !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]` : 'min-h-11'} rippleEffect={terms?.presentation === 'calendar' ? 'fill' : 'glass'} onClick={approveTransition}>Replace and sign in</ShellActionSurface>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

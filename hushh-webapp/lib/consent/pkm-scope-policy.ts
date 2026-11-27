@@ -35,14 +35,42 @@ const PRIVATE_ARTIFACT_PARTS = new Set([
   "last_error_message",
 ]);
 
+const NON_EXTERNALIZABLE_PKM_DOMAINS = new Set([
+  "one_memory",
+  "one_living_sources",
+  "one_todos",
+  "source_library",
+  "one_wiki",
+  "secrets",
+  "credentials",
+  "kyc_connector",
+  "kyc_workflow",
+  "runtime_secrets",
+]);
+
+const EXCLUDED_FULL_EXPORT_PKM_DOMAINS = new Set([
+  ...NON_EXTERNALIZABLE_PKM_DOMAINS,
+  "wallet",
+]);
+
+export function isNonExternalizablePkmDomain(domain: string): boolean {
+  return NON_EXTERNALIZABLE_PKM_DOMAINS.has(domain.trim().toLowerCase());
+}
+
+export function isOwnerItemGrantScope(scope: string): boolean {
+  return /^attr\.secrets\.items\.sec_[a-f0-9]{16}$/.test(scope) ||
+    /^attr\.credentials\.(?:summary|secrets)\.cred_[a-f0-9]{32}$/.test(scope);
+}
+
 export function isPrivatePkmExportScope(scope: string): boolean {
+  if (scope.startsWith("attr.credentials.") && isOwnerItemGrantScope(scope)) return false;
   const parts = scope
     .split(".")
     .map((part) => part.trim().toLowerCase())
     .filter(Boolean);
   if (
     parts[0] === "attr" &&
-    ["one_memory", "one_living_sources", "one_todos"].includes(parts[1] || "")
+    NON_EXTERNALIZABLE_PKM_DOMAINS.has(parts[1] || "")
   )
     return true;
   if (parts[0] === "attr" && parts[1] === "wallet") return !(parts.length === 4 && ["summary", "secrets"].includes(parts[2] || "") && parts[3] === "*");
@@ -60,7 +88,7 @@ export function excludePrivatePkmDomains(
   return Object.fromEntries(
     Object.entries(fullBlob).filter(
       ([domain]) =>
-        !["one_memory", "one_living_sources", "one_todos", "wallet"].includes(domain.trim().toLowerCase()),
+        !EXCLUDED_FULL_EXPORT_PKM_DOMAINS.has(domain.trim().toLowerCase()),
     ),
   );
 }

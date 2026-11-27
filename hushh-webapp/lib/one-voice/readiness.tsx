@@ -26,6 +26,8 @@ export type OneVoiceReadinessStatus =
 
 export type OneVoiceReadiness = {
   microphoneOwner?: "shared_live" | "pod_commands" | "none";
+  hostingMode?: string | null;
+  deploymentTarget?: string | null;
 } & (
   | {
       status: "unknown";
@@ -140,11 +142,19 @@ export function OneVoiceReadinessProvider({
           };
         if (!current()) return;
         if (!cached && hosting.hostingMode === "shared") writeCache(uid, provider);
-        const microphoneOwner = hosting.hostingMode === "byoc" && hosting.deploymentTarget === "user_gcp" ? "pod_commands"
+        const podCommandsSupported =
+          (hosting.hostingMode === "byoc" && hosting.deploymentTarget === "user_gcp") ||
+          (hosting.hostingMode === "hussh_pods" &&
+            (hosting.deploymentTarget === "ace" || hosting.deploymentTarget === "gcp"));
+        const microphoneOwner = podCommandsSupported ? "pod_commands"
           : hosting.hostingMode === "shared" && provider.liveEnabled && provider.serverStatus === "ready"
             ? "shared_live" : "none";
         setObservation({ uid, generation: captured.generation, value: {
-          ...provider, microphoneOwner, liveEnabled: microphoneOwner === "shared_live",
+          ...provider,
+          microphoneOwner,
+          hostingMode: hosting.hostingMode ?? null,
+          deploymentTarget: hosting.deploymentTarget ?? null,
+          liveEnabled: microphoneOwner === "shared_live",
         } });
       } catch {
         if (current()) setObservation({ uid, generation: captured.generation, value: { ...UNKNOWN, microphoneOwner: "none" } });

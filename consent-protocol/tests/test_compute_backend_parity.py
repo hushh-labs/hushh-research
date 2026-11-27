@@ -12,8 +12,10 @@ from typing import Any, Callable
 
 import pytest
 
+from hushh_mcp.services.ace_backend import AceComputeBackend
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.gcp_backend import GcpBackend
+from hushh_mcp.services.user_aws_backend import UserAwsBackend
 from hushh_mcp.services.user_azure_backend import UserAzureBackend
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
@@ -98,10 +100,62 @@ def _azure() -> UserAzureBackend:
     )
 
 
+def _extract_aws_task(config: dict[str, Any]) -> Capabilities:
+    """AWS ECS Fargate (`UserAwsBackend`): env + Secrets Manager refs on container 0."""
+    container = config["taskDefinition"]["containerDefinitions"][0]
+    properties = {
+        str(entry["name"]): str(entry.get("value", ""))
+        for entry in container.get("environment", [])
+    }
+    by_reference = {str(secret["name"]) for secret in container.get("secrets", [])}
+    ingress = config["ingress"]
+    return Capabilities(
+        properties=properties,
+        by_reference=by_reference,
+        internal_only=bool(ingress.get("internalOnly")),
+        blob=str(config),
+        https_only=ingress.get("allowInsecureHttp") is False,
+    )
+
+
+def _extract_ace_sandbox(config: dict[str, Any]) -> Capabilities:
+    """Google Agent Compute Engine (`AceComputeBackend`): sandbox container env + secretRefs."""
+    container = config["spec"]["container"]
+    properties: dict[str, str] = {}
+    by_reference: set[str] = set()
+    for entry in container.get("env", []):
+        if "secretRef" in entry:
+            by_reference.add(str(entry["name"]))
+        else:
+            properties[str(entry["name"])] = str(entry.get("value", ""))
+    ingress = config["spec"]["ingress"]
+    return Capabilities(
+        properties=properties,
+        by_reference=by_reference,
+        internal_only=bool(ingress.get("internalOnly")),
+        blob=str(config),
+        https_only=ingress.get("allowInsecure") is False,
+    )
+
+
+def _aws() -> UserAwsBackend:
+    return UserAwsBackend(
+        account_id="123456789012",
+        region="us-east-1",
+        role_arn="arn:aws:iam::123456789012:role/hussh-one-pod-role",
+    )
+
+
+def _ace() -> AceComputeBackend:
+    return AceComputeBackend(cell_project="hushh-ace-cell-dev", region="us-central1")
+
+
 _BACKENDS: list[tuple[str, Callable[[], Any], Callable[[dict], Capabilities]]] = [
     ("gcp", lambda: GcpBackend(project="p", image="i", live=False), _extract_knative),
     ("user_gcp", lambda: UserGcpBackend(user_project="up", image="i"), _extract_knative),
     ("user_azure", _azure, _extract_container_apps),
+    ("user_aws", _aws, _extract_aws_task),
+    ("ace", _ace, _extract_ace_sandbox),
 ]
 _IDS = [b[0] for b in _BACKENDS]
 

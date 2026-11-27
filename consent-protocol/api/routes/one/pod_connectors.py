@@ -33,12 +33,17 @@ from typing import Any, Awaitable, Callable, Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from api.routes.one.pod_mail_accounts import router as mail_accounts_router
+from api.routes.one.pod_mail_receipts import router as mail_receipts_router
 from api.routes.one.pod_owner_door import admit_owner_local, owner_local_door
 from hushh_mcp.services.pod_commit_log import PodLogConflict, PodLogFenced
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
+
+router.include_router(mail_accounts_router)
+router.include_router(mail_receipts_router)
 
 #: A sealed login is a few kilobytes at most; anything far larger is not one.
 _MAX_BODY_BYTES = 32 * 1024
@@ -90,7 +95,9 @@ async def _complete_native(
     )
 
     await _admit(**authority)
-    current = store.active_connector_credential(recorded.connector_id)
+    current = store.active_connector_credential(
+        recorded.connector_id, account_id=recorded.account_id
+    )
     if current is None or (current.credential_id, current.generation, current.status) != (
         recorded.credential_id,
         recorded.generation,
@@ -102,7 +109,9 @@ async def _complete_native(
     except TransitionRefused:
         return False  # Repeating this exact sealed request retries cleanup only.
     await _admit(**authority)
-    current = store.active_connector_credential(recorded.connector_id)
+    current = store.active_connector_credential(
+        recorded.connector_id, account_id=recorded.account_id
+    )
     if current is None or (current.credential_id, current.generation, current.status) != (
         recorded.credential_id,
         recorded.generation,
@@ -149,10 +158,16 @@ async def run_connector_put(
         ConnectorCredentialRefused,
         open_connector_credential,
     )
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        hosted_ace_runtime,
+        owner_cloud_agent,
+    )
     from hushh_mcp.services.pod_self_registration import pod_keypair  # noqa: PLC0415
     from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
 
     await _admit(consent_token, verifier, session, SCOPE_POD_CONFIG)
+    if connector_id == "contacts" and hosted_ace_runtime() and not owner_cloud_agent():
+        return _refused("CONTACTS_OWNER_CLOUD_ONLY")
     if read_envelope is not None:
         envelope = await read_envelope()
     transition = None
@@ -177,11 +192,20 @@ async def run_connector_put(
         native = opened.kind == "authorization_code" and opened.client_profile in {
             "hussh_ios",
             "hussh_android",
+            "hussh_web",
+            "hussh_uat_mail_web",
         }
         authority = dict(
             consent_token=consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
         )
-        current = held.get(connector_id)
+        current = next(
+            (
+                item
+                for item in held.values()
+                if item.connector_id == connector_id and item.credential_id == opened.credential_id
+            ),
+            None,
+        )
         cleanup_only = (
             native
             and current is not None
@@ -222,10 +246,18 @@ async def run_connector_put(
             detail["providerRevoked"] = False
         raise HTTPException(status_code=409, detail=detail) from None
     logger.info("pod_connectors.connected connector=%s", recorded.connector_id)
+    return await _connection_result(recorded, opened, cleanup_confirmed)
+
+
+async def _connection_result(recorded: Any, opened: Any, cleanup_confirmed: bool) -> dict:
     result = {"connectorId": recorded.connector_id, "status": recorded.status}
+    if recorded.connector_id == "gmail" and opened.mail_account is not None:
+        from hushh_mcp.services.pod_mail_accounts import public_account_id
+
+        result["accountId"] = public_account_id(recorded)
     if not cleanup_confirmed:
         result["legacyCleanup"] = "unconfirmed"
-    elif recorded.connector_id == "gmail":
+    elif recorded.connector_id == "gmail" and not recorded.account_id:
         from hushh_mcp.services.pod_gmail_doorbell import arm_watch_after_connect
 
         # A notification cannot precede confirmed custody transition. Failure
@@ -292,10 +324,23 @@ async def run_connector_get(
             raise HTTPException(
                 status_code=503, detail={"code": "CONNECTOR_CREDENTIALS_UNAVAILABLE"}
             ) from None
+    from hushh_mcp.services import pod_google_oauth as google  # noqa: PLC0415
+    from hushh_mcp.services.pod_connector_credential_seal import (  # noqa: PLC0415
+        HOSTED_WEB_GOOGLE_CONNECTORS,
+    )
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime  # noqa: PLC0415
+
+    browser = {}
+    if connector_id in HOSTED_WEB_GOOGLE_CONNECTORS and hosted_ace_runtime():
+        client_id = await google.ready_browser_web_client("hussh_web")
+        if client_id is None and connector_id == "gmail" and os.getenv("HUSHH_DEPLOY_ENV") == "uat":
+            client_id = await google.ready_mail_web_client()
+        browser["browserClientId"] = client_id
     return {
         "connectorId": connector_id,
         "status": held.status if held else store.STATUS_ABSENT,
-        **store.connector_permissions(held),
+        **browser,
+        **store.connector_permissions(held, connector_id=connector_id),
     }
 
 

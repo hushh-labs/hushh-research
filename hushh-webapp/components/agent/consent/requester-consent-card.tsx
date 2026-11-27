@@ -1,23 +1,23 @@
 "use client";
 
 /**
- * The requester's living consent card body (contract C1 + C3).
+ * The requester's living consent card body (minimal 2-step status badge).
  *
  * Public surface
- * - `ConsentCardPhaseContext`: the chat (lane C2) provides
+ * - `ConsentCardPhaseContext`: the chat provides
  *   `(bundleId) => RequesterCardPhase | null`. Return "reading" while One reads
  *   what was shared and "answered" once One's reply has landed; null otherwise.
  * - `RequesterProgressBody`: props `{ progress, phase?, personName, purpose, details? }`.
  *   `details` is the reveal slot; it is dropped, never hidden, once access ends.
- * - `RequestTimeline`: the calm rail, reusable on its own.
+ * - `RequestStatusBadge`: minimal Waiting -> Shared / Declined / Expired / Withdrawn pill.
  *
- * Motion: one subtle pulse on the current step while something is in motion,
- * `motion-safe:` only, so it is off under prefers-reduced-motion. Colour and
- * state changes use 150ms transitions.
+ * Motion: one subtle pulse dot while Waiting or Reading, `motion-safe:` only, so it is off
+ * under prefers-reduced-motion.
  */
 import { createContext, type ReactNode } from "react";
 import { CheckCircle2, Clock, MinusCircle } from "@/components/icons";
 import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
 import { AccessEndedNotice } from "./access-ended-notice";
 import {
   formatDay,
@@ -25,51 +25,37 @@ import {
   isAccessEnded,
   progressHeadline,
   progressMoment,
-  timelineFor,
+  requestStatusBadgeFor,
   type RequestProgress,
   type RequesterCardPhase,
-  type TimelineStep,
+  type RequestStatusBadge,
 } from "./request-progress";
 
 export type { RequesterCardPhase } from "./request-progress";
 
 export const ConsentCardPhaseContext = createContext<((bundleId: string) => RequesterCardPhase | null) | null>(null);
 
-export function RequestTimeline({ steps }: { steps: TimelineStep[] }) {
+export function RequestStatusPill({ badge }: { badge: RequestStatusBadge }) {
+  const neutral = badge.tone === "neutral";
   return (
-    <ol aria-label="Request progress" data-testid="request-timeline"
-      className={`grid ${steps.length === 5 ? "grid-cols-5" : "grid-cols-6"}`}>
-      {steps.map((step, index) => {
-        const reached = step.state !== "upcoming";
-        const neutral = step.tone === "neutral";
-        return (
-          <li key={step.key} data-step={step.key} data-state={step.state}
-            aria-current={step.state === "current" ? "step" : undefined}
-            className="relative flex min-w-0 flex-col items-center gap-1.5">
-            {index > 0 ? (
-              <span aria-hidden="true"
-                className={`absolute right-1/2 top-[4px] h-px w-full transition-colors duration-150 ${
-                  reached ? neutral ? "bg-muted-foreground/40" : "bg-accent-strong/60" : "bg-border"}`} />
-            ) : null}
-            <span aria-hidden="true" className="relative flex h-[9px] w-[9px] items-center justify-center">
-              {step.state === "current" ? (
-                <span data-testid="timeline-pulse"
-                  className="absolute -inset-1 rounded-full bg-accent-strong/25 motion-safe:animate-pulse" />
-              ) : null}
-              <span className={`relative h-[9px] w-[9px] rounded-full transition-colors duration-150 ${
-                step.state === "upcoming" ? "bg-border"
-                  : neutral ? "bg-muted-foreground/70" : "bg-accent-strong"}`} />
-            </span>
-            <span data-consent-role="row-title" className={`max-w-full truncate text-[11px] leading-4 transition-colors duration-150 ${
-              step.state === "current" ? "font-medium text-foreground"
-                : reached ? "text-foreground/75" : "text-muted-foreground/70"}`}>
-              {step.label}
-              <span className="sr-only">{step.state === "done" ? ", done" : step.state === "current" ? ", now" : ""}</span>
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+    <span
+      data-testid="request-status-badge"
+      data-state={badge.state}
+      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors duration-150 ${
+        neutral
+          ? "border-border bg-muted/50 text-muted-foreground"
+          : "border-accent-strong/25 bg-accent-surface text-foreground"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        data-testid={badge.pulse ? "status-pulse" : undefined}
+        className={`h-2 w-2 rounded-full ${
+          neutral ? "bg-muted-foreground/70" : "bg-accent-strong"
+        } ${badge.pulse ? "motion-safe:animate-pulse" : ""}`}
+      />
+      <span>{badge.label}</span>
+    </span>
   );
 }
 
@@ -102,7 +88,7 @@ export function RequesterProgressBody({ progress, phase, personName, purpose, de
   /** Reveal controls and shared details; rendered only while access is live. */
   details?: ReactNode;
 }) {
-  const steps = timelineFor(progress, phase);
+  const badge = requestStatusBadgeFor(progress, phase);
   const ended = isAccessEnded(progress);
   const moment = formatTime(progressMoment(progress));
   const labelsWith = (...statuses: string[]) =>
@@ -112,17 +98,51 @@ export function RequesterProgressBody({ progress, phase, personName, purpose, de
   const endedLabels = labelsWith("granted", "revoked", "expired");
   const live = progress.outcome === "granted" || progress.outcome === "partially_granted";
   const endsOn = live ? formatDay(progress.accessEndsAt) : null;
+  const commerce = progress.commerce ?? null;
+  const commercePillLabel = commerce
+    ? commerce.status === "reserved"
+      ? `${formatCommerceMoney(commerce.totalCoins)} reserved`
+      : commerce.status === "awaiting_payment"
+        ? `Payment required · ${formatCommerceMoney(commerce.totalCoins)}`
+        : commerce.status === "active"
+          ? `Paid · ${formatCommerceMoney(commerce.totalCoins)}`
+          : commerce.status === "refunded"
+            ? `Refunded · ${formatCommerceMoney(commerce.totalCoins)}`
+            : commerce.status === "ended"
+              ? `Paid · ${formatCommerceMoney(commerce.totalCoins)}`
+              : null
+    : null;
 
   return (
-    <div className="space-y-4" data-testid="requester-progress" data-outcome={progress.outcome} data-phase={phase ?? "none"}>
+    <div className="space-y-3" data-testid="requester-progress" data-outcome={progress.outcome} data-phase={phase ?? "none"}>
       <p data-consent-role="body" className="text-sm leading-6 text-foreground">{purpose}</p>
-      <RequestTimeline steps={steps} />
       {/* Once access ends, the notice below is the status; one voice, not two. */}
-      {ended ? null : (
-        <p role="status" className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-foreground">
+      {ended ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <RequestStatusPill badge={badge} />
+          {commercePillLabel ? (
+            <span
+              data-testid="requester-commerce-pill"
+              className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground tabular-nums"
+            >
+              {commercePillLabel}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <div role="status" className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+          <RequestStatusPill badge={badge} />
+          {commercePillLabel ? (
+            <span
+              data-testid="requester-commerce-pill"
+              className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-foreground tabular-nums"
+            >
+              {commercePillLabel}
+            </span>
+          ) : null}
           <span>{progressHeadline(progress, personName, phase)}</span>
           {moment ? <span data-consent-role="helper" className="text-xs font-normal text-muted-foreground">{moment}</span> : null}
-        </p>
+        </div>
       )}
       {live ? (
         <div className="space-y-1">

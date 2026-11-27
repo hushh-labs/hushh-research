@@ -21,6 +21,7 @@ Contract:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -36,6 +37,68 @@ logger = logging.getLogger(__name__)
 POD_FEEDBACK_KIND = "pod.one.feedback.v1"
 MAX_RATINGS_PER_CONVERSATION = 500
 _ID = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
+_FEEDBACK_PROJECTIONS: dict[tuple[int, str, str], "_PodFeedbackProjection"] = {}
+_MAX_PROJECTIONS = 16
+
+
+class _PodFeedbackProjection:
+    """Incremental feedback fold anchored to the pod commit log's verified cursor."""
+
+    def __init__(self, *, log: Any, owner: str, hushh_id: str) -> None:
+        self._log = log
+        self._owner = owner
+        self._hushh_id = hushh_id
+        self._cursor: Any = None
+        self._ratings_by_conversation: dict[str, dict[str, str]] = {}
+        self._lock = asyncio.Lock()
+
+    async def ratings_for(self, conversation: str) -> dict[str, str]:
+        async with self._lock:
+            tail: list[dict[str, Any]] = []
+
+            def visit(record: dict[str, Any]) -> None:
+                if (record or {}).get("kind") != POD_FEEDBACK_KIND:
+                    return
+                payload = record.get("payload")
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("owner") != self._owner
+                    or payload.get("hushhId") != self._hushh_id
+                ):
+                    return
+                tail.append(payload)
+
+            next_cursor = await self._log.fold_since(self._cursor, visit)
+            for payload in reversed(tail):
+                conv = payload.get("conversation")
+                message = payload.get("message")
+                if (
+                    not isinstance(conv, str)
+                    or not _ID.fullmatch(conv)
+                    or not isinstance(message, str)
+                    or not _ID.fullmatch(message)
+                ):
+                    continue
+                ratings = self._ratings_by_conversation.setdefault(conv, {})
+                rating = payload.get("rating")
+                ratings.pop(message, None)
+                if rating in VALID_RATINGS:
+                    ratings[message] = rating
+                while len(ratings) > MAX_RATINGS_PER_CONVERSATION:
+                    ratings.pop(next(iter(ratings)))
+            self._cursor = next_cursor
+            return dict(self._ratings_by_conversation.get(conversation) or {})
+
+
+def _projection_for(log: Any, *, owner: str, hushh_id: str) -> _PodFeedbackProjection:
+    key = (id(log), owner, hushh_id)
+    projection = _FEEDBACK_PROJECTIONS.get(key)
+    if projection is None or projection._log is not log:
+        if len(_FEEDBACK_PROJECTIONS) >= _MAX_PROJECTIONS:
+            _FEEDBACK_PROJECTIONS.pop(next(iter(_FEEDBACK_PROJECTIONS)))
+        projection = _PodFeedbackProjection(log=log, owner=owner, hushh_id=hushh_id)
+        _FEEDBACK_PROJECTIONS[key] = projection
+    return projection
 
 
 def _clean_id(value: str | None, *, code: str, label: str) -> str:
@@ -147,6 +210,9 @@ async def read_feedback(log: Any, *, owner: str, hushh_id: str, conversation: st
     if not _ID.fullmatch(clean):
         return {"conversation_id": clean, "ratings": {}}
     try:
+        if callable(getattr(log, "fold_since", None)):
+            ratings = await _projection_for(log, owner=owner, hushh_id=hushh_id).ratings_for(clean)
+            return {"conversation_id": clean, "ratings": ratings}
         records = await log.replay()
     except Exception:  # noqa: BLE001 - an opinion never stops a conversation loading
         logger.warning("pod_agent_feedback_read_failed")

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 # Static Browser evidence travels with this release, never with owner policy.
@@ -23,7 +24,142 @@ _GATES = frozenset(
         "model_transport_verified",
     }
 )
-_HOSTS = {"gcp_cloud_run": "gcp", "azure_vm": "azure", "azure_container_apps": "azure"}
+
+
+@dataclass(frozen=True)
+class RuntimeSandboxCapability:
+    """Declarative browser and CLI host capability profile across cloud substrates."""
+
+    host_kind: str
+    provider: str
+    execution_qualified: bool
+    v1_legacy_qualified: bool
+    chromium_internal_sandbox: bool
+    outer_isolation: str
+    landlock_fs_confinement: bool
+    delivery_strategy: str
+    in_container_arbitrary_cli_allowed: bool = False
+    cli_worker_boundary: str = "ephemeral_task_worker"
+    cli_worker_job_mode: str = "unsupported"
+    cli_worker_execution_env: str = ""
+
+
+BROWSER_HOST_CAPABILITIES: dict[str, RuntimeSandboxCapability] = {
+    "gcp_cloud_run": RuntimeSandboxCapability(
+        host_kind="gcp_cloud_run",
+        provider="gcp",
+        execution_qualified=True,
+        v1_legacy_qualified=True,
+        chromium_internal_sandbox=True,
+        outer_isolation="gvisor",
+        landlock_fs_confinement=False,
+        delivery_strategy="http_push_task",
+        cli_worker_job_mode="cloud_run_jobs_v2",
+        cli_worker_execution_env="EXECUTION_ENVIRONMENT_GEN2",
+    ),
+    "gcp_ace": RuntimeSandboxCapability(
+        host_kind="gcp_ace",
+        provider="ace",
+        execution_qualified=False,
+        v1_legacy_qualified=False,
+        chromium_internal_sandbox=True,
+        outer_isolation="microvm",
+        landlock_fs_confinement=True,
+        delivery_strategy="http_push_task",
+    ),
+    "azure_container_apps": RuntimeSandboxCapability(
+        host_kind="azure_container_apps",
+        provider="azure",
+        execution_qualified=True,
+        v1_legacy_qualified=False,
+        chromium_internal_sandbox=False,
+        outer_isolation="hyperv",
+        landlock_fs_confinement=True,
+        delivery_strategy="queue_pull_loop",
+        cli_worker_job_mode="azure_container_apps_jobs",
+        cli_worker_execution_env="Consumption",
+    ),
+    "azure_vm": RuntimeSandboxCapability(
+        host_kind="azure_vm",
+        provider="azure",
+        execution_qualified=False,
+        v1_legacy_qualified=True,
+        chromium_internal_sandbox=True,
+        outer_isolation="host_docker",
+        landlock_fs_confinement=True,
+        delivery_strategy="queue_pull_loop",
+    ),
+    "aws_fargate": RuntimeSandboxCapability(
+        host_kind="aws_fargate",
+        provider="aws",
+        execution_qualified=False,
+        v1_legacy_qualified=False,
+        chromium_internal_sandbox=False,
+        outer_isolation="firecracker",
+        landlock_fs_confinement=True,
+        delivery_strategy="http_push_task",
+    ),
+    "aws_firecracker": RuntimeSandboxCapability(
+        host_kind="aws_firecracker",
+        provider="aws",
+        execution_qualified=False,
+        v1_legacy_qualified=False,
+        chromium_internal_sandbox=True,
+        outer_isolation="firecracker",
+        landlock_fs_confinement=True,
+        delivery_strategy="http_push_task",
+    ),
+}
+
+_CLOUD_DEFAULT_HOST_KIND: dict[str, str] = {
+    "gcp": "gcp_cloud_run",
+    "ace": "gcp_ace",
+    "azure": "azure_container_apps",
+    "aws": "aws_fargate",
+}
+
+
+def get_host_capability(host_kind: str) -> RuntimeSandboxCapability | None:
+    return BROWSER_HOST_CAPABILITIES.get(host_kind)
+
+
+def default_chromium_sandbox_for_cloud(cloud: str) -> bool | None:
+    default_host = _CLOUD_DEFAULT_HOST_KIND.get(cloud)
+    if default_host is None:
+        return None
+    return BROWSER_HOST_CAPABILITIES[default_host].chromium_internal_sandbox
+
+
+def resolve_cli_execution_boundary(
+    host_kind: str,
+    *,
+    worker_configured: bool = False,
+) -> str:
+    """Resolve Phase 0 Option A vs Option B CLI boundary for `host_kind`.
+
+    `shared_owner_container` never permits unisolated arbitrary CLI packages
+    (`in_container_arbitrary_cli_allowed=False`). Arbitrary CLI/git/package
+    execution requires an Option A `ephemeral_task_worker` binding; otherwise
+    execution fails closed into `restricted_builtin_only` (Option B).
+    """
+    cap = BROWSER_HOST_CAPABILITIES.get(host_kind)
+    if cap is None:
+        return "restricted_builtin_only"
+    if worker_configured and cap.cli_worker_boundary == "ephemeral_task_worker":
+        return "ephemeral_task_worker"
+    if cap.in_container_arbitrary_cli_allowed and cap.landlock_fs_confinement:
+        return "ephemeral_task_worker"
+    return "restricted_builtin_only"
+
+
+def resolve_cli_worker_job_mode(host_kind: str) -> str:
+    """Return declarative ephemeral CLI worker job substrate for `host_kind`."""
+    cap = BROWSER_HOST_CAPABILITIES.get(host_kind)
+    if cap is None:
+        return "unsupported"
+    return cap.cli_worker_job_mode
+
+
 _V2_DEFAULTS = {
     "version": 1,
     "boundary": "isolated_browser",
@@ -35,9 +171,12 @@ _V2_DEFAULTS = {
 
 
 def _execution_ready(ready: dict, version: int, host: str) -> bool:
+    capability = get_host_capability(host)
+    if capability is None:
+        return False
     if version == 1:
         return (
-            host != "azure_container_apps"
+            capability.v1_legacy_qualified
             and all(ready[key] is True for key in _GATES)
             and all(
                 key not in ready or (type(ready[key]) is type(value) and ready[key] == value)
@@ -45,11 +184,11 @@ def _execution_ready(ready: dict, version: int, host: str) -> bool:
             )
         )
     return (
-        host in {"gcp_cloud_run", "azure_container_apps"}
+        capability.execution_qualified
         and ready.get("version") == 2
         and type(ready.get("version")) is int
         and ready.get("boundary") == "shared_owner_container"
-        and ready.get("chromium_sandbox") is (host == "gcp_cloud_run")
+        and ready.get("chromium_sandbox") is capability.chromium_internal_sandbox
         and all(
             ready[key] is False
             for key in ("isolated", "direct_egress_denied", "private_access_denied")
@@ -85,7 +224,8 @@ def validate_qualification(
     if type(value["version"]) is not int or value["version"] not in {1, 2}:
         raise ValueError("unsupported Browser qualification")
     host = value["host_kind"]
-    if not isinstance(host, str) or host not in _HOSTS:
+    capability = get_host_capability(host) if isinstance(host, str) else None
+    if capability is None:
         raise ValueError("unqualified Browser host")
     source = value["source_revision"]
     if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{40}", source):
@@ -106,15 +246,29 @@ def validate_qualification(
         "model_name",
         "model_transport",
     }
+    credential_gates = {
+        "credential_entry_verified",
+        "credential_cleanup_verified",
+        "credential_isolation_verified",
+    }
     if (
         not isinstance(ready, dict)
-        or not required <= set(ready) <= required | set(_V2_DEFAULTS)
-        or (value["version"] == 2 and set(ready) != required | set(_V2_DEFAULTS))
+        or not required <= set(ready) <= required | set(_V2_DEFAULTS) | credential_gates
+        or (value["version"] == 2 and set(ready) - credential_gates != required | set(_V2_DEFAULTS))
     ):
         raise ValueError("invalid Browser readiness evidence")
+    if credential_gates & set(ready):
+        if not credential_gates <= set(ready) or any(
+            type(ready[name]) is not bool for name in credential_gates
+        ):
+            raise ValueError("incomplete Browser credential qualification")
+        if any(ready[name] for name in credential_gates) and not (
+            all(ready[name] for name in credential_gates) and ready.get("chromium_sandbox") is True
+        ):
+            raise ValueError("unqualified Browser credential execution")
     if (
         not _execution_ready(ready, value["version"], host)
-        or ready["cloud"] != _HOSTS[host]
+        or ready["cloud"] != capability.provider
         or ready["component_digest"] != image_digest
     ):
         raise ValueError("Browser execution or image is not qualified")

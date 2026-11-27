@@ -14,6 +14,13 @@ import {
   walletCardRequestHref,
 } from "@/lib/wallet/card-request";
 
+/** Only ordinary message text may be copied; opaque shares keep their own owner. */
+export function directMessagePlainText(content: string): string | null {
+  if (advisorReviewReference(content) || financeReference(content) || cardRequestReference(content)
+    || cardAccessReference(content) || isWalletCardShare(content)) return null;
+  return content;
+}
+
 /** Opaque share messages resolve through their own live authorization owner. */
 export function DirectMessageSharedContent({
   content,

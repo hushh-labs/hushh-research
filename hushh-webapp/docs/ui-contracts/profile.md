@@ -156,6 +156,10 @@ and [confirmation preparation](../../components/profile/account-confirmation-pre
 Payouts composes independent wallet, bank, and activity readers: failure of
 one must not imply the other balances are unavailable. Protected money UI
 requires its owner token. Live and test activity remain separately labelled.
+Payouts does not mount the Information access section or load scope-commerce
+accounts, readiness, or activity. Existing source-bound answer payout returns
+retain their authenticated recovery control. Payouts action aliases describe
+only the retained payout controls; funding and information-access aliases are removed.
 
 | Surface / CTA | Effect and boundary |
 | --- | --- |
@@ -206,6 +210,7 @@ must be read from these child contracts before changing a nested CTA.
 | --- | --- |
 | Appearance / Accent | Existing theme and accent choices commit immediately. |
 | App haptics | Native preference only; immediate update, disabled until ready/during save; saving/saved/error feedback. |
+| Native interface · Experimental | Supported iPhones on iOS 26+ only. Device-only preference, Off by default, written through the existing Settings service. Fully close and reopen to apply; current rendering and drafts remain unchanged. One choice controls eligible native chrome, dock, navigation, route surfaces, Profile and feedback. Intentional rich React handoffs retain their existing presentation. |
 | How One writes to you · Unlock to edit | Unlocks before editing protected writing preferences. Web fields are inline; native **Writing style** opens a scene. |
 | Writing fields | **Call me** (64 max), **Tone** (No preference/Direct/Warm/Casual/Formal/Executive), **Length** (Short/Balanced/Detailed), **Language** (12 languages plus no preference), **Avoid em dashes**, **Style note** (280 max, one paragraph). |
 | Writing icons | The five field glyphs use Profile's theme-aware neutral outlines with selected-accent details. Web and native artwork retain the same official Phosphor geometry. |

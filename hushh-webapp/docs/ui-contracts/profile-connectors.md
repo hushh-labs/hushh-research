@@ -60,11 +60,13 @@ Owners: [Profile controller](../../components/profile/profile-connectors-section
 
 | Detail | Controls and commit boundary |
 | --- | --- |
-| Gmail | Connect/Reconnect starts Google authorization; read/send/drafts permission status. **Enable drafts** explicitly authorizes compose scope. **Cancel sign-in** aborts attempt, **Retry** reloads failed status. Confirmed Disconnect invokes existing Gmail disconnect. |
+| Gmail | Connect/Reconnect starts Google OAuth 2.0 granular authorization (`purpose:"full"` on web, `send` on native); read/send/drafts/organize permission status. **Enable all permissions** grants all missing web capabilities in one step; per-row **Enable** authorizes individual missing capabilities. **Cancel sign-in** aborts attempt, **Retry** reloads failed status. Confirmed Disconnect invokes existing Gmail disconnect. |
 | Calendar | Connect/Reconnect requests read connection through existing Google flow. **Cancel sign-in**, status **Retry**, confirmed Disconnect. Completion must verify connected/service/access level. |
-| Plaid | Encrypted financial connection list. Each bank Disconnect confirmation removes connected vault records and refreshes. Successful empty offers **Connect a bank** → portfolio sources; failed read is not an empty account. |
+| Plaid | Encrypted financial connection list with a compact top-level summary. Each bank Disconnect uses a restrained neutral secondary pill on the uniform 32px trailing row scale; confirmation removes connected vault records and refreshes. Successful empty offers **Connect a bank** → portfolio sources; failed read is not an empty account. |
+| Payments · Stripe | Renders as one uniform top-level `SettingsRow` under **Payments** that drills into query-owned detail `connector:stripe` (`Stripe` title in `BUILT_IN_CONNECTOR_TITLES`). Inside the detail screen, **Open payments and earnings**, **Connect or reconnect Stripe tools**, and **Check connection** share one uniform 36px, 13px/500 detail action bar with clear primary-versus-secondary contrast instead of embedding multi-button cards on the root list. |
 | Drive | Enabled selected/live connection profile. Selected files do not grant whole-Drive access. **Enable full Drive access** can upgrade, **Retry Drive** verifies status, **Cancel sign-in** aborts. Confirmed Disconnect removes One's selected records; existing Google sharing requires separate revocation and outcome stays explicit. |
 | Curated | Connect/Reconnect/Cancel sign-in, confirmed Disconnect. Verifying is sign-in-needed, not falsely connected; provider revocation failure differs from local credential removal. |
+| Custom connectors | Grouped inside the same standard `SettingsGroup` and `SettingsRow` container as built-in connectors, with uniform trailing pill scale and detail/editor expansion. |
 
 ## Drive nested pages and controls
 
@@ -215,8 +217,8 @@ not enter buyer packet response. [Packet service](../../lib/services/drive-packe
 
 | Row/action | Wire and consumed fields | Branch |
 | --- | --- | --- |
-| Mail status/Retry | GET `/api/kai/gmail/status/<uid>`,Firebase | `configured,connected,needs_reauth,google_email,scope_csv,compose_permission_granted,send_permission_granted`→Mail/account/permission. Force bypasses1-minute cache. |
-| Mail Connect/Enable drafts | POST `/api/kai/gmail/connect/start`, `{user_id,login_hint,include_granted_scopes,purpose:"read"\|"compose",redirect_uri}` | `{configured,authorize_url,state,redirect_uri,expires_at}`→provider. Compose separate deliberate permission. |
+| Mail status/Retry | GET `/api/kai/gmail/status/<uid>`,Firebase | `configured,connected,needs_reauth,google_email,scope_csv,compose_permission_granted,modify_permission_granted,send_permission_granted`→Mail/account/permission. Force bypasses1-minute cache. |
+| Mail Connect/Enable permissions | POST `/api/kai/gmail/connect/start`, `{user_id,login_hint,include_granted_scopes,purpose:"read"\|"send"\|"compose"\|"modify"\|"full",redirect_uri}` | `{configured,authorize_url,state,redirect_uri,expires_at}`→provider. Web defaults to `full` granular checkboxes; partial checkbox grants persist verbatim. |
 | Mail complete | POST `/api/kai/gmail/connect/complete`, `{user_id,code,state,redirect_uri}` | Verified status before subsequent sync. Native complete `{user_id,server_auth_code}`. |
 | Mail Disconnect | POST `/api/kai/gmail/disconnect`, `{user_id}` | Must confirm connected:false then invalidate status/receipt caches. Catalog confirms; legacy pane immediate. |
 | Legacy Sync now/reconcile | POST `/api/kai/gmail/sync`, `{user_id}`→`{accepted,reason,run}`; POST `/reconcile` same user | accepted:false can mean already running; GET `/sync/<runId>?user_id=`→run. No false sync-complete claim. |

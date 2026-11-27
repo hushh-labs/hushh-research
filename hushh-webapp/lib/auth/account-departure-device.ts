@@ -6,7 +6,7 @@ import type { AccountCleanupOperation } from "./account-cleanup-operation";
 import type { AuthSessionInvalidationCode } from "./session-invalidation";
 
 const DEPARTED_ACCOUNT_CODES: ReadonlySet<AuthSessionInvalidationCode> = new Set([
-  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh",
+  "account_not_found", "account_deleted", "account_deleted_ready_to_start_fresh", "account_deleted_cloud_pending",
   "account_deletion_finishing", "account_deletion_identity_retained",
 ]);
 
@@ -44,6 +44,11 @@ function read(firebaseUid: string): DepartureHint | null {
   } catch { return null; }
 }
 
+/** Identifiers only; the status endpoint still verifies the UID/operation join. */
+export function pendingAccountCleanupOperationId(firebaseUid: string): string | undefined {
+  return read(firebaseUid)?.operationId;
+}
+
 /** Store only identifiers. No token, key, phone number, or decrypted information. */
 export function rememberPendingAccountDeviceDeparture(firebaseUid: string, ownerId: string, operationId: string): void {
   if (typeof window === "undefined" || !firebaseUid || firebaseUid.length > 128 || !ownerId || ownerId.length > 128 || !UUID.test(operationId)) return;
@@ -52,8 +57,8 @@ export function rememberPendingAccountDeviceDeparture(firebaseUid: string, owner
 }
 
 /** A completed, identity-bound exact operation authorizes purging only its own device owner. */
-export async function purgeConfirmedAccountDeviceDeparture(firebaseUid: string, operation: AccountCleanupOperation): Promise<boolean> {
-  const hint = read(firebaseUid);
+export async function purgeConfirmedAccountDeviceDeparture(firebaseUid: string, operation: AccountCleanupOperation, capturedOwnerId?: string): Promise<boolean> {
+  const hint = read(firebaseUid) ?? (capturedOwnerId ? { firebaseUid, ownerId: capturedOwnerId, operationId: operation.id } : null);
   if (!hint || operation.state !== "complete" || operation.id !== hint.operationId || !operation.owner_hash || !globalThis.crypto?.subtle) return false;
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(hint.ownerId));
   const ownerHash = `sha256:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;

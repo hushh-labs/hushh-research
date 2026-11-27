@@ -69,6 +69,56 @@ flowchart TD
   end
 ```
 
+## Your Account in typed Chat
+
+One remains the only semantic planner. A compatible signed-in app advertises
+`accountContextContract=1`; shared and private-pod ingress author the closed
+`read_account_context` declaration for that request. Saved state and caller tool
+declarations cannot enable it. The owner device uses the existing read-only
+account identity service, then the existing call-bound private-device continuation.
+No new account agent, router, memory store or provider credential enters the pod.
+
+The read returns the committed display name, masked email/phone, nullable
+verification, photo presence and the shadow observation timestamp. Missing or
+unavailable data stays unknown. The timestamp is neither signup date nor a fresh
+Firebase check. Facts and the detailed answer are removed from durable history;
+account handback names retain exact call pairing when an older binary reloads it.
+Existing chat-summary and pod-memory writers exclude tagged account answers,
+including direct raw-session calls; privacy-tag changes invalidate summary fences.
+The private answer invocation cannot call further tools. Compound requests must
+explain pending steps and their owning review rather than claim they ran.
+
+Typed `profile.update_display_name` prepares the requested value in the existing
+account editor. Opening the editor is a started result; Save performs the existing
+fresh-auth mutation. The initial draft is distinct from the stored name and is
+bound to the current owner generation. Old prepared name actions are rejected by
+the exact-revision capability evolution contract. Native voice retains its own
+confirmed identity-provider writer.
+
+The supplied `gmail-profile-your-account-440-queries-adk.xlsx` corpus contains
+440 unique requests across 49 intent families (SHA-256
+`671b231c0c05a15d55f0c754e3165963c39cf42d8c3f2bd1fbcd4b62eb4a4786`).
+Its example identities, invented account scopes and confirmation cells are test
+input, never runtime facts or authority. Coverage is classified as follows:
+
+| Workbook rows | Family | Supported behavior and limits |
+| --- | --- | --- |
+| 1-50 | Identity | Read bounded identity; preferred name uses admitted owner style. Signup date and plan remain unavailable. |
+| 51-100 | Identity changes | Name draft and native photo/phone reviews. Preferred name keeps its encrypted writer. Primary email replacement has no implementation. |
+| 101-140 | Sign-in/security | Existing sign-in and trusted-device surfaces. No invented 2FA state, all-device sign-out or provider password change. |
+| 141-180 | Language/timezone | Reply in the requested language. Style review is distinct from account locale; no saved account timezone setter. |
+| 181-220 | Plan/payouts | Existing payout navigation. No invented subscription options, prices or cancellation API. |
+| 221-270 | Data | Native Download Memory and separately governed deletion. No fabricated export link, storage inventory or generic field deletion. |
+| 271-320 | Connections | Existing connection/OAuth reviews; clarify the connector and await settled status. Profile email is not a Google grant. |
+| 321-360 | Notifications | Manual email-update choice and Save. Marketing permission is distinct from security notices and email language. |
+| 361-400 | Compound tasks | Preserve requested order and independent reviews; report partial and unsupported steps truthfully. |
+| 401-440 | Ambiguous/Hinglish | Read a clear name question directly; ask for missing values or what “account band karo” means before a change. |
+
+Contract tests exercise real ADK pause/resume and encrypted reload with synthetic
+model/provider fixtures, plus owner rotation, masked projections and name Save.
+These tests and this source classification do not establish 440 real-model passes
+or a signed-in owner journey. Live model and deployed app acceptance are separate.
+
 ## Profile research and reviewed memory save
 
 After durable onboarding completion, the ephemeral Magic Intelligence card invokes One's

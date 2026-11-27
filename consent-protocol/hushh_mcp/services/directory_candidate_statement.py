@@ -6,44 +6,24 @@ from collections.abc import Callable
 
 DIRECTORY_PROFILE_ELIGIBILITY_SQL = """
 profile.public_profile_status = 'active'
+AND NOT EXISTS (SELECT 1 FROM connection_requests blocked
+  WHERE blocked.status = 'rejected' AND blocked.metadata ->> 'blocked_by' IS NOT NULL
+    AND ((blocked.requester_user_id = :owner_user_id AND blocked.addressee_user_id = profile.user_id)
+      OR (blocked.addressee_user_id = :owner_user_id AND blocked.requester_user_id = profile.user_id)))
 AND (
   profile.directory_listed = TRUE
   OR (profile.directory_listed IS NULL AND EXISTS (
-    SELECT 1 FROM vault_keys vault
-    WHERE vault.user_id = profile.user_id
-      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
-  ))
-  OR EXISTS (
-    SELECT 1
-    FROM connections related
-    WHERE related.status = 'active'
-      AND (
-        (related.user_a_id = :owner_user_id AND related.user_b_id = profile.user_id)
-        OR (related.user_b_id = :owner_user_id AND related.user_a_id = profile.user_id)
-      )
-  )
-  OR EXISTS (
-    SELECT 1
-    FROM connection_requests pending
-    WHERE pending.status = 'pending'
-      AND (
-        (pending.requester_user_id = :owner_user_id
-          AND pending.addressee_user_id = profile.user_id)
-        OR (pending.addressee_user_id = :owner_user_id
-          AND pending.requester_user_id = profile.user_id)
-      )
-  )
-  OR EXISTS (
-    SELECT 1
-    FROM trusted_connections edge
-    WHERE edge.status = 'active'
-      AND (
-        (edge.owner_user_id = :owner_user_id
-          AND edge.trusted_user_id = profile.user_id)
-        OR (edge.trusted_user_id = :owner_user_id
-          AND edge.owner_user_id = profile.user_id)
-      )
-  )
+    SELECT 1 FROM vault_keys vault WHERE vault.user_id = profile.user_id
+      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL))
+  OR EXISTS (SELECT 1 FROM connections related WHERE related.status = 'active'
+    AND ((related.user_a_id = :owner_user_id AND related.user_b_id = profile.user_id)
+      OR (related.user_b_id = :owner_user_id AND related.user_a_id = profile.user_id)))
+  OR EXISTS (SELECT 1 FROM connection_requests pending WHERE pending.status = 'pending'
+    AND ((pending.requester_user_id = :owner_user_id AND pending.addressee_user_id = profile.user_id)
+      OR (pending.addressee_user_id = :owner_user_id AND pending.requester_user_id = profile.user_id)))
+  OR EXISTS (SELECT 1 FROM trusted_connections edge WHERE edge.status = 'active'
+    AND ((edge.owner_user_id = :owner_user_id AND edge.trusted_user_id = profile.user_id)
+      OR (edge.trusted_user_id = :owner_user_id AND edge.owner_user_id = profile.user_id)))
 )
 """
 
@@ -142,10 +122,7 @@ DIRECTORY_CANDIDATE_SQL = """
               ))
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
-                OR {separator_sql} = :exact_name
-                OR {separator_sql} LIKE :name_prefix ESCAPE '!'
-                OR {separator_sql} LIKE :word_prefix ESCAPE '!'
-                OR (:query <> '' AND {all_tokens_match_sql})
+                OR ({name_match_sql})
               )))
               AND (
                 :audience = 'all'
@@ -160,16 +137,14 @@ DIRECTORY_CANDIDATE_SQL = """
                 )
               )
             ORDER BY
+              {priority_order_sql}
               CASE
                 WHEN :name_search = FALSE THEN 4
                 WHEN :query = '' THEN 0
-                WHEN {separator_sql} = :exact_name THEN 0
-                WHEN {separator_sql} LIKE :name_prefix ESCAPE '!' THEN 1
-                WHEN {separator_sql} LIKE :word_prefix ESCAPE '!' THEN 2
-                WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
+                {name_rank_sql}
                 ELSE 4
               END,
-              LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
+              {secondary_order_sql},
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
 """
@@ -182,15 +157,41 @@ def build_directory_candidate_statement(
     all_tokens_match_sql: str,
     verified_email_clause: str,
     mutual_filter_clause: str,
+    typed_name_sql: str | None = None,
+    secondary_order_sql: str = "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id))",
+    priority_order_sql: str = "",
 ) -> str:
     """Fill only internal static SQL fragments; caller binds every value."""
+    if typed_name_sql is None:
+        name_match_sql = f"""
+            {separator_sql} = :exact_name
+            OR {separator_sql} LIKE :name_prefix ESCAPE '!'
+            OR {separator_sql} LIKE :word_prefix ESCAPE '!'
+            OR (:query <> '' AND {all_tokens_match_sql})
+        """
+        name_rank_sql = f"""
+            WHEN {separator_sql} = :exact_name THEN 0
+            WHEN {separator_sql} LIKE :name_prefix ESCAPE '!' THEN 1
+            WHEN {separator_sql} LIKE :word_prefix ESCAPE '!' THEN 2
+            WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
+        """
+    else:
+        match_position = f"STRPOS({typed_name_sql}, :query)"
+        name_match_sql = f"{match_position} > 0"
+        name_rank_sql = f"""
+            WHEN {typed_name_sql} = :query THEN 0
+            WHEN {match_position} = 1 THEN 1
+            WHEN {match_position} > 0 THEN 2
+        """
     return DIRECTORY_CANDIDATE_SQL.format(
         usable_identity=usable_name("identity.display_name"),
         usable_marketplace=usable_name("marketplace.display_name"),
         usable_ria=usable_name("ria.display_name"),
-        separator_sql=separator_sql,
-        all_tokens_match_sql=all_tokens_match_sql,
+        name_match_sql=name_match_sql,
+        name_rank_sql=name_rank_sql,
         verified_email_clause=verified_email_clause,
         mutual_filter_clause=mutual_filter_clause,
         profile_eligibility=DIRECTORY_PROFILE_ELIGIBILITY_SQL,
+        secondary_order_sql=secondary_order_sql,
+        priority_order_sql=priority_order_sql,
     )  # nosec B608 # All substitutions are internal static SQL fragments.

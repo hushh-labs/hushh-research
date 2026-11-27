@@ -14,6 +14,14 @@ vi.mock("@/lib/pkm/memory-refresh", () => ({ peekLiveMirror: mocks.memory }));
 const context = (): TaskReadContext => ({ userId: "owner", vaultOwnerToken: "fixture", getIdToken: async () => "fixture-id", isCurrent: () => true, mailConnected: true, calendarConnected: true, mailStatusKnown: true, calendarStatusKnown: true });
 const requestId = "00000000-0000-4000-8000-000000000001";
 describe("owner-safe capability task reads", () => {
+  it("never collects a disabled capability or gets a token with every source off", async () => {
+    const getIdToken = vi.fn().mockResolvedValue("fixture-id");
+    expect(await readTodoCapabilities({ ...context(), getIdToken, selectedCapabilities: [] })).toEqual([]);
+    expect(getIdToken).not.toHaveBeenCalled();
+    const reads = await readTodoCapabilities({ ...context(), selectedCapabilities: ["pkm"] });
+    expect(reads.map(read => read.coverage.capability)).toEqual(["pkm"]);
+    for (const read of [mocks.messages, mocks.wallet, mocks.persona, mocks.mail, mocks.invitations, mocks.privateMail]) expect(read).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.stubGlobal("crypto", webcrypto);
     vi.clearAllMocks();

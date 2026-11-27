@@ -6,7 +6,7 @@ const mapPickerMockState = vi.hoisted(() => ({
   picked: {
     latitude: 28.614,
     longitude: 77.2091,
-    address: "Kartavya Path, New Delhi, Delhi 110001, India",
+    address: "Kartavya Path, New Delhi, Delhi 110001, India" as string | null,
   },
   /** Mirrors a settled pin whose address lookup has finished. */
   canConfirm: true,
@@ -38,12 +38,12 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
       onConfirm: (picked: {
         latitude: number;
         longitude: number;
-        address: string;
+        address: string | null;
       }) => void;
       onSelectionChange?: (picked: {
         latitude: number;
         longitude: number;
-        address: string;
+        address: string | null;
       }) => void;
       onReadyChange?: (ready: boolean) => void;
       onCancel: () => void;
@@ -1312,6 +1312,33 @@ describe("SaveLocationModal", () => {
       );
     });
 
+    it("uses manual address entry after moving away from a saved address and postcode", () => {
+      mapPickerMockState.picked = { latitude: 9.409, longitude: 78.372, address: null };
+      const onPickExactLocation = vi.fn();
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="San Francisco, CA 94108, USA"
+          mapInitial={{ latitude: 37.787, longitude: -122.406 }}
+          initialDetails={{ houseOrFlat: "", buildingColor: "", landmark: "", postalCode: "94108" }}
+          initialCategory="home"
+          onPickExactLocation={onPickExactLocation}
+          startWithMapPicker
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      const address = screen.getByLabelText(/^Address$/);
+      expect(address).toHaveValue("");
+      fireEvent.change(address, { target: { value: "Main Street, Kamuthi, India" } });
+      fireEvent.click(screen.getByRole("button", { name: /save|update/i }));
+      expect(onPickExactLocation).toHaveBeenCalledWith(mapPickerMockState.picked);
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home", "", expect.objectContaining({ postalCode: "" }), "Main Street, Kamuthi, India",
+      );
+    });
+
     it("keeps what the person typed instead of the address that arrives later", () => {
       const { rerender } = render(
         <SaveLocationModal
@@ -1686,7 +1713,7 @@ describe("SaveLocationModal", () => {
 
       expect(screen.queryByRole("navigation", { name: "One Location setup progress" })).not.toBeInTheDocument();
       expect(
-        screen.getByRole("heading", { level: 1, name: "Save this place" }),
+        screen.getByRole("heading", { level: 1, name: "Save your first place" }),
       ).toBeInTheDocument();
       expect(
         screen.getByLabelText("Mock embedded location picker"),
@@ -1824,13 +1851,13 @@ describe("SaveLocationModal", () => {
       expect(screen.getByRole("button", { name: "Edit address details" })).toHaveAccessibleDescription(mapPickerMockState.picked.address);
       fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
       await screen.findByRole("button", { name: "Try saving again" });
-      expect(screen.queryByRole("heading", { name: "Your people." })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Find your circle" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Try saving again" }));
-      await screen.findByRole("heading", { name: "Your people." });
+      await screen.findByRole("heading", { name: "Find your circle" });
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-      await screen.findByRole("heading", { name: "Your place." });
+      await screen.findByRole("heading", { level: 1, name: "Save your first place" });
       fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
-      await screen.findByRole("heading", { name: "Your people." });
+      await screen.findByRole("heading", { name: "Find your circle" });
       expect(onSave).toHaveBeenCalledTimes(2);
     });
   });

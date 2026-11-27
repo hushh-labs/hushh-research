@@ -8,7 +8,7 @@ description: Use when reorganizing docs, deciding documentation homes, consolida
 ## Purpose and Trigger
 
 - Primary scope: `docs-governance-intake`
-- Trigger on documentation structure, canonical homes, consolidation and verification.
+- Trigger on documentation structure, canonical homes, brand visual assets, `llms.txt` discovery, consolidation, stale-plan retirement, and verification.
 - Avoid overlap with `repo-context`, `frontend`, `backend`, and `repo-operations`.
 Use the [authoring contract](../../../docs/development/documentation.md) for policy;
 use this skill to execute the change.
@@ -21,8 +21,9 @@ use this skill to execute the change.
 Owned repo surfaces:
 
 1. `docs`
-2. `consent-protocol/docs`
-3. `hushh-webapp/docs`
+2. `llms.txt`
+3. `consent-protocol/docs`
+4. `hushh-webapp/docs`
 
 Non-owned surfaces:
 
@@ -33,9 +34,9 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Moving, consolidating or retiring documentation and repairing its consumers.
-2. Reconciling source truth, module diagrams and current versus future claims.
-3. Updating documentation navigation and its existing verification tools.
+1. Moving, consolidating, modularizing oversized specs, or retiring superseded plans and repairing their consumers.
+2. Reconciling source truth, dark/light brand hero banners, layered Mermaid diagrams, and `Live` / `Preview` / `Proposed` status claims.
+3. Updating documentation navigation, `llms.txt` machine discovery, Hybrid Tiered human-first layouts, and verification tools.
 
 ## Do Not Use
 
@@ -49,40 +50,34 @@ Non-owned surfaces:
 2. `docs/development/documentation.md`
 3. `docs/architecture/README.md`
 4. `docs/operations/brand-and-compatibility-contract.md`
+5. `llms.txt`
 
 ## Workflow
 
-1. Inventory first-party Markdown and inspect runtime, generator and package consumers.
-2. Classify current guides, technical contracts, future designs, active peer work,
-   history, and imported/generated/legal/runtime assets before changing them.
-3. Choose the canonical Product, Architecture, Development, Operations or Roadmap
-   home. Keep standalone package references local and root entrypoints useful.
-4. Verify substantive claims against current source. One is the implemented root
-   private agent; Kai is its finance specialist. Do not turn source evidence into
-   deployment or installed-owner acceptance. Current chat Markdown remains in PKM.
-5. Lead with purpose and behavior. Retain exact commands and identifiers where
-   readers need them for implementation, custody, recovery or provenance.
-6. Reconcile unique durable facts before retirement. Preserve active peer work and
-   unresolved recovery facts. Use Git history for prior versions, not duplicate trees.
-7. Move links, anchors, images, manifests, inventories and generators together.
-   Required package assets and runtime Markdown retain their existing contracts.
-8. Review navigation and source truth independently for cross-system migrations.
-   Render changed diagrams and verify both valid and broken-link behavior.
-9. Run affected checks, keep audit evidence ignored, and release through repo-operations.
-   Source-only downstream syncs preserve branch content and never deploy.
+1. Inventory first-party Markdown and inspect runtime, generator, `llms.txt`, and package consumers.
+2. Classify current guides, technical contracts, active proposals, active peer work, superseded plans, and imported/generated/legal/runtime assets before changing them.
+3. Apply the **Hybrid Tiered** layout: open with a crisp, jargon-free Human Hero (purpose, maturity status, visual diagram, boundaries, and journey), and isolate coding-agent invariants, seams, and commands into a separated bottom section or collapsible drawer. Never use em or en dashes.
+4. Choose the canonical Product, Architecture, Development, Operations, or Roadmap home with explicit Diataxis intent. Keep human overview pages concise (~150 to 300 lines) and split oversized reference monoliths into modular contracts. Keep root `AGENTS.md` lean and `llms.txt` synchronized.
+5. Verify substantive claims against current source. One is the implemented root private agent; Kai is its finance specialist. Distinguish `Live`, `Preview`, and `Proposed` truthfully; never turn source evidence into deployment or installed-owner acceptance.
+6. Apply **Zero-Archive Distillation**: reconcile unique durable facts into their canonical owner before deleting superseded historical plans outright, relying on Git history for prior versions.
+7. Move links, anchors, dark/light SVG heroes, manifests, `llms.txt`, inventories, and generators in the same PR. Required package assets and runtime Markdown retain their existing contracts.
+8. Verify every changed Mermaid diagram structurally (declared nodes, trust-boundary subgraphs, zero broken HTML labels) and verify both positive and negative controls when touching verifiers.
+9. Run affected checks, keep audit evidence ignored, and release through repo-operations. Docs-only PRs across `dev`, `uat`, and `main` must preserve environment truthfulness without pulling unpromoted runtime code.
 
 ## Handoff Rules
 
 Route implementation to frontend/backend owners, release operations to repo-operations,
 and explicitly requested executive artifacts to founder-brief-curation. Ordinary
-product documentation has no default Founder/CTO audience. Preserve literal
-compatibility identifiers and the approved Hussh personal-agent identity.
+product documentation leads with human clarity and separates coding-agent detail cleanly.
+Preserve literal compatibility identifiers and the approved Hussh personal-agent identity.
 
 ## Required Checks
 
 ```bash
 ./bin/hushh docs verify
+python3 scripts/licenses/verify_apache_surface.py
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py inventory
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders
+python3 .agents/skills/skill-authoring/scripts/skill_lint.py
 ```

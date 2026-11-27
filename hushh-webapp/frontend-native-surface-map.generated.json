@@ -6,10 +6,21 @@
     "route_layout_contract": "lib/navigation/app-route-layout.contract.json",
     "physical_pages": "app/**/page.tsx",
     "native_inventory": "native-route-inventory.json",
+    "semantic_views": "../config/runtime-topology-maintenance.json",
     "api_routes": "app/api/**/route.ts",
     "route_docs": "../docs/development/contracts/route-contracts.md",
     "mobile_docs": "../docs/development/mobile/capacitor-parity-audit.md"
   },
+  "shared_native_plugin_dependencies": [
+    {
+      "js_name": "HushhNativeVaultGate",
+      "scope": "VaultLockGuard hard-gate presentation",
+      "platforms": [
+        "ios"
+      ],
+      "integration": "The shared shell qualification policy controls device admission for the full-screen create, passphrase-unlock and recovery presentation above guarded routes; VaultFlow retains operation ownership and React handles unsupported or native-authenticator handoffs."
+    }
+  ],
   "nextjs_api_routes": [
     {
       "template": "/api/account/{path*}",
@@ -136,8 +147,16 @@
       "file": "app/api/consent/history/route.ts"
     },
     {
+      "template": "/api/consent/history/clear-system-logs",
+      "file": "app/api/consent/history/clear-system-logs/route.ts"
+    },
+    {
       "template": "/api/consent/logout",
       "file": "app/api/consent/logout/route.ts"
+    },
+    {
+      "template": "/api/consent/owner-items/requests",
+      "file": "app/api/consent/owner-items/requests/route.ts"
     },
     {
       "template": "/api/consent/pending",
@@ -370,6 +389,144 @@
     {
       "template": "/api/world-model/store-domain",
       "file": "app/api/world-model/store-domain/route.ts"
+    }
+  ],
+  "semantic_views": [
+    {
+      "id": "public.research",
+      "route": "/welcome?tab=research",
+      "pathname": "/welcome",
+      "tab_set": "public",
+      "page_file": "app/welcome/page.tsx",
+      "native_classification": "excluded-web-only"
+    },
+    {
+      "id": "public.blog",
+      "route": "/welcome?tab=blog",
+      "pathname": "/welcome",
+      "tab_set": "public",
+      "page_file": "app/welcome/page.tsx",
+      "native_classification": "excluded-web-only"
+    },
+    {
+      "id": "public.developers",
+      "route": "/welcome?tab=developers",
+      "pathname": "/welcome",
+      "tab_set": "public",
+      "page_file": "app/welcome/page.tsx",
+      "native_classification": "excluded-web-only"
+    },
+    {
+      "id": "finance.market",
+      "route": "/one/kai?tab=market",
+      "pathname": "/one/kai",
+      "tab_set": "finance",
+      "page_file": "app/one/kai/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "finance.portfolio",
+      "route": "/one/kai?tab=portfolio",
+      "pathname": "/one/kai",
+      "tab_set": "finance",
+      "page_file": "app/one/kai/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "finance.analysis",
+      "route": "/one/kai?tab=analysis",
+      "pathname": "/one/kai",
+      "tab_set": "finance",
+      "page_file": "app/one/kai/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.requests",
+      "route": "/one/consent?tab=requests",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.active",
+      "route": "/one/consent?tab=active",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.history",
+      "route": "/one/consent?tab=history",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "consent.connections",
+      "route": "/one/consent?tab=connections",
+      "pathname": "/one/consent",
+      "tab_set": "consent",
+      "page_file": "app/one/consent/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "location.now",
+      "route": "/one/location?view=now",
+      "pathname": "/one/location",
+      "tab_set": "location",
+      "page_file": "app/one/location/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "location.people",
+      "route": "/one/location?view=people",
+      "pathname": "/one/location",
+      "tab_set": "location",
+      "page_file": "app/one/location/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "location.links",
+      "route": "/one/location?view=links",
+      "pathname": "/one/location",
+      "tab_set": "location",
+      "page_file": "app/one/location/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "connect.connections",
+      "route": "/one/connect?tab=all",
+      "pathname": "/one/connect",
+      "tab_set": "connect",
+      "page_file": "app/one/connect/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "connect.circles",
+      "route": "/one/connect?tab=circles",
+      "pathname": "/one/connect",
+      "tab_set": "connect",
+      "page_file": "app/one/connect/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "mail.kyc",
+      "route": "/one/gmail?workspace=kyc",
+      "pathname": "/one/gmail",
+      "tab_set": "gmail-workspace",
+      "page_file": "app/one/gmail/page.tsx",
+      "native_classification": "native-required-functional"
+    },
+    {
+      "id": "mail.receipts",
+      "route": "/one/gmail?workspace=receipts",
+      "pathname": "/one/gmail",
+      "tab_set": "gmail-workspace",
+      "page_file": "app/one/gmail/page.tsx",
+      "native_classification": "native-required-functional"
     }
   ],
   "routes": [
@@ -755,7 +912,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/circle/join?code=native-invitation-fixture",
         "expectedMarker": "native-route-circle-join",
-        "expectedRoute": "/circle/join",
+        "expectedRoute": "/circle/join?code=native-invitation-fixture",
         "autoReviewerLogin": false,
         "expectedAuth": "anonymous",
         "allowedDataStates": [
@@ -1003,6 +1160,64 @@
         "route": "/delete-account",
         "classification": "excluded-web-only",
         "reason": "Public account-deletion request page for people without the app (Google Play Delete account URL). In the native shell, deletion lives in Profile."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/design-system",
+      "page_file": "app/design-system/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/design-system/reference-storybook.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.design.system",
+          "purpose": "Help the person inspect the reference design system showcase through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/design-system",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/design-system",
+        "classification": "excluded-web-only",
+        "reason": "Internal reference-design storybook and visual review lab surface for component craft sign-off; not shipped to signed-in app users."
       },
       "shell": {
         "app_page_shell": false,
@@ -1269,7 +1484,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai",
         "expectedMarker": "native-route-kai-home",
-        "expectedRoute": "/one/kai",
+        "expectedRoute": "/one/kai?tab=market",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1329,8 +1544,8 @@
         "route": "/kai/analysis",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai%2Fanalysis%3Fticker%3DAAPL",
-        "expectedMarker": "native-route-kai-analysis",
-        "expectedRoute": "/one/kai/analysis",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=analysis",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1391,8 +1606,8 @@
         "classification": "native-required-functional",
         "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
-        "expectedMarker": "native-route-kai-portfolio",
-        "expectedRoute": "/one/kai/portfolio",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=portfolio",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1454,8 +1669,8 @@
         "classification": "native-required-functional",
         "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
-        "expectedMarker": "native-route-kai-analysis",
-        "expectedRoute": "/one/kai/analysis",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=analysis",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1850,8 +2065,8 @@
         "route": "/kai/portfolio",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
-        "expectedMarker": "native-route-kai-portfolio",
-        "expectedRoute": "/one/kai/portfolio",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=portfolio",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1930,6 +2145,8 @@
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "auth.deletion_done",
+        "auth.deletion_start_fresh",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -2460,7 +2677,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.calendar",
-          "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking dialog with exact review and confirmation; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+          "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking form whose Schedule meeting action confirms the displayed details; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
           "screen": "calendar",
           "entry_cue": "Connect Calendar when you want schedule help from One.",
           "proactivity": "ambient",
@@ -2506,6 +2723,8 @@
       },
       "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "calendar.connection.connect",
+        "calendar.connection.disconnect",
         "calendar.invitation.review",
         "calendar.read"
       ],
@@ -2595,7 +2814,7 @@
         "page_header": true,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -2719,9 +2938,9 @@
       "native": {
         "route": "/one/connect/settings",
         "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-        "expectedMarker": "native-route-connect-settings",
-        "expectedRoute": "/one/connect/settings",
+        "initialRoute": "/login?redirect=%2Fone%2Fconnect%2Fsettings",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/gemini",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -2843,7 +3062,11 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/connected-systems/[systemId]",
+        "classification": "excluded-web-only",
+        "reason": "The detail inherits the local CRM layout, which rejects Capacitor builds before rendering; it is available only on explicitly enabled localhost development."
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3135,8 +3358,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/feed/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "feed.search_activity"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -3195,6 +3420,7 @@
       },
       "voice_action_contract_file": "app/one/files/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "files.upload",
         "route.one_files"
       ],
       "api_dependencies": [
@@ -3280,15 +3506,86 @@
       },
       "voice_action_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "kyc.save_profile",
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.receipt_sync_details",
         "profile.gmail.restore_saved_receipts",
         "profile.gmail.sync_now",
         "profile.gmail.visit_merchant",
+        "route.kyc_requests",
         "route.one_gmail_kyc",
         "route.profile_receipts"
       ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/goals/goals-workspace.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.goals",
+          "purpose": "Review saved goals, describe the intended outcome, and link saved tasks in the owner's unlocked vault.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Keep goal information unavailable until the owner unlocks the vault.",
+            "cancelled": "Close the editor without saving the draft.",
+            "failed": "Keep the draft and report that the save could not be confirmed.",
+            "timeout": "Ask the owner to check the saved goal before trying again.",
+            "callback_error": "Return to the verified recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The owner confirms each save and explicitly marks goal completion. Linked task status comes from Tasks. A plan grants no background execution permission.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Never invent a control or infer execution permission from a saved goal."
+        }
+      },
+      "native": {
+        "route": "/one/goals",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fgoals",
+        "expectedMarker": "native-route-one-goals",
+        "expectedRoute": "/one/goals",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -3404,8 +3701,8 @@
         "route": "/one/kai/analysis",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fanalysis%3Fticker%3DAAPL",
-        "expectedMarker": "native-route-kai-analysis",
-        "expectedRoute": "/one/kai/analysis?ticker=AAPL",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=analysis&ticker=AAPL",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -3958,8 +4255,8 @@
         "route": "/one/kai/portfolio",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
-        "expectedMarker": "native-route-kai-portfolio",
-        "expectedRoute": "/one/kai/portfolio",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=portfolio",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -4294,6 +4591,130 @@
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kyc",
+      "page_file": "app/one/kyc/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/gmail/gmail-receipts-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kyc",
+          "purpose": "Review KYC information requests and manage the identity details used in replies, with every reply reviewed before it is sent.",
+          "screen": "gmail",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kyc",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkyc",
+        "expectedMarker": "native-route-one-kyc",
+        "expectedRoute": "/one/kyc",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/one-kyc-service.ts",
+          "service_methods": [
+            "listWorkflows",
+            "refreshWorkflow",
+            "selectScopes",
+            "getWorkflowConsentExports",
+            "sendApprovedReply",
+            "rejectDraft",
+            "redraft",
+            "writebackComplete",
+            "getClientConnector",
+            "registerClientConnector"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/one/kyc/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
+        },
+        {
+          "service_file": "lib/services/account-service.ts",
+          "service_methods": [
+            "listEmailAliases",
+            "startEmailAliasVerification",
+            "confirmEmailAliasVerification"
+          ],
+          "nextjs_api_route": "/api/account/{path*}",
+          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
+          "backend_endpoint_family": "/account/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
+        },
+        {
+          "service_file": "lib/services/kyc-pkm-write-service.ts",
+          "service_methods": [
+            "writeWorkflowArtifact"
+          ],
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "js_name": "HushhVault",
+          "reason": "Vault unlock and client-held KYC connector key material stay outside the Next.js server."
+        },
+        {
+          "js_name": "HushhConsent",
+          "reason": "Consent status and export authorization must preserve the native consent boundary."
+        }
+      ],
+      "thread_and_consent_contract": {
+        "original_thread_required": true,
+        "approved_send_requires_workflow_scopes": true,
+        "approved_body_transport": "transient send-approved-reply request only",
+        "local_plaintext_cleanup": "drop local draft/export payloads after terminal or non-ready workflow states"
+      }
     },
     {
       "route": "/one/location",
@@ -5006,6 +5427,7 @@
       },
       "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "messages.copy_text",
         "route.messages_connections"
       ],
       "api_dependencies": [],
@@ -5084,7 +5506,13 @@
       "voice_action_contract_ids": [
         "pkm.close_sharing_bundle_review",
         "pkm.close_sharing_price_review",
-        "pkm.review_sharing_price"
+        "pkm.delete_memory",
+        "pkm.edit_memory",
+        "pkm.export_memory",
+        "pkm.prepare_capture",
+        "pkm.retry_capture_section",
+        "pkm.review_sharing_price",
+        "pkm.save_capture"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -5231,6 +5659,88 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/pkm/logins",
+      "page_file": "app/one/pkm/logins/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.pkm.logins",
+          "purpose": "Help the owner open secure website login controls. Passwords and verification secrets stay outside chat and model processing.",
+          "screen": "pkm_logins",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": "route.one_pkm_logins",
+          "happy_path_action_ids": [
+            "route.one_pkm_logins"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Navigation is complete after the secure website login page opens. Credential edits require the owner to use its private controls.",
+          "next_route": "/one/pkm/logins",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/pkm/logins",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flogins",
+        "expectedMarker": "native-route-pkm-logins",
+        "expectedRoute": "/one/pkm/logins",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/pkm/logins/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "credentials.add",
+        "credentials.cancel",
+        "credentials.edit",
+        "credentials.refresh",
+        "credentials.remove",
+        "credentials.renew",
+        "credentials.save",
+        "credentials.share",
+        "credentials.share_cancel",
+        "credentials.share_confirm",
+        "route.one_pkm_logins"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/pkm/recent",
       "page_file": "app/one/pkm/recent/page.tsx",
       "physical_page_exists": true,
@@ -5347,8 +5857,8 @@
         "route": "/one/profile",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile",
+        "expectedMarker": "native-route-one-home",
+        "expectedRoute": "/one?profile_pane=1",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -5381,6 +5891,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -5727,15 +6238,8 @@
       },
       "native": {
         "route": "/one/profile/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnected-systems",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
+        "classification": "excluded-web-only",
+        "reason": "Local CRM is restricted to localhost web. The route explicitly returns not found in Capacitor builds."
       },
       "shell": {
         "app_page_shell": false,
@@ -5956,12 +6460,14 @@
         "route": "/one/profile/gmail",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6016,12 +6522,14 @@
         "route": "/one/profile/gmail/actions",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail/actions",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6076,12 +6584,14 @@
         "route": "/one/profile/gmail/connection",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail/connection",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6379,12 +6889,14 @@
         "route": "/one/profile/my-data",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fmy-data",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/my-data",
+        "expectedMarker": "native-route-pkm",
+        "expectedRoute": "/one/pkm",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6460,12 +6972,14 @@
         "route": "/one/profile/my-data/domain",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/my-data/domain?key=finance",
+        "expectedMarker": "native-route-pkm",
+        "expectedRoute": "/one/pkm",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6516,7 +7030,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.payouts",
-          "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
+          "purpose": "Help the person manage payout setup, earnings and transaction history without changing consent or financial authority.",
           "screen": "profile_payouts",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -7308,8 +7822,8 @@
         "route": "/one/profile/regulatory",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/regulatory",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -7835,7 +8349,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
         "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/support/compose?kind=support_request",
+        "expectedRoute": "/one/profile/support?kind=support_request",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -7901,7 +8415,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsupport%2Frouting",
         "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/support/routing",
+        "expectedRoute": "/one/profile/support",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -7971,7 +8485,6 @@
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loading",
           "loaded",
           "empty-valid",
           "unavailable-valid"
@@ -8170,7 +8683,7 @@
           "playbook_id": "route.one.setup",
           "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
           "screen": "one_setup_hub",
-          "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+          "entry_cue": "Choose your setup options, then Continue to the optional memory import.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.open_cloud",
           "happy_path_action_ids": [
@@ -8181,6 +8694,8 @@
             "setup.open_email",
             "setup.open_finance",
             "setup.open_ria",
+            "setup.memory_import_skip",
+            "setup.hub_continue",
             "setup.hub_master_ack"
           ],
           "required_inputs": [],
@@ -8192,8 +8707,8 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Only the hub finish or skip action resolves root onboarding.",
-          "next_route": "/one",
+          "completion_boundary": "Continue opens optional memory import. Finish setup or Skip retains the required vault and setup-save boundaries; a submitted import runs through the shared Chat memory writer in the background after completion.",
+          "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -8707,7 +9222,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "flow",
-        "exemption_reason": "Finance introduction, investing preferences and source selection share the existing fullscreen setup coordinator.",
+        "exemption_reason": "Investing preferences and portfolio source selection share the existing fullscreen setup coordinator.",
         "shell_verification_file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
         "shell_verification_includes": [
           "FullscreenFlowShell"
@@ -8717,9 +9232,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.finance",
-          "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
+          "purpose": "Answer or skip investing preferences, choose an optional portfolio source, then finish setup.",
           "screen": "one_setup_finance",
-          "entry_cue": "Explore the introduction, then answer or skip investing preferences.",
+          "entry_cue": "Answer or skip the three investing questions, then choose how to add a portfolio.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_finance",
           "happy_path_action_ids": [
@@ -9122,8 +9637,8 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
         "mode": "standard",
@@ -9140,8 +9655,8 @@
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.one.todos",
-          "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
+          "playbook_id": "route.one.tasks",
+          "purpose": "Review private tasks, the read-only Calendar agenda, and the recorded outcome of approved scheduled Files runs on the owner's private Pod.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -9156,18 +9671,18 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+          "completion_boundary": "Ordinary task saves require owner confirmation. Scheduled results reflect the current Pod's last-run receipt, including uncertain outcomes. Back closes the scheduled-runs view before leaving Tasks.",
           "next_route": null,
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
       "native": {
-        "route": "/one/todos",
+        "route": "/one/tasks",
         "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Ftodos",
-        "expectedMarker": "native-route-one-todos",
-        "expectedRoute": "/one/todos",
+        "initialRoute": "/login?redirect=%2Fone%2Ftasks",
+        "expectedMarker": "native-route-one-tasks",
+        "expectedRoute": "/one/tasks",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -9177,6 +9692,60 @@
           "unavailable-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/tasks/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "todos.complete",
+        "todos.detail",
+        "todos.remove",
+        "todos.sources"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Existing To-do links open the canonical Tasks workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.todos",
+          "purpose": "Open the Tasks workspace from an older To-do link.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Keep the Tasks destination behind its existing access check.",
+            "cancelled": "Retain the current screen.",
+            "failed": "Offer the canonical Tasks destination.",
+            "timeout": "Retain the canonical Tasks destination.",
+            "callback_error": "Offer the canonical Tasks destination.",
+            "route_mismatch": "Use the verified Tasks route."
+          },
+          "completion_boundary": "Both web and native clients open the same Tasks workspace.",
+          "next_route": "/one/tasks",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Retain the destination's access checks."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9380,6 +9949,10 @@
         "expectedMarker": "native-route-one-welcome",
         "expectedRoute": "/one/welcome",
         "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ],
         "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
       },
       "shell": {
@@ -9901,7 +10474,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9930,10 +10503,19 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
-        "phone_mandate.review_previous_deletion",
+        "phone_mandate.delete_previous",
+        "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_confirm",
+        "phone_mandate.delete_previous_verify_again",
+        "phone_mandate.recover",
+        "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
+        "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
-        "phone_mandate.submit_number"
+        "phone_mandate.submit_number",
+        "phone_mandate.transfer_cancel",
+        "phone_mandate.transfer_confirm",
+        "phone_mandate.transfer_review"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -10084,14 +10666,15 @@
         "route": "/ria",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria",
-        "expectedMarker": "native-route-ria-home",
-        "expectedRoute": "/ria",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded",
           "unavailable-valid"
-        ]
+        ],
+        "legacyAlias": true
       },
       "shell": {
         "app_page_shell": false,
@@ -10291,7 +10874,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/ria/clients/[userId]",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture",
+        "expectedMarker": "native-route-ria-client-workspace",
+        "expectedRoute": "/ria/clients/native-audit-fixture",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10347,7 +10943,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/ria/clients/[userId]/accounts/[accountId]",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Faccounts%2Facct_demo_taxable_main",
+        "expectedMarker": "native-route-ria-client-account-detail",
+        "expectedRoute": "/ria/clients/native-audit-fixture/accounts/acct_demo_taxable_main",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10403,7 +11012,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/ria/clients/[userId]/requests/[requestId]",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Frequests%2Frequest_demo_kai_specialized_bundle",
+        "expectedMarker": "native-route-ria-client-request-detail",
+        "expectedRoute": "/ria/clients/native-audit-fixture/requests/request_demo_kai_specialized_bundle",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10615,8 +11237,8 @@
         "route": "/ria/profile",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/regulatory",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -10679,7 +11301,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Frequests",
         "expectedMarker": "native-route-consents",
-        "expectedRoute": "/one/consent",
+        "expectedRoute": "/one/consent?tab=pending&actor=ria&view=outgoing",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -10740,8 +11362,8 @@
         "route": "/ria/settings",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fsettings",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -11055,5 +11677,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e953311e5b8025a488bfef10a5ef2703ef2de803c367899ce693442453a1a9e4"
+  "content_sha256": "21f1223a59e23e755ccbad5ae9a8bdca471de6a1d4af03351e799d6dbe3609b8"
 }

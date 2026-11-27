@@ -85,6 +85,103 @@ DEFAULT_CLOUD_LANES: dict[str, dict[str, str]] = {
     "production": {"project": "hushh-pda", "region": "us-central1"},
 }
 
+# Historical asymmetric back-sync merges explicitly audited and remediated in train/2026.11.42.
+REMEDIATED_ASYMMETRIC_MERGES: frozenset[str] = frozenset(
+    {
+        "e5632061bf0082605c89c8a000a0c262d836fa5d",
+    }
+)
+
+RUNTIME_SOURCE_PREFIXES: tuple[str, ...] = (
+    "consent-protocol/api/",
+    "consent-protocol/hushh_mcp/",
+    "hushh-webapp/app/",
+    "hushh-webapp/components/",
+    "hushh-webapp/lib/",
+    "scripts/deploy/",
+)
+
+FEATURE_PATH_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "finance",
+        (
+            "hushh-webapp/components/kai/",
+            "hushh-webapp/lib/kai/",
+            "hushh-webapp/app/kai",
+            "hushh-webapp/app/one/kai",
+        ),
+    ),
+    (
+        "connect-feed",
+        (
+            "consent-protocol/api/routes/one/connections",
+            "consent-protocol/hushh_mcp/services/connection",
+            "hushh-webapp/components/connect",
+            "hushh-webapp/lib/feed/",
+            "hushh-webapp/components/feed/",
+        ),
+    ),
+    (
+        "mail-receipts",
+        (
+            "hushh-webapp/components/gmail/",
+            "hushh-webapp/lib/mail/",
+            "consent-protocol/hushh_mcp/operons/gmail",
+        ),
+    ),
+    ("wallet", ("hushh-webapp/components/wallet", "hushh-webapp/lib/wallet")),
+    (
+        "browser-terminal",
+        (
+            "hushh-webapp/components/computer-use/",
+            "consent-protocol/api/routes/one/pod_files",
+            "consent-protocol/hushh_mcp/services/computer_use",
+        ),
+    ),
+    (
+        "hosting-sandbox",
+        (
+            "consent-protocol/hushh_mcp/services/pooled_sandbox",
+            "consent-protocol/hushh_mcp/services/personal_agent",
+            "hushh-webapp/lib/one/owner-cloud",
+            "hushh-webapp/lib/services/owner-pod-endpoint",
+            "hushh-webapp/components/profile/agent-settings",
+            "hushh-webapp/components/connections/byoc",
+        ),
+    ),
+    (
+        "one-chat",
+        ("hushh-webapp/components/agent/", "consent-protocol/hushh_mcp/one_adk/"),
+    ),
+    (
+        "location-sos",
+        (
+            "hushh-webapp/components/one-location/",
+            "consent-protocol/api/routes/one/location",
+            "consent-protocol/hushh_mcp/operons/location",
+        ),
+    ),
+    (
+        "vault-identity",
+        (
+            "consent-protocol/hushh_mcp/services/vault_keys",
+            "consent-protocol/hushh_mcp/services/trusted_device",
+            "hushh-webapp/lib/vault/",
+            "consent-protocol/hushh_mcp/services/phone",
+        ),
+    ),
+    (
+        "release-governance",
+        (
+            "scripts/deploy/",
+            "scripts/ops/",
+            "scripts/ci/",
+            ".agents/skills/release-train-parity",
+            ".agents/workflows/release-train-parity",
+        ),
+    ),
+)
+
 
 def _git(repo_root: Path, args: list[str], *, check: bool = True) -> str:
     proc = subprocess.run(  # noqa: S603 - repository-controlled git inspection
@@ -131,6 +228,176 @@ def _commits_between(
         [line for line in sample_raw.splitlines() if line.strip()] if sample_raw else []
     )
     return {"count": count, "samples": samples}
+
+
+def _tree_blobs(repo_root: Path, rev: str) -> dict[str, str]:
+    raw = _git(repo_root, ["ls-tree", "-r", rev], check=False)
+    blobs: dict[str, str] = {}
+    for line in raw.splitlines():
+        if "\t" not in line:
+            continue
+        meta, path = line.split("\t", 1)
+        parts = meta.split()
+        if len(parts) >= 3:
+            blobs[path] = parts[2]
+    return blobs
+
+
+def _is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
+    proc = subprocess.run(  # noqa: S603 - repository-controlled git inspection
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            descendant,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def compute_merge_fidelity(
+    repo_root: Path,
+    *,
+    dev_ref: str,
+    uat_ref: str,
+    main_ref: str,
+) -> dict[str, Any]:
+    """Detect asymmetric ('-X ours') cross-lane merges that silently discard upstream changes."""
+    merges_raw = _git(
+        repo_root,
+        ["log", "--merges", "-n25", "--format=%H %P %s", dev_ref],
+        check=False,
+    )
+    violations: list[dict[str, Any]] = []
+    checked = 0
+    for line in merges_raw.splitlines():
+        parts = line.strip().split(" ", 3)
+        if len(parts) < 3:
+            continue
+        merge_sha, p1, p2 = parts[0], parts[1], parts[2]
+        subject = parts[3] if len(parts) > 3 else ""
+        if merge_sha in REMEDIATED_ASYMMETRIC_MERGES:
+            continue
+        # Only audit upstream back-sync merges where P2 comes from uat or main.
+        if not (
+            _is_ancestor(repo_root, p2, uat_ref)
+            or _is_ancestor(repo_root, p2, main_ref)
+        ):
+            continue
+        # Skip fast-forward-equivalent or trivial same-base merges.
+        mb = _git(repo_root, ["merge-base", p1, p2], check=False).strip()
+        if not mb or mb == p2 or mb == p1:
+            continue
+        checked += 1
+        t_mb = _tree_blobs(repo_root, mb)
+        t_p1 = _tree_blobs(repo_root, p1)
+        t_p2 = _tree_blobs(repo_root, p2)
+        t_m = _tree_blobs(repo_root, merge_sha)
+
+        only_upstream_dropped: list[str] = []
+        dual_runtime_touched = 0
+        dual_runtime_kept_ours = 0
+        for path, bp2 in t_p2.items():
+            bmb = t_mb.get(path)
+            bp1 = t_p1.get(path)
+            bm = t_m.get(path)
+            if bp2 == bmb:
+                continue
+            if bp1 == bmb and bm == bp1 and bm != bp2:
+                only_upstream_dropped.append(path)
+            elif (
+                bp1 != bmb
+                and bp1 != bp2
+                and any(path.startswith(pfx) for pfx in RUNTIME_SOURCE_PREFIXES)
+            ):
+                dual_runtime_touched += 1
+                if bm == bp1:
+                    dual_runtime_kept_ours += 1
+
+        if only_upstream_dropped or (
+            dual_runtime_touched >= 3 and dual_runtime_kept_ours == dual_runtime_touched
+        ):
+            violations.append(
+                {
+                    "merge_sha": merge_sha[:10],
+                    "subject": subject,
+                    "only_upstream_dropped": only_upstream_dropped[:10],
+                    "dual_runtime_touched": dual_runtime_touched,
+                    "dual_runtime_kept_ours": dual_runtime_kept_ours,
+                }
+            )
+    return {
+        "checked_backsync_merges": checked,
+        "violation_count": len(violations),
+        "violations": violations,
+    }
+
+
+def _classify_feature_domain(files: list[str]) -> str:
+    for domain, prefixes in FEATURE_PATH_RULES:
+        if any(any(f.startswith(pfx) for pfx in prefixes) for f in files):
+            return domain
+    return "core-platform"
+
+
+def compute_release_manifest(
+    repo_root: Path,
+    *,
+    base_ref: str,
+    head_ref: str,
+    limit: int = 40,
+) -> dict[str, Any]:
+    """Group candidate commits between base_ref and head_ref by feature domain and author."""
+    log_raw = _git(
+        repo_root,
+        [
+            "log",
+            "--no-merges",
+            f"-n{limit}",
+            "--format=%H%x09%an%x09%ad%x09%s",
+            "--date=short",
+            f"{base_ref}..{head_ref}",
+        ],
+        check=False,
+    )
+    by_feature: dict[str, list[dict[str, str]]] = defaultdict(list)
+    authors: set[str] = set()
+    total = 0
+    for line in log_raw.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t", 3)
+        if len(parts) < 4:
+            continue
+        sha, author, date_str, subject = parts
+        files_raw = _git(
+            repo_root,
+            ["diff-tree", "--no-commit-id", "--name-only", "-r", sha],
+            check=False,
+        )
+        files = [f.strip() for f in files_raw.splitlines() if f.strip()]
+        domain = _classify_feature_domain(files)
+        authors.add(author)
+        total += 1
+        by_feature[domain].append(
+            {
+                "sha": sha[:10],
+                "author": author,
+                "date": date_str,
+                "subject": subject,
+            }
+        )
+    return {
+        "total_sampled": total,
+        "authors": sorted(authors),
+        "features": {k: v for k, v in sorted(by_feature.items())},
+    }
 
 
 def _list_migrations(repo_root: Path, ref: str) -> dict[str, dict[str, Any]]:
@@ -556,7 +823,9 @@ def collect_live_cloud_parity(
         lane_summary = {
             "project": project,
             "backend_revision": backend_caps["revision"],
+            "backend_commit_sha": backend_caps["commit_sha"],
             "webapp_revision": webapp_caps["revision"],
+            "webapp_commit_sha": webapp_caps["commit_sha"],
             "sandbox_edge_gateway_present": edge_present,
             "flags": backend_caps["flags"],
             "closure_ok": len(lane_violations) == 0,
@@ -574,6 +843,7 @@ def build_parity_report(
     main_ref: str = "origin/main",
     include_live_cloud: bool = False,
     require_clean_upstream: bool = False,
+    require_serving_parity: bool = False,
     live_cloud_fetcher: Any = None,
     live_http_prober: Any = None,
     now_utc: dt.datetime | None = None,
@@ -593,6 +863,12 @@ def build_parity_report(
         "main_ahead_of_uat": _commits_between(repo_root, uat_ref, main_ref),
         "dev_ahead_of_uat": _commits_between(repo_root, uat_ref, dev_ref),
     }
+    merge_fidelity = compute_merge_fidelity(
+        repo_root, dev_ref=dev_ref, uat_ref=uat_ref, main_ref=main_ref
+    )
+    release_manifest = compute_release_manifest(
+        repo_root, base_ref=uat_ref, head_ref=dev_ref
+    )
     schema_parity = compute_schema_parity(
         repo_root, dev_ref=dev_ref, uat_ref=uat_ref, main_ref=main_ref
     )
@@ -601,6 +877,13 @@ def build_parity_report(
     )
 
     blockers: list[str] = []
+    if merge_fidelity["violation_count"] > 0:
+        for viol in merge_fidelity["violations"]:
+            blockers.append(
+                f"Asymmetric merge fidelity violation in {viol['merge_sha']} ({viol['subject']}): "
+                f"dropped upstream changes (only_upstream_dropped={len(viol['only_upstream_dropped'])}, "
+                f"dual_runtime_kept_ours={viol['dual_runtime_kept_ours']}/{viol['dual_runtime_touched']})"
+            )
     if schema_parity["collision_count"] > 0:
         for col in schema_parity["collisions"]:
             blockers.append(
@@ -622,12 +905,35 @@ def build_parity_report(
             fetcher=live_cloud_fetcher,
             http_prober=live_http_prober,
         )
+        lane_refs = {"dev": dev_ref, "uat": uat_ref, "production": main_ref}
+        for lane_name, info in live_cloud["lanes"].items():
+            branch_ref = lane_refs.get(lane_name)
+            serving_sha = str(
+                info.get("backend_commit_sha") or info.get("webapp_commit_sha") or ""
+            ).strip()
+            ahead_count: int | None = None
+            if branch_ref and serving_sha and _rev_exists(repo_root, serving_sha):
+                ahead_count = _commits_between(repo_root, serving_sha, branch_ref)[
+                    "count"
+                ]
+            info["branch_ahead_of_serving"] = ahead_count
+            if require_serving_parity and lane_name in ("dev", "uat"):
+                if not serving_sha:
+                    blockers.append(
+                        f"Serving parity on {lane_name}: missing deploy-sha label on Cloud Run"
+                    )
+                elif ahead_count is not None and ahead_count > 0:
+                    blockers.append(
+                        f"Serving parity on {lane_name}: branch {branch_ref} is {ahead_count} commit(s) ahead of live serving {serving_sha[:10]}"
+                    )
         blockers.extend(live_cloud["safety_violations"])
 
     return {
         "status": "blocked" if blockers else "ready",
         "blockers": blockers,
         "code_parity": code_parity,
+        "merge_fidelity": merge_fidelity,
+        "release_manifest": release_manifest,
         "schema_parity": schema_parity,
         "calendar_trains": trains,
         "live_cloud": live_cloud,
@@ -686,14 +992,41 @@ def format_text_report(report: dict[str, Any]) -> str:
         lines.append("4. Runtime Capability Flags & Live Cloud Provenance")
         for lane_name, info in report["live_cloud"]["lanes"].items():
             flags = info["flags"]
+            serving_sha = (
+                info.get("backend_commit_sha")
+                or info.get("webapp_commit_sha")
+                or "unknown"
+            )[:10]
+            drift = info.get("branch_ahead_of_serving")
+            drift_label = f"{drift}" if drift is not None else "unknown"
             lines.append(
                 f"   [{lane_name}] backend={info['backend_revision'] or 'none'} "
                 f"webapp={info['webapp_revision'] or 'none'} "
+                f"serving_sha={serving_sha} branch_ahead={drift_label} "
                 f"edge_gateway={'present' if info['sandbox_edge_gateway_present'] else 'absent'} "
                 f"sandbox_cutover={flags['HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED']} "
                 f"byoc_live={flags['HUSSH_USER_GCP_LIVE']} "
                 f"dev_sim={flags['HUSHH_DEV_SIMULATION_ENABLED']}"
             )
+
+    manifest = report.get("release_manifest") or {}
+    lines.append("")
+    lines.append("5. Candidate Release Train Manifest (Feature & Author Trace)")
+    if not manifest.get("features"):
+        lines.append("   No pending Dev -> UAT feature commits.")
+    else:
+        lines.append(
+            f"   Sampled commits: {manifest['total_sampled']}  Authors: {', '.join(manifest['authors'])}"
+        )
+        for domain, entries in manifest["features"].items():
+            domain_authors = sorted({e["author"] for e in entries})
+            lines.append(
+                f"   [{domain}] {len(entries)} commit(s) by {', '.join(domain_authors)}"
+            )
+            for entry in entries[:3]:
+                lines.append(
+                    f"     * {entry['sha']} ({entry['author']}): {entry['subject']}"
+                )
 
     if report["blockers"]:
         lines.append("")
@@ -705,7 +1038,7 @@ def format_text_report(report: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Compute the 4-dimension Release Train & Environment Parity Matrix."
+        description="Compute the 5-dimension Release Train & Environment Parity Matrix."
     )
     parser.add_argument("--repo-root", default=None, help="Git repository root.")
     parser.add_argument("--dev-ref", default="origin/dev", help="Dev git ref.")
@@ -720,6 +1053,11 @@ def main(argv: list[str] | None = None) -> int:
         "--require-clean-upstream",
         action="store_true",
         help="Exit non-zero if UAT or Main has commits not yet back-synced into Dev, or on any migration collision.",
+    )
+    parser.add_argument(
+        "--require-serving-parity",
+        action="store_true",
+        help="With --live-cloud, exit non-zero if Dev or UAT branch head is ahead of live Cloud Run serving SHA.",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -742,6 +1080,7 @@ def main(argv: list[str] | None = None) -> int:
         main_ref=args.main_ref,
         include_live_cloud=args.live_cloud,
         require_clean_upstream=args.require_clean_upstream,
+        require_serving_parity=args.require_serving_parity,
     )
     if args.as_json:
         sys.stdout.write(json.dumps(report, indent=2) + "\n")

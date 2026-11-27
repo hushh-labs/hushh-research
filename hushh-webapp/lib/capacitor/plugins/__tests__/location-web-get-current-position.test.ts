@@ -268,6 +268,67 @@ describe("HushhLocationWeb.getCurrentPosition", () => {
   // Fallback chain.
   // ---------------------------------------------------------------------
 
+  it("starts a fresh network read while an urgent granted capture waits for GPS", async () => {
+    vi.mocked(navigator.permissions.query).mockResolvedValue({ state: "granted" } as PermissionStatus);
+    const web = new HushhLocationWeb();
+    const point = web.getCurrentPosition({ fastNetworkFallback: true });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(getCurrentPositionCalls).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getCurrentPositionCalls).toHaveLength(1);
+    expect(getCurrentPositionCalls[0].options).toMatchObject({ enableHighAccuracy: false, maximumAge: 0 });
+    getCurrentPositionCalls[0].success(makePosition(65));
+    await vi.advanceTimersByTimeAsync(1_200);
+
+    await expect(point).resolves.toMatchObject({ accuracyM: 65 });
+    expect(clearWatch).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it("keeps sampling when the early network reading is too imprecise", async () => {
+    vi.mocked(navigator.permissions.query).mockResolvedValue({ state: "granted" } as PermissionStatus);
+    const web = new HushhLocationWeb();
+    const point = web.getCurrentPosition({ fastNetworkFallback: true });
+    const resolved = vi.fn();
+    void point.then(resolved);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    getCurrentPositionCalls[0].success(makePosition(1_000));
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(resolved).not.toHaveBeenCalled();
+    watchCalls[0].success(makePosition(20));
+
+    await expect(point).resolves.toMatchObject({ accuracyM: 20 });
+    expect(clearWatch).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it("retries a failed speculative network read after the high-accuracy window", async () => {
+    vi.mocked(navigator.permissions.query).mockResolvedValue({ state: "granted" } as PermissionStatus);
+    const web = new HushhLocationWeb();
+    const point = web.getCurrentPosition({ fastNetworkFallback: true });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    getCurrentPositionCalls[0].error(makeError(2));
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(getCurrentPositionCalls).toHaveLength(2);
+    expect(getCurrentPositionCalls[1].options).toMatchObject({ maximumAge: 0 });
+    getCurrentPositionCalls[1].success(makePosition(75));
+    await expect(point).resolves.toMatchObject({ accuracyM: 75 });
+  });
+
+  it("leaves an unresolved permission prompt to the original capture", async () => {
+    const web = new HushhLocationWeb();
+    const point = web.getCurrentPosition({ fastNetworkFallback: true });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getCurrentPositionCalls).toHaveLength(0);
+    watchCalls[0].error(makeError(1));
+
+    await expect(point).rejects.toMatchObject({ name: "LocationPermissionDeniedError" });
+    expect(getCurrentPositionCalls).toHaveLength(0);
+  });
+
   it("retries at low accuracy when high-accuracy sampling times out", async () => {
     // Desktops without GPS fail high-accuracy but answer a coarse request.
     const web = new HushhLocationWeb();

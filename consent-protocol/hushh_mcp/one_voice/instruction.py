@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.one_adk.location_chat_proposal import LOCATION_CHAT_INSTRUCTION, TOOL_NAME
 from hushh_mcp.services.owner_time import render_time_block
 
 _MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml"
@@ -336,6 +337,11 @@ def build_instruction(
     every send time it is handed, so this is context, never authority.
     """
     authored = str(voice_head_config()["instruction"]).strip()
+    location_review = (
+        LOCATION_CHAT_INSTRUCTION
+        if any(item["name"] == TOOL_NAME for item in tool_declarations)
+        else ""
+    )
     tool_lines = "\n".join(
         f"- {item['name']}: {str(item.get('description') or '').strip().splitlines()[0]}"
         for item in tool_declarations
@@ -351,6 +357,7 @@ def build_instruction(
             render_time_block(timezone_name=timezone, now=now),
             "Tools you can call:\n" + tool_lines,
             "Screens open_screen can open: " + screens,
+            location_review,
             NARRATION_CONTRACT,
             RESUMED_CAVEAT if resumed else "",
         )

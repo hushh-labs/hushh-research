@@ -19,7 +19,8 @@ export function ConversationComposer({ value, onChange, onSend, maxLength, label
   useLayoutEffect(() => {
     if (!editor.current || !visible) return;
     editor.current.style.height = "auto";
-    editor.current.style.height = `${Math.min(128, Math.max(44, editor.current.scrollHeight))}px`;
+    // CSS owns minimum, maximum and keyboard-constrained geometry in each host.
+    editor.current.style.height = `${editor.current.scrollHeight}px`;
   }, [editor, value, visible]);
   return <form data-conversation-composer className="flex min-w-0 items-end gap-2" onSubmit={(event) => {
     event.preventDefault();

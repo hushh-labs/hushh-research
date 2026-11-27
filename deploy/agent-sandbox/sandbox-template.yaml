@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+# Reference virgin SandboxTemplate (extensions.agents.x-k8s.io/v1beta1).
+# Replace the @sha256 placeholder digest during release rendering.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: hussh-one-sandbox-v1
+  namespace: hussh-agents
+  labels:
+    app.kubernetes.io/part-of: hussh-one
+    hussh.ai/sanitization-mode: single-use-destroy
+    hussh.ai/compliance-profile: fedramp-high-baseline
+spec:
+  envVarsInjectionPolicy: Disallowed
+  volumeClaimTemplatesPolicy: Disallowed
+  failedPodPolicy: Retain
+  networkPolicyManagement: Unmanaged
+  podTemplate:
+    metadata:
+      labels:
+        app: hussh-one-sandbox
+        hussh.ai/pool: hussh-one-sandbox-v1
+        hussh.ai/egress-enforced: sentinel
+    spec:
+      # Verified live on Dev GKE Autopilot (gvisor); unified 2 vCPU / 4 GiB
+      # profile across Chat, Terminal, and Browser Use with GKE Autopilot Spot
+      # scheduling (~65% lower warm-standby compute cost) and 10-minute idle
+      # auto-destroy. Use microvm (kata-clh) or Confidential AMD SEV-SNP nodes
+      # on dedicated Enterprise / Production compliance pools.
+      runtimeClassName: gvisor
+      nodeSelector:
+        cloud.google.com/gke-spot: "true"
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sandbox
+          image: us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          command:
+            - /opt/venv/bin/python
+            - -m
+            - hushh_mcp.services.agent_sandbox.virgin_standby
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: HUSSH_POD_MODE
+              value: "1"
+            - name: HUSSH_SANDBOX_PROFILE
+              value: virgin_pool_v1
+            - name: TMPDIR
+              value: /run/hussh-tmp
+            - name: HTTP_PROXY
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: HTTPS_PROXY
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: http_proxy
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: https_proxy
+              value: http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:3128
+            - name: NO_PROXY
+              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog,.hussh-sandbox-system.svc.cluster.local,.hussh-sandbox-system.svc
+            - name: no_proxy
+              value: localhost,127.0.0.1,::1,169.254.169.254,metadata.google.internal,metadata.goog,.hussh-sandbox-system.svc.cluster.local,.hussh-sandbox-system.svc
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 4Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: workspace-nvme
+              mountPath: /workspace
+            - name: runtime-tmp
+              mountPath: /run/hussh-tmp
+            - name: gunicorn-runtime
+              mountPath: /app/.gunicorn
+      volumes:
+        - name: workspace-nvme
+          emptyDir:
+            sizeLimit: 4Gi
+        - name: runtime-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: gunicorn-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

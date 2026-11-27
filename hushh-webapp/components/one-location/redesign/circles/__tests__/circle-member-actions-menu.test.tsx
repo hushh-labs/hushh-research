@@ -169,7 +169,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
     ).toBeTruthy();
     expect(within(sheet).getByLabelText("Verified advisor")).toBeInTheDocument();
 
-    expect(within(sheet).getByRole("button", { name: `Share location with ${MEMBER_NAME}` })).toHaveClass("size-11");
+    expect(within(sheet).getByRole("button", { name: `Share location with ${MEMBER_NAME}` })).toHaveClass("size-9", "[@media(pointer:coarse)]:size-11");
     expect(
       within(sheet).getByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
@@ -239,11 +239,11 @@ describe("CircleMemberActionsMenu on a phone", () => {
     const remove = within(sheet).getByRole("button", { name: "Remove" });
     const cancel = within(sheet).getByRole("button", { name: "Cancel" });
     expect(remove).toHaveClass(
-      "h-[50px]",
+      "h-10",
       "bg-[color:var(--app-destructive)]",
       "text-white",
     );
-    expect(cancel).toHaveClass("h-[50px]");
+    expect(cancel).toHaveClass("h-10");
     expect(remove.parentElement).toHaveClass("max-w-[244px]");
 
     fireEvent.click(remove);

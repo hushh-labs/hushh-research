@@ -72,6 +72,7 @@ NOT_OK_STATUSES = frozenset(
         "draft_open_requested",
         "review_requested",
         "review_pending",
+        "proposal_ready",
         "needs_input",
         "outcome_unknown",
         "sending",

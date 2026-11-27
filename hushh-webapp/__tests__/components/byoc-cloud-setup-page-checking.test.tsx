@@ -169,6 +169,23 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     expect(fixture.replace).toHaveBeenLastCalledWith("/one/profile/hosting");
   });
 
+  it("keeps the embedded own-cloud form and its completion inside Profile", async () => {
+    fixture.savedHosting = true;
+    fixture.completed = true;
+    mockAgentStatus.mockResolvedValue({ featureEnabled: true, hostingMode: "byoc", state: "active", cloudProject: "fixture-project" } as never);
+    const onFinish = vi.fn();
+    render(<ByocCloudSetupPage embedded initialIntent="own" owningRoute="/one" backQuery={{ profile_pane: "1" }} onFinish={onFinish} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+
+    expect(screen.getByTestId("byoc-cloud-setup-embedded")).toBeVisible();
+    expect(fixture.replace).not.toHaveBeenCalled();
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save AI access" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Finish agent setup" })); });
+    expect(onFinish).toHaveBeenCalledOnce();
+    expect(fixture.replace).not.toHaveBeenCalled();
+  });
+
   it("keeps AI behind verified hosting and drops both proofs on an owner switch", async () => {
     const view = render(<ByocCloudSetupPage />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
@@ -326,5 +343,50 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     expect(screen.getByTestId("hosting-mode-unknown")).toBeTruthy();
     expect(screen.queryByTestId("cloud-tier-choice")).toBeNull();
     expect(screen.queryByTestId("byoc-cloud-card")).toBeNull();
+  });
+
+  it("shows a recovery card instead of Connected or AI pending when an assigned BYOC agent failed", async () => {
+    mockAgentStatus.mockResolvedValue({
+      featureEnabled: true,
+      hostingMode: "byoc",
+      state: "failed",
+      deploymentTarget: "user_azure",
+      cloudProject: "eastus2",
+    } as never);
+    mockStatus.mockResolvedValue({
+      status: "recorded",
+      projectId: "azure-sub",
+      stages: [],
+      stale: false,
+    } as never);
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(screen.getByTestId("byoc-agent-failed")).toBeTruthy();
+    expect(screen.getByTestId("byoc-agent-failed-refresh")).toBeTruthy();
+    expect(screen.getByTestId("byoc-agent-failed-hosting")).toBeTruthy();
+    expect(screen.queryByTestId("byoc-cloud-connected")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save AI access" })).toBeNull();
+  });
+
+  it("shows ConnectingToAgentCard instead of Connected when an assigned BYOC agent is connecting", async () => {
+    mockAgentStatus.mockResolvedValue({
+      featureEnabled: true,
+      hostingMode: "byoc",
+      state: "connecting",
+      deploymentTarget: "user_azure",
+      cloudProject: "eastus2",
+    } as never);
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(screen.getByTestId("hosting-connecting")).toBeTruthy();
+    expect(screen.queryByTestId("byoc-cloud-connected")).toBeNull();
   });
 });

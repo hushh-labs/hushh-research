@@ -345,6 +345,7 @@ struct NativeHistoryQualificationBase: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Public fixture — not your Chat").font(.subheadline).foregroundStyle(.primary)
                     Button("Exit qualification", action: exit).frame(minHeight: 44)
+                        .foregroundStyle(.primary)
                         .accessibilityIdentifier("qualification-exit")
                     Button("Reset public samples", action: reset).frame(minHeight: 44)
                         .foregroundStyle(.primary)
@@ -403,7 +404,7 @@ struct NativeHistoryQualificationDrawer: View {
                 Text("History").font(.title2.bold())
                 Spacer()
             }
-            Text("Synthetic conversations").foregroundStyle(.secondary)
+            Text("Synthetic conversations").foregroundStyle(.primary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(["Weekend plans", "Dinner ideas", "Places to explore", "A reading list"], id: \.self) { title in

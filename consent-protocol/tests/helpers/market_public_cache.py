@@ -29,6 +29,17 @@ class _FakeEntry:
 class _FakeStore:
     def __init__(self) -> None:
         self.entries: dict[str, _FakeEntry] = {}
+        self.locks: set[int] = set()
+
+    async def try_with_advisory_lock(self, *, lock_key, callback):
+        if lock_key in self.locks:
+            return False
+        self.locks.add(lock_key)
+        try:
+            await callback()
+            return True
+        finally:
+            self.locks.remove(lock_key)
 
     async def get_entry(self, cache_key: str):
         return self.entries.get(cache_key)

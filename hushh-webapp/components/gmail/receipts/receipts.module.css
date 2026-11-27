@@ -1,0 +1,112 @@
+/* The page shell locks h2 to the title3 tokens and h3 to the headline tokens, so each role overrides the token, not the size. */
+.pageTitle {
+  --foundation-title3-size: 24px;
+  --foundation-title3-line: 30px;
+  --foundation-title3-weight: 700;
+  --foundation-title3-tracking: -0.01em;
+}
+.cardTitle {
+  --foundation-headline-size: 18px;
+  --foundation-headline-line: 24px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: -0.005em;
+}
+.monthTitle {
+  --foundation-headline-size: 17px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 600;
+  --foundation-headline-tracking: normal;
+}
+.sectionTitle {
+  --foundation-headline-size: 15px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: normal;
+}
+.primaryPill {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 24px;
+  background: var(--app-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+.primaryPill:hover { background: var(--app-accent-deep); }
+.primaryPill:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; }
+.primaryPill:disabled { opacity: 0.5; cursor: not-allowed; }
+.secondaryPill {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-border-standard));
+  border-radius: 999px;
+  padding: 0 24px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+.secondaryPill:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; }
+.secondaryPill:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 639px) {
+  .primaryPill, .secondaryPill { width: 100%; }
+}
+
+/* The Recurring bill chooser: a checkbox, the bill, its rhythm and next date, its amount, a menu. */
+.chooserTitle {
+  --foundation-headline-size: 24px;
+  --foundation-headline-line: 30px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: -0.01em;
+}
+.billRow {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto 44px;
+  grid-template-areas: "check name amount menu" "check when when menu";
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 0;
+  padding: 10px 4px 10px 8px;
+}
+.billRow[data-selected="true"] { background: color-mix(in srgb, var(--app-accent) 7%, transparent); }
+.billCheck { grid-area: check; display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; cursor: pointer; }
+.checkbox { width: 22px; height: 22px; margin: 0; accent-color: var(--app-accent); cursor: pointer; }
+.checkbox:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; }
+.billName { grid-area: name; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; }
+.billName:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; border-radius: 8px; }
+.billWhen { grid-area: when; margin: 0; font-size: 13px; line-height: 19px; color: var(--app-secondary-label); }
+.billAmount { grid-area: amount; margin: 0; text-align: right; font-size: 16px; line-height: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.billMenu { grid-area: menu; display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; border: 0; border-radius: 999px; background: transparent; color: var(--app-accent); cursor: pointer; }
+.billMenu:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; }
+@media (min-width: 640px) {
+  .billRow { grid-template-columns: 44px minmax(0, 1fr) 168px 112px 44px; grid-template-areas: "check name when amount menu"; column-gap: 12px; padding-block: 8px; }
+  .billWhen { font-size: 14px; line-height: 20px; }
+}
+.selectionBar {
+  position: sticky;
+  bottom: calc(var(--app-bottom-fixed-ui, 96px) + 12px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 12px 18px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 20px;
+  background: var(--app-card-surface-default-solid);
+  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.12));
+}

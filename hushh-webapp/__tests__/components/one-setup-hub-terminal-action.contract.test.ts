@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -10,8 +10,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('const masterActionLabel = "Finish setup"');
-    expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
+    expect(source).toContain('const masterActionLabel = "Continue"');
+    expect(source).toContain('data-voice-action-id="setup.hub_continue"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
     expect(
       source.lastIndexOf("FinanceSetupDraftService.finalizeForVault"),
@@ -42,7 +42,6 @@ describe("One setup hub terminal action contract", () => {
     expect(source.indexOf('data-testid="one-setup-master-ack"')).toBeGreaterThan(
       source.indexOf("<div className={styles.flatChecklist}>"),
     );
-    expect(source).not.toContain("actions={");
   });
 
   it("leaves fixed-chrome clearance to the shared app scroll root", () => {
@@ -308,7 +307,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("onSuccess={() => undefined}");
   });
 
-  it("opens the last step straight from Finish setup, with no screen in between", () => {
+  it("keeps the vault boundary after the optional memory import step", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
@@ -378,9 +377,9 @@ describe("One setup hub terminal action contract", () => {
     const cloudChoice = readFileSync(join(process.cwd(), "components/connections/cloud-ai-choice.tsx"), "utf8");
     expect(cloudChoice).toContain('<Badge variant="outline">Recommended</Badge>');
     expect(card).toContain("title={defaultLabel}");
-    for (const label of ["Use existing cloud", "Use Hussh AI"]) {
-      expect(card).toContain(label);
-    }
+    expect(card).toContain("Use existing cloud");
+    expect(card).not.toContain("Use Hussh AI");
+    expect(card).not.toContain("Azure AI key");
     expect(cloudChoice).toContain("Azure AI ·");
     expect(cloudChoice).toContain("Vertex AI ·");
     const keyChoice = readFileSync(
@@ -388,6 +387,7 @@ describe("One setup hub terminal action contract", () => {
     );
     expect(card).toContain("GeminiKeyChoice");
     expect(keyChoice).toContain('title="Gemini"');
+    expect(card).toContain('title="OpenAI"');
     // System nouns and vendor plumbing stay out of the two rows a person reads.
     expect(card).not.toContain("Hussh managed Gemini");
     expect(card).not.toContain("Use my Gemini access");
@@ -415,7 +415,14 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
     expect(emailSetupSource).toContain("CapabilityVaultPrerequisite");
-    expect(existsSync(join(process.cwd(), "app/one/kyc/page.tsx"))).toBe(false);
+    // The retired mailbox workflow page stays retired. /one/kyc is a thin route to the personal Mail KYC flow.
+    const kycPage = readFileSync(join(process.cwd(), "app/one/kyc/page.tsx"), "utf8");
+    expect(kycPage.split("\n").length).toBeLessThan(20);
+    expect(kycPage).toContain("kyc-page-client");
+    const kycClient = readFileSync(join(process.cwd(), "app/one/kyc/kyc-page-client.tsx"), "utf8");
+    expect(kycClient).toContain("CapabilityVaultPrerequisite");
+    expect(kycClient).toContain('<GmailReceiptsPage surface="kyc" />');
+    expect(kycClient).not.toMatch(/one-kyc-service|OneKycService|one\/email\/|mailbox/i);
 
     const existingVaultOnlySurfaces = [
       "app/one/setup/kai/page.tsx",

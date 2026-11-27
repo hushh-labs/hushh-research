@@ -45,6 +45,7 @@ from hushh_mcp.consent.reserved_branches import (
 from hushh_mcp.consent.reserved_branches import (
     entries as reserved_entries,
 )
+from hushh_mcp.services.credentials_domain_validation import validate_credentials_write_sidecars
 from hushh_mcp.services.domain_contracts import (
     canonical_top_level_domain,
     domain_registry_payload,
@@ -516,6 +517,8 @@ class PathDescriptorPayload(BaseModel):
     segment_id: Optional[str] = Field(default=None, max_length=256)
     scope_handle: Optional[str] = Field(default=None, max_length=256)
     source_agent: Optional[str] = Field(default=None, max_length=256)
+    projection_state: Optional[str] = Field(default=None, max_length=64)
+    projection_receipt_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class StructureDecisionPayload(BaseModel):
@@ -683,17 +686,28 @@ def _enforce_secrets_write_policy(request: "StoreDomainRequest", canonical_domai
     is the one place a faulty client could put a secret or its label onto the
     server in plaintext, and that is refused outright.
     """
-    if canonical_domain != "secrets":
+    if canonical_domain not in {"secrets", "credentials"}:
         return
     try:
-        validate_secrets_summary_envelope(request.summary)
+        if canonical_domain == "credentials":
+            manifest = getattr(request, "manifest", None)
+            decision = getattr(request, "structure_decision", None)
+            validate_credentials_write_sidecars(
+                request.summary,
+                manifest=manifest.model_dump() if manifest is not None else None,
+                structure_decision=decision.model_dump() if decision is not None else None,
+            )
+        else:
+            validate_secrets_summary_envelope(request.summary)
     except ValueError as exc:
         logger.warning("[PKM] secrets write refused: envelope reason=%s", exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
-                "code": "SECRETS_SUMMARY_ENVELOPE_INVALID",
-                "message": "The Secrets summary may carry bookkeeping only.",
+                "code": "CREDENTIALS_SUMMARY_ENVELOPE_INVALID"
+                if canonical_domain == "credentials"
+                else "SECRETS_SUMMARY_ENVELOPE_INVALID",
+                "message": "The encrypted domain summary may carry bookkeeping only.",
                 "reason": str(exc),
             },
         ) from exc
@@ -1273,6 +1287,9 @@ async def store_domain(
                 detail=str(exc),
             ) from exc
     pkm_service = get_pkm_service()
+    effective_mutation_plan_json = (
+        request.mutation_plan.model_dump(mode="json") if request.mutation_plan is not None else None
+    )
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -1299,31 +1316,53 @@ async def store_domain(
             domain=canonical_domain,
             scope_path=request.mutation_plan.proposed_scope,
         )
-        client_impact = request.mutation_plan.sharing_impact
-        impact_changed = (
-            client_impact.active_recipient_count
-            != int(server_impact.get("active_recipient_count") or 0)
-            or sorted(client_impact.recipient_labels)
-            != sorted(server_impact.get("recipient_labels") or [])
-            or client_impact.enters_next_export_revision
-            != bool(server_impact.get("enters_next_export_revision"))
-            or sorted(request.mutation_plan.affected_grant_ids)
-            != sorted(server_impact.get("affected_grant_ids") or [])
-            or sorted(request.mutation_plan.affected_export_ids)
-            != sorted(server_impact.get("affected_export_ids") or [])
-        )
-        if impact_changed:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "PKM_SHARING_IMPACT_CHANGED",
-                    "message": (
-                        "Sharing changed while this mutation was being reviewed. "
-                        "Review the current recipients and confirm again."
+        if (
+            request.mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_connected_source_sync"
+        ):
+            if effective_mutation_plan_json is not None:
+                effective_mutation_plan_json["affected_grant_ids"] = list(
+                    server_impact.get("affected_grant_ids") or []
+                )
+                effective_mutation_plan_json["affected_export_ids"] = list(
+                    server_impact.get("affected_export_ids") or []
+                )
+                effective_mutation_plan_json["sharing_impact"] = {
+                    "active_recipient_count": int(server_impact.get("active_recipient_count") or 0),
+                    "recipient_labels": list(server_impact.get("recipient_labels") or []),
+                    "enters_next_export_revision": bool(
+                        server_impact.get("enters_next_export_revision")
                     ),
-                    "sharing_impact": server_impact,
-                },
+                    "summary": str(
+                        server_impact.get("summary") or "No active recipients are affected."
+                    ),
+                }
+        else:
+            client_impact = request.mutation_plan.sharing_impact
+            impact_changed = (
+                client_impact.active_recipient_count
+                != int(server_impact.get("active_recipient_count") or 0)
+                or sorted(client_impact.recipient_labels)
+                != sorted(server_impact.get("recipient_labels") or [])
+                or client_impact.enters_next_export_revision
+                != bool(server_impact.get("enters_next_export_revision"))
+                or sorted(request.mutation_plan.affected_grant_ids)
+                != sorted(server_impact.get("affected_grant_ids") or [])
+                or sorted(request.mutation_plan.affected_export_ids)
+                != sorted(server_impact.get("affected_export_ids") or [])
             )
+            if impact_changed:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "PKM_SHARING_IMPACT_CHANGED",
+                        "message": (
+                            "Sharing changed while this mutation was being reviewed. "
+                            "Review the current recipients and confirm again."
+                        ),
+                        "sharing_impact": server_impact,
+                    },
+                )
 
     # Store encrypted blob + metadata
     store_result = await pkm_service.store_domain_data(
@@ -1356,9 +1395,7 @@ async def store_domain(
             request.preservation_receipt.model_dump() if request.preservation_receipt else None
         ),
         write_projections=[projection.model_dump() for projection in request.write_projections],
-        mutation_plan=request.mutation_plan.model_dump(mode="json")
-        if request.mutation_plan
-        else None,
+        mutation_plan=effective_mutation_plan_json,
         return_result=True,
         location_finalize_authorization=request.location_finalize_authorization.model_dump(
             mode="json"
@@ -2378,6 +2415,13 @@ async def get_metadata(
                 if _is_internal_only_pkm_domain(domain_key):
                     continue
                 manifest = await pkm_service.get_domain_manifest(user_id, domain_key)
+                projection = (manifest or {}).get("summary_projection")
+                summary_projection = projection if isinstance(projection, dict) else {}
+                visibility = {
+                    key: summary_projection[key]
+                    for key in ("consumer_visible", "internal_only")
+                    if isinstance(summary_projection.get(key), bool)
+                }
                 degraded_domains.append(
                     DomainMetadata(
                         key=domain_key,
@@ -2386,6 +2430,7 @@ async def get_metadata(
                         color="#6366F1",
                         attribute_count=int((manifest or {}).get("path_count") or 0),
                         summary={
+                            **visibility,
                             "storage_mode": "per_domain_blob",
                             "manifest_version": (manifest or {}).get("manifest_version") or 1,
                             "path_count": (manifest or {}).get("path_count") or 0,
@@ -2396,26 +2441,16 @@ async def get_metadata(
                         },
                         available_scopes=[],
                         last_updated=str(row.get("updated_at") or ""),
-                        readable_summary=_summary_text(
-                            (manifest or {}).get("summary_projection"), "readable_summary"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else None,
+                        readable_summary=_summary_text(summary_projection, "readable_summary"),
                         readable_highlights=_summary_string_list(
-                            (manifest or {}).get("summary_projection"), "readable_highlights"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else [],
+                            summary_projection, "readable_highlights"
+                        ),
                         readable_updated_at=_summary_text(
-                            (manifest or {}).get("summary_projection"), "readable_updated_at"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else None,
+                            summary_projection, "readable_updated_at"
+                        ),
                         readable_source_label=_summary_text(
-                            (manifest or {}).get("summary_projection"), "readable_source_label"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else None,
+                            summary_projection, "readable_source_label"
+                        ),
                         domain_contract_version=int(
                             (manifest or {}).get("domain_contract_version") or 1
                         ),

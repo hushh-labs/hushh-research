@@ -4,17 +4,15 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
+from hushh_mcp.consent.scope_labels import human_scope_label
+
 from .activity_cursor import decode_cursor, encode_cursor
 from .cost_review import read_negative_net_review
 from .domain import MICRO_PER_CENT, CommerceError, account, integer
 
 
 def scope_label(machine_scope: str) -> str:
-    return " / ".join(
-        part.replace("_", " ")
-        for part in machine_scope.removeprefix("attr.").split(".")
-        if part != "*"
-    )
+    return human_scope_label(machine_scope)
 
 
 def iso(value: datetime | None) -> str | None:
@@ -137,7 +135,7 @@ class CommerceActivity:
                 "matures_at": iso(p["earnings_settled_at"] or p["expires_at"]),
                 "fulfillment_deadline": iso(p["fulfillment_deadline"]),
                 "next_action": {
-                    "label": "Prepare encrypted information"
+                    "label": "Share approved information"
                     if seller and p["status"] in {"reserved", "preparing"}
                     else "Review sharing",
                     "href": "/one/consent?" + urlencode({"commerceRequestId": p["request_id"]}),
@@ -224,7 +222,7 @@ class CommerceActivity:
             return {
                 "scope_label": scope_label(purchase["machine_scope"]),
                 "counterpart_label": counterpart["label"],
-                "recipient_label": "Requester’s private agent"
+                "recipient_label": "One"
                 if purchase["buyer_app_id"] == "agent_one"
                 else "Registered application " + purchase["buyer_app_id"],
                 "available_balance_cents": available // MICRO_PER_CENT,

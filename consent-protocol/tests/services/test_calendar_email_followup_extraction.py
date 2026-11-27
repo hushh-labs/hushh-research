@@ -10,6 +10,7 @@ import pytest
 
 from hushh_mcp.services.calendar_email_followup_extraction import (
     assess_complete_message,
+    assess_section,
     validate_chunk,
 )
 from hushh_mcp.services.calendar_email_followup_reader import (
@@ -148,3 +149,101 @@ def test_unoffered_quote_and_update_are_rejected():
             prior_request_ids=set(),
             evidence_key=b"synthetic-key",
         )
+
+
+@pytest.mark.asyncio
+async def test_the_model_is_given_the_owners_received_day_to_resolve_dates_like_the_20th():
+    message = _message("Please send the document before the 20th and set up a meeting on the 21st.")
+    seen: dict = {}
+
+    async def fake_gene(**kwargs):
+        seen.update(json.loads(kwargs["prompt"]))
+        return {"candidates": [], "updates": []}
+
+    async def current():
+        return None
+
+    await assess_section(
+        message=message,
+        section=message.sections[0],
+        user_id="synthetic-owner",
+        consent_token=_SYNTHETIC_CONSENT,
+        owner_time_zone="America/Los_Angeles",
+        prior_requests=[],
+        evidence_key=b"synthetic-evidence",
+        require_current=current,
+        gene_runner=fake_gene,
+    )
+    # 10 Oct 00:00 UTC is still the evening of 9 Oct for this owner.
+    assert seen["message_received_on"] == "2026-10-09 Friday"
+
+
+@pytest.mark.asyncio
+async def test_section_call_limit_exceeds_the_genes_declared_p95():
+    """A 30 s limit equalled the declared p95 and cancelled about half of the UAT calls.
+
+    Each cancelled call was replayed, so a pass spent 61 s assessing nothing.
+    """
+    message = _message("Please send the agenda before 12 October.")
+    seen: dict[str, float] = {}
+
+    async def fake_gene(**kwargs):
+        seen["timeout"] = kwargs["timeout_seconds"]
+        return {"candidates": [], "updates": []}
+
+    async def current():
+        return None
+
+    await assess_section(
+        message=message,
+        section=message.sections[0],
+        user_id="synthetic-owner",
+        consent_token=_SYNTHETIC_CONSENT,
+        owner_time_zone="America/Los_Angeles",
+        prior_requests=[],
+        evidence_key=b"synthetic-evidence",
+        require_current=current,
+        gene_runner=fake_gene,
+    )
+    assert seen["timeout"] > 30
+
+
+def test_nested_ambiguity_limit_is_enforced_after_provider_decoding():
+    from pydantic import ValidationError
+
+    from hushh_mcp.services.calendar_email_followup_extraction import (
+        FollowupCandidateV1,
+        FollowupChunkAssessmentV1,
+    )
+
+    schema = FollowupChunkAssessmentV1.model_json_schema()
+    assert "maxItems" not in schema["$defs"]["FollowupCandidateV1"]["properties"]["ambiguities"]
+    assert "maxItems" not in schema["properties"]["candidates"]
+    assert "maxItems" not in schema["properties"]["updates"]
+    candidate = dict(
+        local_index=0,
+        section_index=0,
+        kind="action",
+        quote_start=0,
+        source_quote="Send the document",
+        title="Send document",
+        responsibility="owner",
+    )
+    assert len(FollowupCandidateV1(**candidate, ambiguities=["date"] * 5).ambiguities) == 5
+    with pytest.raises(ValidationError):
+        FollowupCandidateV1(**candidate, ambiguities=["date"] * 6)
+
+    assert len(FollowupChunkAssessmentV1(candidates=[candidate] * 20).candidates) == 20
+    with pytest.raises(ValidationError):
+        FollowupChunkAssessmentV1(candidates=[candidate] * 21)
+    update = dict(
+        section_index=0,
+        quote_start=0,
+        source_quote="It is complete",
+        target_request_id="0" * 36,
+        outcome="completed",
+        explanation="Complete",
+    )
+    assert len(FollowupChunkAssessmentV1(updates=[update] * 20).updates) == 20
+    with pytest.raises(ValidationError):
+        FollowupChunkAssessmentV1(updates=[update] * 21)

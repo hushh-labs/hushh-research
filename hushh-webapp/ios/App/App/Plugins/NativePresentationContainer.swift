@@ -17,31 +17,74 @@ struct NativeContentPaneIdentity: Equatable {
     }
 }
 
+/// Cancellation is scoped to a presentation lifetime, not a privacy refresh.
+/// A canceled request must not become active if its acquire arrives late.
+struct NativeContentPaneCancellationFence {
+    private struct Lifetime: Hashable {
+        let document: String; let owner: String; let generation: Int
+        init(_ identity: NativeContentPaneIdentity) {
+            document = identity.document; owner = identity.ownerEpoch; generation = identity.generation
+        }
+    }
+    private var canceled = Set<Lifetime>()
+    mutating func cancel(_ identity: NativeContentPaneIdentity) -> Bool {
+        guard identity.valid else { return false }
+        canceled.insert(Lifetime(identity)); return true
+    }
+    func isCanceled(_ identity: NativeContentPaneIdentity) -> Bool { canceled.contains(Lifetime(identity)) }
+    /// The plugin must first make the document permanently inadmissible.
+    mutating func forgetRetiredDocument(_ document: String) { canceled = Set(canceled.filter { $0.document != document }) }
+}
+
 struct NativeContentPaneFence {
+    private struct Lifetime: Hashable {
+        let document: String; let owner: String; let generation: Int
+        init(_ identity: NativeContentPaneIdentity) { document = identity.document; owner = identity.ownerEpoch; generation = identity.generation }
+    }
     private(set) var identity: NativeContentPaneIdentity?
-    private(set) var retiring = false
-    private var retiredGeneration = 0
+    private var retirement: NativeContentPaneIdentity?
+    var retiring: Bool { retirement != nil }
+    private var retired = Set<Lifetime>()
+    private var document: String?
+    init(document: String? = nil) { self.document = document }
     mutating func acquire(_ next: NativeContentPaneIdentity) -> Bool {
-        guard next.valid, next.generation > retiredGeneration else { return false }
+        guard next.valid, !retiring, document == nil || document == next.document, !retired.contains(Lifetime(next)) else { return false }
         if let identity {
             guard !retiring, identity.document == next.document, identity.ownerEpoch == next.ownerEpoch,
                   identity.generation == next.generation, next.privacyGeneration >= identity.privacyGeneration else { return false }
         }
+        document = next.document
         identity = next
         return true
     }
+    /// Rolls back only a pane that was acquired but never acknowledged to JS.
+    /// Unlike release(), this does not tombstone the lifetime, so a transient
+    /// preparation refusal can safely retry with the same identity.
+    mutating func rollbackAcquisition(_ requested: NativeContentPaneIdentity) -> Bool {
+        guard requested.valid, document == requested.document, identity == requested,
+              retirement == nil, !retired.contains(Lifetime(requested)) else { return false }
+        identity = nil
+        return true
+    }
     mutating func beginRetirement(_ requested: NativeContentPaneIdentity) -> Bool {
-        guard requested.valid, identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
-        retiredGeneration = max(retiredGeneration, requested.generation)
-        retiring = true
+        guard requested.valid, document == nil || document == requested.document,
+              identity == nil || identity?.sameLifetime(as: requested) == true,
+              retirement == nil || retirement?.sameLifetime(as: requested) == true,
+              !retired.contains(Lifetime(requested)) || retirement?.sameLifetime(as: requested) == true || identity == nil && retirement == nil else { return false }
+        document = requested.document
+        retired.insert(Lifetime(requested))
+        retirement = requested
         return true
     }
     mutating func release(_ requested: NativeContentPaneIdentity) -> Bool {
         // Tombstone a not-yet-delivered acquisition as well as an installed one.
-        guard requested.valid, identity == nil || identity?.sameLifetime(as: requested) == true else { return false }
-        retiredGeneration = max(retiredGeneration, requested.generation)
+        guard requested.valid, document == nil || document == requested.document,
+              identity == nil || identity?.sameLifetime(as: requested) == true,
+              retirement == nil || retirement?.sameLifetime(as: requested) == true else { return false }
+        document = requested.document
+        retired.insert(Lifetime(requested))
         identity = nil
-        retiring = false
+        retirement = nil
         return true
     }
 }
@@ -138,6 +181,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     var legacyRegionPresentation: Bool { basePresentation == .contentBacked }
     var wholeNativeDrawers: Bool { basePresentation == .coherentDrawers }
     private var ownedDrawerIsolation = false
+    var ownedPresentationIsolated: Bool { ownedDrawerIsolation }
     var interactionIsolated: Bool { overlayIsolated || ownedDrawerIsolation }
     private(set) var isolationGeneration = 0
     let drawerClipping: Bool
@@ -147,6 +191,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     private let contentChrome = UIView()
     private var contentPaneFence = NativeContentPaneFence()
     var contentPane: NativeContentPaneIdentity? { contentPaneFence.identity }
+    var contentPaneRetiring: Bool { contentPaneFence.retiring }
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
     private var controls: [String: (view: UIView, group: String?, pane: NativeContentPaneIdentity?, admitted: Bool)] = [:]
@@ -338,10 +383,16 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     }
 
     func install(_ view: UIView, id: String, group: String?, pane: NativeContentPaneIdentity? = nil) {
-        if pane != nil { contentChrome.addSubview(view) }
+        // Keep the shell Back control above the full-frame WebView for UIKit
+        // accessibility hit testing. Admission still fences covered controls.
+        if pane != nil || (id == "top-shell-back" && group == nil) { contentChrome.addSubview(view) }
         else if let group {
             let host = groupHost(group)
             host.addSubview(view)
+        } else if id == "route-workspace" {
+            // The base scroll canvas paints beneath the floating shell;
+            // installation order must never let it intercept dock/nav taps.
+            underlay.insertSubview(view, at: 0)
         } else { underlay.addSubview(view) }
         controls[id] = (view, group, pane, false)
         if Self.bottomChromeIds.contains(id), pane == nil {
@@ -401,6 +452,23 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
         return true
     }
+    func rollbackContentPaneAcquisition(_ identity: NativeContentPaneIdentity) -> Bool {
+        guard contentPaneFence.identity == identity, !contentPaneFence.retiring else { return false }
+        // A pane whose preparation was refused never transferred presentation
+        // authority. Remove any child controls staged for that exact lifetime
+        // before reopening admission for a retry.
+        let stagedControls = controls.compactMap { id, control in
+            control.pane?.sameLifetime(as: identity) == true ? id : nil
+        }
+        for id in stagedControls {
+            setAdmission(id, admitted: false)
+            remove(id)
+        }
+        guard contentPaneFence.rollbackAcquisition(identity) else { return false }
+        underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
+        NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
+        return true
+    }
     func beginContentPaneRetirement(_ identity: NativeContentPaneIdentity) -> Bool {
         guard contentPaneFence.beginRetirement(identity) else { return false }
         for id in Array(controls.keys) { setAdmission(id, admitted: false) }
@@ -410,8 +478,8 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         !contentPaneFence.retiring && contentPane == identity
     }
 
-    func resetContentPane() {
-        contentPaneFence = NativeContentPaneFence()
+    func resetContentPane(document: String) {
+        contentPaneFence = NativeContentPaneFence(document: document)
         underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
     }
 
@@ -719,25 +787,64 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     }
 }
 
+/// Tracks the complete touch lifetime that quarantines bottom-chrome scroll
+/// updates. A returned value is an actual held-state transition to publish.
+struct NativeBottomChromePressState {
+    private var touches = Set<ObjectIdentifier>()
+    private(set) var isHeld = false
+
+    var hasTouches: Bool { !touches.isEmpty }
+
+    mutating func began(_ touches: Set<ObjectIdentifier>) -> Bool? {
+        guard !touches.isEmpty else { return nil }
+        self.touches.formUnion(touches)
+        return setHeld(true)
+    }
+
+    mutating func ended(_ touches: Set<ObjectIdentifier>) -> Bool? {
+        self.touches.subtract(touches)
+        return self.touches.isEmpty ? setHeld(false) : nil
+    }
+
+    mutating func cancelled(_ touches: Set<ObjectIdentifier>) -> Bool? {
+        self.touches.subtract(touches)
+        return self.touches.isEmpty ? setHeld(false) : nil
+    }
+
+    mutating func reset() -> Bool? {
+        touches.removeAll()
+        return setHeld(false)
+    }
+
+    private mutating func setHeld(_ value: Bool) -> Bool? {
+        guard isHeld != value else { return nil }
+        isHeld = value
+        return value
+    }
+}
+
 /// Observes a native press without consuming it or moving its target. The
 /// complete touch lifetime quarantines scroll updates, not normal actions.
-private final class NativeBottomChromePressObserver: UIGestureRecognizer {
+final class NativeBottomChromePressObserver: UIGestureRecognizer {
     private let changed: (Bool) -> Void
-    private var held = false
-    private var touches = Set<UITouch>()
+    private var press = NativeBottomChromePressState()
     init(_ changed: @escaping (Bool) -> Void) { self.changed = changed; super.init(target: nil, action: nil) }
-    private func hold(_ value: Bool) { if held != value { held = value; changed(value) } }
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) { self.touches.formUnion(touches); state = .began; hold(true) }
+    private func publish(_ transition: Bool?) { if let transition { changed(transition) } }
+    private func identities(_ touches: Set<UITouch>) -> Set<ObjectIdentifier> { Set(touches.map(ObjectIdentifier.init)) }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        publish(press.began(identities(touches)))
+        state = .began
+    }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) { state = .changed }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        self.touches.subtract(touches)
-        if self.touches.isEmpty { state = .ended; hold(false) }
+        publish(press.ended(identities(touches)))
+        if !press.hasTouches { state = .ended }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        self.touches.subtract(touches)
-        if self.touches.isEmpty { state = .cancelled; hold(false) }
+        publish(press.cancelled(identities(touches)))
+        if !press.hasTouches { state = .cancelled }
     }
-    override func reset() { touches.removeAll(); hold(false); super.reset() }
+    override func reset() { publish(press.reset()); super.reset() }
 }
 
 #if DEBUG

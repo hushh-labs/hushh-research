@@ -92,25 +92,78 @@ class CommerceReadiness:
                 to_regclass('scope_commerce_obligations') IS NOT NULL AS obligations"""
             )
             schema = all(tables.values())
-            pin = (
-                await c.fetchrow("SELECT * FROM scope_commerce_environment WHERE singleton")
-                if tables["environment"]
-                else None
-            )
-            seller = (
-                await c.fetchrow(
-                    "SELECT eligible,country,livemode FROM scope_commerce_seller_accounts WHERE user_id=$1",
+            unresolved_retention: bool | None = None
+            if schema:
+                state = await c.fetchrow(
+                    """SELECT
+                        (SELECT platform_account_id FROM scope_commerce_environment WHERE singleton) AS pin_account_id,
+                        (SELECT livemode FROM scope_commerce_environment WHERE singleton) AS pin_livemode,
+                        EXISTS(SELECT 1 FROM scope_commerce_environment WHERE singleton) AS has_pin,
+                        (SELECT eligible FROM scope_commerce_seller_accounts WHERE user_id=$1) AS seller_eligible,
+                        (SELECT country FROM scope_commerce_seller_accounts WHERE user_id=$1) AS seller_country,
+                        (SELECT livemode FROM scope_commerce_seller_accounts WHERE user_id=$1) AS seller_livemode,
+                        EXISTS(SELECT 1 FROM scope_commerce_seller_accounts WHERE user_id=$1) AS has_seller,
+                        EXISTS(SELECT 1 FROM scope_commerce_obligations WHERE kind='recovery'
+                            AND idempotency_key LIKE 'retention:%' AND status<>'succeeded') AS has_unresolved_retention""",
                     viewer_user_id,
                 )
-                if tables["sellers"]
-                else None
-            )
+                pin = (
+                    {
+                        "platform_account_id": state["pin_account_id"],
+                        "livemode": state["pin_livemode"],
+                    }
+                    if state and state["has_pin"]
+                    else None
+                )
+                seller = (
+                    {
+                        "eligible": state["seller_eligible"],
+                        "country": state["seller_country"],
+                        "livemode": state["seller_livemode"],
+                    }
+                    if state and state["has_seller"]
+                    else None
+                )
+                unresolved_retention = bool(state["has_unresolved_retention"]) if state else False
+            else:
+                pin = (
+                    await c.fetchrow("SELECT * FROM scope_commerce_environment WHERE singleton")
+                    if tables["environment"]
+                    else None
+                )
+                seller = (
+                    await c.fetchrow(
+                        "SELECT eligible,country,livemode FROM scope_commerce_seller_accounts WHERE user_id=$1",
+                        viewer_user_id,
+                    )
+                    if tables["sellers"]
+                    else None
+                )
             platform = dict(configured)
             if platform["status"] == "ready":
-                platform = await self._persisted_platform(c, config, pin, schema)
+                platform = await self._persisted_platform(
+                    c,
+                    config,
+                    pin,
+                    schema,
+                    unresolved_retention=unresolved_retention,
+                )
             seller_state = _seller_status(seller, config, pin)
             ready = platform["status"] == "ready" and config.allows_actor(viewer_user_id)
             eligible = ready and seller_state["status"] == "eligible"
+            new_liability_ready = ready
+            if ready and config.livemode:
+                # Configuration and ledger identity remain qualified for historical
+                # settlement. New liabilities need an executable residual port.
+                from .stripe_adapter import CommerceProviderError
+
+                try:
+                    config.require_new_liability_resolution()
+                except CommerceProviderError as error:
+                    if error.code != "provider_residual_resolution_unqualified":
+                        raise
+                    platform["reason_code"] = error.code
+                    new_liability_ready = False
             return {
                 "schema_version": 1,
                 "enabled": self._commerce_enabled(),
@@ -123,17 +176,25 @@ class CommerceReadiness:
                 "seller": seller_state,
                 "capabilities": {
                     "set_free_tariff": bool(tables["tariffs"]),
-                    "set_paid_tariff": eligible,
+                    "set_paid_tariff": eligible and new_liability_ready,
                     "approve_paid_request": eligible,
-                    "reserve_paid_purchase": ready,
-                    "start_funding": ready,
+                    "reserve_paid_purchase": new_liability_ready,
+                    "start_funding": new_liability_ready,
                     "start_onboarding": ready,
                 },
             }
 
         return await self._transaction(operation, conn)
 
-    async def _persisted_platform(self, c, config, pin, schema) -> PlatformReadiness:
+    async def _persisted_platform(
+        self,
+        c,
+        config,
+        pin,
+        schema,
+        *,
+        unresolved_retention: bool | None = None,
+    ) -> PlatformReadiness:
         if not schema:
             return _platform("unconfigured", "commerce_schema_required")
         if not pin:
@@ -143,9 +204,14 @@ class CommerceReadiness:
             or pin["livemode"] != config.livemode
         ):
             return _platform("unverified", "platform_account_mismatch")
-        if await c.fetchval(
-            """SELECT EXISTS(SELECT 1 FROM scope_commerce_obligations WHERE kind='recovery'
-            AND idempotency_key LIKE 'retention:%' AND status<>'succeeded')"""
-        ):
+        has_unresolved = (
+            unresolved_retention
+            if unresolved_retention is not None
+            else await c.fetchval(
+                """SELECT EXISTS(SELECT 1 FROM scope_commerce_obligations WHERE kind='recovery'
+                AND idempotency_key LIKE 'retention:%' AND status<>'succeeded')"""
+            )
+        )
+        if has_unresolved:
             return _platform("unverified", "commerce_retention_resolution_required")
         return _platform("ready", None)

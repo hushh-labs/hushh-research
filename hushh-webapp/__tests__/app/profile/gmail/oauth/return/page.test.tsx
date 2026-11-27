@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -77,6 +77,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 import ProfileGmailOAuthReturnPage from "@/app/one/profile/gmail/oauth/return/page";
+import { rememberGmailConnectReturn } from "@/lib/profile/gmail-connect-return";
 
 describe("ProfileGmailOAuthReturnPage", () => {
   afterEach(() => {
@@ -725,5 +726,117 @@ describe("ProfileGmailOAuthReturnPage", () => {
     expect(
       window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
     ).toBeNull();
+  });
+
+  describe("where a full-page sign-in returns to", () => {
+    const KYC_MARK = "hushh.gmail.connect_return.v1";
+    const withCallback = () =>
+      mocks.searchParamsGet.mockImplementation((key: string) => {
+        if (key === "code") return "code-123";
+        if (key === "state") return "state-123";
+        return null;
+      });
+    const setupIntent = () =>
+      window.sessionStorage.setItem(
+        "one_onboarding_connector_intent_v1",
+        JSON.stringify({
+          version: 1,
+          capability: "gmail",
+          returnTo: "/one/setup",
+          correlationId: "connector-test",
+          startedAt: Date.now(),
+        }),
+      );
+
+    it("brings a connection started from KYC back to KYC, and uses the mark once", async () => {
+      rememberGmailConnectReturn("user-123", "/one/kyc");
+      withCallback();
+
+      render(<ProfileGmailOAuthReturnPage />);
+
+      await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith("/one/kyc"));
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/one/gmail");
+      expect(window.sessionStorage.getItem(KYC_MARK)).toBeNull();
+    });
+
+    it("brings a connection started from KYC back to KYC when the callback is confirmed by a status read", async () => {
+      rememberGmailConnectReturn("user-123", "/one/kyc");
+      mocks.gmailReceiptsService.completeConnect.mockRejectedValue(new Error("OAuth state expired"));
+      withCallback();
+
+      render(<ProfileGmailOAuthReturnPage />);
+
+      await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith("/one/kyc"));
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/one/gmail");
+    });
+
+    it("keeps a connection started from Mail on Mail", async () => {
+      withCallback();
+
+      render(<ProfileGmailOAuthReturnPage />);
+
+      await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail"));
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/one/kyc");
+    });
+
+    it("keeps setup's return and acknowledgement for a connection started from onboarding, even beside a KYC mark", async () => {
+      setupIntent();
+      rememberGmailConnectReturn("user-123", "/one/kyc");
+      withCallback();
+      mocks.bootstrapState.mockResolvedValue({
+        setupCompleted: false,
+        onboardingPhase: "external_connector",
+        onboardingActiveCapability: "gmail",
+        onboardingCallbackState: "pending",
+        onboardingCallbackAttemptId: "connector-test",
+        onboardingJourneyUpdatedAt: 123,
+      });
+
+      render(<ProfileGmailOAuthReturnPage />);
+
+      await waitFor(() => {
+        expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith(
+          expect.objectContaining({ phase: "capability_setup", callbackState: "succeeded" }),
+        );
+        expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+      });
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/one/kyc");
+    });
+
+    it("ignores a KYC mark that belongs to another owner, has expired, or names another place", async () => {
+      for (const mark of [
+        { ownerId: "someone-else", returnTo: "/one/kyc", startedAt: Date.now() },
+        { ownerId: "user-123", returnTo: "/one/kyc", startedAt: Date.now() - 16 * 60 * 1000 },
+        { ownerId: "user-123", returnTo: "https://evil.example/one/kyc", startedAt: Date.now() },
+      ]) {
+        mocks.routerReplace.mockClear();
+        window.sessionStorage.setItem(KYC_MARK, JSON.stringify({ version: 1, ...mark }));
+        withCallback();
+
+        const view = render(<ProfileGmailOAuthReturnPage />);
+
+        await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail"));
+        expect(mocks.routerReplace).not.toHaveBeenCalledWith("/one/kyc");
+        expect(window.sessionStorage.getItem(KYC_MARK)).toBeNull();
+        view.unmount();
+      }
+    });
+
+    it("offers Back to KYC after a refused sign-in that started from KYC, and Back to Mail otherwise", async () => {
+      rememberGmailConnectReturn("user-123", "/one/kyc");
+      mocks.searchParamsGet.mockImplementation((key: string) => (key === "error" ? "access_denied" : null));
+
+      const kyc = render(<ProfileGmailOAuthReturnPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "Back to KYC" }));
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/kyc");
+      expect(window.sessionStorage.getItem(KYC_MARK)).toBeNull();
+      kyc.unmount();
+
+      mocks.routerReplace.mockClear();
+      render(<ProfileGmailOAuthReturnPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "Back to Mail" }));
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+      expect(screen.queryByRole("button", { name: "Back to KYC" })).toBeNull();
+    });
   });
 });

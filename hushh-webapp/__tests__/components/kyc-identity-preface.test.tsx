@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import { ApiService } from "@/lib/services/api-service";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   saveProfile: vi.fn(),
@@ -42,12 +44,18 @@ function enterIdentityForm(): void {
 }
 
 describe("KycIdentityPreface", () => {
+  afterEach(() => { publishValidatedAuthSessionOwner(null); vi.restoreAllMocks(); });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.vault.isVaultUnlocked = false;
     mocks.vault.vaultKey = null;
     mocks.vault.vaultOwnerToken = null;
     mocks.saveProfile.mockResolvedValue({ success: true });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_1", ownerId: "user_1", accountGeneration: 1 });
+    vi.spyOn(ApiService, "getFirebaseIdTokenForOwner").mockResolvedValue("synthetic-firebase-token");
+    vi.spyOn(ApiService, "apiFetch").mockImplementation(async (_url, options) => new Response(JSON.stringify(
+      options?.method === "POST" ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012" },
+    )));
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: mocks.writeText },
@@ -107,5 +115,28 @@ describe("KycIdentityPreface", () => {
     await waitFor(() => {
       expect(mocks.toastSuccess).toHaveBeenCalledWith("Saved 2 separate memory details.");
     });
+  });
+
+  it("pairs a manual setup import only when its original write is acknowledged", async () => {
+    mocks.vault.isVaultUnlocked = true;
+    mocks.vault.vaultKey = "vault-key";
+    mocks.vault.vaultOwnerToken = "owner-token";
+    const onComplete = vi.fn();
+    render(<KycIdentityPreface onComplete={onComplete} />);
+    enterIdentityForm();
+    fireEvent.change(screen.getByLabelText("Paste your profile export"), { target: { value: "PRIVATE_IDENTITY_TEXT" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import & Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import & Continue" }));
+    const reports = () => vi.mocked(ApiService.apiFetch).mock.calls
+      .filter(([, options]) => options?.method === "POST")
+      .map(([, options]) => JSON.parse(String(options?.body)));
+    await waitFor(() => expect(reports()).toHaveLength(1));
+    expect(reports()[0].phase).toBe("started");
+    expect(mocks.saveProfile).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    mocks.saveProfile.mock.calls[0]![0].onOutcome("returned");
+    await waitFor(() => expect(reports()).toHaveLength(2));
+    expect(reports()[1]).toEqual({ ...reports()[0], actionId: "kyc.save_profile", phase: "returned" });
+    expect(JSON.stringify(reports())).not.toMatch(/PRIVATE_IDENTITY_TEXT|vault-key|owner-token|user_1/);
   });
 });

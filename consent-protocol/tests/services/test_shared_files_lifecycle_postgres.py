@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sys
 import threading
 import uuid
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
 
 import asyncpg
 import pytest
@@ -21,6 +24,148 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 )
 
 local_postgres = _postgres_fixture
+
+OPS = Path(__file__).resolve().parents[3] / "scripts/ops"
+sys.path.insert(0, str(OPS))
+from reconcile_uat_shared_files import (  # noqa: E402
+    PROTOCOL,
+    Provider,  # noqa: E402
+    RecoveryRefused,
+    absence_receipt,
+    inventory_digest,
+    library_prefix,
+    owner_prefix,
+    select_target,
+    validate_bucket,
+    validate_claim,
+    validate_initial,
+    validate_markers,
+    writable_policy,
+)
+
+
+@pytest.mark.feature_account_deletion
+async def test_operator_maintenance_fences_enrollment_and_old_write_paths(
+    shared_storage, local_postgres, monkeypatch
+):
+    import sys
+    from types import SimpleNamespace
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/ops"))
+    from reconcile_uat_shared_files import PROTOCOL, Database
+
+    alice = await registry.resource(
+        "alice",
+        bucket="synthetic-files",
+        admission=bucket_admission.admission(BUCKET, "synthetic-files"),
+    )
+    bob = await registry.resource(
+        "bob",
+        bucket="synthetic-files",
+        admission=bucket_admission.admission(BUCKET, "synthetic-files"),
+    )
+    await shared_storage.execute("INSERT INTO vault_keys VALUES('carol')")
+    # Negative control: the exact same new-owner INSERT works before admission closes.
+    await shared_storage.execute(
+        "INSERT INTO shared_files_storage(user_id,bucket,prefix) VALUES('carol','synthetic-files','synthetic/carol')"
+    )
+    await shared_storage.execute("DELETE FROM shared_files_storage WHERE user_id='carol'")
+    name = await shared_storage.fetchval("SELECT current_database()")
+    engine = create_engine(local_postgres.set(database=name))
+    connection = engine.raw_connection()
+    marker = {
+        "protocol": PROTOCOL,
+        "state": "maintenance",
+        "operation": str(uuid.uuid4()),
+        "cohortSize": 2,
+        "bucket": "synthetic-files",
+        "originalPolicy": {"retentionDurationSeconds": "0"},
+    }
+    key = "operator-maintenance-v1:" + marker["operation"]
+    db = Database(connection, "synthetic-files")
+    try:
+        db.table_lock()
+        db.install(marker, key)
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+            await shared_storage.execute(
+                "INSERT INTO shared_files_storage(user_id,bucket,prefix) VALUES('carol','synthetic-files','synthetic/carol')"
+            )
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+            await shared_storage.execute(
+                "UPDATE shared_files_storage SET bucket='elsewhere' WHERE user_id='bob'"
+            )
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError):
+            await shared_storage.execute("DELETE FROM shared_files_storage WHERE user_id='bob'")
+        await shared_storage.execute(
+            "UPDATE shared_files_storage SET lease_until=now()-interval '1 minute'"
+        )
+        with pytest.raises(FilesRefused):
+            await registry.acquire("bob", str(bob["library_id"]), str(uuid.uuid4()))
+        await registry.release("bob", str(bob["library_id"]), marker["operation"])
+        with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+            await registry.fence("alice")
+        from hushh_mcp.services.shared_files import reconciliation
+
+        monkeypatch.setattr(reconciliation, "GcsObjectStore", lambda *_: SimpleNamespace())
+        monkeypatch.setattr(bucket_admission, "observe", lambda *_: asyncio.sleep(0, result=BUCKET))
+        await reconciliation.reconcile(await registry.resource("bob"))
+        current = await registry.resource("bob")
+        assert json.loads(current["writes"]) == {key: marker}
+        assert str(current["lease_id"]) == marker["operation"]
+        assert str(alice["library_id"]) != str(bob["library_id"])
+    finally:
+        connection.rollback()
+        connection.close()
+        engine.dispose()
+
+
+@pytest.mark.feature_account_deletion
+async def test_operator_verifier_rejects_inert_same_name_guard(shared_storage, local_postgres):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts/ops"))
+    from reconcile_uat_shared_files import (
+        FUNCTION,
+        PROTECTED_COLUMNS,
+        TRIGGER,
+        Database,
+        RecoveryRefused,
+    )
+
+    await registry.resource(
+        "alice",
+        bucket="synthetic-files",
+        admission=bucket_admission.admission(BUCKET, "synthetic-files"),
+    )
+    name = await shared_storage.fetchval("SELECT current_database()")
+    engine = create_engine(local_postgres.set(database=name))
+    connection = engine.raw_connection()
+    marker = {"operation": str(uuid.uuid4()), "cohortSize": 1}
+    db = Database(connection, "synthetic-files")
+    try:
+        db.table_lock()
+        db.install(marker, "operator-maintenance-v1:" + marker["operation"])
+        db.execute("DROP TRIGGER " + TRIGGER + " ON public.shared_files_storage")
+        literals = db.execute(
+            "SELECT quote_literal(%s),quote_literal(%s)", ("synthetic-files", marker["operation"])
+        ).fetchone()
+        db.execute(
+            "CREATE TRIGGER "
+            + TRIGGER
+            + " BEFORE INSERT OR DELETE OR UPDATE OF "
+            + ",".join(PROTECTED_COLUMNS)
+            + " ON public.shared_files_storage FOR EACH ROW WHEN(false) EXECUTE FUNCTION public."
+            + FUNCTION
+            + "("
+            + ",".join(literals)
+            + ")"
+        )
+        with pytest.raises(RecoveryRefused, match="maintenance_guard_changed"):
+            db.verify_guard(marker)
+    finally:
+        connection.rollback()
+        connection.close()
+        engine.dispose()
 
 
 @pytest.mark.feature_account_deletion
@@ -540,3 +685,207 @@ async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
         clear.assert_not_called()
     finally:
         engine.dispose()
+
+
+def cohort():
+    metadata = {
+        "name": "synthetic-files",
+        "generation": "1",
+        "timeCreated": "2026-11-19T00:00:00Z",
+        "projectNumber": "123",
+        "metageneration": "2",
+        "softDeletePolicy": {"retentionDurationSeconds": "0"},
+        "iamConfiguration": {
+            "publicAccessPrevention": "enforced",
+            "uniformBucketLevelAccess": {"enabled": True},
+        },
+    }
+    admission = {
+        "identity": {
+            key: metadata[key] for key in ("name", "generation", "timeCreated", "projectNumber")
+        },
+        "noSoftDeleteHistory": False,
+    }
+    rows = [
+        {
+            "user_id": owner,
+            "library_id": str(uuid4()),
+            "bucket": metadata["name"],
+            "prefix": owner_prefix(owner),
+            "bucket_admission": deepcopy(admission),
+            "state": "erasing" if owner == "alice" else "active",
+            "writes": {},
+            "lease_id": None,
+            "lease_until": None,
+        }
+        for owner in ("alice", "bob")
+    ]
+    return rows, metadata
+
+
+def test_existing_cohort_requires_exact_owner_and_no_undispatched_writer():
+    rows, metadata = cohort()
+    target = select_target(rows, hashlib.sha256(b"alice").hexdigest())
+    validate_initial(rows)
+    validate_bucket(target, metadata)
+    with pytest.raises(RecoveryRefused, match="object_outside_active_library"):
+        inventory_digest([{"name": library_prefix(target) + "opaque", "generation": "1"}], rows)
+    with pytest.raises(RecoveryRefused, match="object_outside_active_library"):
+        inventory_digest([{"name": "unregistered/opaque", "generation": "1"}], rows)
+    rows[1]["writes"] = {"pending": {"state": "sending"}}
+    with pytest.raises(RecoveryRefused, match="writer_not_quiescent"):
+        validate_initial(rows)
+
+
+def test_canonical_qualification_cannot_be_replaced_by_selected_revoked_fields():
+    rows, _ = cohort()
+    cleanup = str(uuid4())
+    receipt = {
+        "version": 2,
+        "cleanupId": cleanup,
+        "ownerHash": "sha256:" + hashlib.sha256(b"alice").hexdigest(),
+        "localErasureAccepted": True,
+        "items": {"synthetic": {"revocation": "revoked"}},
+    }
+    claim = {
+        "account_owner_id": "alice",
+        "erasure_phase": "provider_cleanup",
+        "cleanup_intent_kind": "full_account",
+        "provider_cleanup_id": cleanup,
+        "provider_cleanup_receipt": receipt,
+        "provider_qualified": True,
+    }
+    validate_claim(rows[0], [claim])
+    claim["provider_qualified"] = False
+    with pytest.raises(RecoveryRefused, match="canonical_deletion_qualification_failed"):
+        validate_claim(rows[0], [claim])
+    claim["provider_qualified"] = True
+    receipt["ownerHash"] = "sha256:" + hashlib.sha256(b"bob").hexdigest()
+    with pytest.raises(RecoveryRefused, match="deletion_owner_mismatch"):
+        validate_claim(rows[0], [claim])
+
+
+@pytest.mark.parametrize("status", [400, 403, 500])
+def test_retained_listing_failure_is_not_empty(status):
+    response = SimpleNamespace(status_code=status, json=lambda: {})
+    provider = Provider(
+        SimpleNamespace(get=lambda *_, **__: response), "synthetic-files", str(uuid4())
+    )
+    with pytest.raises(RecoveryRefused, match="retained_listing_unconfirmed"):
+        provider.objects(retained=True)
+
+
+def test_paginated_empty_page_cannot_establish_absence():
+    response = SimpleNamespace(status_code=200, json=lambda: {"items": [], "nextPageToken": "more"})
+    provider = Provider(
+        SimpleNamespace(get=lambda *_, **__: response), "synthetic-files", str(uuid4())
+    )
+    with pytest.raises(RecoveryRefused, match="empty_paginated_listing"):
+        provider.objects(retained=True)
+
+
+def test_exact_maintenance_marker_survives_an_owner_reset_and_rejects_adoption():
+    rows, _ = cohort()
+    operation = str(uuid4())
+    marker = {
+        "protocol": PROTOCOL,
+        "state": "maintenance",
+        "operation": operation,
+        "bucket": "synthetic-files",
+        "cohortSize": 2,
+        "originalPolicy": {"retentionDurationSeconds": "0"},
+    }
+    key = "operator-maintenance-v1:" + operation
+    for row in rows:
+        row.update(writes={key: marker}, lease_id=operation)
+    rows[1]["state"] = "erasing"  # Preserve the owner's concurrent request.
+    validate_markers(rows, key, marker)
+    rows[1]["writes"] = {key: {**marker, "operation": str(uuid4())}}
+    with pytest.raises(RecoveryRefused, match="maintenance_ownership_changed"):
+        validate_markers(rows, key, marker)
+
+
+def test_restoration_allows_provider_managed_time_without_forging_no_history():
+    rows, metadata = cohort()
+    metadata["softDeletePolicy"]["effectiveTime"] = "2026-11-19T01:00:00Z"
+    assert writable_policy(metadata) == {"retentionDurationSeconds": "0"}
+    receipt = absence_receipt(rows[0], metadata)
+    assert receipt["complete"] is True
+    assert rows[0]["bucket_admission"]["noSoftDeleteHistory"] is False
+    metadata["generation"] = "2"
+    with pytest.raises(RecoveryRefused, match="bucket_incarnation_changed"):
+        absence_receipt(rows[0], metadata)
+
+
+def test_unknown_writable_policy_is_not_silently_overwritten():
+    with pytest.raises(RecoveryRefused, match="policy_schema_unknown"):
+        writable_policy(
+            {"softDeletePolicy": {"retentionDurationSeconds": "0", "unknownFutureControl": True}}
+        )
+
+
+@pytest.mark.parametrize(
+    "case", ["exact", "gfe_suffix", "actor", "log", "type", "operation", "before_dispatch"]
+)
+def test_uncertain_policy_requires_durable_intent_and_exact_operator_audit(case):
+    from reconcile_uat_shared_files import AUDIT_LOG, AUDIT_TYPE, POLICY_SECONDS
+
+    rows, metadata = cohort()
+    operation = str(uuid4())
+    actor = "synthetic-operator@example.test"
+    reason = "hushh-uat-files-recovery/" + operation
+    marker = {
+        "operator": actor,
+        "bucket": "synthetic-files",
+        "identity": rows[0]["bucket_admission"]["identity"],
+        "policyIntent": {
+            "reason": reason,
+            "principal": actor,
+            "seconds": POLICY_SECONDS,
+            "metageneration": "2",
+            "dispatchedAt": "2026-11-19T00:00:00Z",
+        },
+    }
+    current = {
+        **metadata,
+        "metageneration": "3",
+        "softDeletePolicy": {"retentionDurationSeconds": POLICY_SECONDS},
+    }
+    entry = {
+        "logName": AUDIT_LOG if case != "log" else "projects/hushh-pda-uat/logs/custom",
+        "timestamp": "2026-11-19T00:00:01Z"
+        if case != "before_dispatch"
+        else "2026-11-18T23:59:59Z",
+        "resource": {"type": "gcs_bucket", "labels": {"bucket_name": "synthetic-files"}},
+        "protoPayload": {
+            "@type": AUDIT_TYPE if case != "type" else "untrusted-type",
+            "serviceName": "storage.googleapis.com",
+            "authenticationInfo": {
+                "principalEmail": actor if case != "actor" else "unrelated@example.test"
+            },
+            "requestMetadata": {
+                "callerSuppliedUserAgent": reason
+                + (
+                    ",gzip(gfe),gzip(gfe)"
+                    if case == "gfe_suffix"
+                    else "-other"
+                    if case == "operation"
+                    else ""
+                )
+            },
+            "methodName": "storage.buckets.update",
+        },
+    }
+    response = SimpleNamespace(status_code=200, json=lambda: {"entries": [entry]})
+    provider = Provider(
+        SimpleNamespace(post=lambda *_, **__: response), "synthetic-files", operation
+    )
+    if case in {"exact", "gfe_suffix"}:
+        assert provider.reconcile_policy_intent(marker, current) == "3"
+    else:
+        with pytest.raises(RecoveryRefused, match="policy_ownership_uncertain"):
+            provider.reconcile_policy_intent(marker, current)
+    with pytest.raises(RecoveryRefused, match="policy_intent_missing"):
+        provider.reconcile_policy_intent({**marker, "policyIntent": {}}, current)
+    with pytest.raises(RecoveryRefused, match="policy_revision_unowned"):
+        provider.reconcile_policy_intent(marker, {**current, "metageneration": "4"})

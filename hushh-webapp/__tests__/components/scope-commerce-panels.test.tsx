@@ -11,12 +11,13 @@ import { ScopeCommerceOwnerReview } from "@/components/consent/scope-commerce-ow
 import { ScopeCommerceBuyerReview } from "@/components/consent/scope-commerce-buyer-review";
 import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activity";
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
-import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
+import { MemoryCommerceSummary, MemoryCommerceSummaryView, useMemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
+import { ScopeCommerceTimeline } from "@/components/consent/scope-commerce-timeline";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
@@ -57,6 +58,114 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("commerce session and review authority", () => {
+  it.each([
+    ["payer", "active", true], ["payer", "reserved", false],
+    ["owner", "active", false], ["payer", "revoked", false],
+    ["payer", "expired", false], ["payer", "cancelled", false],
+  ] as const)("opens shared information only for the active payer (%s/%s)", async (role, status, allowed) => {
+    const person = "11111111-1111-4111-8111-111111111111";
+    const request = ownerRequest();
+    mocks.scopeRequest.mockResolvedValue({ ...request, role, scope_label: "Food preferences",
+      counterpart_label: "Kushal", counterpart_person_ref: person,
+      purchase: { ...request.purchase!, status } });
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("Food preferences");
+    const link = screen.queryByRole("link", { name: "Open shared information" });
+    if (allowed) expect(link).toHaveAttribute("href", `/people/${person}`);
+    else expect(link).toBeNull();
+    expect(mocks.purchase).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "payer"] as const)("stops active presentation at known expiry despite failed refresh (%s)", async role => {
+    const expires = Date.now() + 60_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(expires - 1);
+    try {
+      const request = { ...ownerRequest(), role, counterpart_person_ref: "11111111-1111-4111-8111-111111111111",
+        purchase: { ...ownerRequest().purchase!, status: "active", expires_at: new Date(expires).toISOString() } };
+      mocks.scopeRequest.mockResolvedValue(request);
+      const view = render(<ScopeCommerceRequestPanel requestId={requestId} />);
+      await screen.findByText("Access is active.");
+      expect(screen.getByRole("list", { name: "Sharing progress" })).toBeInTheDocument();
+      if (role === "payer") expect(screen.getByRole("link", { name: "Open shared information" })).toBeInTheDocument();
+      clock.mockReturnValue(expires);
+      view.rerender(<ScopeCommerceRequestPanel requestId={requestId} />);
+      expect(screen.getByText("Access period ended. Check again for current status.")).toBeInTheDocument();
+      mocks.scopeRequest.mockRejectedValue(new Error("Status temporarily unavailable"));
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      await screen.findByText("Payment status could not be checked. Refresh before continuing.");
+      expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+      expect(screen.getByText("Access ends").parentElement!.querySelector("time")).toHaveAttribute("dateTime", request.purchase.expires_at);
+      expect(screen.queryByRole("link", { name: "Open shared information" })).toBeNull();
+      expect(screen.queryByText("Access is active.")).toBeNull();
+      expect(screen.queryByRole("heading", { name: role === "owner" ? "You’re sharing" : "Shared with you" })).toBeNull();
+      if (role === "owner") expect(screen.getByRole("button", { name: "End sharing", exact: true })).toBeEnabled();
+      expect(mocks.purchase).not.toHaveBeenCalled();
+      expect(mocks.revokePurchase).not.toHaveBeenCalled();
+      expect(mocks.exporter).not.toHaveBeenCalled();
+    } finally { clock.mockRestore(); }
+  });
+
+  it.each(["expired", "cancelled"])("keeps terminal owner earnings separate from access (%s)", async status => {
+    mocks.scopeRequest.mockResolvedValue({ ...ownerRequest(), purchase: { ...ownerRequest().purchase!, status, expires_at: "2099-01-01T00:00:00Z" } });
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("Check payment history for the latest earnings.");
+    expect(screen.queryByText("Earnings are pending until access ends. Bank payout is separate.")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "End sharing", exact: true })).toBeNull();
+  });
+
+  it("keeps confirmed end terminal when the next status read fails", async () => {
+    mocks.scopeRequest.mockResolvedValue({ ...ownerRequest(), purchase: { ...ownerRequest().purchase!, status: "active" } });
+    mocks.revokePurchase.mockResolvedValue({});
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("You’re sharing");
+    expect(screen.getByRole("list", { name: "Sharing progress" })).toBeInTheDocument();
+    mocks.scopeRequest.mockRejectedValue(new Error("Status temporarily unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "End sharing", exact: true }));
+    fireEvent.click(screen.getAllByRole("button", { name: "End sharing", exact: true }).at(-1)!);
+    await screen.findByText("Sharing ended. Check payment history for any refund.");
+    expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open shared information" })).toBeNull();
+    expect(mocks.revokePurchase).toHaveBeenCalledOnce();
+  });
+
+  it("closes the agreement with Back while preserving the consent list query", async () => {
+    mocks.pathname = "/one/consent";
+    mocks.search = `tab=active&page=3&q=food&from=%2Fone%2Fprofile&commerceRequestId=${requestId}`;
+    render(<ScopeCommerceRequestPanel requestId={requestId} />);
+    await screen.findByText("Shared with");
+    const link = screen.getByRole("link", { name: "See all sharing" });
+    expect(link).toHaveAttribute("href", "/one/consent?tab=active&page=3&q=food&from=%2Fone%2Fprofile");
+    expect(unwindBackLayer(mocks.pathname, new URLSearchParams(mocks.search))).toBe(true);
+    expect(mocks.replace).toHaveBeenCalledWith(link.getAttribute("href"), { scroll: false });
+    cleanup();
+    expect(unwindBackLayer(mocks.pathname, new URLSearchParams(mocks.search))).toBe(false);
+  });
+
+  it("shows the earlier staging deadline and removes completed preparation deadlines", () => {
+    const request = ownerRequest();
+    const purchase = { ...request.purchase!, status: "preparing", activation_at: "2099-01-01T01:00:00Z", fulfillment_deadline: "2099-01-01T02:00:00Z", expires_at: "2099-01-02T01:00:00Z" };
+    const { rerender } = render(<ScopeCommerceTimeline request={{ ...request, request_deadline: "2099-01-01T00:00:00Z", purchase }} />);
+    expect(screen.getByText("Complete sharing by").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.activation_at);
+    expect(screen.queryByText("Respond by")).toBeNull();
+    expect(screen.queryByText("Share by")).toBeNull();
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "reserved" } }} />);
+    expect(screen.getByText("Share by").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.fulfillment_deadline);
+    expect(screen.getByText("Ready").closest("li")).toHaveAttribute("data-complete", "false");
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "active" } }} />);
+    expect(screen.queryByText("Share by")).toBeNull();
+    expect(screen.queryByText("Complete sharing by")).toBeNull();
+    expect(screen.getByText("Access starts").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.activation_at);
+    expect(screen.getByText("Access ends").parentElement!.querySelector("time")).toHaveAttribute("dateTime", purchase.expires_at);
+    expect(screen.getByText("Access").closest("li")).toHaveAttribute("data-complete", "true");
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "armed" } }} />);
+    expect(screen.getByText("Ready").closest("li")).toHaveAttribute("data-complete", "true");
+    expect(screen.getByText("Access").closest("li")).toHaveAttribute("data-complete", "false");
+    rerender(<ScopeCommerceTimeline request={{ ...request, purchase: { ...purchase, status: "access_blocked" } }} />);
+    expect(screen.queryByRole("list", { name: "Sharing progress" })).toBeNull();
+
+  });
+
   it("labels simulated funds only after owner-bound Sandbox verification", async () => {
     render(<ScopeCommerceAccountPanel />);
     await screen.findByText(/1 Hussh coin/);
@@ -121,29 +230,87 @@ describe("commerce session and review authority", () => {
     const prepare = vi.fn(async () => undefined);
     const request = ownerRequest();
     const { rerender } = render(<ScopeCommerceOwnerReview request={request} busy={false} unlocked prepare={prepare} />);
-    expect(screen.getByRole("button", { name: "Prepare encrypted information" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Share approved information" })).toBeDisabled();
     expect(prepare).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Prepare encrypted information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Share approved information" }));
     expect(prepare).toHaveBeenCalledWith({ version: 1, binding: "a".repeat(64), acknowledged: true });
     rerender(<ScopeCommerceOwnerReview request={{ ...request, negative_net_acknowledgement: { ...request.negative_net_acknowledgement!, binding: "b".repeat(64) } }} busy={false} unlocked prepare={prepare} />);
     expect(screen.getByRole("checkbox")).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "Prepare encrypted information" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Share approved information" })).toBeDisabled();
   });
 
   it("allows one-cent reviewed purchase only on a human click with sufficient balance", () => {
     const purchase = vi.fn(async () => undefined); const reviewPrice = vi.fn(async () => undefined);
-    const { rerender } = render(<ScopeCommerceBuyerReview quote={quote} balance={0} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    const { rerender } = render(<ScopeCommerceBuyerReview requestId={requestId} refreshRequest={async () => undefined} quote={quote} balance={0} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
     expect(screen.getByText(/You need 1 Hussh coin \(\$0.01\) more/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "Add funds or manage payments in Payments and earnings" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Fund this sharing request" })).toBeVisible();
     expect(purchase).not.toHaveBeenCalled();
-    rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
-    expect(screen.queryByRole("link", { name: "Add funds or manage payments in Payments and earnings" })).toBeNull();
+    rerender(<ScopeCommerceBuyerReview requestId={requestId} refreshRequest={async () => undefined} quote={quote} balance={1} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    expect(screen.queryByRole("region", { name: "Fund this sharing request" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) }));
     expect(purchase).toHaveBeenCalledOnce();
-    rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
+    rerender(<ScopeCommerceBuyerReview requestId={requestId} refreshRequest={async () => undefined} quote={quote} balance={1} expired busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
+  });
+
+  it("funds a scope shortfall in its request without automatically reserving access", async () => {
+    const refreshRequest = vi.fn(async () => undefined);
+    const popup = { close: vi.fn() };
+    const session = { url: "https://checkout.stripe.com/test", returnUrl: "https://one.hushh.ai/one/profile/payouts?commerceReturn=1&commerceAttemptId=opaque_attempt_12345", attemptId: "opaque_attempt_12345" };
+    mocks.openWindow.mockReturnValue(popup);
+    mocks.checkout.mockResolvedValue(session);
+    const returned = deferred<void>();
+    mocks.hosted.mockReturnValue(returned.promise);
+    const view = (balance: number) => <ScopeCommerceBuyerReview requestId={requestId} refreshRequest={refreshRequest} quote={quote} balance={balance} expired={false} busy={false} enabled reviewPrice={vi.fn()} purchase={mocks.purchase} />;
+    const { rerender } = render(view(0));
+    const checkout = await screen.findByRole("button", { name: "Continue to secure checkout" });
+    await waitFor(() => expect(checkout).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "0.001" } });
+    expect(checkout).toBeDisabled();
+    expect(mocks.checkout).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "0.50" } });
+    expect(screen.getByText("You'll add 50 Hussh coins ($0.50).")).toBeInTheDocument();
+    fireEvent.click(checkout);
+    fireEvent.click(checkout);
+    await waitFor(() => expect(mocks.checkout).toHaveBeenCalledOnce());
+    expect(mocks.checkout).toHaveBeenCalledWith("owner-token", 50, expect.any(String));
+    expect(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) })).toBeDisabled();
+    await act(async () => returned.resolve());
+    await waitFor(() => expect(refreshRequest).toHaveBeenCalledOnce());
+    expect(mocks.purchase).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) })).toBeDisabled();
+    rerender(view(1));
+    expect(mocks.purchase).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) }));
+    expect(mocks.purchase).toHaveBeenCalledOnce();
+  });
+
+  it("keeps funding gated and rejects a late checkout return after vault retirement", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), readiness: unavailable() });
+    const refreshRequest = vi.fn(async () => undefined);
+    const view = <ScopeCommerceBuyerReview requestId={requestId} refreshRequest={refreshRequest} quote={quote} balance={0} expired={false} busy={false} enabled reviewPrice={vi.fn()} purchase={mocks.purchase} />;
+    const { unmount } = render(view);
+    await screen.findByText(/Funding is unavailable/);
+    expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).toBeNull();
+    expect(mocks.checkout).not.toHaveBeenCalled();
+    unmount();
+    mocks.account.mockResolvedValue(balanceAccount());
+    mocks.openWindow.mockReturnValue({ close: vi.fn() });
+    mocks.checkout.mockResolvedValue({ url: "https://checkout.stripe.com/test", returnUrl: "https://one.hushh.ai/one/profile/payouts?commerceReturn=1&commerceAttemptId=opaque_attempt_12345", attemptId: "opaque_attempt_12345" });
+    const returned = deferred<void>();
+    mocks.hosted.mockReturnValue(returned.promise);
+    render(view);
+    const checkout = await screen.findByRole("button", { name: "Continue to secure checkout" });
+    fireEvent.click(checkout);
+    await waitFor(() => expect(mocks.hosted).toHaveBeenCalledOnce());
+    const signal = mocks.hosted.mock.calls[0][3] as AbortSignal;
+    act(() => advanceVaultSessionEpoch());
+    expect(signal.aborted).toBe(true);
+    await act(async () => returned.resolve());
+    expect(refreshRequest).not.toHaveBeenCalled();
+    expect(mocks.purchase).not.toHaveBeenCalled();
   });
 
   it("does not begin owner crypto after an account change while its identity token is pending", async () => {
@@ -321,6 +488,18 @@ describe("Payments and earnings history", () => {
 
 
 describe("free sharing independent of payment setup", () => {
+  it("shares one earnings read between the retained Memory owner and its web renderer", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), earnings: { pending_cents: 450, available_cents: 100 } });
+    function RetainedMemory() {
+      const commerce = useMemoryCommerceSummary();
+      return <><MemoryCommerceSummaryView model={commerce} /><span data-testid="retained-earnings">{commerce.data?.earnings.pending_cents}</span></>;
+    }
+    render(<RetainedMemory />);
+    expect(await screen.findByText("450 Hussh coins ($4.50)")).toBeVisible();
+    expect(screen.getByTestId("retained-earnings")).toHaveTextContent("450");
+    expect(mocks.account).toHaveBeenCalledTimes(1);
+  });
+
   it("projects canonical earnings in Saved and routes payout setup to Payments and earnings without starting OAuth", async () => {
     mocks.account.mockResolvedValue({ ...balanceAccount(), earnings: { pending_cents: 450, available_cents: 100 } });
     render(<MemoryCommerceSummary />);
@@ -429,8 +608,8 @@ describe("free sharing independent of payment setup", () => {
     mocks.account.mockRejectedValue(new Error("provider unavailable"));
     mocks.scopeRequest.mockResolvedValue({ ...ownerRequest(), purchase: null, tariff: null, negative_net_acknowledgement: null });
     render(<ScopeCommerceRequestPanel requestId={requestId} />);
-    await screen.findByText(/This request is free/);
-    expect(screen.getByRole("link", { name: "Review this request in Consent" })).toHaveAttribute("href", `/one/consent?requestId=${requestId}`);
+    await screen.findByText(/Free access follows the owner's approval/);
+    expect(screen.getByRole("link", { name: "Review request" })).toHaveAttribute("href", `/one/consent?requestId=${requestId}`);
     expect(screen.queryByRole("button", { name: /Confirm .* from balance/ })).not.toBeInTheDocument();
     expect(mocks.account).not.toHaveBeenCalled();
   });
@@ -517,6 +696,59 @@ describe("answer payout hosted continuity", () => {
     await waitFor(() => expect(mocks.answerAccount).toHaveBeenCalledWith("owner-token"));
     expect(mocks.answerOnboarding).not.toHaveBeenCalled();
     expect(mocks.onboarding).not.toHaveBeenCalled();
+    expect(mocks.account).not.toHaveBeenCalled();
+    expect(mocks.readiness).not.toHaveBeenCalled();
+    expect(mocks.sandboxVerified).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+  });
+  it("offers purchase coins beside payouts without opening request or payout flows", async () => {
+    render(<PaymentsAndEarnings />);
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Sharing details" })).toBeNull();
+    expect(mocks.account).toHaveBeenCalledWith("owner-token");
+    expect(screen.getByRole("button", { name: "Add coins" })).toBeInTheDocument();
+    for (const request of [mocks.activity, mocks.answerGates, mocks.answerAccount, mocks.onboarding, mocks.checkout]) {
+      expect(request).not.toHaveBeenCalled();
+    }
+  });
+  it("enables $30.00 coin checkout when widened sandbox allowance permits it", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), sandboxRemainingCents: 498850 });
+    render(<PaymentsAndEarnings />);
+    const addCoins = await screen.findByRole("button", { name: "Add coins" });
+    await waitFor(() => expect(addCoins).toBeEnabled());
+    fireEvent.click(addCoins);
+    const input = await screen.findByLabelText("Amount (USD)");
+    fireEvent.change(input, { target: { value: "30" } });
+    expect(screen.getByText("You'll add 3,000 Hussh coins ($30.00).")).toBeInTheDocument();
+    expect(screen.queryByText(/remaining in sandbox test allowance/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue to secure checkout" })).toBeEnabled();
+  });
+
+  it("resolves free scopes directly from the batched tariff catalog without per-scope fallback calls", async () => {
+    const { ScopeCommerceService } = await import("@/lib/services/scope-commerce-service");
+    const catalogSpy = vi.fn().mockResolvedValue({
+      tariffsByKey: {},
+      readiness: readiness(),
+      fetchedAt: Date.now(),
+    });
+    const originalCatalog = ScopeCommerceService.tariffCatalog;
+    ScopeCommerceService.tariffCatalog = catalogSpy;
+    try {
+      render(
+        <ScopeTariffEditor
+          scopeHandle="scope_free"
+          machineScope="attr.financial.portfolio.*"
+          label="Financial · Portfolio"
+          showSavedPrice
+        />,
+      );
+      expect(await screen.findByRole("button", { name: "Set sharing price for Financial · Portfolio" })).toHaveTextContent("Free · Set price");
+      expect(catalogSpy).toHaveBeenCalledTimes(1);
+      expect(mocks.tariff).not.toHaveBeenCalled();
+      expect(mocks.readiness).not.toHaveBeenCalled();
+    } finally {
+      ScopeCommerceService.tariffCatalog = originalCatalog;
+    }
   });
 });

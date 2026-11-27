@@ -10,6 +10,7 @@ from pydantic import Field
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.finance_sharing import PrivateFinanceRoute, identity
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.services.advisor_matching import AdvisorService
 from hushh_mcp.services.advisor_review_billing import AdvisorBillingService
 from hushh_mcp.services.advisor_review_contract import (
     AdvisorPlan,
@@ -20,6 +21,7 @@ from hushh_mcp.services.advisor_review_contract import (
     ReviewDecision,
 )
 from hushh_mcp.services.advisor_review_meetings import AdvisorMeetingService
+from hushh_mcp.services.advisor_review_payouts import AdvisorSandboxPayouts
 from hushh_mcp.services.advisor_review_service import AdvisorReviewService
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError
 from hushh_mcp.services.finance_sharing_contract import StrictObject
@@ -35,7 +37,8 @@ router = APIRouter(
 
 
 class Discovery(StrictObject):
-    scope: Literal["connections", "global", "nearby"] | None = None
+    scope: Literal["connections", "global", "nearby", "recommended"] | None = None
+    service: AdvisorService | None = None
     page: int = Field(default=1, ge=1, le=1000)
     query: str = Field(default="", max_length=100)
     latitude: float | None = Field(default=None, ge=-90, le=90)
@@ -47,22 +50,46 @@ class Discovery(StrictObject):
 @router.post("/candidates")
 @limiter.limit(RateLimits.ONE_ADVISORS_DIRECTORY_READ)
 async def discover(request: Request, body: Discovery, viewer: str = Depends(identity)):
-    from hushh_mcp.services.advisor_directory_service import AdvisorDirectoryService
+    from hushh_mcp.services.advisor_directory_service import (
+        AdvisorDirectoryError,
+        AdvisorDirectoryService,
+    )
     from hushh_mcp.services.advisor_review_directory import candidates
+
+    if body.scope == "recommended":
+        if (
+            body.service is None
+            or body.latitude is not None
+            or body.longitude is not None
+            or body.postalCode is not None
+        ):
+            raise AdvisorReviewError("ADVISOR_SERVICE_REQUIRED", 422)
+        people = await asyncio.to_thread(
+            candidates, viewer, service=body.service, query=body.query, page=body.page
+        )
+        return {**people, "directory": None}
+    if body.service is not None:
+        raise AdvisorReviewError("ADVISOR_SERVICE_SCOPE_REQUIRED", 422)
 
     nearby = body.latitude is not None or body.longitude is not None or body.postalCode is not None
     if body.scope == "nearby" and not nearby:
         raise AdvisorReviewError("ADVISOR_LOCATION_REQUIRED", 422)
     if nearby and body.scope in (None, "nearby"):
-        directory = await AdvisorDirectoryService().search(
-            lat=body.latitude,
-            lng=body.longitude,
-            postal_code=body.postalCode,
-            radius_mi=body.radiusMiles,
-            limit=30,
-            offset=(body.page - 1) * 30,
-            advisor_type="ia",
-        )
+        try:
+            directory = await AdvisorDirectoryService().search(
+                lat=body.latitude,
+                lng=body.longitude,
+                postal_code=body.postalCode,
+                radius_mi=body.radiusMiles,
+                limit=30,
+                offset=(body.page - 1) * 30,
+                advisor_type="ia",
+            )
+        except AdvisorDirectoryError as exc:
+            # Bad input is the person's to fix; anything else is a directory outage.
+            if exc.status_code < 500 and exc.status_code != 429:
+                raise AdvisorReviewError("ADVISOR_LOCATION_INVALID", 422) from exc
+            raise AdvisorReviewError("ADVISOR_DIRECTORY_UNAVAILABLE", 503) from exc
         crds = [
             str(item["crd"])
             for item in directory["items"]
@@ -92,15 +119,20 @@ async def portfolio_analysis(
         if await validate_first_party_owner_token(viewer, token) is None:
             raise HTTPException(403, {"code": "FINANCE_REVIEW_OWNER_REQUIRED"})
 
-    await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
-    result = await run_portfolio_review(body, user_id=viewer, consent_token=token)
-    await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
+    async def check_current() -> None:
+        await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
+
+    await check_current()
+    result = await run_portfolio_review(
+        body, user_id=viewer, consent_token=token, check_current=check_current
+    )
+    await check_current()
     return result
 
 
 @router.get("")
-async def history(viewer: str = Depends(identity)):
-    return await asyncio.to_thread(AdvisorReviewService().history, viewer)
+async def history(viewer: str = Depends(identity), ui: Literal["2"] | None = None):
+    return await asyncio.to_thread(AdvisorReviewService().history, viewer, ui == "2")
 
 
 @router.post("")
@@ -110,14 +142,18 @@ async def create(request: Request, body: CreateAdvisorReview, viewer: str = Depe
 
 
 @router.get("/{request_id}")
-async def view(request_id: UUID, viewer: str = Depends(identity)):
-    return await asyncio.to_thread(AdvisorReviewService().view, viewer, str(request_id))
+async def view(request_id: UUID, viewer: str = Depends(identity), ui: Literal["2"] | None = None):
+    return await asyncio.to_thread(AdvisorReviewService().view, viewer, str(request_id), ui == "2")
 
 
 @router.post("/{request_id}/decision")
 async def decision(request_id: UUID, body: ReviewDecision, viewer: str = Depends(identity)):
     return await asyncio.to_thread(
-        AdvisorReviewService().decide, viewer, str(request_id), body.action
+        AdvisorReviewService().decide,
+        viewer,
+        str(request_id),
+        body.action,
+        body.requireExistingConnection,
     )
 
 
@@ -184,3 +220,22 @@ async def billing(request_id: UUID, viewer: str = Depends(identity)):
 @router.delete("/{request_id}/billing")
 async def cancel_billing(request_id: UUID, viewer: str = Depends(identity)):
     return await asyncio.to_thread(AdvisorBillingService().cancel, viewer, str(request_id))
+
+
+@router.get("/{request_id}/sandbox-payout")
+@limiter.limit("10/minute")
+async def sandbox_payout(request: Request, request_id: UUID, viewer: str = Depends(identity)):
+    payouts = await AdvisorSandboxPayouts.for_request(viewer, request_id)
+    return await payouts.status()
+
+
+@router.post("/{request_id}/sandbox-payout/{action}")
+@limiter.limit("5/minute")
+async def sandbox_payout_link(
+    request: Request,
+    request_id: UUID,
+    action: Literal["onboarding", "dashboard"],
+    viewer: str = Depends(identity),
+):
+    payouts = await AdvisorSandboxPayouts.for_request(viewer, request_id)
+    return await payouts.link(action)

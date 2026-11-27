@@ -306,7 +306,7 @@ async function readFailure(response: Response): Promise<EmailDeliveryError> {
 // A reviewed-draft fingerprint is held only in memory, never mail contents.
 const privateSends = new Map<string, { owner: string; draftHash: string; expiresAt: number }>();
 function privateEmailBody(draft: EmailDraft): Record<string, unknown> {
-  if (draft.driveFileId || draft.sourceWorkflowId) throw new PrivateGoogleUnsupportedError('Attachments and source-bound Gmail replies');
+  if (draft.driveFileId || draft.sourceWorkflowId || draft.sourceMailRef) throw new PrivateGoogleUnsupportedError('Attachments and source-bound Gmail replies');
   return { to: draft.to, cc: draft.cc, bcc: draft.bcc, subject: draft.subject, body: draft.body, html_body: draft.htmlBody ?? '' };
 }
 async function reviewedDraftHash(draft: EmailDraft): Promise<string> {

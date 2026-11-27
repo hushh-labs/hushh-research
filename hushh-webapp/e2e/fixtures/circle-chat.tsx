@@ -1,11 +1,13 @@
+import { ConnectTypeScale } from "../../lib/morphy-ux/ui/connect-type-scale";
 import { MoonIcon } from "../../components/icons";
 import { FeedRow } from "../../components/feed/feed-row";
 import { presentFeedItem } from "../../lib/feed/feed-item-renderers";
 import { appendFeedPage, createFeedPaginationState, reconcileFeedFirstPage } from "../../lib/feed/feed-pagination";
 import type { FeedItem } from "../../lib/services/feed-service";
 import { createRoot } from "react-dom/client";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { AgentDockProvider, AgentDockVoiceBoundary, useAgentDockSurface } from "../../components/agent/agent-dock";
+import { AgentBarSurface } from "../../components/agent/agent-bar-surface";
 import peopleStyles from "../../components/direct-messages/direct-messages-page.module.css";
 import { CircleMessagesPane } from "../../components/connect/circles/circle-messages-pane";
 import { CircleChat } from "../../components/connect/circles/circle-chat";
@@ -22,8 +24,15 @@ const initial: OneLocationCircleDetail = {
     connectionStatus: "connected", phoneVerified: true, secureLocationReady: true })),
 };
 function Workspace() {
-  const creation = new URLSearchParams(location.search).has("create");
-  const circle = useRef(creation ? { ...initial, memberCount: 1, members: initial.members.slice(0, 1) } : initial);
+  const params = new URLSearchParams(location.search);
+  const creation = params.has("create");
+  const circle = useRef(creation
+    ? { ...initial, memberCount: 1, members: initial.members.slice(0, 1) }
+    : params.has("inviteCode")
+      ? { ...initial, activeInviteCode: {
+          id: "invite-code", circleId: initial.id, code: "2345-6789-ABCD", expiresAt: "2099-01-01T00:00:00Z",
+        } }
+      : initial);
   const [creating, setCreating] = useState(creation);
   const [memberSetup, setMemberSetup] = useState(creation);
   if (creating) return <Dialog modal open>
@@ -64,13 +73,20 @@ function Workspace() {
 function Lane() {
   const dock = useAgentDockSurface();
   const dark = document.documentElement.classList.contains("dark");
-  return <AppPageShell className={peopleStyles.shell}><div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
-    <div className="flex h-dvh min-h-0 flex-col">
+  const switching = new URLSearchParams(location.search).has("switch");
+  return <><AppPageShell className={peopleStyles.shell}><div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
+    <div className={`flex ${switching ? "h-full" : "h-dvh"} min-h-0 flex-col`}>
       <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId={new URLSearchParams(location.search).has("list") ? null : "circle"} theme={dark ? "dark" : "light"}
         headerActions={<button type="button" className={peopleStyles.refreshButton} aria-label="Switch theme"><MoonIcon className="size-5" aria-hidden="true" /></button>} /></div>
-      <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />
+      {!switching && <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />}
     </div>
-  </div></AppPageShell>;
+  </div></AppPageShell>
+    {/* Switching exercises the real shared dock outside the page's clipped
+        transcript, matching the fixed bottom shell rather than an inline seat. */}
+    {switching && <div className="fixed inset-x-0 bottom-4 z-50 px-4">
+      <AgentBarSurface className="mx-auto"><span>Talk to One</span></AgentBarSurface>
+    </div>}
+  </>;
 }
 function GroupedFeed() {
   const [opened, setOpened] = useState("");
@@ -89,9 +105,10 @@ function GroupedFeed() {
     <output className="sr-only" data-testid="opened-chat">{opened}</output>
   </AppPageShell>;
 }
-createRoot(document.getElementById("root")!).render(<div data-app-scroll-root="true" className="h-dvh overflow-y-auto overscroll-contain">
+const Scope = new URLSearchParams(location.search).has("v14") ? ConnectTypeScale : Fragment;
+createRoot(document.getElementById("root")!).render(<Scope><div data-app-scroll-root="true" className="h-dvh overflow-y-auto overscroll-contain">
   {new URLSearchParams(location.search).has("lane") ? <AgentDockProvider><AgentDockVoiceBoundary><Lane /></AgentDockVoiceBoundary></AgentDockProvider> : new URLSearchParams(location.search).has("feed") ? <GroupedFeed /> : new URLSearchParams(location.search).has("workspace") ? <Workspace /> : <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
   <h1 className="text-xl font-semibold">Weekend friends</h1>
   <CircleChat initialOpen circleName="Weekend friends" session={{ userId: "alice", circleId: "circle", vaultKey: "fixture", vaultOwnerToken: "fixture" }} />
 </main>}
-</div>);
+</div></Scope>);

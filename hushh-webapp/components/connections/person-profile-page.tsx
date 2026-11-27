@@ -1,8 +1,15 @@
 "use client";
-import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { PersonNetworkSummary } from "./person-network-summary";
+import { cn } from "@/lib/utils";
+import {
+  consentHistoryStatusToAction,
+  formatLifecycleEventLabel,
+  type ConsentHistoryTrailEvent,
+} from "@/components/consent/consent-history-trails";
+import { formatRequestedAt, joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, useId } from "react";
 
 import {
   isPeopleGraphChange,
@@ -13,8 +20,9 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
-import { toast } from "sonner";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
+import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, CreditCard, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -24,7 +32,8 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PersonInformationRequestDialog } from "./person-information-request-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { usePersonProfilePackets } from "./person-profile-packets";
 import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connector-features";
@@ -39,15 +48,23 @@ import {
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "./person-profile-hero";
+import {
+  PersonRequestHistorySheet,
+  PersonSharedWithYouSheet,
+  type PersonHistoryBundleSummary,
+} from "./person-profile-sheets";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
+import { useSharedWithYouCardModel } from "@/components/agent/consent/shared-with-you-card";
 import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
+import { scopeItemsFromRequestable, type ConsentScopeItem } from "@/lib/consent/consent-scope-items";
+import { resolveScopePhosphorIcon } from "@/lib/consent/scope-icon-resolver";
 import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
-import { joinInformationLabels } from "@/lib/consent/consent-owner-copy";
 import {
   PersonProfileService,
+  type InformationRequestPrice,
+  PersonProfileNotFoundError,
   mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
@@ -72,16 +89,21 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; onNetworkReady?: () => void };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; calendarPresentation?: boolean; onNetworkReady?: () => void };
 
 function renderCategoryIcon(domain: string) {
-  const presentation = {
-    location: { Icon: MapPin, tone: "blue" },
-    financial: { Icon: CreditCard, tone: "green" },
-    identity: { Icon: UserRound, tone: "purple" },
-    shopping: { Icon: ShoppingBag, tone: "orange" },
-  }[domain.toLowerCase()] ?? { Icon: FolderSimpleIcon, tone: "blue" };
-  const { Icon, tone } = presentation;
+  const { Icon, tone } = resolveScopePhosphorIcon({ domain });
+  return <Icon className={styles.categoryIcon} data-tone={tone} color="currentColor" weight="regular" aria-hidden="true" />;
+}
+
+function renderScopeItemIcon(item: ConsentScopeItem) {
+  const { Icon, tone } = resolveScopePhosphorIcon({
+    iconName: item.iconName,
+    domain: item.domainKey,
+    label: item.label,
+    description: item.description,
+    pathSegments: item.pathSegments,
+  });
   return <Icon className={styles.categoryIcon} data-tone={tone} color="currentColor" weight="regular" aria-hidden="true" />;
 }
 
@@ -123,6 +145,77 @@ function historyTitle(
   return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
 }
 
+function buildPersonRequestTrailEvents(params: {
+  bundleId: string;
+  details: InformationRequestBundle | undefined;
+  singleStatus: string | null;
+  itemCount: number;
+  durationSeconds: number;
+  createdAt: string | null | undefined;
+}): ConsentHistoryTrailEvent[] {
+  const { bundleId, details, singleStatus, itemCount, durationSeconds, createdAt } = params;
+  const createdLabel = formatRequestedAt(createdAt);
+  if (details) {
+    const durationLabel = requestDurationLabel(Math.round(details.durationSeconds / 3600));
+    const itemEvents: ConsentHistoryTrailEvent[] = details.items.map((entry, index) => {
+      const action = consentHistoryStatusToAction(entry.status);
+      const label =
+        entry.status === "pending"
+          ? "Waiting"
+          : formatLifecycleEventLabel({ action, status: entry.status });
+      return {
+        key: `${bundleId}:item:${entry.requestId || index}`,
+        label,
+        detail: [
+          historyItemLabel(entry.label),
+          durationLabel,
+          details.cancelled && entry.status !== "cancelled" ? "Withdrawn" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        tone: entry.status,
+      };
+    });
+    if (createdLabel) {
+      itemEvents.push({
+        key: `${bundleId}:requested`,
+        label: "Requested",
+        detail: createdLabel,
+        tone: "neutral",
+      });
+    }
+    return itemEvents;
+  }
+
+  const durationHours = Math.round(durationSeconds / 3600);
+  const durationLabel = durationHours > 0 ? requestDurationLabel(durationHours) : null;
+  const events: ConsentHistoryTrailEvent[] = [];
+  if (singleStatus && singleStatus !== "pending") {
+    const action = consentHistoryStatusToAction(singleStatus);
+    events.push({
+      key: `${bundleId}:outcome`,
+      label: formatLifecycleEventLabel({ action, status: singleStatus }),
+      detail:
+        [durationLabel, itemCount > 1 ? `${itemCount} items` : null]
+          .filter(Boolean)
+          .join(" · ") || null,
+      tone: singleStatus,
+    });
+  }
+  if (singleStatus || createdLabel) {
+    events.push({
+      key: `${bundleId}:requested`,
+      label: "Requested",
+      detail:
+        [createdLabel, durationLabel ? `For ${durationLabel}` : null]
+          .filter(Boolean)
+          .join(" · ") || "Waiting for response",
+      tone: singleStatus === "pending" ? "pending" : "neutral",
+    });
+  }
+  return events;
+}
+
 function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | "pink" | "lilac" | "amber") {
   return <PersonProfileTaskContent label={label} Icon={Icon} tone={tone} />;
 }
@@ -132,7 +225,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile, embedded = false, onNetworkReady }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false, calendarPresentation = false, onNetworkReady }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -149,12 +242,22 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
+    missing?: boolean;
   }>(() => ({ personRef: resolvedPersonRef, profile: initialProfile ?? PersonProfileService.peekPublic?.(resolvedPersonRef) ?? null }));
   const profile =
     profileState.personRef === resolvedPersonRef ? profileState.profile
       : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
-  const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const profileMissing = profileState.personRef === resolvedPersonRef && profileState.missing === true;
+  const [publicReadFailed, setPublicReadFailed] = useState(false);
+  const publicProfileUnavailable = profileMissing || publicReadFailed;
+  const nativeTestDataState = profile
+    ? "loaded"
+    : publicProfileUnavailable
+      ? "unavailable-valid"
+      : "loading";
   const [publicReloadToken, setPublicReloadToken] = useState(0);
+  const publicReadGeneration = useRef(0);
+  const availabilityInstance = useId();
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
   } | null>(null);
@@ -215,6 +318,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       items: recent?.items ?? [],
       itemCount: summary.itemCount,
       itemLabels: Array.isArray(summary.itemLabels) ? summary.itemLabels : [],
+      durationSeconds: summary.durationSeconds,
+      cancelled: summary.cancelled,
       purpose: summary.purpose,
       createdAt: summary.createdAt,
     };
@@ -222,6 +327,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     ...group,
     itemCount: group.items.length,
     itemLabels: [] as string[],
+    durationSeconds: group.first.durationSeconds,
+    cancelled: group.items.every((item) => item.status === "cancelled"),
     purpose: group.first.purpose,
     createdAt: group.first.createdAt,
   }));
@@ -250,6 +357,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const request = usePersonInformationRequest(resolvedPersonRef);
+  const [requestPrice, setRequestPrice] = useState<InformationRequestPrice | null>(null);
   const requesting = request.pending;
   const requestGeneration = useRef(0);
   const viewerReadGeneration = useRef(0);
@@ -268,23 +376,54 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
-    let active = true;
-    setPublicProfileUnavailable(false);
-    void PersonProfileService.getPublic(resolvedPersonRef)
+  const retireProfile = useCallback(() => {
+    publicReadGeneration.current += 1;
+    requestGeneration.current += 1;
+    viewerReadGeneration.current += 1;
+    relationshipReadGeneration.current += 1;
+    setProfileState({ personRef: resolvedPersonRef, profile: null, missing: true });
+    setViewerProfileState((current) => ({ ...current, profile: null }));
+    setDisplayState((current) => ({ ...current, profile: null }));
+    setRelationshipState(null);
+    setSelectedScopeRefs(new Set());
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    setReviewOpen(false);
+  }, [resolvedPersonRef]);
+
+  const revalidatePublicProfile = useCallback(async () => {
+    const generation = ++publicReadGeneration.current;
+    const isCurrent = () => publicReadGeneration.current === generation;
+    setPublicReadFailed(false);
+    await PersonProfileService.getPublic(resolvedPersonRef)
       .then((value) => {
-        if (active) {
-          setProfileState({ personRef: resolvedPersonRef, profile: value });
-        }
+        if (isCurrent()) setProfileState({ personRef: resolvedPersonRef, profile: value });
       })
-      .catch(() => {
-        if (active) setPublicProfileUnavailable(true);
+      .catch((error: unknown) => {
+        if (!isCurrent()) return;
+        if (error instanceof PersonProfileNotFoundError) {
+          retireProfile();
+          return;
+        }
+        setPublicReadFailed(true);
       });
+  }, [resolvedPersonRef, retireProfile]);
+
+  useEffect(() => {
+    if (initialProfile?.personRef !== resolvedPersonRef || publicReloadToken !== 0) {
+      void revalidatePublicProfile();
+    }
     return () => {
-      active = false;
+      publicReadGeneration.current += 1;
     };
-  }, [resolvedPersonRef, publicReloadToken, initialProfile]);
+  }, [resolvedPersonRef, publicReloadToken, initialProfile, revalidatePublicProfile]);
+
+  // A public visitor may have no relationship to receive a targeted graph
+  // event. Repair that open profile without rereading the private catalog.
+  usePeriodicTask(`person-profile-availability:${resolvedPersonRef}:${availabilityInstance}`, 30_000, async () => {
+    if (isNetworkOnline()) await revalidatePublicProfile();
+  }, { enabled: !profileMissing });
 
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
   useEffect(() => {
@@ -294,9 +433,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     setRelationshipState(null);
     void user.getIdToken().then((token) => PersonProfileService.getRelationship(resolvedPersonRef, token))
       .then((value) => { if (current && generation === relationshipReadGeneration.current) setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value }); })
-      .catch(() => { /* The independent full response may still establish eligibility. */ });
+      .catch((error: unknown) => {
+        if (current && generation === relationshipReadGeneration.current && error instanceof PersonProfileNotFoundError) retireProfile();
+        // A transient failure may still be resolved by the full response.
+      });
     return () => { current = false; };
-  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken, retireProfile]);
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
@@ -348,8 +490,12 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
           setSelectedScopeRefs((selected) => new Set([...selected].filter((ref) => availableRefs.has(ref))));
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active && generation === viewerReadGeneration.current) {
+          if (error instanceof PersonProfileNotFoundError) {
+            retireProfile();
+            return;
+          }
           setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
           // Do not present an older eligibility catalog as current authority.
           setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
@@ -358,7 +504,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     return () => {
       active = false;
     };
-  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken, retireProfile]);
 
   // One Voice changed a relationship: re-read this profile's relationship
   // state from the server rather than trusting the spoken outcome. The two
@@ -386,9 +532,16 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     },
   });
 
+  const [sharedSheetOpen, setSharedSheetOpen] = useState(false);
+  const [historySheetOpen, setHistorySheetOpen] = useState(false);
+  const pendingUnlockIntentRef = useRef<"shared" | "review" | null>(null);
+
   useEffect(() => {
     setSelectedScopeRefs(new Set());
     setReviewOpen(false);
+    setSharedSheetOpen(false);
+    setHistorySheetOpen(false);
+    pendingUnlockIntentRef.current = null;
     setPurpose("");
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setBundleDetailsState({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
@@ -409,7 +562,10 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       setViewerReloadToken((value) => value + 1);
     };
     const unsubscribe = subscribeToConnectionGraphChanges((event) => {
-      if (event.userId === userId) refresh();
+      if (event.userId !== userId) return;
+      publicReadGeneration.current += 1;
+      setPublicReloadToken((value) => value + 1);
+      refresh();
     });
     const onPush = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
@@ -456,7 +612,10 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       node.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     if (!isVaultUnlocked) {
+      pendingUnlockIntentRef.current = "shared";
       setShowUnlockDialog(true);
+    } else if ((viewerProfile.grants || []).length > 0) {
+      setSharedSheetOpen(true);
     }
   }, [sharedIntent, viewerProfile, isVaultUnlocked]);
 
@@ -483,8 +642,11 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       }
       setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
       setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
-    } catch {
-      if (generation === requestGeneration.current) setCatalogError(true);
+    } catch (error: unknown) {
+      if (generation === requestGeneration.current) {
+        if (error instanceof PersonProfileNotFoundError) retireProfile();
+        else setCatalogError(true);
+      }
     } finally {
       if (generation === requestGeneration.current) {
         catalogInFlight.current = false;
@@ -493,38 +655,92 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
     }
   }
 
-  const grantedScopeRefs = useMemo(
-    () =>
-      new Set(
-        (viewerProfile?.grants || [])
-          .map((grant) => grant.scopeRef)
-          .filter((ref): ref is string => Boolean(ref)),
-      ),
-    [viewerProfile?.grants],
+  const grantedScopeRefs = useMemo(() => {
+    const direct = new Set(
+      (viewerProfile?.grants || [])
+        .map((grant) => grant.scopeRef)
+        .filter((ref): ref is string => Boolean(ref)),
+    );
+    const grantedLabels = new Set(
+      (viewerProfile?.grants || [])
+        .map((grant) => grant.label.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const expanded = new Set(direct);
+    const grantedParents = allScopes.filter(
+      (scope) => scope.wildcard && direct.has(scope.scopeRef),
+    );
+    for (const scope of allScopes) {
+      if (expanded.has(scope.scopeRef)) continue;
+      if (scope.label && grantedLabels.has(scope.label.trim().toLowerCase())) {
+        expanded.add(scope.scopeRef);
+        continue;
+      }
+      if (
+        grantedParents.some(
+          (parent) =>
+            parent.domain &&
+            parent.domain === scope.domain &&
+            (!parent.pathSegments?.length ||
+              parent.pathSegments.every((seg, idx) => scope.pathSegments?.[idx] === seg)),
+        )
+      ) {
+        expanded.add(scope.scopeRef);
+      }
+    }
+    return expanded;
+  }, [allScopes, viewerProfile?.grants]);
+
+  const pendingScopeRefs = useMemo(() => {
+    const direct = new Set(
+      (viewerProfile?.requestHistory || [])
+        .filter((item) => item.status === "pending" && Boolean(item.scopeRef))
+        .map((item) => item.scopeRef)
+        .filter((ref) => !grantedScopeRefs.has(ref)),
+    );
+    const expanded = new Set(direct);
+    const pendingParents = allScopes.filter(
+      (scope) => scope.wildcard && direct.has(scope.scopeRef),
+    );
+    for (const scope of allScopes) {
+      if (expanded.has(scope.scopeRef) || grantedScopeRefs.has(scope.scopeRef)) continue;
+      if (
+        pendingParents.some(
+          (parent) =>
+            parent.domain &&
+            parent.domain === scope.domain &&
+            (!parent.pathSegments?.length ||
+              parent.pathSegments.every((seg, idx) => scope.pathSegments?.[idx] === seg)),
+        )
+      ) {
+        expanded.add(scope.scopeRef);
+      }
+    }
+    return expanded;
+  }, [allScopes, grantedScopeRefs, viewerProfile?.requestHistory]);
+
+  const lockedScopeRefs = useMemo(
+    () => new Set([...grantedScopeRefs, ...pendingScopeRefs]),
+    [grantedScopeRefs, pendingScopeRefs],
   );
 
   /**
    * The catalogue in the one shape every scope surface reads.
-   *
-   * The adapter already existed and already took this exact payload type --
-   * `scopeItemsFromRequestable` imports `RequestablePersonScope` from this
-   * page's own service. Search, grouping and the threshold moved with it, which
-   * is why the local copies of all three are gone.
    */
   const scopeItems = useMemo(
     () =>
       scopeItemsFromRequestable(allScopes).map((item) =>
-        grantedScopeRefs.has(item.id) ? { ...item, disabled: true } : item,
+        lockedScopeRefs.has(item.id) ? { ...item, disabled: true } : item,
       ),
-    [allScopes, grantedScopeRefs],
+    [allScopes, lockedScopeRefs],
   );
 
   const selectedScopes = useMemo(
     () =>
       selectedRequestScopes(allScopes, selectedScopeRefs).filter(
-        (scope) => !grantedScopeRefs.has(scope.scopeRef),
+        (scope) => !lockedScopeRefs.has(scope.scopeRef),
       ),
-    [allScopes, selectedScopeRefs, grantedScopeRefs],
+    [allScopes, selectedScopeRefs, lockedScopeRefs],
   );
 
   const openRequestReview = () => {
@@ -533,7 +749,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       return false;
     }
     if (!isVaultUnlocked) {
-      toast.error("Unlock your vault before requesting information.");
+      pendingUnlockIntentRef.current = "review";
+      setShowUnlockDialog(true);
       return false;
     }
     if (!request.available) {
@@ -545,8 +762,8 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   };
 
   const submitRequest = async () => {
-    if (!viewerProfile) return;
-    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
+    if (!viewerProfile || !requestPrice || requestPrice.shortfallCoins) return;
+    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours, priceBinding: requestPrice.binding });
     if (sent) {
       setReviewOpen(false);
       setSelectedScopeRefs(new Set());
@@ -642,9 +859,6 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
 
   const allGrants = useMemo(() => viewerProfile?.grants || [], [viewerProfile?.grants]);
 
-  // The same secure card as chat and Profile (CONTRACT-2 decision 2). Each
-  // grant opens on this device from the bundle it, or its request history,
-  // is bound to; the card owns opening, locking and ended access.
   const sharedCardItems = useMemo<SharedWithMeCardItem[]>(() => allGrants.map((grant, index) => {
     const history = viewerProfile?.requestHistory.find((item) => item.requestId === grant.requestId);
     const declared = String(history?.sensitivity ?? "").toLowerCase();
@@ -663,8 +877,23 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
       accessEndsAt: iso(grant.expiresAt),
       purpose: history?.purpose?.trim() || null,
       status: "granted",
+      ...(typeof grant.exportRevision === "number" ? { exportRevision: grant.exportRevision } : {}),
     };
   }), [allGrants, viewerProfile?.requestHistory]);
+
+  const sharedPerson = useMemo(
+    () => ({
+      personRef: viewerProfile?.personRef ?? resolvedPersonRef,
+      displayName: viewerProfile?.displayName ?? profile?.displayName ?? "Hussh member",
+      photoUrl: viewerProfile?.photoUrl ?? profile?.photoUrl ?? null,
+    }),
+    [profile?.displayName, profile?.photoUrl, resolvedPersonRef, viewerProfile?.displayName, viewerProfile?.personRef, viewerProfile?.photoUrl],
+  );
+  const sharedModel = useSharedWithYouCardModel({
+    person: sharedPerson,
+    items: sharedCardItems,
+    active: Boolean(viewerProfile && sharedCardItems.length > 0),
+  });
 
   const cancelInformationRequest = async (bundleId: string) => {
     if (!user || !userId || !vaultOwnerToken) {
@@ -761,7 +990,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
-    viewerProfile && !embedded
+    profile && viewerProfile && !embedded
       ? {
           screenId: "one_person_profile",
           title: "Person profile",
@@ -786,7 +1015,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   );
 
   usePublishVoiceSurfaceMetadata(
-    reviewOpen
+    profile && reviewOpen
       ? {
           screenId: "one_person_profile",
           title: "Review information request",
@@ -812,26 +1041,48 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
 
   if (!profile) {
     return (
-      <AppPageShell width="agent" fitContent>
+      <AppPageShell
+        as={embedded ? "div" : "main"}
+        className={embedded ? "!p-0" : undefined}
+        width="agent"
+        fitContent
+        nativeTest={{
+          routeId: "/people/[personRef]",
+          marker: "native-route-person-profile",
+          authState: "public",
+          dataState: nativeTestDataState,
+        }}
+      >
         <div
-          className="flex min-h-[50vh] items-center justify-center"
+          className={embedded ? "flex flex-col items-start gap-2" : "flex min-h-[50vh] flex-col items-center justify-center gap-2"}
           data-native-route="native-route-person-profile"
         >
-          <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
+          <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : "status"}>
             {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
           </p>
-          {publicProfileUnavailable ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
+          {publicProfileUnavailable && !profileMissing ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
         </div>
       </AppPageShell>
     );
   }
 
   return (
-    <AppPageShell width="agent" fitContent>
-      <div className={styles.page} data-native-route="native-route-person-profile">
-        <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
+    <AppPageShell
+      as={embedded ? "div" : "main"}
+      className={embedded ? "!p-0" : undefined}
+      width="agent"
+      fitContent
+      nativeTest={{
+        routeId: "/people/[personRef]",
+        marker: "native-route-person-profile",
+        authState: "public",
+        dataState: nativeTestDataState,
+      }}
+    >
+      <div className={cn(styles.page, embedded && "!pb-0")} data-calendar-profile={calendarPresentation || undefined} data-native-route="native-route-person-profile">
         <PersonProfileHero
           profile={profile}
+          network={<PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />}
           shareOnly={!viewerProfile}
           status={relationship?.status === "connected" && viewerProfile?.relationship.status === "connected" ? (
             <DropdownMenu>
@@ -1010,15 +1261,29 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
               <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
 
               {!viewerProfile ? <p role="status" className="text-sm text-muted-foreground">Checking shared information…</p> : sharedCardItems.length ? (
-                <SharedWithYouCard
-                  person={{
-                    personRef: viewerProfile.personRef,
-                    displayName: viewerProfile.displayName,
-                    photoUrl: viewerProfile.photoUrl,
-                  }}
-                  items={sharedCardItems}
-                  variant="profile"
-                />
+                <SettingsGroup density="compact" separatorInset>
+                  <SettingsRow
+                    density="compact"
+                    testId="person-profile-shared-summary-row"
+                    ariaLabel="Open shared information"
+                    title={sharedCardItems.length === 1 ? "1 item shared" : `${sharedCardItems.length} items shared`}
+                    description={joinInformationLabels(sharedCardItems.map((item) => item.label), 2)}
+                    chevron
+                    onClick={() => {
+                      if (!isVaultUnlocked) {
+                        pendingUnlockIntentRef.current = "shared";
+                        setShowUnlockDialog(true);
+                        return;
+                      }
+                      setSharedSheetOpen(true);
+                    }}
+                    trailing={
+                      <StatusPill tone={sharedModel.status === "locked" ? "neutral" : "ready"}>
+                        {sharedModel.status === "locked" ? "Locked" : "Shared"}
+                      </StatusPill>
+                    }
+                  />
+                </SettingsGroup>
               ) : (
                 <PersonProfileEmptyState
                   icon={<LockKeyhole />}
@@ -1035,20 +1300,11 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
               data-testid="person-profile-available"
             >
               <h2 id="available-to-request" className={styles.heading}>Available to request</h2>
-              {/*
-                One nested list, the same one the Memory route uses.
-
-                This section used to hand-roll its own search, its own domain
-                chips, its own grouping map and its own row, which meant a
-                person met a flat two-level list here and an unbounded drill-in
-                on their own Memory -- the same information, two products. The
-                catalogue is a set of `attr.<domain>.<path...>` references, so
-                it already knew how to nest; the page just threw the path away.
-              */}
               <fieldset disabled={!viewerProfile} className="min-w-0">
               <ConsentScopeNestedList
                 items={scopeItems}
                 renderDomainLeading={renderCategoryIcon}
+                renderItemLeading={renderScopeItemIcon}
                 searchPlaceholder="Search categories"
                 showDomainFilter
                 categorySelectionInDetail
@@ -1058,9 +1314,10 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                 selection={{
                   selectedIds: selectedScopeRefs,
                   grantedIds: grantedScopeRefs,
+                  pendingIds: pendingScopeRefs,
                   onToggleMany: (ids, select) =>
                     setSelectedScopeRefs((current) => toggleRequestScopes(
-                      allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
+                      allScopes, current, ids.filter((id) => !lockedScopeRefs.has(id)), select,
                     )),
                 }}
               />
@@ -1074,6 +1331,21 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
                   </Button>
                 </div>
               ) : null}
+              {allScopes.length ? (
+                <div className={styles.review}>
+                  <Button
+                    type="button"
+                    size="compact"
+                    variant="blue-gradient"
+                    effect="fill"
+                    disabled={!viewerProfile || !selectedScopes.length}
+                    onClick={openRequestReview}
+                    data-voice-control-id="person-profile-review-information"
+                  >
+                    Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
+                  </Button>
+                </div>
+              ) : null}
             </section>
 
             <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
@@ -1081,99 +1353,62 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
               {currentHistory?.failed ? (
                 <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
               ) : null}
-              {historyGroups.length ? (
-                <SectionCard className={styles.historyGroup}>
-                  <div className="divide-y divide-border/60">
-                    {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, itemLabels, purpose: requestPurpose, createdAt }) => {
-                      const details = bundleDetails[bundleId];
-                      const statusItems = details?.items ?? (items.length === itemCount ? items : []);
-                      const statuses = new Set(statusItems.map((item) => item.status));
-                      const grantedCount = statusItems.filter((item) => item.status === "granted").length;
-                      const statusLabel = !statusItems.length ? "Check status"
-                        : statuses.size === 1 ? historyStatusLabel(statusItems[0]!.status) : `${grantedCount} of ${itemCount} shared`;
-                      const title = historyTitle(
-                        statusItems.length ? statusItems.map((item) => item.label) : first ? [first.label] : [],
-                        itemCount,
-                        itemLabels,
-                      );
-                      return (
-                        <div key={bundleId} className={styles.historyRow}>
-                          <PersonRequestHistoryHeading title={title} requestPurpose={requestPurpose} createdAt={createdAt} />
-                          <div className={styles.historyActions}>
-                            <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
-                              {statusLabel}
-                            </StatusPill>
-                            {statusItems.filter(item => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId)).map(item => (
-                              <Button key={item.requestId} asChild type="button" variant="none" effect="fade"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}>Review request</Link></Button>
-                            ))}
-                            {!details ? (
-                              <Button
-                                type="button"
-                                size="compact"
-                                variant="none"
-                                effect="fade"
-                                disabled={loadingBundleId === bundleId}
-                                onClick={() => void loadBundleDetails(bundleId)}
-                                aria-label={`Details for ${title}`}
-                              >
-                                {loadingBundleId === bundleId ? "Loading…" : "Details"}
-                              </Button>
-                            ) : null}
-                            {statusItems.some((item) => item.status === "pending") ? (
-                              <Button
-                                type="button"
-                                size="compact"
-                                variant="none"
-                                effect="fade"
-                                disabled={cancellingBundleId === bundleId}
-                                onClick={() => void cancelInformationRequest(bundleId)}
-                              >
-                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw request"}
-                              </Button>
-                            ) : null}
-                          </div>
-                          {details ? (
-                            <p className="max-h-40 w-full overflow-y-auto text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
-                              {details.items.map((entry) => `${historyItemLabel(entry.label)} (${historyStatusLabel(entry.status).toLowerCase()})`).join(", ")}
-                              {" · "}
-                              {requestDurationLabel(Math.round(details.durationSeconds / 3600))}
-                              {details.cancelled ? " · withdrawn" : ""}
-                            </p>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
-                    <div className={styles.pagination}>
-                      <Button type="button" size="compact" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
-                      <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
-                      <Button type="button" size="compact" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
-                        if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
-                        setHistoryPage((page) => page + 1);
-                      }}>Next</Button>
-                    </div>
-                  ) : null}
-                </SectionCard>
-              ) : (
+              {historyGroups.length ? (() => {
+                const latestGroup = visibleHistoryGroups[0] ?? historyGroups[0]!;
+                const latestDetails = bundleDetails[latestGroup.bundleId];
+                const latestStatusItems =
+                  latestDetails?.items ??
+                  (latestGroup.items.length === latestGroup.itemCount ? latestGroup.items : []);
+                const latestGrantedCount = latestStatusItems.filter((item) => item.status === "granted").length;
+                const latestStatuses = new Set(latestStatusItems.map((item) => item.status));
+                const latestStatusLabel = !latestStatusItems.length
+                  ? latestGroup.cancelled
+                    ? "Withdrawn"
+                    : "Check status"
+                  : latestStatuses.size === 1
+                    ? historyStatusLabel(latestStatusItems[0]!.status)
+                    : `${latestGrantedCount} of ${latestGroup.itemCount} shared`;
+                const latestTitle = historyTitle(
+                  latestStatusItems.length
+                    ? latestStatusItems.map((item) => item.label)
+                    : latestGroup.first
+                      ? [latestGroup.first.label]
+                      : [],
+                  latestGroup.itemCount,
+                  latestGroup.itemLabels,
+                );
+                const latestWhen = formatRequestedAt(latestGroup.createdAt);
+                const totalRequestsCount = historyGroups.length;
+                return (
+                  <SettingsGroup density="compact" separatorInset>
+                    <SettingsRow
+                      density="compact"
+                      testId="person-profile-history-summary-row"
+                      ariaLabel="Open request history"
+                      title={totalRequestsCount === 1 ? "1 request" : `${totalRequestsCount} requests`}
+                      description={[`Latest: ${latestTitle}`, latestWhen].filter(Boolean).join(" · ")}
+                      chevron
+                      onClick={() => setHistorySheetOpen(true)}
+                      trailing={
+                        <StatusPill
+                          tone={
+                            latestStatusItems.length === latestGroup.itemCount &&
+                            latestGrantedCount === latestGroup.itemCount &&
+                            latestGroup.itemCount > 0
+                              ? "ready"
+                              : "neutral"
+                          }
+                        >
+                          {latestStatusLabel}
+                        </StatusPill>
+                      }
+                    />
+                  </SettingsGroup>
+                );
+              })() : (
                 <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
               )}
             </section>
-            {allScopes.length ? (
-              <div className={styles.review}>
-                <Button
-                  type="button"
-                  size="compact"
-                  variant="blue-gradient"
-                  effect="fill"
-                  disabled={!viewerProfile || !selectedScopes.length}
-                  onClick={openRequestReview}
-                  data-voice-control-id="person-profile-review-information"
-                >
-                  Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
-                </Button>
-              </div>
-            ) : null}
           </>
         ) : viewerUnavailable && user ? (
           <SectionCard className={styles.signIn}>
@@ -1197,21 +1432,199 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
           </SectionCard>
         ) : null}
       </div>
-      <PersonInformationRequestDialog open={reviewOpen} onOpenChange={setReviewOpen} displayName={profile.displayName}
-        scopes={selectedScopes} purpose={purpose} durationHours={durationHours} onPurposeChange={setPurpose} onDurationChange={setDurationHours}
-        requesting={requesting} canSubmit={Boolean(viewerProfile && purpose.trim().length >= 8 && selectedScopes.length && selectedScopes.length <= 50 && request.available)}
-        onSubmit={() => void submitRequest()}>
+      <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent
+          className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
+        >
+          <DialogHeader className="shrink-0 pr-8 text-left">
+            <DialogTitle className="[overflow-wrap:anywhere]">Request information from {profile.displayName}</DialogTitle>
+            <DialogDescription>
+              They&rsquo;ll see what you request, why, and for how long.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
+            <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
+              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting}
+              personRef={resolvedPersonRef} onPriceChange={setRequestPrice} />
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
             {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
               {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" data-consent-quiet-action="true" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
             </div> : null}
-      </PersonInformationRequestDialog>
+          </div>
+          <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
+            <Button type="button" variant="none" effect="fade" data-consent-quiet-action="true" data-consent-action-context="task" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="blue-gradient"
+              effect="fill"
+              disabled={!requestPrice || requestPrice.shortfallCoins > 0 || !viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
+              onClick={() => void submitRequest()}
+              data-voice-control-id="person-profile-request-confirm"
+            >
+              {requesting ? "Sending…" : "Send request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <PersonSharedWithYouSheet
+        open={sharedSheetOpen && sharedCardItems.length > 0}
+        onOpenChange={setSharedSheetOpen}
+        person={sharedPerson}
+        items={sharedCardItems}
+        model={sharedModel}
+        onUnlock={
+          user
+            ? () => {
+                pendingUnlockIntentRef.current = "shared";
+                setShowUnlockDialog(true);
+              }
+            : undefined
+        }
+        backPathname={pathname ?? buildPersonProfileRoute(resolvedPersonRef)}
+      />
+      <PersonRequestHistorySheet
+        open={historySheetOpen}
+        onOpenChange={setHistorySheetOpen}
+        personName={profile.displayName || "this person"}
+        returnFromPath={buildPersonProfileRoute(resolvedPersonRef)}
+        backPathname={pathname ?? buildPersonProfileRoute(resolvedPersonRef)}
+        onLoadBundleDetails={(bundleId) => void loadBundleDetails(bundleId)}
+        onCancelBundle={(bundleId) => void cancelInformationRequest(bundleId)}
+        bundles={visibleHistoryGroups.map<PersonHistoryBundleSummary>(
+          ({
+            bundleId,
+            first,
+            items,
+            itemCount,
+            itemLabels,
+            durationSeconds,
+            cancelled,
+            purpose: requestPurpose,
+            createdAt,
+          }) => {
+            const details = bundleDetails[bundleId];
+            const statusItems = details?.items ?? (items.length === itemCount ? items : []);
+            const statuses = new Set(statusItems.map((item) => item.status));
+            const grantedCount = statusItems.filter((item) => item.status === "granted").length;
+            const hasPending = statusItems.some((item) => item.status === "pending");
+            const singleStatus =
+              statuses.size === 1 ? statusItems[0]!.status : cancelled ? "cancelled" : null;
+            const statusLabel = !statusItems.length
+              ? cancelled
+                ? "Withdrawn"
+                : "Check status"
+              : statuses.size === 1
+                ? historyStatusLabel(statusItems[0]!.status)
+                : `${grantedCount} of ${itemCount} shared`;
+            const title = historyTitle(
+              statusItems.length
+                ? statusItems.map((item) => item.label)
+                : first
+                  ? [first.label]
+                  : [],
+              itemCount,
+              itemLabels,
+            );
+            const createdLabel = formatRequestedAt(createdAt);
+            const primaryRequestId =
+              statusItems.find((item) => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId))
+                ?.requestId ??
+              (first && /^[A-Za-z0-9_-]{1,128}$/.test(first.requestId) ? first.requestId : null);
+            const consentTab = hasPending
+              ? "pending"
+              : grantedCount > 0
+                ? "active"
+                : "previous";
+            return {
+              bundleId,
+              title,
+              subtitle: requestPurpose,
+              meta: createdLabel ? `Latest ${createdLabel}` : null,
+              statusLabel,
+              statusTone:
+                statusItems.length === itemCount && grantedCount === itemCount && itemCount > 0
+                  ? "ready"
+                  : "neutral",
+              consentTab,
+              primaryRequestId,
+              hasPending,
+              detailsLoaded: Boolean(details),
+              loadingDetails: loadingBundleId === bundleId,
+              cancelling: cancellingBundleId === bundleId,
+              events: buildPersonRequestTrailEvents({
+                bundleId,
+                details,
+                singleStatus,
+                itemCount,
+                durationSeconds,
+                createdAt,
+              }),
+            };
+          },
+        )}
+        pagination={
+          currentHistory?.result?.nextCursor ||
+          historyPage > 1 ||
+          (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
+            <div className={styles.pagination}>
+              <Button
+                type="button"
+                size="compact"
+                variant="none"
+                effect="fade"
+                disabled={visibleHistoryPage <= 1}
+                onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+              >
+                Previous
+              </Button>
+              <span className="text-muted-foreground">
+                {currentHistory?.result
+                  ? `Page ${visibleHistoryPage}`
+                  : `${visibleHistoryPage} of ${historyPageCount}`}
+              </span>
+              <Button
+                type="button"
+                size="compact"
+                variant="none"
+                effect="fade"
+                disabled={
+                  currentHistory?.result
+                    ? !currentHistory.result.nextCursor
+                    : visibleHistoryPage >= historyPageCount
+                }
+                onClick={() => {
+                  if (currentHistory?.result?.nextCursor) {
+                    setHistoryCursors((cursors) => [
+                      ...cursors.slice(0, historyPage),
+                      currentHistory.result!.nextCursor,
+                    ]);
+                  }
+                  setHistoryPage((page) => page + 1);
+                }}
+              >
+                Next
+              </Button>
+            </div>
+          ) : undefined
+        }
+      />
       {user ? (
         <VaultUnlockDialog
           user={user}
           open={showUnlockDialog}
-          onOpenChange={setShowUnlockDialog}
-          onSuccess={() => setShowUnlockDialog(false)}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) pendingUnlockIntentRef.current = null;
+            setShowUnlockDialog(nextOpen);
+          }}
+          onSuccess={() => {
+            const intent = pendingUnlockIntentRef.current;
+            pendingUnlockIntentRef.current = null;
+            setShowUnlockDialog(false);
+            if (intent === "shared") setSharedSheetOpen(true);
+            else if (intent === "review") setReviewOpen(true);
+          }}
           title="Unlock your vault"
           description="To view what they shared with you." presentationClassName="consent-presentation-surface"
         />

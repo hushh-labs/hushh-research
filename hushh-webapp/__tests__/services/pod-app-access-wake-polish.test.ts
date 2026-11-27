@@ -18,7 +18,7 @@ import {
   sendWhileAgentWakes,
 } from "@/lib/agent/owner-pod-wake";
 import { formatAgentChatErrorMessage } from "@/lib/services/agent-chat-client";
-import { forgetAgentAnswers, ownerPodRequest } from "@/lib/services/pod-app-access";
+import { forgetAgentAnswers, ownerPodRequest, prewarmOwnerPodChatAccess, resetCachedChatGrantsForTests } from "@/lib/services/pod-app-access";
 
 const pod = vi.hoisted(() => ({
   loadPinnedEndpoint: vi.fn(),
@@ -38,6 +38,7 @@ vi.mock("@/lib/services/owner-pod-crypto", () => ({ verifyHubSignature: pod.veri
 const URL = "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io";
 const PIN = { hushhId: "ha1_owner", url: URL, podKeyId: "podk_1", environment: "dev", endpointVersion: 2 };
 const CAPABILITIES = `${URL}/api/one/pod/agent-chat/capabilities`;
+const HEALTH = `${URL}/health`;
 const TURN = `${URL}/api/one/pod/agent-chat`;
 const turnInit = () => ({ method: "POST", body: JSON.stringify({ messages: [], forwardedProps: {} }) });
 const grants = () => new Response(JSON.stringify({
@@ -71,6 +72,7 @@ async function refusal(request: Promise<unknown>): Promise<Error & { code?: stri
 beforeEach(() => {
   vi.clearAllMocks();
   forgetAgentAnswers();
+  resetCachedChatGrantsForTests();
   pod.loadPinnedEndpoint.mockResolvedValue(PIN);
   pod.currentPodConnection.mockResolvedValue({ endpoint: PIN, session: { session: "pst1.cached" } });
 });
@@ -184,6 +186,24 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([TURN]);
   });
 
+  it.each([502, 503, 504])("never resends an accepted turn after a gateway %s", async (status) => {
+    let acceptedTurns = 0;
+    const { ports } = harness(async () => grants(), async (url) => {
+      if (url !== TURN) return new Response("{}");
+      acceptedTurns += 1;
+      return new Response("<html>upstream unavailable</html>", {
+        status, headers: { "content-type": "text/html" },
+      });
+    });
+    const wait = vi.fn(async () => undefined);
+    await expect(sendWhileAgentWakes(
+      () => ownerPodRequest("agent-chat", turnInit(), ports),
+      { isOwnerAgent: async () => true, onWaking: vi.fn(), wait, budgetMs: 1 },
+    )).rejects.toBeInstanceOf(PodSendUnconfirmedError);
+    expect(acceptedTurns).toBe(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it("asks a cold agent first, so an ingress reset provably did not send the turn", async () => {
     const { fetch, ports } = harness(async () => grants(), async (url) => {
       if (url === CAPABILITIES) throw new TypeError("Failed to fetch");
@@ -224,6 +244,28 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     const error = await refusal(ownerPodRequest("agent-chat", turnInit(), ports));
     expect(error).toBeInstanceOf(DeviceOfflineError);
     expect(formatAgentChatErrorMessage(error.message, error.code)).toMatch(/^This device is offline, so your message was not sent/);
+  });
+
+  it("consumes app-load prewarmed grants once without re-hitting chat-grants, then verifies live on subsequent turns", async () => {
+    const hub = vi.fn(async () => grants());
+    const fetch = vi.fn(async () => new Response("{}", { headers: { "content-type": "application/json" } }));
+    await prewarmOwnerPodChatAccess({
+      hosting: async () => ({ hostingMode: "byoc" }),
+      transport: async () => ({ hub, direct: vi.fn() }),
+      fetch,
+    });
+    expect(hub).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([HEALTH]);
+
+    const ports = { transport: async () => ({ hub, direct: vi.fn() }), fetch } as unknown as Parameters<typeof ownerPodRequest>[2];
+    await ownerPodRequest("agent-chat", turnInit(), ports);
+    // Consumed prewarmed grant on first turn -> still only 1 hub call and pod is already awake.
+    expect(hub).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([HEALTH, TURN]);
+
+    // Second turn still checks hub live so endpoint pinning rotation cannot be skipped.
+    await ownerPodRequest("agent-chat", turnInit(), ports);
+    expect(hub).toHaveBeenCalledTimes(2);
   });
 
   it("retries a fenced 503 on capabilities once and finishes the turn on the replacement pod", async () => {

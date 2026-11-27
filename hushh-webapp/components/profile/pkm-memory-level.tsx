@@ -35,6 +35,8 @@ export function PkmMemoryLevel({
   onBack,
   onOpenLeaf,
   sharingControls,
+  renderSharingControls,
+  coveredRootSegments,
 }: {
   domainKey: string;
   domainTitle: string;
@@ -49,6 +51,11 @@ export function PkmMemoryLevel({
   onBack: () => void;
   onOpenLeaf: (card: PkmMemoryCard) => void;
   sharingControls?: ReactNode;
+  renderSharingControls?: (opts: {
+    sectionCounts: ReadonlyMap<string, number>;
+    onOpenSection: (segment: string) => void;
+  }) => ReactNode;
+  coveredRootSegments?: ReadonlySet<string>;
 }) {
   const level = useMemo(
     () =>
@@ -64,6 +71,23 @@ export function PkmMemoryLevel({
   );
 
   const atRoot = pathStack.length === 0;
+  const rootSectionCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!atRoot) return map;
+    for (const entry of level.entries) {
+      if (entry.kind === "group") {
+        map.set(String(entry.segment), entry.childCount);
+      }
+    }
+    return map;
+  }, [atRoot, level.entries]);
+  const visibleEntries = useMemo(() => {
+    if (!atRoot || !coveredRootSegments?.size) return level.entries;
+    return level.entries.filter(
+      (entry) =>
+        !(entry.kind === "group" && coveredRootSegments.has(String(entry.segment))),
+    );
+  }, [atRoot, coveredRootSegments, level.entries]);
   const isEmpty = level.entries.length === 0;
 
   return (
@@ -93,7 +117,14 @@ export function PkmMemoryLevel({
         </h2>
       </div>
 
-      {atRoot ? sharingControls : null}
+      {atRoot
+        ? renderSharingControls
+          ? renderSharingControls({
+              sectionCounts: rootSectionCounts,
+              onOpenSection: (segment) => onDrill(segment),
+            })
+          : sharingControls
+        : null}
 
       {sharingImpactError ? (
         <p className="px-1 text-sm text-destructive">{sharingImpactError}</p>
@@ -104,9 +135,9 @@ export function PkmMemoryLevel({
           <p className="font-semibold text-foreground">This memory moved</p>
           <p>Go back and open it again.</p>
         </SurfaceInset>
-      ) : !isEmpty ? (
+      ) : visibleEntries.length > 0 ? (
         <SettingsGroup separatorInset testId={`memory-level-list-${domainKey}`}>
-          {level.entries.map((entry) =>
+          {visibleEntries.map((entry) =>
             entry.kind === "group" ? (
               <SettingsRow
                 key={entry.key}
@@ -126,21 +157,21 @@ export function PkmMemoryLevel({
             ),
           )}
         </SettingsGroup>
-      ) : loading ? (
+      ) : isEmpty && loading ? (
         <SurfaceInset className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Opening {level.title}…
         </SurfaceInset>
-      ) : error ? (
+      ) : isEmpty && error ? (
         <SurfaceInset className="space-y-1 p-4 text-sm text-muted-foreground">
           <p className="font-semibold text-foreground">This couldn’t be opened</p>
           <p>Go back and try again.</p>
         </SurfaceInset>
-      ) : (
+      ) : isEmpty ? (
         <SurfaceInset className="p-4 text-sm text-muted-foreground">
           Nothing is saved in {level.title} yet.
         </SurfaceInset>
-      )}
+      ) : null}
     </div>
   );
 }

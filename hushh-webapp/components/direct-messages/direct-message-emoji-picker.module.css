@@ -1,3 +1,9 @@
+.composerAnchor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .trigger {
   display: inline-grid;
   width: 44px;
@@ -36,12 +42,13 @@
 }
 
 .content {
+  --emoji-picker-columns: 9;
   position: relative;
   z-index: var(--z-popover, 420);
   isolation: isolate;
   display: flex;
   flex-direction: column;
-  width: min(23rem, calc(100vw - 1rem));
+  width: min(28rem, calc(100vw - 1rem));
   max-height: min(28rem, var(--radix-popover-content-available-height, 100dvh));
   padding: 0.625rem;
   border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
@@ -86,27 +93,38 @@
 }
 
 .recentList,
-.grid {
+.grid,
+.content .categories {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--emoji-picker-columns), minmax(0, 1fr));
   gap: 0.125rem;
-}
-
-.categories {
-  flex: none;
-  display: flex;
-  gap: 0.125rem;
-  margin: 0.625rem -0.125rem 0.375rem;
-  padding-bottom: 0.25rem;
-  overflow-x: auto;
+  padding: 0.125rem;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
-.categoryButton {
+.recentList,
+.content .categories {
+  overflow: hidden;
+}
+
+.content .categories {
+  flex: none;
+  height: auto;
+  min-height: 0;
+  margin: 0.5rem 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.categories :global(button[role="tab"]) {
   display: inline-grid;
-  width: 2.75rem;
-  min-width: 2.75rem;
+  width: 100%;
+  min-width: 0;
   height: 2.75rem;
+  min-height: 2.75rem;
   padding: 0;
   place-items: center;
   border: 0;
@@ -115,23 +133,24 @@
   color: var(--muted-foreground);
   cursor: pointer;
   font-size: 1rem;
+  box-shadow: none;
 }
 
-.categoryButton[aria-selected="true"] {
+.categories :global(button[aria-selected="true"]) {
   border-bottom-color: var(--app-accent);
   color: var(--foreground);
 }
 
-.categoryButton:focus-visible,
+.categories :global(button:focus-visible),
 .emojiButton:focus-visible {
   outline: 2px solid var(--app-accent);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
 .grid {
   min-height: 0;
   max-height: min(18rem, 42vh);
-  padding-right: 0.125rem;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -166,15 +185,22 @@
   text-align: center;
 }
 
-@media (max-width: 28rem) {
+@media (max-width: 29rem) {
   .content {
+    --emoji-picker-columns: 6;
     max-height: min(26rem, var(--radix-popover-content-available-height, calc(100svh - 2rem)));
-    width: min(20rem, calc(100vw - 0.75rem));
+    width: min(23rem, calc(100vw - 1rem));
+  }
+}
+
+@media (max-width: 21rem) {
+  .content {
+    --emoji-picker-columns: 5;
   }
 
-  .recentList,
-  .grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+  .emojiButton {
+    height: 2.75rem;
+    aspect-ratio: auto;
   }
 }
 

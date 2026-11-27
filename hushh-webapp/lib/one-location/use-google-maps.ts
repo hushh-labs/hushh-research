@@ -24,10 +24,12 @@ let loadPromise: Promise<void> | null = null;
 // flag and notify hooks so every <LiveMap> degrades to the iframe fallback
 // instead of showing Google's gray error overlay.
 let authFailed = false;
+let authHandlerInstalled = false;
 const authListeners = new Set<() => void>();
 
 function installAuthFailureHandler(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || authHandlerInstalled) return;
+  authHandlerInstalled = true;
   const previous = window.gm_authFailure;
   window.gm_authFailure = () => {
     authFailed = true;
@@ -53,7 +55,11 @@ function loadGoogleMaps(): Promise<void> {
     // so the picker resolves the pinned address via Places nearest-place lookup
     // (the same path the backend/Your Map uses) instead of google.maps.Geocoder.
     loader.importLibrary("places"),
-  ]).then(() => undefined);
+  ]).then(() => undefined).catch((error) => {
+    // Let the next picker mount retry a transient script/network failure.
+    loadPromise = null;
+    throw error;
+  });
   return loadPromise;
 
 }
@@ -100,6 +106,7 @@ export function useGoogleMaps({ enabled = true }: { enabled?: boolean } = {}): {
 export function __resetGoogleMapsLoaderForTests(): void {
   loadPromise = null;
   authFailed = false;
+  authHandlerInstalled = false;
   authListeners.clear();
   if (typeof window !== "undefined") {
     delete window.gm_authFailure;

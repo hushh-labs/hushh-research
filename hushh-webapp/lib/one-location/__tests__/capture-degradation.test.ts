@@ -251,6 +251,45 @@ describe("captureCurrentPosition freshness policy after delegation", () => {
   });
 });
 
+describe("recent SOS measurements", () => {
+  it("reuses only a bounded same-session measurement after a failed refresh", async () => {
+    await LocationBus.attachUser(USER);
+    const measured = point({ capturedAt: new Date(Date.now() - 31_000).toISOString() });
+    mockLocation.getCurrentPosition.mockResolvedValueOnce(measured);
+    await OneLocationService.captureCurrentPosition();
+    mockLocation.getCurrentPosition.mockRejectedValue(positionUnavailable());
+
+    await expect(OneLocationService.captureCurrentPosition({ requireMeasurement: true }))
+      .rejects.toThrow();
+    expect(OneLocationService.getRecentSosPosition(USER)).toMatchObject({
+      latitude: measured.latitude,
+      longitude: measured.longitude,
+      capturedAt: measured.capturedAt,
+    });
+    expect(OneLocationService.getRecentSosPosition("other-account")).toBeNull();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 30_000);
+    try {
+      expect(OneLocationService.getRecentSosPosition(USER)).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("discards a measurement completing after an account switch", async () => {
+    await LocationBus.attachUser(USER);
+    let finish!: (value: ReturnType<typeof point>) => void;
+    mockLocation.getCurrentPosition.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const oldCapture = OneLocationService.captureCurrentPosition();
+    const oldRejected = expect(oldCapture).rejects.toThrow("Location session changed.");
+    await LocationBus.attachUser("other-account");
+    finish(point());
+    await oldRejected;
+    expect(LocationBus.getState().snapshot).toBeNull();
+    expect(OneLocationService.getRecentSosPosition("other-account")).toBeNull();
+  });
+});
+
 describe("captureCurrentPosition and the previous session's fix", () => {
   it("serves the restored fix rather than failing a cold start", async () => {
     const restored = point({

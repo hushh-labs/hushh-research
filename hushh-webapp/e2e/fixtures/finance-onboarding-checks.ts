@@ -1,9 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-// A paused CSS animation freezes on the next style recalculation, so the frame
-// read straight after a pause can still be one frame behind the frozen one.
-// Treat a value as frozen only once two reads a frame apart agree; a pause that
-// never takes hold keeps changing and fails the poll instead of passing.
+async function answerPersona(page: Page) {
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+}
+
+// A paused CSS animation freezes on the next style recalculation. Two matching
+// reads avoid mistaking the transition frame for the paused state.
 async function frozenTransform(locator: Locator): Promise<string> {
   let previous = "";
   await expect
@@ -158,7 +160,7 @@ export function registerFinanceOnboardingChecks(
           await page
             .getByRole("button", { name: "Continue", exact: true })
             .click();
-          await page.getByRole("button", { name: "Skip for now" }).click();
+          await answerPersona(page);
           await expect(
             page.getByRole("button", { name: /Connect an account/ }),
           ).toBeVisible();
@@ -235,7 +237,7 @@ export function registerFinanceOnboardingChecks(
         await expect(
           page.getByRole("heading", { name: "Know what you own." }),
         ).toBeVisible();
-        await page.getByRole("button", { name: "Next", exact: true }).click();
+        await page.getByRole("button", { name: "Show Stocks introduction" }).click();
         await expect(
           page.getByRole("heading", { name: "Let three agents debate." }),
         ).toBeVisible();
@@ -248,7 +250,7 @@ export function registerFinanceOnboardingChecks(
         await page
           .getByRole("button", { name: "Continue", exact: true })
           .click();
-        await page.getByRole("button", { name: "Skip for now" }).click();
+        await answerPersona(page);
         const bank = page.getByRole("button", { name: /Connect an account/ });
         const statement = page.getByRole("button", {
           name: /Upload a statement/,
@@ -257,26 +259,12 @@ export function registerFinanceOnboardingChecks(
         const a = (await bank.boundingBox())!;
         const b = (await statement.boundingBox())!;
         const c = (await sample.boundingBox())!;
-        if (width >= 768) {
-          expect(a.x + a.width).toBeLessThan(b.x);
-          expect(c.x).toBe(b.x);
-          const connect = (await page
-            .getByRole("button", { name: "Connect account", exact: true })
-            .boundingBox())!;
-          const skip = (await page
-            .getByRole("button", { name: "Skip for now", exact: true })
-            .boundingBox())!;
-          const center = (a.x + b.x + b.width) / 2;
-          expect(
-            Math.abs(connect.x + connect.width / 2 - center),
-          ).toBeLessThanOrEqual(1);
-          expect(
-            Math.abs(skip.x + skip.width / 2 - center),
-          ).toBeLessThanOrEqual(1);
-        } else {
-          expect(a.y + a.height).toBeLessThan(b.y);
-          expect(c.y).toBe(b.y);
-        }
+        expect(a.y + a.height).toBeLessThan(b.y);
+        expect(b.y + b.height).toBeLessThan(c.y);
+        expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(b.width - c.width)).toBeLessThanOrEqual(1);
+        await expect(page.getByText("Recommended")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Connect account", exact: true })).toHaveCount(0);
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth <= innerWidth,
@@ -288,10 +276,6 @@ export function registerFinanceOnboardingChecks(
           path: pickerPath,
           contentType: "image/png",
         });
-        await sample.click();
-        expect(
-          await page.evaluate(() => document.body.dataset.sourceAction),
-        ).toBeUndefined();
         await page
           .getByRole("button", { name: "Skip for now", exact: true })
           .click();
@@ -342,7 +326,7 @@ export function registerFinanceOnboardingChecks(
     });
     expect(clearance).toBeGreaterThanOrEqual(4);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page.getByRole("button", { name: "Skip for now" }).click();
+    await answerPersona(page);
     await page
       .getByRole("button", { name: "Skip for now", exact: true })
       .click();
@@ -359,7 +343,7 @@ export function registerFinanceOnboardingChecks(
         reducedMotion: width === 390 ? "reduce" : "no-preference",
       });
       await mount(page, width);
-      await page.getByRole("button", { name: "Skip", exact: true }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await expect(
         page.getByRole("heading", {
           name: "Let’s build your financial persona",
@@ -368,7 +352,7 @@ export function registerFinanceOnboardingChecks(
       const groups = page
         .getByRole("group")
         .filter({ has: page.getByRole("radio") });
-      await expect(groups).toHaveCount(4);
+      await expect(groups).toHaveCount(3);
       await expect
         .poll(() =>
           groups
@@ -382,12 +366,7 @@ export function registerFinanceOnboardingChecks(
         .toBe(0);
       const first = (await groups.nth(0).boundingBox())!;
       const second = (await groups.nth(1).boundingBox())!;
-      if (width === 390) {
-        expect(second.y).toBeGreaterThan(first.y + first.height);
-      } else {
-        expect(second.x).toBeGreaterThan(first.x + first.width);
-        expect(second.y).toBe(first.y);
-      }
+      expect(second.y).toBeGreaterThan(first.y + first.height);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
       ).toBeLessThanOrEqual(width);
@@ -408,14 +387,6 @@ export function registerFinanceOnboardingChecks(
         })
         .check();
       await page.getByRole("button", { name: "Save persona" }).click();
-      const badge = page.getByText("Growth-oriented", { exact: true });
-      await expect(badge).toBeVisible();
-      expect(
-        await badge.evaluate(
-          (el) => getComputedStyle(el).animationName === "none",
-        ),
-      ).toBe(width === 390);
-      await page.getByRole("button", { name: "Continue to import" }).click();
       await expect(
         page.getByRole("button", { name: /Connect an account/ }),
       ).toBeVisible();
@@ -426,12 +397,9 @@ export function registerFinanceOnboardingChecks(
     page,
   }) => {
     await mount(page, 393);
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await answerPersona(page);
     await page.getByRole("button", { name: /Try a sample/ }).click();
-    await page
-      .getByRole("button", { name: "Load sample", exact: true })
-      .click();
     expect(await page.evaluate(() => document.body.dataset.sourceAction)).toBe(
       "sample",
     );

@@ -54,7 +54,7 @@
   align-items: stretch;
   min-width: 0;
   gap: 6px;
-  padding: 20px var(--task-surface-pad) 18px;
+  padding: 20px var(--task-surface-pad) 12px;
   text-align: start;
 }
 
@@ -179,10 +179,10 @@
   .adaptive :global([data-slot="sheet-drag-handle"]) { display: none; }
   .adaptive:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 24px; }
   .adaptive:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 16px; }
-  :global(html.native-reserved-chrome:not([data-session-check-active])) .adaptive.adaptive[data-sheet-side="bottom"] {
+  :global(html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active])) .adaptive.adaptive[data-sheet-side="bottom"] {
     top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
     bottom: auto;
-    max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 32px);
+    max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 32px) !important;
   }
 }
 

@@ -4,6 +4,13 @@ import { ApiService } from "@/lib/services/api-service";
 export type ConnectionRelationship =
   "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
+export type MutualConnectionPreview = { displayName: string | null; photoUrl: string | null; publicPersonRef?: string | null };
+export type MutualConnectionMetadata = {
+  mutualConnectionCount?: number;
+  mutualConnectionPreview?: MutualConnectionPreview | null;
+  mutualConnectionPreviews?: MutualConnectionPreview[];
+};
+
 /**
  * Which part of the directory a search is asking about.
  *
@@ -21,7 +28,7 @@ export type ConnectionReportReason =
   | "impersonation"
   | "other";
 
-export interface DirectoryPerson {
+export interface DirectoryPerson extends MutualConnectionMetadata {
   userId: string;
   publicPersonRef?: string | null;
   displayName: string | null;
@@ -30,9 +37,6 @@ export interface DirectoryPerson {
   maskedEmail?: string | null;
   maskedPhone?: string | null;
   relationship: ConnectionRelationship;
-  /** Absent until the backend supports shared-neighbor discovery. */
-  mutualConnectionCount?: number;
-  mutualConnectionPreview?: { displayName: string; photoUrl: string | null; publicPersonRef?: string | null } | null;
   /**
    * Whether this person holds an RIA profile verified far enough to carry a
    * capability. Server-annotated on the row rather than inferred from which tab
@@ -51,21 +55,24 @@ export interface DirectoryPage {
 
 export interface MutualConnectionsPage {
   person: { publicPersonRef: string; displayName: string | null };
-  items: { publicPersonRef: string; displayName: string | null; photoUrl: string | null }[];
+  items: NetworkPerson[];
   page: number;
   hasMore: boolean;
   totalCount: number;
 }
 
 export type NetworkDegree = 1 | 2 | 3;
-export type NetworkPerson = { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null };
-export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
+export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship; suggestionReason?: "verified_advisor" | "name_match" | "public_profile" };
+export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; suggestions?: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
 export type NetworkSummary = {
   person: { publicPersonRef: string; displayName: string | null };
   networkDegree: NetworkDegree | null;
   mutualConnectionCount: number;
   mutualConnectionPreview: NetworkPerson | null;
+  /** Up to two, in a stable order; absent from an older server. */
+  mutualConnectionPreviews?: NetworkPerson[];
   canBrowseConnections: boolean;
+  visibleConnectionCount?: number | null;
 };
 
 export type ConnectionPersonContext = {
@@ -298,11 +305,12 @@ export class ConnectionsService {
     }));
   }
 
-  static async listNetwork(opts: { idToken: string; personRef?: string; degree?: NetworkDegree; query?: string; page: number; signal?: AbortSignal }): Promise<NetworkPage> {
+  static async listNetwork(opts: { idToken: string; personRef?: string; degree?: NetworkDegree; query?: string; page: number; includeSuggestions?: boolean; signal?: AbortSignal }): Promise<NetworkPage> {
     const params = new URLSearchParams({ page: String(opts.page), limit: "20" });
     if (opts.personRef) params.set("person_ref", opts.personRef);
     if (opts.degree) params.set("degree", String(opts.degree));
     if (opts.query?.trim()) params.set("query", opts.query.trim());
+    if (opts.includeSuggestions) params.set("include_suggestions", "true");
     return jsonOrThrow<NetworkPage>(await ApiService.apiFetch(`/api/one/connections/network?${params}`, {
       method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
     }));
@@ -317,7 +325,7 @@ export class ConnectionsService {
   }
   static async getPersonContext(opts: { idToken: string; counterpartUserId: string }): Promise<ConnectionPersonContext> {
     const response = await ApiService.apiFetch(`/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/context`,
-      { method: "GET", headers: authHeaders(opts.idToken) });
+      { method: "GET", cache: "no-store", headers: authHeaders(opts.idToken) });
     const result = await jsonOrThrow<ConnectionPersonContext>(response);
     if (!result || result.person?.userId !== opts.counterpartUserId || !["none","connected","pending_incoming","pending_outgoing"].includes(result.person.relationship)
       || (result.request && (typeof result.request.id !== "string" || !result.request.id || !["incoming","outgoing"].includes(result.request.direction) || !["pending","accepted","rejected","cancelled","expired"].includes(result.request.status)))
@@ -414,10 +422,14 @@ export class ConnectionsService {
     limit?: number;
     audience?: DirectoryAudience;
     nameOnly?: boolean;
+    typedSearch?: boolean;
+    excludeConnected?: boolean;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.nameOnly) params.set("name_only", "true");
+    if (opts.typedSearch) params.set("typed_search", "true");
+    if (opts.excludeConnected) params.set("exclude_connected", "true");
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
     // Omitted rather than sent as "all", so the request a pre-split caller
@@ -472,6 +484,7 @@ export class ConnectionsService {
     limit?: number;
     query?: string;
     audience?: ConnectionAudience;
+    accountCheck?: "observe" | "reconcile";
     /** A complete owner-memory scan must reject malformed 2xx pages, never normalize them to empty. */
     sourceRead?: boolean;
   }): Promise<ConnectionPage> {
@@ -481,6 +494,7 @@ export class ConnectionsService {
       audience: opts.audience ?? "all",
     });
     if (opts.query?.trim()) params.set("query", opts.query.trim());
+    if (opts.accountCheck) params.set("account_check", opts.accountCheck);
     const response = await ApiService.apiFetch(
       `/api/one/connections?${params.toString()}`,
       { method: "GET", headers: authHeaders(opts.idToken) },
@@ -572,12 +586,14 @@ export class ConnectionsService {
     message?: string;
     requestedScopeHandles?: string[];
     offeredScopeHandles?: string[];
+    signal?: AbortSignal;
   }): Promise<ConnectionRequest> {
     const activityOwner = snapshotLiveActivityOwner();
     const response = await ApiService.apiFetch(
       "/api/one/connections/requests",
       {
         method: "POST",
+        ...(opts.signal ? { signal: opts.signal } : {}),
         headers: authHeaders(opts.idToken),
         body: JSON.stringify({
           addressee_user_id: opts.addresseeUserId,

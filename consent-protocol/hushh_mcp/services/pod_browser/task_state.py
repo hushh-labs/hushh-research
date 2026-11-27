@@ -42,6 +42,7 @@ class BrowserTaskState:
     starting: asyncio.Task | None = field(default=None, repr=False)
     input_worker: asyncio.Task | None = field(default=None, repr=False)
     save_worker: asyncio.Task | None = field(default=None, repr=False)
+    credential_worker: asyncio.Task | None = field(default=None, repr=False)
     input_commitment: str | None = field(default=None, repr=False)
     delivery_id: str | None = None
     delivery_attached: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
@@ -68,4 +69,5 @@ class BrowserTaskState:
         self.request = self.access = self.processing = self.consent = None
         self.sessions = self.authority = self.control = None
         self.worker = self.monitor = self.input_worker = self.starting = self.save_worker = None
+        self.credential_worker = None
         self.input_commitment = None

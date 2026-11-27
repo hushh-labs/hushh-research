@@ -120,11 +120,24 @@ def evaluate_import_quality_gate_v2(
     placeholder_symbol_count: int,
     account_header_row_count: int,
     expected_total_value: float | None,
+    expected_position_count: int | None = None,
     core_keys_present: bool = True,
     rows_with_symbol_pct: float = 0.0,
     rows_with_market_value_pct: float = 0.0,
 ) -> tuple[bool, dict[str, Any]]:
+    """Compare extracted securities to the printed securities subtotal and count, when known."""
     holdings_count = len(holdings)
+    securities = [row for row in holdings if not row.get("is_cash_equivalent")]
+    security_count = len({str(row["symbol"]).upper() for row in securities if row.get("symbol")})
+    expected_value = _coerce_optional_number(expected_total_value)
+    values = [_coerce_optional_number(row.get("market_value")) for row in securities]
+    securities_value = round(math.fsum(value for value in values if value is not None), 2)
+    gap = (
+        round(expected_value - securities_value, 2)
+        if expected_value is not None and None not in values
+        else None
+    )
+    reconciled = abs(gap) <= 0.01 if gap is not None else None
     reasons: list[str] = []
     severity = "pass"
 
@@ -141,6 +154,14 @@ def evaluate_import_quality_gate_v2(
             warn_reasons.append("low_symbol_coverage")
         if rows_with_market_value_pct < 0.5:
             warn_reasons.append("low_market_value_coverage")
+        if expected_position_count is not None and security_count != expected_position_count:
+            warn_reasons.append("statement_security_count_mismatch")
+        if expected_value is not None and reconciled is not True:
+            warn_reasons.append(
+                "statement_securities_value_mismatch"
+                if reconciled is False
+                else "statement_market_values_missing"
+            )
         if warn_reasons:
             severity = "warn"
             reasons.extend(warn_reasons)
@@ -157,12 +178,15 @@ def evaluate_import_quality_gate_v2(
         # Compatibility/telemetry fields retained
         "placeholder_symbol_count": placeholder_symbol_count,
         "account_header_row_count": account_header_row_count,
-        "expected_total_value": _coerce_optional_number(expected_total_value),
+        "expected_total_value": expected_value,
+        "declared_security_count": expected_position_count,
+        "extracted_security_count": security_count,
+        "securities_market_value_sum": securities_value,
         "holdings_market_value_sum": round(
             sum(_coerce_optional_number(row.get("market_value")) or 0.0 for row in holdings), 2
         ),
-        "reconciliation_gap": 0.0,
-        "reconciled_within_cent": True,
+        "reconciliation_gap": gap,
+        "reconciled_within_cent": reconciled,
     }
 
 

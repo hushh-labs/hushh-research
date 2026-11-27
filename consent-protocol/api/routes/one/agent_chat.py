@@ -10,20 +10,27 @@ import re
 import uuid
 from typing import Any, cast
 
-from ag_ui.core import RunAgentInput
+from ag_ui.core import RunAgentInput, Tool
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.sessions import InMemorySessionService
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, log_chat_key_refusal
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_pod_process
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_DESCRIPTION,
+    ACCOUNT_CONTEXT_PARAMETERS,
+    ACCOUNT_CONTEXT_TOOL,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -53,6 +60,7 @@ from hushh_mcp.one_adk.consent_continuation import (
     continued_outcomes,
 )
 from hushh_mcp.one_adk.conversation_titles import ensure_conversation_titles
+from hushh_mcp.one_adk.email_memory_turn import admit_email_memory
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -61,6 +69,7 @@ from hushh_mcp.one_adk.feed_attention import (
     FeedAttentionError,
     admit_feed_attention,
 )
+from hushh_mcp.one_adk.finance_chat_cards import STATE_PORTFOLIO_SWITCH_ENABLED
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text as _event_text,
 )
@@ -92,6 +101,9 @@ from hushh_mcp.one_adk.history_descriptors import (
     _safe_submitted_information_request_descriptor as _safe_submitted_information_request_descriptor,
 )
 from hushh_mcp.one_adk.history_descriptors import (
+    _session_category_projection,
+)
+from hushh_mcp.one_adk.history_descriptors import (
     _session_title as _session_title,
 )
 from hushh_mcp.one_adk.history_descriptors import (
@@ -117,12 +129,36 @@ from hushh_mcp.one_adk.history_projection import (
     _safe_workspace_connector_setup_descriptor as _safe_workspace_connector_setup_descriptor,
 )
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
+from hushh_mcp.one_adk.location_chat_proposal import (
+    STATE_LOCATION_CHAT_CONTINUATION,
+    STATE_LOCATION_CHAT_CONVERSATION,
+    STATE_LOCATION_CHAT_REVIEW,
+    admit_location_chat_continuation,
+    admit_location_chat_review,
+)
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
     admit_pending_email_draft,
+)
+from hushh_mcp.one_adk.plaid_connector_tools import (
+    STATE_PLAID_CLIENT_READY,
+    STATE_PLAID_POSTURE,
+    STATE_PLAID_RESULT,
+)
+from hushh_mcp.one_adk.plaid_turn_admission import (
+    admit_plaid_continuation,
+    admit_plaid_posture,
+    admit_plaid_tool,
+)
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_DESCRIPTION,
+    PORTFOLIO_CONTEXT_PARAMETERS,
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
@@ -139,6 +175,16 @@ from hushh_mcp.one_adk.turn_completion import (
     notify_one_reply,
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
+from hushh_mcp.one_adk.wiki_recall_tools import (
+    STATE_WIKI_CLIENT_READY,
+    STATE_WIKI_HOT_DIGEST,
+    STATE_WIKI_RESULT,
+)
+from hushh_mcp.one_adk.wiki_turn_admission import (
+    admit_wiki_continuation,
+    admit_wiki_hot_digest,
+    admit_wiki_tool,
+)
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.runtime_providers import bind_managed_vertex_project
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
@@ -190,6 +236,18 @@ def admit_client_tools(tools: list[Any]) -> list[Any]:
             raise HTTPException(
                 status_code=400, detail="Receipt tool contract is invalid."
             ) from None
+        try:
+            if admit_wiki_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Wiki tool contract is invalid.") from None
+        try:
+            if admit_plaid_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Plaid tool contract is invalid.") from None
         action_id = action_id_from_tool_name(tool.name)
         if action_id and get_action_gateway_action(action_id) is not None:
             admitted.append(tool)
@@ -345,13 +403,10 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
     )
 
 
-async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
-    if any(message.role == "system" for message in input_data.messages):
-        raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
-    from hushh_mcp.one_adk.receipt_client_tools import (
-        STATE_RECEIPT_RESULT,
-    )
-
+async def _resolve_turn_credentials(
+    request: Request,
+) -> tuple[str | None, str | None, dict[str, Any] | None, str]:
+    """Resolve the existing chat credentials and refuse mixed owners."""
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
@@ -375,6 +430,20 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
         if token is not None and firebase_uid != token["user_id"]:
             raise HTTPException(status_code=403, detail="Credential owner mismatch")
+    return authorization, consent_header, token, firebase_uid
+
+
+async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
+    if any(message.role == "system" for message in input_data.messages):
+        raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
+    from hushh_mcp.one_adk.receipt_client_tools import (
+        STATE_RECEIPT_RESULT,
+    )
+
+    authorization, consent_header, token, firebase_uid = await _resolve_turn_credentials(request)
     owner_id = (token or {}).get("user_id") or firebase_uid  # Firebase-only is still an owner.
     await admit_hub_content(owner_id, "agent_chat", resolve_mode=get_owner_hosting_mode)
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
@@ -417,6 +486,31 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                     "code": "CHAT_CONVERSATION_RETIRED",
                 },
             )
+    account_contract = forwarded.pop("accountContextContract", None)
+    account_enabled = bool(
+        token and user_id and type(account_contract) is int and account_contract == 1
+    )
+    if account_enabled:
+        input_data.tools.append(
+            Tool(
+                name=ACCOUNT_CONTEXT_TOOL,
+                description=ACCOUNT_CONTEXT_DESCRIPTION,
+                parameters=ACCOUNT_CONTEXT_PARAMETERS,
+            )
+        )
+    portfolio_contract = forwarded.pop("portfolioContextContract", None)
+    portfolio_switch_contract = forwarded.pop("portfolioSwitchContract", None)
+    portfolio_enabled = bool(
+        token and user_id and type(portfolio_contract) is int and portfolio_contract == 1
+    )
+    if portfolio_enabled:
+        input_data.tools.append(
+            Tool(
+                name=PORTFOLIO_CONTEXT_TOOL,
+                description=PORTFOLIO_CONTEXT_DESCRIPTION,
+                parameters=PORTFOLIO_CONTEXT_PARAMETERS,
+            )
+        )
     drive_search_selection = await _admit_drive_search_selection(
         forwarded.get("driveSearchSelection"),
         request=request,
@@ -496,6 +590,52 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         raise HTTPException(
             status_code=403, detail="Receipt continuation is unavailable. Ask again."
         ) from None
+    try:
+        wiki_result = await admit_wiki_continuation(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            messages=input_data.messages,
+            execution_head=_one_head,
+            load_session=lambda: _shared_sessions().get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Wiki continuation is unavailable. Ask again."
+        ) from None
+    try:
+        wiki_hot_digest, wiki_client_ready = admit_wiki_hot_digest(
+            forwarded, owner_admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=413, detail="Personal wiki hot digest exceeds the request budget."
+        ) from None
+    try:
+        plaid_result = await admit_plaid_continuation(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            messages=input_data.messages,
+            execution_head=_one_head,
+            load_session=lambda: _shared_sessions().get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Plaid continuation is unavailable. Ask again."
+        ) from None
+    try:
+        plaid_posture, plaid_client_ready = admit_plaid_posture(
+            forwarded, owner_admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=413, detail="Plaid posture exceeds the request budget."
+        ) from None
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
@@ -505,12 +645,19 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The owner's consented memory for this turn: Soul.md, then the bounded
     # Live Mirror facts packet. Popped before the bridge can copy forwarded
     # props; only an unlocked owner turn stores it (below).
-    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
+    if len(raw_pkm_context) > 128_000:
+        raise HTTPException(413, detail="Private memory context exceeds the request budget")
+    try:
+        email_memory = admit_email_memory(
+            forwarded, user_id=user_id, admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Email memory context is invalid.") from None
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
     forwarded.pop("receiptMemory", None)
-    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -524,13 +671,29 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
-        consume_request_secret(receipt_memory)
-        receipt_memory = ""
+        consume_request_secret(wiki_hot_digest)
+        wiki_hot_digest = ""
+        wiki_client_ready = False
+        consume_request_secret(plaid_posture)
+        plaid_posture = ""
+        plaid_client_ready = False
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
+    location_review = admit_location_chat_review(forwarded, owner_admitted=bool(token and user_id))
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_LOCATION_CHAT_REVIEW: location_review,
+        STATE_LOCATION_CHAT_CONVERSATION: location_review
+        and forwarded.get("locationChatConversation") is True,
+        STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
+            forwarded, owner_admitted=bool(token and user_id)
+        ),
+        "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
+        and forwarded.get("calendarReviewContract") == 1,
+        "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
+        and forwarded.get("emailAgentContract") == 1,
+        "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
@@ -548,14 +711,30 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # Only a draft-contract-2 app fills the card from the result's envelope; older
         # installed apps show the call's own To, Cc and Bcc (mail_instruction.py).
         "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
+        "temp:hussh:email_read_coverage": forwarded.get("emailReadReceiptContract") == 2,
         # Typed chat carries the current screen snapshot in this request. It
         # must not inherit a stale live-voice publication that is still marked
         # as settling; that would suppress the consent confirmation card even
         # while the current browser frame is idle.
         "hussh:typed_chat_context": True,
+        "temp:hussh:split_dynamic_context": not bool(
+            consent_continuation.get("temp:hussh:consent_continuation")
+        ),
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
+        if token
+        else "",
+        **email_memory,
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
+        STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
+        STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_enabled,
+        STATE_PORTFOLIO_SWITCH_ENABLED: bool(
+            token
+            and user_id
+            and type(portfolio_switch_contract) is int
+            and portfolio_switch_contract == 1
+        ),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -567,8 +746,15 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
-        STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_MEMORY: "",
         STATE_RECEIPT_RESULT: receipt_result,
+        STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
+        STATE_WIKI_CLIENT_READY: wiki_client_ready,
+        STATE_WIKI_RESULT: wiki_result,
+        STATE_PLAID_POSTURE: plaid_posture,
+        STATE_PLAID_CLIENT_READY: plaid_client_ready,
+        STATE_PLAID_RESULT: plaid_result,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
 
 
@@ -688,6 +874,7 @@ def _one_head() -> TimedADKAgent:
         user_id_extractor=_user_id,
     )
     agent.detached_turn_hook = _notify_detached_turn
+    agent.post_turn_hook = _persist_hub_rolling_horizon
     return agent
 
 
@@ -724,6 +911,18 @@ def __getattr__(name: str) -> Any:
     if name == "_intro_agent":
         return _intro_head()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+async def _persist_hub_rolling_horizon(owner_id: str, conversation_id: str) -> None:
+    """Silently persist encrypted rolling-horizon digest after RUN_FINISHED (zero turn pause)."""
+    from hushh_mcp.one_adk.rolling_horizon import persist_rolling_horizon_post_turn
+
+    await persist_rolling_horizon_post_turn(
+        _shared_sessions(),
+        app_name=ONE_APP_NAME,
+        user_id=owner_id,
+        session_id=conversation_id,
+    )
 
 
 async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
@@ -765,7 +964,14 @@ mark_inline_routes(router, "/api/one/agent-chat", "agent_chat")  # _extract_stat
 
 
 class RenameConversation(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    category: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _require_mutation(self) -> RenameConversation:
+        if self.title is None and "category" not in self.model_fields_set:
+            raise ValueError("Provide title or category.")
+        return self
 
 
 @router.post("/api/one/agent-chat/history/{conversation_id}/information-requests")
@@ -795,6 +1001,59 @@ async def record_information_request_submission(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get("/api/one/agent-chat/migration/sessions")
+async def export_migration_sessions(
+    user_id: str = Depends(require_firebase_auth),
+) -> JSONResponse:
+    """Export sealed owner-encrypted Shared chat rows for ACE migration without Hub decryption."""
+    from datetime import datetime, timezone
+
+    from hushh_mcp.one_adk.adk_session_repository import PostgresAdkSessionRepository
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
+
+    sessions_service = _shared_sessions()
+    repo = PostgresAdkSessionRepository(lambda sql, params: sessions_service._execute(sql, params))
+    result = await repo.list_sealed_for_migration(
+        app=ONE_APP_NAME, user=user_id, chat_marker=CHAT_CIPHERTEXT_LIKE
+    )
+    exported: list[dict[str, Any]] = []
+    for raw in result.data or []:
+        row = dict(raw)
+        row_user = str(row.get("user_id") or user_id).strip()
+        session_id = str(row.get("session_id") or "").strip()
+        ciphertext = str(row.get("payload_ciphertext") or "")
+        if row_user != user_id or not session_id or not ciphertext:
+            continue
+        updated_raw = row.get("updated_at")
+        if isinstance(updated_raw, datetime):
+            if updated_raw.tzinfo is None:
+                updated_raw = updated_raw.replace(tzinfo=timezone.utc)
+            updated_at = updated_raw.isoformat()
+        else:
+            updated_at = str(updated_raw or "")
+        exported.append(
+            {
+                "app_name": str(row.get("app_name") or ONE_APP_NAME),
+                "user_id": row_user,
+                "session_id": session_id,
+                "payload_ciphertext": ciphertext,
+                "payload_iv": str(row.get("payload_iv") or ""),
+                "payload_tag": str(row.get("payload_tag") or ""),
+                "payload_algorithm": str(row.get("payload_algorithm") or ""),
+                "revision": int(row.get("revision") or 1),
+                "updated_at": updated_at,
+            }
+        )
+    return JSONResponse(
+        {
+            "status": "ready" if exported else "empty",
+            "sessions": exported,
+            "count": len(exported),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/api/one/agent-chat/conversations/{user_id}", dependencies=HUB_CHAT_GUARD)
 async def list_conversations(
     user_id: str,
@@ -820,6 +1079,8 @@ async def list_conversations(
             {
                 "id": session.id,
                 "title": _session_title(session),
+                "category": category,
+                "category_source": category_source,
                 "status": "active",
                 "model": None,
                 "message_count": sum(1 for event in session.events if _event_text(event)),
@@ -828,6 +1089,7 @@ async def list_conversations(
                 "last_message_at": session.last_update_time,
             }
             for session in sessions
+            for category, category_source in [_session_category_projection(session)]
         ],
     }
 
@@ -865,6 +1127,7 @@ async def _consent_access_for_history(
 async def conversation_history(
     conversation_id: str,
     limit: int = Query(default=50, ge=1, le=100),
+    before: str | None = Query(default=None, max_length=160),
     token: dict = Depends(require_vault_owner_chat_key),
 ):
     user_id = str(token["user_id"])
@@ -882,6 +1145,7 @@ async def conversation_history(
         session.events,
         conversation_id,
         limit,
+        before_id=before,
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
@@ -929,19 +1193,36 @@ async def rename_conversation(
     payload: RenameConversation,
     token: dict = Depends(require_vault_owner_chat_key),
 ):
-    session = await _shared_sessions().set_title(
-        app_name=ONE_APP_NAME,
-        user_id=str(token["user_id"]),
-        session_id=conversation_id,
-        title=payload.title,
-    )
+    sessions = _shared_sessions()
+    update_category = "category" in payload.model_fields_set
+    if update_category and hasattr(sessions, "update_conversation_metadata"):
+        session = await sessions.update_conversation_metadata(
+            app_name=ONE_APP_NAME,
+            user_id=str(token["user_id"]),
+            session_id=conversation_id,
+            title=payload.title,
+            category=payload.category,
+            update_category=True,
+        )
+    else:
+        session = await sessions.set_title(
+            app_name=ONE_APP_NAME,
+            user_id=str(token["user_id"]),
+            session_id=conversation_id,
+            title=payload.title or "",
+        )
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    category, category_source = _session_category_projection(session)
     return {
         "id": session.id,
         "title": _session_title(session),
+        "category": category,
+        "category_source": category_source,
         "status": "active",
         "message_count": len(session.events),
+        "updated_at": session.last_update_time,
+        "last_message_at": session.last_update_time,
     }
 
 

@@ -103,6 +103,7 @@ export function FinanceSharePeople({
               }
             />
             <ConnectionPersonAvatar
+              userId={person.userId}
               label={person.displayName}
               photoUrl={person.photoUrl}
               verified={person.isFinanceAdvisor}

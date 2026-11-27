@@ -15,15 +15,21 @@ export function invitationDescription(value?: string | null) {
   return (value || "").replace(/<br\s*\/?\s*>/gi, "\n").replace(/<\/p\s*>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
 }
 
-export function InvitationDate({ event, zone }: { event: CalendarInvitation; zone: string }) {
+export function invitationDateParts(event: CalendarInvitation, zone: string) {
   const value = event.start?.dateTime || (event.start?.date ? `${event.start.date}T12:00:00Z` : "");
   const date = new Date(value);
   const timeZone = event.start?.date ? "UTC" : zone;
   if (!Number.isFinite(date.getTime())) return null;
-  return <span className={styles.dateBlock} aria-label={date.toLocaleDateString(undefined, { timeZone, dateStyle: "full" })}>
-    <span>{date.toLocaleDateString("en", { timeZone, month: "short" }).toUpperCase()}</span>
-    <strong>{date.toLocaleDateString("en", { timeZone, day: "numeric" })}</strong>
-    <small>{date.toLocaleDateString("en", { timeZone, weekday: "short" })}</small>
+  return { month: date.toLocaleDateString("en", { timeZone, month: "short" }), day: date.toLocaleDateString("en", { timeZone, day: "numeric" }),
+    weekday: date.toLocaleDateString("en", { timeZone, weekday: "short" }), dateLabel: date.toLocaleDateString(undefined, { timeZone, dateStyle: "full" }) };
+}
+export function InvitationDate({ event, zone }: { event: CalendarInvitation; zone: string }) {
+  const parts = invitationDateParts(event, zone);
+  if (!parts) return null;
+  return <span className={styles.dateBlock} aria-label={parts.dateLabel}>
+    <span>{parts.month.toUpperCase()}</span>
+    <strong>{parts.day}</strong>
+    <small>{parts.weekday}</small>
   </span>;
 }
 
@@ -83,7 +89,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), prof
     <div className={styles.detailHeading}>
       <InvitationDate event={event} zone={zone} />
       <div className={styles.copy}><h2>{event.title}</h2><p className={styles.muted}>{eventTime(event, zone)}</p>
-        {join ? <div className={styles.meeting}><CalendarMeetingIcon provider={provider} /><span>{provider}</span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
+        {join ? <div className={styles.meeting}><span className={styles.meetingProvider}><CalendarMeetingIcon provider={provider} /><span>{provider}</span></span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
       </div>
     </div>
     {workspaceLayout ? <>

@@ -2,6 +2,11 @@ import { getLocalMarketPreviewPayload } from "../../components/kai/shared/local-
 import { useEffect, useState } from "react";
 import type { KaiMarketNewsPage } from "../../lib/services/api-service";
 
+export const ApiService = {
+  getKaiStockPriceHistory: async () => ({ points: [], stale: true, retrievedAt: null }),
+  getKaiMarketNews: async () => ({ items: [] }),
+};
+
 export const getTickerUniverseSnapshot = () => [];
 export const preloadTickerUniverse = async () => [];
 export const searchTickerUniverse = () => [];
@@ -10,6 +15,8 @@ export const searchTickerUniverseRemote = async () => [];
 // Only information, identity and transport are synthetic. The Market page,
 // cards, shared typography and controls render their production components.
 const payload = getLocalMarketPreviewPayload();
+const marketStatus = payload.market_overview?.find(row => row.label === "Market Status");
+if (marketStatus) marketStatus.value = "Closed (exchange calendar)";
 // Observed-shape sample series for the production index chart presentation.
 for (const row of payload.market_overview ?? []) {
   if (typeof row.value !== "number") continue;

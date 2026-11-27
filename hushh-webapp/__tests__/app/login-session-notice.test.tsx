@@ -1,8 +1,9 @@
 import { StrictMode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  routeReplace: vi.fn(),
   historyReplace: vi.fn(),
   search: "",
   toastError: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mocks.routeReplace }),
   useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
@@ -27,6 +29,8 @@ vi.mock("@/components/onboarding/AuthStep", () => ({
 vi.mock("@/components/app-ui/native-route-marker", () => ({
   NativeRouteMarker: () => null,
 }));
+
+vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
 
 import LoginPage from "@/app/login/page";
 
@@ -193,4 +197,20 @@ describe("login terminal-session notice", () => {
     expect(screen.queryByText("Create a new account")).toBeNull();
   });
 
+});
+
+it("separates deleted account from pending cloud erasure and requires deliberate fresh sign-in", () => {
+  mocks.search = "auth_notice=account_deleted_cloud_pending";
+  render(<LoginPage />);
+  expect(screen.getByRole("status")).toHaveTextContent("Your account is deleted. Some cloud resources are awaiting permanent deletion.");
+  expect(screen.queryByTestId("redirect-path")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Start fresh"}));
+  expect(screen.getByTestId("redirect-path")).toHaveTextContent("organic");
+});
+it("lets a deleted account leave without starting signup or claiming cloud erasure", () => {
+  mocks.search = "auth_notice=account_deleted_cloud_pending";
+  render(<LoginPage />);
+  fireEvent.click(screen.getByRole("button", {name: "Done"}));
+  expect(mocks.routeReplace).toHaveBeenCalledWith("/");
+  expect(screen.queryByTestId("redirect-path")).toBeNull();
 });

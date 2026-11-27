@@ -2,6 +2,7 @@
 export const COMMERCE_REHEARSAL = Object.freeze({
   durationSeconds: 3600, activationDelayMs: 300_000, quoteLifetimeMs: 900_000,
   fundingCapCents: 2000, capitalCapCents: 2500, minimumNetCents: 50,
+  maxFundingCapCents: 1_000_000, maxCapitalCapCents: 2_000_000,
 });
 
 export class CommerceRehearsalFailure extends Error {
@@ -62,16 +63,20 @@ export function verifyProviderPreflight(proof) {
     proof.isolation_source === "dashboard_general_sandbox",
   "SANDBOX_PROVIDER_PREFLIGHT_REQUIRED");
   commerceEvidence(proof.budgetPolicyActive === true &&
-    proof.reviewerFundingCapCents === COMMERCE_REHEARSAL.fundingCapCents &&
-    proof.platformCapitalCapCents === COMMERCE_REHEARSAL.capitalCapCents,
+    Number.isSafeInteger(proof.reviewerFundingCapCents) &&
+    proof.reviewerFundingCapCents >= 50 &&
+    proof.reviewerFundingCapCents <= COMMERCE_REHEARSAL.maxFundingCapCents &&
+    Number.isSafeInteger(proof.platformCapitalCapCents) &&
+    proof.platformCapitalCapCents >= 1 &&
+    proof.platformCapitalCapCents <= COMMERCE_REHEARSAL.maxCapitalCapCents,
   "SERVER_SANDBOX_BUDGET_POLICY_REQUIRED");
   for (const role of ["primary", "counterpart"]) {
     const amount = proof.reviewerFundingUsedCents?.[role];
     commerceEvidence(Number.isSafeInteger(amount) && amount >= 0 &&
-      amount <= COMMERCE_REHEARSAL.fundingCapCents, "REVIEWER_FUNDING_BUDGET_EXCEEDED");
+      amount <= proof.reviewerFundingCapCents, "REVIEWER_FUNDING_BUDGET_EXCEEDED");
   }
   commerceEvidence(Number.isSafeInteger(proof.platformCapitalUsedCents) &&
-    proof.platformCapitalUsedCents >= 0 && proof.platformCapitalUsedCents <= COMMERCE_REHEARSAL.capitalCapCents,
+    proof.platformCapitalUsedCents >= 0 && proof.platformCapitalUsedCents <= proof.platformCapitalCapCents,
   "OPERATING_CAPITAL_BUDGET_EXCEEDED");
   commerceEvidence(proof.ledgerProviderMatches === true, "LEDGER_PROVIDER_PROVENANCE_MISMATCH");
   return proof;
@@ -95,8 +100,8 @@ export function verifyApplicationReadiness(value, proof, appOrigin, expectedHead
     value.livemode === false && value.persisted_pin_matches === true &&
     value.platform_account_id === proof.platformAccountId,
   "APPLICATION_SANDBOX_PIN_MISMATCH");
-  commerceEvidence(value.reviewer_funding_cap_cents === COMMERCE_REHEARSAL.fundingCapCents &&
-    value.operating_capital_cap_cents === COMMERCE_REHEARSAL.capitalCapCents,
+  commerceEvidence(value.reviewer_funding_cap_cents === proof.reviewerFundingCapCents &&
+    value.operating_capital_cap_cents === proof.platformCapitalCapCents,
   "APPLICATION_SANDBOX_BUDGET_MISMATCH");
   commerceEvidence(Number.isInteger(expectedHead) && (value.schema_head === expectedHead ||
     value.schema_head === null && appOrigin === "https://dev.one.hussh.ai" && sharedDevBinding !== null),

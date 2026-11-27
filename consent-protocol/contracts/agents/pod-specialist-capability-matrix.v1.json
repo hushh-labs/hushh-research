@@ -21,6 +21,8 @@
           "calendar_events",
           "calendar_free_slots",
           "calendar_invitations",
+          "calendar_opening_detail",
+          "calendar_shared_free_slots",
           "calendar_summary",
           "open_calendar_invitation",
           "propose_calendar_cancellation",
@@ -62,6 +64,58 @@
       },
       "id": "agent_career",
       "manifest_path": "consent-protocol/hushh_mcp/agents/career/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "owner_browser",
+        "executes_in_pod": true,
+        "information_source": "pkm_projection",
+        "why": "The admitted pod memory rewrite route supplies owner messages, the current Markdown and the selected owner model to this tool-free helper. It returns a proposal; the unlocked browser validates and encrypts the durable commit. It is not a dispatchable specialist.",
+        "write_scope": "proposal_only"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_agent_tool": false,
+        "pod_dispatchable": false,
+        "pod_memory_helper": true,
+        "registered_specialist": false
+      },
+      "id": "agent_chat_memory_manager",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/chat_memory_manager/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Tool-free summarization uses the encrypted hub session checkpoint. Pod text turns use in-memory sessions without commit_chat_summary, so the summary scheduler does not run there.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_agent_tool": false,
+        "pod_dispatchable": false,
+        "pod_memory_helper": false,
+        "registered_specialist": false
+      },
+      "id": "agent_chat_stm",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/chat_stm/agent.yaml",
       "parent": "agent_one",
       "required_scopes": [],
       "status": "experimental"
@@ -196,6 +250,17 @@
         ],
         "one_tool_names": [
           "ask_email_agent",
+          "gmail_list_needs_reply",
+          "gmail_mailbox_insights",
+          "gmail_manage_drafts",
+          "gmail_manage_labels",
+          "gmail_manage_settings",
+          "gmail_read_attachment",
+          "gmail_read_thread",
+          "gmail_scan_receipts",
+          "gmail_search_mail",
+          "open_gmail_forward_draft",
+          "open_gmail_reply_draft",
           "propose_gmail_mailbox_change",
           "propose_gmail_todo"
         ],

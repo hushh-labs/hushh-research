@@ -460,9 +460,10 @@ class PkmPayoutService:
         self,
         *,
         user_id: str,
-        surface: Literal["marketplace", "documents", "answers"] = "marketplace",
+        surface: Literal["marketplace", "documents", "answers", "advisor"] = "marketplace",
         purpose: Literal["onboarding", "verify"] = "onboarding",
         attempt_id: str | None = None,
+        advisor_request_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Create (once) the owner's Express account and a fresh onboarding link.
 
@@ -472,6 +473,11 @@ class PkmPayoutService:
         """
         if purpose not in {"onboarding", "verify"}:
             raise ValueError("invalid onboarding purpose")
+        if surface == "advisor":
+            if self.account_mode != "test" or not isinstance(advisor_request_id, UUID):
+                raise ValueError("invalid advisor payout context")
+        elif advisor_request_id is not None:
+            raise ValueError("invalid advisor payout surface")
         if attempt_id is not None:
             if surface not in {"documents", "answers"}:
                 raise ValueError("invalid correlated payout surface")
@@ -479,7 +485,6 @@ class PkmPayoutService:
         invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
         key = self._account_key()
         origin = _app_origin()
-        return_path = ONBOARDING_RETURN_PATHS[surface]
         account = await resolve_document_binding(self, user_id)
         remote: dict[str, Any] | None = None
         if account is None and purpose == "verify":
@@ -492,6 +497,7 @@ class PkmPayoutService:
                     mode=self.account_mode,
                     owner=user_id,
                     database=self.db,
+                    prepare_profile=surface != "advisor",
                 )
             except Exception as exc:
                 _log_provider_error("account_create", exc)
@@ -540,7 +546,13 @@ class PkmPayoutService:
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        urls = hosted_return_urls(origin, return_path, surface, attempt_id)
+        if surface == "advisor":
+            destination = (
+                f"{origin}/ria/clients?advisorReview={advisor_request_id}&advisorSection=plan"
+            )
+            urls = {"return_url": destination, "refresh_url": destination}
+        else:
+            urls = hosted_return_urls(origin, ONBOARDING_RETURN_PATHS[surface], surface, attempt_id)
         return_url, refresh_url = urls["return_url"], urls["refresh_url"]
         try:
             link = await create_hosted_link(

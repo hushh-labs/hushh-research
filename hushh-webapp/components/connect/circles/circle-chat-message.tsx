@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Trash2 } from "@/components/icons";
+import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Copy, Pencil, Smile, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { OneChatTimeSeparator } from "@/components/agent/chat-message-styles";
 import { conversationDayLabel, messagesFormGroup } from "@/components/app-ui/conversation-message";
@@ -18,7 +20,7 @@ import { connectPersonName } from "@/lib/connections/person-label";
 
 export type OpenChatMessage = ChatMessage & { content: ChatContent | null; failed: boolean; localImage?: File };
 export type OutgoingChatMessage = Pick<ChatMessage, "id" | "clientMessageId" | "senderUserId" | "senderName" | "createdAt"> & {
-  content: ChatContent; failed: false; localImage: File; delivery: "sending" | "unconfirmed";
+  content: ChatContent; failed: false; localImage?: File; delivery: "sending" | "unconfirmed";
   replyToMessageId?: string;
   receipt?: never; reactions?: never; senderPhotoUrl?: never;
 };
@@ -65,11 +67,28 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   const [reactionError, setReactionError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const longPress = useLongPress(!confirmed || !visible || layoutBlocked);
+  const longPress = useLongPress(!confirmed || !visible || layoutBlocked, false, messagesLane ? 500 : 1_000);
   const selecting = useRef(false);
   const saving = useRef(false);
   const deleted = confirmed && Boolean(message.deletedForEveryoneAt);
   const current = useRef(message); current.current = message;
+  const copyScope = useRef({ session, visible, layoutBlocked, messagesLane });
+  copyScope.current = { session, visible, layoutBlocked, messagesLane };
+  const copyLifetime = useRef(true);
+  useEffect(() => { copyLifetime.current = true; return () => { copyLifetime.current = false; }; }, []);
+  const copyText = async () => {
+    const text = message.content?.text;
+    if (!messagesLane || !confirmed || deleted || message.failed || !visible || layoutBlocked || !text?.trim()) return;
+    const isCurrent = () => copyLifetime.current && copyScope.current.session === session &&
+      copyScope.current.visible && !copyScope.current.layoutBlocked && copyScope.current.messagesLane &&
+      current.current.id === message.id && current.current.content?.text === text && !current.current.failed &&
+      !("deletedForEveryoneAt" in current.current && current.current.deletedForEveryoneAt);
+    const copied = await copyToClipboard(text, isCurrent);
+    if (isCurrent()) {
+      if (copied) morphyToast.success("Copied.");
+      else morphyToast.error("Couldn't copy. Try again.");
+    }
+  };
   useEffect(() => {
     if (!visible || layoutBlocked || deleted) { setMenuOpen(false); setPickerOpen(false); }
   }, [visible, layoutBlocked, deleted]);
@@ -99,9 +118,9 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   return <li data-chat-message={message.id} className={`${styles.item} ${grouped ? styles.grouped : ""}`}>
     {showDay ? <div className="pb-4 pt-1"><OneChatTimeSeparator dateTime={message.createdAt} label={conversationDayLabel(message.createdAt)} /></div> : null}
     <div className={`${styles.row} ${own ? styles.own : ""}`} data-message-role={own ? "user" : "peer"}>
-      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className="!size-8" label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
+      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className={styles.senderAvatar} label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
-        <div className={styles.bubbleWrap}>
+        <div className={styles.bubbleWrap} onPointerDownCapture={longPress.resetClick} onClickCapture={longPress.consumeClick}>
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}
             data-chat-bubble="true"
             onPointerDown={(event) => longPress.start(event, () => setMenuOpen(true))}
@@ -111,17 +130,17 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
               if (!confirmed || !visible || layoutBlocked) return;
               event.preventDefault(); longPress.cancel(); setMenuOpen(true);
             }}>
-            {!own && !grouped ? <p className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{senderName}</bdi></p> : null}
-            {deleted ? <p className={styles.failed}>This message was deleted.</p> : message.failed ? <p className={styles.failed}>This message could not be opened on this device.</p> : <>
+            {!own && !grouped ? <p data-connect-role="description" className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{senderName}</bdi></p> : null}
+            {deleted ? <p data-connect-role="description" className={styles.failed}>This message was deleted.</p> : message.failed ? <p data-connect-role="description" className={styles.failed}>This message could not be opened on this device.</p> : <>
               {confirmed && message.replyToMessageId ? replyTarget?.content && !replyTarget.deletedForEveryoneAt && !replyTarget.failed ? <button type="button" className={styles.quote} aria-label={`View original message from ${replyName}`} onClick={() => onJump?.(replyTarget)} disabled={!visible || layoutBlocked}>
                 <strong><bdi>{replyName}</bdi></strong><span dir="auto">{replyTarget.content.text || replyTarget.content.attachment?.name || replyTarget.content.image?.name || "Attachment"}</span>
               </button> : <div className={styles.quote}>Original message unavailable</div> : null}
               {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail} messagesLane={messagesLane}
                 visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(viewerId, open)} /> : null}
-              {file && confirmed ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
-              {message.content?.text ? <p dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
+              {file && confirmed && visible ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
+              {message.content?.text ? <p data-location-type-role="body" dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
             </>}
-            <div className={styles.meta}>
+            <div data-connect-role="description" className={styles.meta}>
               {confirmed && message.editedAt && !deleted ? <span>Edited</span> : null}
               <time dateTime={message.createdAt} title={time.toLocaleString()}>{time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</time>
               {own ? confirmed ? <span aria-label={status} title={status} className={seen ? styles.seen : ""}>{seen ? <CheckCheck aria-hidden="true" className="size-3" /> : <Check aria-hidden="true" className="size-3" />}</span>
@@ -129,6 +148,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             </div>
           </div>
           {confirmed && !deleted ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked} messagesLane={messagesLane}
+            triggerIcon={messagesLane ? <Smile className="h-5 w-5" /> : undefined}
             open={pickerOpen} onOpenChange={setPickerOpen}
             triggerClassName={styles.addReaction}
             dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} /> : null}
@@ -136,16 +156,15 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             <DropdownMenuTrigger asChild><ShellActionSurface wrapperClassName={styles.messageOptions} className="size-11" aria-label="Message options" disabled={!visible || layoutBlocked}>
               <ChevronDown className="size-4" aria-hidden="true" />
             </ShellActionSurface></DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none" data-messages-type-scale={messagesLane || undefined}
+            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className={`${styles.messageMenu} motion-reduce:animate-none`} data-messages-type-scale={messagesLane || undefined}
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
-              {!deleted ? <>
-                <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />
-                <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
-              </> : null}
+              {!deleted ? <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }}
+                onMore={() => { selecting.current = true; setPickerOpen(true); }} /> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
+              {messagesLane && !deleted && !message.failed && message.content?.text?.trim() ? <DropdownMenuItem className="min-h-11" data-voice-control-id="messages-circles-copy-text" onSelect={() => { void copyText(); }}><Copy aria-hidden="true" />Copy text</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
-              <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 aria-hidden="true" />Delete for me</DropdownMenuItem>
-              {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}
+              <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 inheritColor aria-hidden="true" />Delete for me</DropdownMenuItem>
+              {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 inheritColor aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu> : null}
         </div>
@@ -153,7 +172,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
           className={`${styles.pill} ${reaction.reactedByViewer ? styles.mine : ""}`} aria-label={`${reaction.emoji}, ${reaction.count} reactions${reaction.reactedByViewer ? ", you reacted" : ""}`}
           disabled={busy || !visible || layoutBlocked} onClick={() => void react(reaction.emoji)}><span className={styles.badge}><span aria-hidden="true">{reaction.emoji}</span><span>{reaction.count}</span></span></button>)}
         </div> : null}
-        {reactionError ? <p role="alert" className={styles.reactionError}>Reaction could not be saved. Try again.</p> : null}
+        {reactionError ? <p data-connect-role="description" role="alert" className={styles.reactionError}>Reaction could not be saved. Try again.</p> : null}
       </div>
     </div>
   </li>;

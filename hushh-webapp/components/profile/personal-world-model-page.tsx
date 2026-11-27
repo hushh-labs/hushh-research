@@ -1,5 +1,8 @@
 "use client";
 
+import type { NativeTestDataState } from "@/components/app-ui/native-test-beacon";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useWorldModelOwnerState as useWorldModelSessionState } from "./world-model-owner-state";
@@ -355,7 +358,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
-  const { user, userId, loading, sessionVerificationRequired, phoneNumber } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired, phoneNumber, phoneNumberStatus } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
   // mounted is false only while no app-level reader is attached. retryAt is
@@ -597,11 +600,16 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
 
   /** Shows a decision only after the service resolves with committed memory. */
   const commit = useCallback(
-    async (write: (input: PwmMemoryAuthority) => Promise<PwmMemory>) => {
+    async (actionId: string, write: (input: PwmMemoryAuthority) => Promise<PwmMemory>) => {
       const owner = ownerAuthority();
       if (!owner) throw new Error("Vault is locked");
+      const attempt = captureProductAttempt(actionId, owner.authority.userId);
+      attempt.started();
+      // Rejections can include lost write acknowledgements. Leave those
+      // attempts unknown; only verified memory can supply a return.
       const next = await write(owner.authority);
       if (owner.isCurrent()) {
+        attempt.settled("returned");
         session.generation += 1;
         setLoaded({
           owner: owner.authority.userId,
@@ -677,7 +685,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
 
   const writes = {
     confirm: (fact: WorldModelDraftFact) =>
-      commit((owner) =>
+      commit("profile.world_model.confirm_fact", (owner) =>
         WorldModelDecisionService.confirm({
           ...owner,
           statement: fact.statement,
@@ -685,7 +693,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
         }),
       ),
     reject: (fact: WorldModelDraftFact) =>
-      commit((owner) =>
+      commit("profile.world_model.reject_fact", (owner) =>
         WorldModelDecisionService.reject({
           ...owner,
           statement: fact.statement,
@@ -693,7 +701,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
         }),
       ),
     edit: (fact: WorldModelFactDetail, text: string) =>
-      commit((owner) =>
+      commit("profile.world_model.edit_fact", (owner) =>
         WorldModelDecisionService.edit({
           ...owner,
           claimKey: fact.kind === "draft" ? fact.key : fact.claim.key,
@@ -711,7 +719,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
         ? decide(fact, () => writes.edit(fact, text))
         : writes.edit(fact, text),
     remove: (claim) =>
-      commit((owner) =>
+      commit("profile.world_model.remove_fact", (owner) =>
         WorldModelDecisionService.remove({ ...owner, claimKey: claim.key }),
       ),
   };
@@ -825,12 +833,13 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const namesakeNotice = preparing ? identityNotice(shownProgress) : null;
   const namesakesFound =
     status.kind === "nothing" && offered !== null && offered.research.candidates.length > 0;
-  const phone = phoneNumber ?? user?.phoneNumber ?? null;
+  const phone = ready && present && phoneNumberStatus === "verified" ? phoneNumber : null;
   const identity = {
     name: user?.displayName,
     email: user?.email,
     emailVerified: Boolean(user?.emailVerified),
     phone,
+    phoneStatus: phoneNumberStatus,
   };
   // The landmark carries the group's own title, so both read the same.
   const identityLabel = identityGroupTitle(identity);
@@ -878,7 +887,8 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
-  return { ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
+  const nativeDataState: NativeTestDataState = !ready ? "unavailable-valid" : readFailed ? "error" : memory ? "loaded" : "loading";
+  return { nativeDataState, ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
 }
 export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
 
@@ -892,7 +902,7 @@ export function PersonalWorldModelPage({ model, ...props }: PersonalWorldModelPa
 }
 
 function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAccount }: PersonalWorldModelPageOptions & { model: PersonalWorldModelModel }) {
-  const { ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
+  const { ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail } = model;
   const content = (
     <SurfaceStack compact data-pwm-page>
       <SettingsPresentationProvider density="compact">
@@ -1136,8 +1146,17 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               </SettingsGroup>
             ) : null}
             {offered && offered.search_suggestions.length > 0 ? (
-              <SettingsGroup title="Related Google searches" density="compact">
-                <div aria-label="Google Search suggestions">
+              <SettingsGroup
+                title="Related Google searches"
+                description={
+                  <span className="text-foreground/75">
+                    Swipe or scroll sideways to see the full search terms.
+                  </span>
+                }
+                density="compact"
+                className="@container"
+              >
+                <div className="grid min-w-0 gap-1.5 p-1.5 @sm:p-2">
                   {offered.search_suggestions.map((html, index) => (
                     <SearchSuggestions key={index} html={html} index={index} />
                   ))}
@@ -1204,7 +1223,7 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
         routeId: ROUTES.PROFILE_WORLD_MODEL,
         marker: "native-route-profile-world-model",
         authState: user ? "authenticated" : "anonymous",
-        dataState: !ready ? "unavailable-valid" : memory ? "loaded" : "loading",
+        dataState: model.nativeDataState,
       }}
     >
       <AppPageHeaderRegion>

@@ -22,6 +22,7 @@ Commands:
   typecheck
   test [pytest args...]   # default: whole tests/ tree
   test-ci
+  floci [pytest args...]  # fast Tier-1.5 multi-cloud wire conformance suite
   security
   accuracy
   ci
@@ -121,6 +122,35 @@ case "$COMMAND" in
     ;;
   test-ci)
     run_test_env bash scripts/run-test-ci.sh "$@"
+    ;;
+  floci)
+    floci_targets=()
+    if [ "$#" -eq 0 ]; then
+      floci_targets=(
+        tests/test_floci_aws_wire_conformance.py
+        tests/test_floci_gcp_azure_wire_conformance.py
+        tests/test_floci_umbrella_cell_and_hosted_azure.py
+        tests/test_provider_capability_registry_and_aws_parity.py
+        tests/test_pod_capability_broker.py
+        tests/test_pod_activation_and_upgrade_clearance.py
+        tests/services/test_wiki_phase5_floci_conformance.py
+        tests/services/test_pod_workspace_9511.py
+      )
+      if [ -f tests/test_pod_prefix_storage_gateway.py ]; then
+        floci_targets+=(tests/test_pod_prefix_storage_gateway.py)
+      fi
+      if command -v uv >/dev/null 2>&1; then
+        run_test_env uv run pytest -n auto --dist loadfile -q "${floci_targets[@]}"
+      else
+        run_test_env "$PYTHON_BIN" -m pytest -n auto --dist loadfile -q "${floci_targets[@]}"
+      fi
+    else
+      if command -v uv >/dev/null 2>&1; then
+        run_test_env uv run pytest -q "$@"
+      else
+        run_test_env "$PYTHON_BIN" -m pytest -q "$@"
+      fi
+    fi
     ;;
   security)
     if command -v uv >/dev/null 2>&1; then

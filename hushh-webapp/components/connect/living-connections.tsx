@@ -1,8 +1,9 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleDiscoveryCard } from "./circle-discovery-card";
+import { CircleDiscoveryCard, type CircleDiscoveryCardProps } from "./circle-discovery-card";
 import {
   EMPTY_CIRCLES_SNAPSHOT,
   findStarterCircle,
@@ -42,7 +43,7 @@ type LivingConnectionsProps = {
 
 /** The existing Circles tab owns the list and realtime subscription. This leaf
  * adds an explicit starter action through the same service and detail route. */
-export function LivingConnections({
+export function useLivingConnections({
   currentUserId,
   circlesState,
   ...props
@@ -120,7 +121,7 @@ export function LivingConnections({
             name: starter.name,
             kind: starter.kind,
           });
-    void morphyToast.promise(operation, {
+    void morphyToast.promise(operation, { className: connectTypography.toast,
       loading: `Preparing ${starter.name}…`,
       success: () =>
         isCurrent()
@@ -165,17 +166,13 @@ export function LivingConnections({
     openCircle(circle.id, starter.id !== "sms");
   };
 
-  return (
-    <CircleDiscoveryCard
-      {...props}
-      snapshot={snapshot}
-      loadCircleMembers={loadCircleMembers}
-      creating={creating}
-      onUseStarter={(starter) => {
-        void handleStarter(starter);
-      }}
-      onOpenCircle={openCircle}
-      onSetupCircles={() => router.push(ROUTES.ONE_SETUP)}
-    />
-  );
+  return {
+    ...props, snapshot, loadCircleMembers, creating,
+    onUseStarter: (starter: CircleStarter) => { void handleStarter(starter); },
+    onOpenCircle: openCircle, onSetupCircles: () => router.push(ROUTES.ONE_SETUP),
+  } satisfies CircleDiscoveryCardProps;
+}
+
+export function LivingConnections(props: LivingConnectionsProps) {
+  return <CircleDiscoveryCard {...useLivingConnections(props)} />;
 }

@@ -3,6 +3,10 @@ import { CheckCircle2 } from "@/components/icons";
 
 import { CalendarConnectIllustration } from "@/components/calendar/calendar-connect-illustration";
 import { Button } from "@/components/ui/button";
+import {
+  GOOGLE_APPS_CLEARANCE_NOTE,
+  isProductionVisitorPostureEnabled,
+} from "@/lib/agent/production-visitor-posture";
 import presentationStyles from "./calendar-presentation.module.css";
 
 type CalendarConnectHeroProps = {
@@ -11,6 +15,7 @@ type CalendarConnectHeroProps = {
   /** Google authorization lapsed; announced to assistive tech only. */
   needsReauth: boolean;
   onConnect: () => void;
+  showSetupPermissions?: boolean;
   /** Sign-in progress and cancel affordance, rendered under the action. */
   children?: ReactNode;
 };
@@ -52,6 +57,7 @@ export function CalendarConnectHero({
   busy,
   needsReauth,
   onConnect,
+  showSetupPermissions = false,
   children,
 }: CalendarConnectHeroProps) {
   return (
@@ -90,7 +96,17 @@ export function CalendarConnectHero({
         Connect your calendar
       </Button>
 
-      <CalendarSetupPermissions />
+      {isProductionVisitorPostureEnabled() ? (
+        <p
+          role="note"
+          data-testid="calendar-google-clearance-note"
+          className="mt-3 max-w-[320px] text-xs leading-5 text-muted-foreground"
+        >
+          {GOOGLE_APPS_CLEARANCE_NOTE}
+        </p>
+      ) : null}
+
+      {showSetupPermissions ? <CalendarSetupPermissions /> : null}
 
       {children}
     </section>

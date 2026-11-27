@@ -109,9 +109,11 @@ class ResidentScheduledDelivery:
         self._runner = runner
 
     def require_ready(self) -> None:
+        from hushh_mcp.services import pod_owner_cloud
         from hushh_mcp.services.pod_platform import workload_platform
 
-        if workload_platform() != "ace":
+        hosted_ace = getattr(pod_owner_cloud, "hosted_ace_runtime", lambda: False)()
+        if workload_platform() != "ace" and not hosted_ace:
             raise ScheduleRefused("SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED")
 
     async def offer(self, schedule_id: str, revision: int, occurrence_id: str, due_at: int) -> None:
@@ -179,7 +181,9 @@ class ResidentScheduledDelivery:
             rows, _ = await runtime.journal.snapshot()
             for row in rows.values():
                 if row.get("state") == "scheduled" and isinstance(row.get("next_run_at"), int):
-                    occ = make_occurrence_id(row["id"], row["next_run_at"])
+                    occ = make_occurrence_id(
+                        row["id"], int(row["revision"]), int(row["next_run_at"])
+                    )
                     self._arm(row["id"], int(row["revision"]), occ, int(row["next_run_at"]))
             self._rehydrated = True
         except Exception:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import {
@@ -45,29 +45,163 @@ import {
  * frame. Reduced-motion users skip straight to navigation (CSS no-ops).
  */
 
-// Kept in sync with the route-transition motion tokens in globals.css
-// (--motion-route-exit-duration / --motion-route-enter-duration). The complete
-// route envelope is capped at 150ms with no transition delay.
+// Kept in sync with the route-transition motion tokens in globals.css.
+// On browsers supporting document.startViewTransition, navigation runs a
+// simultaneous GPU-composited directional transition (150-170ms, crisp ease-out)
+// with Top App Bar and Bottom Shell pinned rock-steady and zero blank-canvas
+// blink. On fallback browsers, the CSS directional envelope uses EXIT_MS + ENTER_MS.
 const EXIT_MS = 60;
-const ENTER_MS = 90;
+const ENTER_MS = 160;
 const MAX_PENDING_MS = 9_000;
+const VIEW_TRANSITION_SETTLE_TIMEOUT_MS = 120;
+const prefetchedInternalHrefs = new Set<string>();
 
 type RouteTransitionState = "idle" | "pending" | "entering";
+export type RouteTransitionDirection =
+  | "tab-forward"
+  | "tab-back"
+  | "push"
+  | "pop"
+  | "crossfade";
 
-// Module-scoped timers so the exit/enter envelope is shared by BOTH the click
+type ViewTransitionHandle = {
+  finished: Promise<void>;
+  ready: Promise<void>;
+  skipTransition: () => void;
+};
+
+type DocumentWithViewTransition = Document & {
+  startViewTransition?: (
+    update: () => void | Promise<void>,
+  ) => ViewTransitionHandle;
+};
+
+const PEER_TAB_ORDER = ["/", "/one", "/one/connect", "/one/feed"] as const;
+
+// Module-scoped timers so the transition envelope is shared by BOTH the click
 // interceptor and programmatic navigations (router.push from buttons, the
-// bottom nav, internal-navigation events). This is what makes the /one ->
-// /one/* crossfade play for *every* route/component switch, not just <a> clicks.
+// bottom nav, internal-navigation events).
 let clearTimer: number | null = null;
 let maxPendingTimer: number | null = null;
 let commitTimer: number | null = null;
 let enterFrame: number | null = null;
 let activeRouteIntentId: string | null = null;
+let activeViewTransition: ViewTransitionHandle | null = null;
+let pendingViewTransitionResolve: (() => void) | null = null;
+let viewTransitionTimeout: number | null = null;
 
 // True while an explicitly coordinated navigation is committing. The History
 // observer recognises the router's resulting write and passes it through
 // without starting a second visual envelope.
 let transitionInFlight = false;
+
+function peerTabIndex(pathname: string): number {
+  const clean = routePathname(pathname);
+  return PEER_TAB_ORDER.indexOf(clean as (typeof PEER_TAB_ORDER)[number]);
+}
+
+function pathDepth(pathname: string): number {
+  const clean = routePathname(pathname);
+  if (clean === "/") return 0;
+  return clean.split("/").filter(Boolean).length;
+}
+
+/**
+ * Resolve the spatial transition grammar between two app pathnames:
+ * - Peer bottom tabs (`Chat` <-> `One` <-> `Connect` <-> `Feed`) glide laterally
+ *   following tab order (`tab-forward` / `tab-back`).
+ * - Back navigation (`native_back` / `popstate`) or returning to a shallower
+ *   screen plays the exact inverse `pop` glide.
+ * - Deeper drill-downs from a tab or parent screen play `push`.
+ * - Same-depth sibling switches default to a smooth simultaneous `crossfade`.
+ */
+export function resolveRouteTransitionDirection(
+  fromPathname: string,
+  toPathname: string,
+  source: InteractionIntentSource | "popstate" = "programmatic",
+): RouteTransitionDirection {
+  const from = routePathname(fromPathname);
+  const to = routePathname(toPathname);
+  if (from === to) return "crossfade";
+
+  const fromTab = peerTabIndex(from);
+  const toTab = peerTabIndex(to);
+  if (fromTab !== -1 && toTab !== -1) {
+    return toTab > fromTab ? "tab-forward" : "tab-back";
+  }
+
+  if (source === "native_back" || source === "popstate") {
+    return "pop";
+  }
+
+  if (toTab !== -1 && fromTab === -1) {
+    return "pop";
+  }
+
+  if (fromTab !== -1 && toTab === -1) {
+    return "push";
+  }
+
+  const fromDepth = pathDepth(from);
+  const toDepth = pathDepth(to);
+  if (toDepth > fromDepth) return "push";
+  if (toDepth < fromDepth) return "pop";
+  return "crossfade";
+}
+
+function resolveTargetPathname(href: string): string {
+  if (typeof window === "undefined") return routePathname(href);
+  try {
+    return routePathname(new URL(href, window.location.href).pathname);
+  } catch {
+    return routePathname(href);
+  }
+}
+
+function setRouteDirection(direction: RouteTransitionDirection) {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.routeDirection = direction;
+}
+
+function supportsNativeViewTransitions(): boolean {
+  if (typeof document === "undefined") return false;
+  const doc = document as DocumentWithViewTransition;
+  return typeof doc.startViewTransition === "function";
+}
+
+function canPinShellChromeForViewTransition(): boolean {
+  if (typeof document === "undefined") return false;
+  return (
+    document.querySelectorAll('[data-ui-role="top-navigation"]').length <= 1 &&
+    document.querySelectorAll("[data-app-bottom-shell]").length <= 1
+  );
+}
+
+function completePendingViewTransition() {
+  if (viewTransitionTimeout) {
+    window.clearTimeout(viewTransitionTimeout);
+    viewTransitionTimeout = null;
+  }
+  const resolve = pendingViewTransitionResolve;
+  pendingViewTransitionResolve = null;
+  resolve?.();
+}
+
+function cancelActiveViewTransition() {
+  completePendingViewTransition();
+  const handle = activeViewTransition;
+  activeViewTransition = null;
+  if (handle) {
+    try {
+      handle.skipTransition();
+    } catch {
+      // Already settled or aborted by browser.
+    }
+  }
+  if (typeof document !== "undefined") {
+    delete document.documentElement.dataset.viewTransitionActive;
+  }
+}
 
 function reducedMotion(): boolean {
   return (
@@ -81,10 +215,12 @@ function clearRouteTimers() {
   if (clearTimer) window.clearTimeout(clearTimer);
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
   if (commitTimer) window.clearTimeout(commitTimer);
+  if (viewTransitionTimeout) window.clearTimeout(viewTransitionTimeout);
   if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
   clearTimer = null;
   maxPendingTimer = null;
   commitTimer = null;
+  viewTransitionTimeout = null;
   enterFrame = null;
 }
 
@@ -146,6 +282,7 @@ export function beginRouteTransition(
         // restored a `pending` exit left latched by an interrupted full
         // navigation. A contextual commit is instantaneous, so nothing may
         // stay faded out — `pending` holds the entire app shell at opacity 0.
+        cancelActiveViewTransition();
         setRouteState("idle");
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
@@ -157,6 +294,65 @@ export function beginRouteTransition(
           });
         }
         return () => undefined;
+      }
+
+      const direction = resolveRouteTransitionDirection(
+        window.location.pathname,
+        resolveTargetPathname(targetHref),
+        source,
+      );
+      setRouteDirection(direction);
+
+      // Native View Transitions API: captures an opaque GPU snapshot of the
+      // outgoing route and cross-glides simultaneously against the incoming
+      // route while pinning Top App Bar and Bottom Nav rock-steady.
+      if (supportsNativeViewTransitions()) {
+        cancelActiveViewTransition();
+        const doc = document as DocumentWithViewTransition;
+        const root = document.documentElement;
+        if (canPinShellChromeForViewTransition()) {
+          root.dataset.viewTransitionActive = "true";
+        }
+        try {
+          const transition = doc.startViewTransition!(() => {
+            return new Promise<void>((resolve) => {
+              pendingViewTransitionResolve = resolve;
+              viewTransitionTimeout = window.setTimeout(() => {
+                completePendingViewTransition();
+              }, VIEW_TRANSITION_SETTLE_TIMEOUT_MS);
+
+              if (!appInteractionCoordinator.isCurrentNavigation(intent.id)) {
+                completePendingViewTransition();
+                return;
+              }
+              appInteractionCoordinator.markNavigationCommitting(intent.id);
+              transitionInFlight = true;
+              try {
+                commit();
+              } finally {
+                Promise.resolve().then(() => {
+                  transitionInFlight = false;
+                });
+              }
+            });
+          });
+          activeViewTransition = transition;
+          void transition.finished.catch(() => undefined).finally(() => {
+            if (activeViewTransition === transition) {
+              activeViewTransition = null;
+              delete root.dataset.viewTransitionActive;
+            }
+          });
+          return () => {
+            if (activeRouteIntentId !== intent.id) return;
+            clearRouteTimers();
+            cancelActiveViewTransition();
+            activeRouteIntentId = null;
+            setRouteState("idle");
+          };
+        } catch {
+          cancelActiveViewTransition();
+        }
       }
 
       setRouteState("pending");
@@ -287,13 +483,18 @@ function patchHistory(): () => void {
       unused: string,
       url?: string | URL | null,
     ) {
-      // Already inside an explicitly coordinated navigation, motion is disabled,
-      // or this is a same-page write — perform it immediately.
-      const target = transitionInFlight
-        ? null
-        : reducedMotion()
+      // Already inside an explicitly coordinated navigation (including an
+      // in-flight native View Transition whose Next.js pushState arrives
+      // asynchronously after router.push), motion is disabled, or this is a
+      // same-page write — perform it immediately without blanking the shell.
+      const target =
+        transitionInFlight ||
+        pendingViewTransitionResolve !== null ||
+        activeViewTransition !== null
           ? null
-          : transitionTargetForHistory(url);
+          : reducedMotion()
+            ? null
+            : transitionTargetForHistory(url);
 
       if (!target) {
         return original(data, unused, url ?? "");
@@ -304,6 +505,13 @@ function patchHistory(): () => void {
       // the native synchronous mutation contract. The route-key effect owns
       // the enter after Next has committed the new surface; replaying the
       // outgoing page from a timer flashes stale content on slow renders.
+      setRouteDirection(
+        resolveRouteTransitionDirection(
+          window.location.pathname,
+          resolveTargetPathname(target),
+          "programmatic",
+        ),
+      );
       clearRouteTimers();
       setRouteState("pending");
       maxPendingTimer = window.setTimeout(
@@ -365,11 +573,27 @@ export function useRouteTransition() {
   const router = useRouter();
   const mounted = useRef(false);
   const previousPathname = useRef(pathname);
+  const previousLayoutPathname = useRef(pathname);
   const routeKey = searchParams.size
     ? `${pathname}?${searchParams.toString()}`
     : pathname;
 
   useEffect(() => {
+    function warmInternalAnchor(target: EventTarget | null) {
+      if (!(target instanceof Element)) return;
+      if (typeof router.prefetch !== "function") return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      const href = internalHref(anchor);
+      if (!href || prefetchedInternalHrefs.has(href)) return;
+      prefetchedInternalHrefs.add(href);
+      router.prefetch(href, { kind: "full" as never });
+    }
+
+    function onPointerIntent(event: Event) {
+      warmInternalAnchor(event.target);
+    }
+
     function onClick(event: MouseEvent) {
       if (event.defaultPrevented || event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -389,15 +613,28 @@ export function useRouteTransition() {
     }
 
     function onPageShow() {
+      cancelActiveViewTransition();
       setRouteState("idle");
+    }
+
+    function onPopState() {
+      setRouteDirection("pop");
     }
 
     setRouteState("idle");
     // Observe history ONCE so compatibility router.push/replace callers receive
     // the visual envelope without delaying or replaying Next.js's mutation.
     const restoreHistory = patchHistory();
+    document.addEventListener("pointerdown", onPointerIntent, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("pointerover", onPointerIntent, {
+      passive: true,
+    });
     document.addEventListener("click", onClick, true);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("popstate", onPopState);
 
     return () => {
       if (activeRouteIntentId) {
@@ -409,13 +646,65 @@ export function useRouteTransition() {
       } else {
         clearRouteTimers();
       }
+      cancelActiveViewTransition();
+      document.removeEventListener("pointerdown", onPointerIntent, true);
+      document.removeEventListener("pointerover", onPointerIntent);
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("popstate", onPopState);
       restoreHistory();
       delete document.documentElement.dataset.routeTransition;
+      delete document.documentElement.dataset.routeDirection;
+      delete document.documentElement.dataset.viewTransitionActive;
       document.documentElement.removeAttribute("aria-busy");
     };
   }, [router]);
+
+  // Warm visible same-origin links on idle after each route settles so tapping
+  // capabilities on /one (Memory, Files, Location, Finance, etc.) commits
+  // synchronously from the client router cache without cold chunk waterfalls.
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof router.prefetch !== "function") {
+      return;
+    }
+    const warmVisibleLinks = () => {
+      const anchors = document.querySelectorAll<HTMLAnchorElement>("a[href]");
+      let warmed = 0;
+      for (const anchor of anchors) {
+        if (warmed >= 16) break;
+        const href = internalHref(anchor);
+        if (!href || prefetchedInternalHrefs.has(href)) continue;
+        prefetchedInternalHrefs.add(href);
+        router.prefetch(href, { kind: "full" as never });
+        warmed += 1;
+      }
+    };
+    const win = window as Window & {
+      requestIdleCallback?: (
+        cb: () => void,
+        opts?: { timeout: number },
+      ) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof win.requestIdleCallback === "function") {
+      const id = win.requestIdleCallback(warmVisibleLinks, { timeout: 500 });
+      return () => win.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(warmVisibleLinks, 120);
+    return () => window.clearTimeout(timer);
+  }, [pathname, router]);
+
+  // Release any active View Transition synchronously as soon as React mutates
+  // the incoming route's DOM. NEVER schedule this inside requestAnimationFrame:
+  // browsers suppress rendering (and pause rAF) until startViewTransition's
+  // updateCallback promise resolves.
+  useLayoutEffect(() => {
+    const pathnameChanged = previousLayoutPathname.current !== pathname;
+    previousLayoutPathname.current = pathname;
+    if (!pathnameChanged || !pendingViewTransitionResolve) return;
+    completePendingViewTransition();
+    setRouteState("idle");
+  }, [pathname]);
 
   // The resolved route key is the single, authoritative signal that the
   // NEW route has mounted — so this effect OWNS the enter beat for every
@@ -473,17 +762,20 @@ export function useRouteTransition() {
     }
 
     if (reducedMotion()) {
+      cancelActiveViewTransition();
       settleCommittedIntent("route_key_settled");
       setRouteState("idle");
       return;
     }
     if (pathnameChanged) {
-      if (document.documentElement.dataset.routeTransition === "pending") {
-        // The incoming page's first style, layout and paint is the heaviest
-        // frame of a tab switch (40 to 55 ms on a phone). Let it happen while
-        // the shell is still held at opacity 0 by the exit, then start the
-        // fade two frames later on a page that is already laid out, so that
-        // frame never lands inside the animation.
+      if (pendingViewTransitionResolve) {
+        completePendingViewTransition();
+        setRouteState("idle");
+      } else if (activeViewTransition) {
+        setRouteState("idle");
+      } else if (document.documentElement.dataset.routeTransition === "pending") {
+        // Fallback browsers without View Transitions: let the incoming page's
+        // first layout/paint frame complete before starting the directional enter.
         if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
         enterFrame = window.requestAnimationFrame(() => {
           enterFrame = window.requestAnimationFrame(() => {

@@ -1,5 +1,5 @@
-import type { Holding, PortfolioData } from "@/components/kai/types/portfolio";
-import { groupHoldingPositions } from "@/lib/kai/holding-positions";
+import type { PortfolioData } from "@/components/kai/types/portfolio";
+import { groupHoldingPositions, type HoldingPosition } from "@/lib/kai/holding-positions";
 
 export type DashboardAssetBucket =
   | "cash_equivalent"
@@ -15,6 +15,7 @@ export interface DashboardPosition {
   tickerSymbol: string | null;
   identifierType: "ticker" | "cusip" | "unknown";
   name: string;
+  currency?: string;
   marketValue: number;
   costBasis: number;
   quantity: number;
@@ -33,7 +34,7 @@ export interface DashboardPosition {
 }
 
 export interface DashboardAllocationBucket {
-  key: DashboardAssetBucket;
+  key: DashboardAssetBucket | "receivables";
   label: string;
   value: number;
   pct: number;
@@ -257,7 +258,7 @@ function classifyAssetBucket({
   return "other";
 }
 
-function toPosition(raw: Holding, index: number): DashboardPosition | null {
+function toPosition(raw: HoldingPosition, index: number): DashboardPosition | null {
   const rawSymbol = toText(raw.symbol).toUpperCase();
   const name = toText(raw.name);
   if (!rawSymbol && !name) return null;
@@ -305,12 +306,13 @@ function toPosition(raw: Holding, index: number): DashboardPosition | null {
   const optimizeEligible = debateEligible;
 
   return {
-    id: `${displaySymbol}-${index}`,
+    id: raw.client_id,
     rawSymbol,
     displaySymbol,
     tickerSymbol: tickerAlias,
     identifierType,
     name: name || displaySymbol,
+    currency: raw.currency || raw.iso_currency_code,
     marketValue,
     costBasis: toPositiveNumber(raw.cost_basis),
     quantity: toPositiveNumber(raw.quantity),
@@ -331,14 +333,20 @@ function toPosition(raw: Holding, index: number): DashboardPosition | null {
 
 export function buildDashboardPortfolioModel(portfolioData: PortfolioData): DashboardPortfolioModel {
   const positions = groupHoldingPositions(portfolioData.holdings || [])
-    .map((holding, index) => toPosition(holding, index))
+    .map(toPosition)
     .filter((row): row is DashboardPosition => Boolean(row))
     .sort((a, b) => b.marketValue - a.marketValue);
 
+  const cashPositions = positions.filter((position) => position.isCashEquivalent);
+  const reportedCash = toNumber(portfolioData.account_summary?.cash_balance) ?? toNumber(portfolioData.cash_balance) ?? 0;
+  const cashValue = cashPositions.length > 0
+    ? cashPositions.reduce((sum, position) => sum + position.marketValue, 0)
+    : reportedCash;
+  const receivables = toNumber(portfolioData.account_summary?.pending_receivables) ?? 0;
   const endingValue =
     toPositiveNumber(portfolioData.total_value)
     || toPositiveNumber(portfolioData.account_summary?.ending_value)
-    || positions.reduce((sum, row) => sum + row.marketValue, 0);
+    || (positions.reduce((sum, row) => sum + row.marketValue, 0) + (cashPositions.length > 0 ? 0 : cashValue) + receivables);
   const beginningValue = toPositiveNumber(portfolioData.account_summary?.beginning_value) || endingValue;
   const netChange =
     toNumber(portfolioData.account_summary?.change_in_value)
@@ -347,9 +355,7 @@ export function buildDashboardPortfolioModel(portfolioData: PortfolioData): Dash
 
   const totals = {
     marketValue: endingValue,
-    cashValue: positions
-      .filter((position) => position.isCashEquivalent)
-      .reduce((sum, position) => sum + position.marketValue, 0),
+    cashValue,
     estimatedAnnualIncome: positions.reduce(
       (sum, position) => sum + (position.estimatedAnnualIncome ?? 0),
       0
@@ -403,7 +409,7 @@ export function buildDashboardPortfolioModel(portfolioData: PortfolioData): Dash
     ["equity", "fixed_income", "cash_equivalent", "real_asset", "other"] as DashboardAssetBucket[]
   )
     .map((key) => {
-      const value = positions
+      const value = key === "cash_equivalent" ? cashValue : positions
         .filter((position) => position.assetBucket === key)
         .reduce((sum, position) => sum + position.marketValue, 0);
       return {
@@ -414,6 +420,10 @@ export function buildDashboardPortfolioModel(portfolioData: PortfolioData): Dash
       };
     })
     .filter((row) => row.value > 0);
+  if (receivables > 0) {
+    allocationBuckets.push({ key: "receivables", label: "Receivables", value: receivables,
+      pct: endingValue > 0 ? (receivables / endingValue) * 100 : 0 });
+  }
 
   const sectorMap = new Map<string, { value: number; count: number }>();
   for (const position of positions) {

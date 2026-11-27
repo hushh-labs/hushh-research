@@ -36,13 +36,13 @@ import {
   User,
   onAuthStateChanged,
 } from "firebase/auth";
-import { app, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import {
   FirebaseAuthentication,
 } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
 import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
 import { firebaseUidForOwner, lastAdmittedOwnerFor, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -1066,6 +1066,13 @@ export class AuthService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
+      // Capawesome drops Google's non-Firebase error code (-5) on iOS.
+      // GIDSignIn supplies this exact SDK message for a user dismissal.
+      if (Capacitor.getPlatform() === "ios" && errorMessage === "The user canceled the sign-in flow.") {
+        toast.dismiss(toastId);
+        throw Object.assign(new Error(errorMessage), { code: "auth/user-cancelled" });
+      }
+
       this.debugError("❌ [AuthService] nativeGoogleSignIn error");
 
       if (Capacitor.getPlatform() === "android") {
@@ -1590,10 +1597,55 @@ export class AuthService {
       });
 
       const provider = new PhoneAuthProvider(auth);
-      const verificationId = await provider.verifyPhoneNumber(
-        normalizedPhoneNumber,
-        options?.recaptchaVerifier,
-      );
+      const WEB_VERIFY_START_TIMEOUT_MS = 25_000;
+      const verificationId = await new Promise<string>((resolve, reject) => {
+        if (options?.signal?.aborted) {
+          reject(this.createPhoneVerificationError("aborted", "Phone verification was cancelled."));
+          return;
+        }
+        let settled = false;
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(this.createPhoneVerificationError("aborted", "Phone verification was cancelled."));
+        };
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          options?.signal?.removeEventListener("abort", onAbort);
+          try {
+            (options?.recaptchaVerifier as { clear?: () => void } | undefined)?.clear?.();
+          } catch {
+            // Ignore verifier clear errors on timeout.
+          }
+          reject(
+            this.createPhoneVerificationError(
+              "phone-verification-start-timeout",
+              "Sending the verification code took too long. Request a new code.",
+            ),
+          );
+        }, WEB_VERIFY_START_TIMEOUT_MS);
+        options?.signal?.addEventListener("abort", onAbort, { once: true });
+        Promise.resolve(
+          provider.verifyPhoneNumber(normalizedPhoneNumber, options?.recaptchaVerifier),
+        ).then(
+          (id) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            options?.signal?.removeEventListener("abort", onAbort);
+            resolve(id);
+          },
+          (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            options?.signal?.removeEventListener("abort", onAbort);
+            reject(err);
+          },
+        );
+      });
       if (auth.currentUser !== current) {
         throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
       }
@@ -1675,7 +1727,7 @@ export class AuthService {
       const idToken = await current.getIdToken();
       requireCurrent();
       const conflict = await linkFirebasePhone({
-        apiKey: app.options.apiKey, tenantId: current.tenantId, idToken,
+        apiKey: auth.app.options.apiKey, tenantId: current.tenantId, idToken,
         uid: expectedUserId, phoneNumber,
         sessionInfo: nativeChallenge?.providerVerificationId ?? verificationId, code: verificationCode,
       });
@@ -1733,7 +1785,17 @@ export class AuthService {
     if (message.includes("invalid-app-credential"))
       return "invalid-app-credential";
     if (message.includes("captcha-check-failed")) return "captcha-check-failed";
+    if (message.includes("unauthorized-domain")) return "unauthorized-domain";
+    if (message.includes("app-not-authorized")) return "app-not-authorized";
+    if (message.includes("missing-client-identifier")) return "missing-client-identifier";
+    if (message.includes("quota-exceeded")) return "quota-exceeded";
+    if (message.includes("billing-not-enabled")) return "billing-not-enabled";
     if (message.includes("too-many-requests")) return "too-many-requests";
+    if (message.includes("operation-not-allowed")) return "operation-not-allowed";
+    if (message.includes("sms-region-not-allowed")) return "sms-region-not-allowed";
+    if (message.includes("invalid-phone-number")) return "invalid-phone-number";
+    if (message.includes("phone-verification-start-timeout"))
+      return "phone-verification-start-timeout";
     return "";
   }
 
@@ -1815,6 +1877,27 @@ export class AuthService {
       return this.createPhoneVerificationError(
         code,
         "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number.",
+      );
+    }
+
+    if (code === "operation-not-allowed") {
+      return this.createPhoneVerificationError(
+        code,
+        "Phone verification is temporarily unavailable for this configuration. Please try again later.",
+      );
+    }
+
+    if (code === "sms-region-not-allowed") {
+      return this.createPhoneVerificationError(
+        code,
+        "SMS verification is not currently available for this country or region.",
+      );
+    }
+
+    if (code === "invalid-phone-number") {
+      return this.createPhoneVerificationError(
+        code,
+        "Enter a valid phone number with your country code and try again.",
       );
     }
 

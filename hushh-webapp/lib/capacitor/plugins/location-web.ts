@@ -94,6 +94,7 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
   async getCurrentPosition(options?: {
     enableHighAccuracy?: boolean;
     timeoutMs?: number;
+    fastNetworkFallback?: boolean;
   }): Promise<{
     latitude: number;
     longitude: number;
@@ -159,6 +160,8 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
     // coming, so every capture sat out the entire budget before returning a
     // result it already had within a few hundred milliseconds.
     const REFINE_AFTER_FIRST_FIX_MS = 1_200;
+    const EARLY_NETWORK_READ_DELAY_MS = 1_000;
+    const EARLY_NETWORK_ACCURACY_M = 100;
 
     const toFix = (position: GeolocationPosition): WebFix => ({
       latitude: position.coords.latitude,
@@ -230,6 +233,8 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
     // accurate enough; otherwise returns the best sample seen when the budget
     // elapses.
     let earlyCoarseRead: Promise<WebFix> | null = null;
+    let speculativeNetworkRead = false;
+    const readFreshNetwork = () => readOnce(false, 0, LAST_RESORT_RESERVE_MS);
     const sampleBest = (enableHighAccuracy: boolean, budgetMs: number) =>
       new Promise<WebFix>((resolve, reject) => {
         let best: WebFix | null = null;
@@ -237,7 +242,8 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
         let watchId: number | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
         let refineTimer: ReturnType<typeof setTimeout> | null = null;
-        let coarseReadStarted = false;
+        let networkTimer: ReturnType<typeof setTimeout> | null = null;
+        let acceptedProviderFailure = false;
 
         const cleanup = () => {
           if (timer !== null) {
@@ -247,6 +253,10 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
           if (refineTimer !== null) {
             clearTimeout(refineTimer);
             refineTimer = null;
+          }
+          if (networkTimer !== null) {
+            clearTimeout(networkTimer);
+            networkTimer = null;
           }
           if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
@@ -270,6 +280,25 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
           }
         };
 
+        const startNetworkRead = (afterProviderFailure: boolean) => {
+          if (settled || best) return;
+          if (!earlyCoarseRead) {
+            speculativeNetworkRead = !afterProviderFailure;
+            earlyCoarseRead = readFreshNetwork();
+          }
+          void earlyCoarseRead.then((fix) => {
+            const age = Date.now() - Date.parse(fix.capturedAt);
+            // Start a fresh network read early on the emergency path. Only a
+            // usable recent fix can shorten the high-accuracy sampling window.
+            if (afterProviderFailure || (age >= 0 && age <= LAST_RESORT_MAX_AGE_MS &&
+                fix.accuracyM != null && fix.accuracyM <= EARLY_NETWORK_ACCURACY_M)) {
+              acceptSample(fix);
+            }
+          }, (error) => {
+            if (!settled && (error as GeolocationPositionError)?.code === 1) finish(null, error);
+          });
+        };
+
         try {
           watchId = navigator.geolocation.watchPosition(
             (position) => {
@@ -283,14 +312,10 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
               // Preserve a usable sample when only its refinement failed.
               if (code === 1) {
                 finish(null, error);
-              } else if (!settled && !best && !coarseReadStarted && (code === 2 || code === 3)) {
-                coarseReadStarted = true;
-                // Keep the watch alive: phones can recover their precise fix
-                // while the laptop-friendly network request is in flight.
-                earlyCoarseRead = readOnce(false, 0, LAST_RESORT_RESERVE_MS);
-                void earlyCoarseRead.then(acceptSample, (coarseError) => {
-                  if (!settled && (coarseError as GeolocationPositionError)?.code === 1) finish(null, coarseError);
-                });
+              } else if (!settled && !best && !acceptedProviderFailure && (code === 2 || code === 3)) {
+                acceptedProviderFailure = true;
+                // Keep sampling while the network request runs.
+                startNetworkRead(true);
               }
             },
             { enableHighAccuracy, timeout: budgetMs, maximumAge: 0 },
@@ -305,6 +330,14 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
           return;
         }
 
+        if (options?.fastNetworkFallback && budgetMs > EARLY_NETWORK_READ_DELAY_MS) {
+          networkTimer = setTimeout(() => {
+            void this.getPermissionState().then(({ state }) => {
+              if (state === "granted" && !earlyCoarseRead) startNetworkRead(false);
+            });
+          }, EARLY_NETWORK_READ_DELAY_MS);
+        }
+
         timer = setTimeout(() => {
           if (best) finish(best);
           else finish(null, timeoutError());
@@ -313,7 +346,14 @@ export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
 
     const attempt = (enableHighAccuracy: boolean) => {
       if (!enableHighAccuracy) {
-        return earlyCoarseRead ?? readOnce(false, 0, LAST_RESORT_RESERVE_MS);
+        if (!earlyCoarseRead) return readFreshNetwork();
+        if (!speculativeNetworkRead) return earlyCoarseRead;
+        // Network location may recover while the GPS provider is still silent.
+        // Retain the normal fresh retry if the speculative read failed.
+        return earlyCoarseRead.catch((error) => {
+          if ((error as GeolocationPositionError)?.code === 1) throw error;
+          return readFreshNetwork();
+        });
       }
       // Sample within a bounded window (cap at 9s) so the picker stays snappy
       // while still rejecting a single jumpy reading — and never past the

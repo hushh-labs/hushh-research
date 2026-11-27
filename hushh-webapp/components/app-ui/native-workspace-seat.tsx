@@ -10,5 +10,6 @@ export function NativeWorkspaceSeat() {
   useLayoutEffect(() => { setEnabled(customNativePresentationEnabled()); }, []);
   if (!enabled) return null;
   return <div aria-hidden data-native-workspace-seat="true" className="pointer-events-none fixed inset-x-0"
-    style={{ top: "var(--app-top-content-offset, 0px)", bottom: "var(--bottom-chrome-stack-height, 0px)", visibility: "hidden" }} />;
+    style={{ top: "var(--native-workspace-top, var(--app-top-content-offset, 0px))", bottom: "var(--native-workspace-paint-bottom, var(--kb-height, 0px))",
+      paddingBottom: "max(0px, calc(max(var(--native-workspace-bottom, var(--bottom-chrome-stack-height, 0px)), var(--kb-height, 0px)) - var(--native-workspace-paint-bottom, var(--kb-height, 0px))))", visibility: "hidden" }} />;
 }

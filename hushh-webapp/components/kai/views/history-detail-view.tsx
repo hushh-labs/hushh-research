@@ -30,6 +30,8 @@ import {
 } from "@/lib/kai/market-snapshot";
 import { cn } from "@/lib/utils";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // ============================================================================
 // PROPS
 // ============================================================================
@@ -76,15 +78,6 @@ function getDecisionColor(decision: string): string {
   }
 }
 
-function formatCurrency(value: number | null): string {
-  if (value === null) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -98,6 +91,7 @@ export function HistoryDetailView({
   vaultOwnerToken,
   showHeader = true,
 }: HistoryDetailViewProps) {
+  useMarketCurrency();
   // State for collapsible transcript rounds
   const [collapsedRounds, setCollapsedRounds] = useState<Record<number, boolean>>({ 1: true, 2: true });
 
@@ -172,7 +166,7 @@ export function HistoryDetailView({
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <SymbolAvatar symbol={entry.ticker} name={entry.ticker} size="md" />
-                <h2 className="text-2xl font-semibold tracking-tight">{entry.ticker}</h2>
+                <h2 className="ui-text-section-label">{entry.ticker}</h2>
                 <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
                 {todayChangePct !== null ? (
                   <span
@@ -236,7 +230,7 @@ export function HistoryDetailView({
               <div className="flex items-start gap-3">
                 <SymbolAvatar symbol={entry.ticker} name={entry.ticker} size="lg" className="mt-0.5" />
                 <div>
-                  <h1 className="text-2xl font-semibold tracking-tighter text-foreground leading-none">
+                  <h1 className="ui-text-section-label">
                     {entry.ticker}
                   </h1>
                   <div className="mt-1 flex items-center gap-2">
@@ -280,7 +274,6 @@ export function HistoryDetailView({
       
       <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
 
-
       {/* Stored analysis badge */}
       <Card variant="none" effect="glass">
         <CardContent className="p-3 sm:p-4">
@@ -300,7 +293,7 @@ export function HistoryDetailView({
       {entry.debate_transcript && (
         <div className="pt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
            <div className="flex items-center gap-2 px-1">
-              <h3 className="font-mono text-xs font-normal uppercase tracking-widest text-muted-foreground/70">Debate Transcript</h3>
+              <h3 className="ui-text-section-label">Debate Transcript</h3>
               <div className="h-px bg-border/50 flex-1" />
            </div>
            

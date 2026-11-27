@@ -1,3 +1,4 @@
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 /**
  * Sending a chat turn to a private agent that sleeps when idle.
  *
@@ -9,8 +10,8 @@
  *
  * Only failures that prove the turn never reached the agent are retried:
  * a network failure before the turn was handed over (`PodNotReachedError`),
- * a refused admission with a gateway status, or a gateway status on the send
- * itself that is not the agent's own JSON answer. A network failure on the send
+ * a refused admission with a gateway status, or a gateway status on a read-only
+ * probe. A gateway response or network failure on the actual turn POST
  * is ambiguous (the agent may already be running the turn), so it is reported
  * as `PodSendUnconfirmedError`, never resent. A device that reports itself
  * offline is told so (`DeviceOfflineError`) instead of being shown a wake.
@@ -72,9 +73,9 @@ export class DeviceOfflineError extends Error {
   }
 }
 
-/** `navigator.onLine` is only trusted when it says false. */
+/** `isNetworkOnline()` is only trusted when it says false. */
 function deviceIsOffline(): boolean {
-  return typeof navigator !== "undefined" && navigator.onLine === false;
+  return !isNetworkOnline();
 }
 
 /** A step before the send got no answer: offline, or the agent is not reachable yet. */
@@ -105,6 +106,13 @@ const WAKING_REFUSAL = /^(?:POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):(?:502|
 export function isAgentStillWaking(outcome: unknown): boolean {
   if (outcome instanceof Response) {
     if (!GATEWAY_STATUSES.has(outcome.status)) return false;
+    const podState = outcome.headers.get("x-hussh-pod-state")?.trim().toLowerCase();
+    if (podState === "waking") {
+      return true;
+    }
+    if (podState === "unavailable" || podState === "error") {
+      return false;
+    }
     return !(outcome.headers.get("content-type") ?? "").includes("application/json");
   }
   if (outcome instanceof PodNotReachedError) return true;
@@ -116,6 +124,8 @@ export type AgentWakePorts = {
   onWaking: () => void;
   /** Whether this turn goes to the owner's own agent; nothing else is woken. */
   isOwnerAgent: () => Promise<boolean>;
+  /** True when the pod already answered recently, suppressing speculative slow-byte wake hints. */
+  isAlreadyAwake?: () => boolean;
   signal?: AbortSignal | null;
   hintMs?: number;
   budgetMs?: number;
@@ -174,7 +184,10 @@ export async function sendWhileAgentWakes(
     woke = true;
     ports.onWaking();
   };
-  const hintIfOwnerAgent = () => void isOwnerAgent().then((owner) => owner && waking());
+  const hintIfOwnerAgent = () => {
+    if (ports.isAlreadyAwake?.()) return;
+    void isOwnerAgent().then((owner) => owner && waking());
+  };
   for (let attempt = 0; ; attempt += 1) {
     const outcome = await settleWithHint(send, ports.hintMs ?? WAKE_HINT_MS, hintIfOwnerAgent);
     const value = outcome.response ?? outcome.error;

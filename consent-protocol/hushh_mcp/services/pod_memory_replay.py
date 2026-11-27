@@ -16,6 +16,10 @@ _KIND = "pod.memory.replay.v1"
 
 def _location(log: Any) -> dict[str, Any] | None:
     from hushh_mcp.services.pod_azure_blob_store import AzureBlobObjectStore
+    from hushh_mcp.services.pod_s3_object_store import (
+        PrefixTokenObjectStore,
+        S3ObjectStore,
+    )
 
     store = log._store
     if isinstance(store, GcsObjectStore):
@@ -24,6 +28,14 @@ def _location(log: Any) -> dict[str, Any] | None:
         return {"provider": "local", "root": str(store._root.resolve())}
     if isinstance(store, AzureBlobObjectStore):
         return {"provider": "azure", **asdict(store._location)}
+    if isinstance(store, S3ObjectStore):
+        return {"provider": "s3", **asdict(store._location)}
+    if isinstance(store, PrefixTokenObjectStore):
+        return {
+            "provider": "prefix_token",
+            "origin": store._origin,
+            "prefix": store._base_prefix,
+        }
     return None
 
 

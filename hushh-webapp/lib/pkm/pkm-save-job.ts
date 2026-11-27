@@ -33,6 +33,7 @@
  *   existence and dataVersion only) before it is retried or reported unsaved.
  */
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import {
   addToPKM,
   previewAgentPkmMemory,
@@ -943,7 +944,7 @@ function explicitSaveDeps(params: ExplicitPkmSaveJobParams, job: PkmSaveJob): Pk
       }
     },
     isUnlocked: () => params.isEffectCurrent?.() ?? true,
-    isOnline: () => typeof navigator === "undefined" || navigator.onLine !== false,
+    isOnline: () => isNetworkOnline(),
     findDuplicate: params.findDuplicate,
   };
 }

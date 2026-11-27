@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { type DecisionResult } from "./views/decision-card";
 import { RoundTabsCard } from "./views/round-tabs-card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown } from "@/components/icons";
 import { toast } from "sonner";
 import {
   Card as MorphyCard,
@@ -17,11 +18,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
-import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import { CacheService } from "@/lib/services/cache-service";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { KaiProfileService } from "@/lib/services/kai-profile-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { toInvestorMessage, toInvestorStreamText } from "@/lib/copy/investor-language";
@@ -35,7 +34,6 @@ import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notification
 import {
   fetchLatestMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -44,6 +42,9 @@ import {
   getRoundCollapseStateForRound,
 } from "./debate-stream-state";
 
+import { formatCurrency as formatHeaderPrice } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+import { prepareStockDebate } from "@/lib/kai/prepare-stock-debate";
 // ============================================================================
 // Types
 // ============================================================================
@@ -191,18 +192,6 @@ function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.
 // Constants
 // ============================================================================
 
-const TICKER_SYMBOL_REGEX = /^[A-Z][A-Z0-9.\-]{0,5}$/;
-
-function toFiniteNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const cleaned = value.replace(/[$,%\s,]/g, "").trim();
-    if (!cleaned) return undefined;
-    const parsed = Number(cleaned);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
-}
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
@@ -226,209 +215,6 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function isCashEquivalentRow(row: {
-  symbol: string;
-  name: string;
-  asset_type?: string;
-}): boolean {
-  const hint = `${row.symbol} ${row.name} ${row.asset_type || ""}`.toLowerCase();
-  return (
-    hint.includes("cash") ||
-    hint.includes("sweep") ||
-    hint.includes("money market") ||
-    hint.includes("retail prime") ||
-    hint.includes("first american") ||
-    hint.includes("fxrxx")
-  );
-}
-
-function pickFirstNumber(source: Record<string, unknown>, keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = toFiniteNumber(source[key]);
-    if (value !== undefined) return value;
-  }
-  return undefined;
-}
-
-function extractDebatePortfolioContext(
-  userId: string,
-  source?: Record<string, unknown> | null
-): Record<string, unknown> | null {
-  const cache = CacheService.getInstance();
-  const cached =
-    source ??
-    cache.get<Record<string, unknown>>(CACHE_KEYS.PORTFOLIO_DATA(userId)) ??
-    cache.get<Record<string, unknown>>(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
-  if (!cached || typeof cached !== "object" || Array.isArray(cached)) return null;
-
-  const holdingsRaw = Array.isArray(cached.holdings)
-    ? cached.holdings
-    : cached.portfolio &&
-        typeof cached.portfolio === "object" &&
-        !Array.isArray(cached.portfolio) &&
-        Array.isArray((cached.portfolio as Record<string, unknown>).holdings)
-      ? ((cached.portfolio as Record<string, unknown>).holdings as unknown[])
-      : [];
-
-  const holdings = holdingsRaw
-    .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object"))
-    .slice(0, 30)
-    .map((row) => ({
-      symbol: String(row.symbol ?? "").trim().toUpperCase(),
-      name: String(row.name ?? "").trim(),
-      quantity: toFiniteNumber(row.quantity),
-      market_value: toFiniteNumber(row.market_value),
-      position_side:
-        typeof row.position_side === "string" &&
-        ["long", "short", "liability"].includes(row.position_side.trim().toLowerCase())
-          ? row.position_side.trim().toLowerCase()
-          : undefined,
-      is_short_position:
-        typeof row.is_short_position === "boolean" ? row.is_short_position : undefined,
-      is_liability_position:
-        typeof row.is_liability_position === "boolean" ? row.is_liability_position : undefined,
-      unrealized_gain_loss_pct: toFiniteNumber(row.unrealized_gain_loss_pct),
-      sector: typeof row.sector === "string" ? row.sector : undefined,
-      asset_type:
-        typeof row.asset_type === "string"
-          ? row.asset_type
-          : typeof row.asset_class === "string"
-            ? row.asset_class
-            : undefined,
-      is_investable: typeof row.is_investable === "boolean" ? row.is_investable : undefined,
-      is_cash_equivalent:
-        typeof row.is_cash_equivalent === "boolean" ? row.is_cash_equivalent : undefined,
-      is_sec_common_equity_ticker:
-        typeof row.is_sec_common_equity_ticker === "boolean"
-          ? row.is_sec_common_equity_ticker
-          : undefined,
-      symbol_kind: typeof row.symbol_kind === "string" ? row.symbol_kind : undefined,
-      security_listing_status:
-        typeof row.security_listing_status === "string"
-          ? row.security_listing_status
-          : undefined,
-      analyze_eligible_reason:
-        typeof row.analyze_eligible_reason === "string"
-          ? row.analyze_eligible_reason
-          : undefined,
-    }))
-    .filter((row) => row.symbol.length > 0 || row.name.length > 0);
-
-  const nonCashHoldings = holdings.filter((row) => !isCashEquivalentRow(row));
-  const investableHoldings = nonCashHoldings.filter((row) => TICKER_SYMBOL_REGEX.test(row.symbol));
-  const excludedPositions = nonCashHoldings
-    .filter((row) => !TICKER_SYMBOL_REGEX.test(row.symbol))
-    .slice(0, 20)
-    .map((row) => ({
-      symbol: row.symbol || row.name || "UNKNOWN",
-      reason: "missing_ticker_alias",
-    }));
-  const cashPositionsCount = holdings.length - nonCashHoldings.length;
-  const tickerCoveragePct =
-    nonCashHoldings.length > 0 ? investableHoldings.length / nonCashHoldings.length : 0;
-  const sectorCoveragePct =
-    nonCashHoldings.length > 0
-      ? nonCashHoldings.filter((row) => Boolean(row.sector && row.sector.trim())).length / nonCashHoldings.length
-      : 0;
-  const gainLossCoveragePct =
-    nonCashHoldings.length > 0
-      ? nonCashHoldings.filter((row) => typeof row.unrealized_gain_loss_pct === "number").length /
-        nonCashHoldings.length
-      : 0;
-  const topPositions = holdings
-    .slice()
-    .sort((a, b) => Math.abs(b.market_value || 0) - Math.abs(a.market_value || 0))
-    .slice(0, 8)
-    .map((row) => ({
-      symbol: row.symbol || row.name || "UNKNOWN",
-      market_value: row.market_value ?? null,
-      position_side: row.position_side ?? null,
-      sector: row.sector ?? null,
-      asset_type: row.asset_type ?? null,
-    }));
-  const accountSummary =
-    cached.account_summary && typeof cached.account_summary === "object" && !Array.isArray(cached.account_summary)
-      ? (cached.account_summary as Record<string, unknown>)
-      : {};
-  const statementSignals = {
-    investment_gain_loss: pickFirstNumber(accountSummary, [
-      "investment_gain_loss",
-      "total_change",
-      "change_in_value",
-    ]),
-    total_income_period: pickFirstNumber(accountSummary, ["total_income_period"]),
-    total_income_ytd: pickFirstNumber(accountSummary, ["total_income_ytd"]),
-    total_fees: pickFirstNumber(accountSummary, ["total_fees"]),
-    net_deposits_period: pickFirstNumber(accountSummary, [
-      "net_deposits_period",
-      "net_deposits_withdrawals",
-    ]),
-    net_deposits_ytd: pickFirstNumber(accountSummary, ["net_deposits_ytd"]),
-  };
-
-  return {
-    holdings,
-    holdings_count: holdings.length,
-    account_summary: Object.keys(accountSummary).length > 0 ? accountSummary : undefined,
-    asset_allocation:
-      cached.asset_allocation && typeof cached.asset_allocation === "object"
-        ? cached.asset_allocation
-        : undefined,
-    income_summary:
-      cached.income_summary && typeof cached.income_summary === "object"
-        ? cached.income_summary
-        : undefined,
-    realized_gain_loss:
-      cached.realized_gain_loss && typeof cached.realized_gain_loss === "object"
-        ? cached.realized_gain_loss
-        : undefined,
-    quality_report_v2:
-      cached.quality_report_v2 && typeof cached.quality_report_v2 === "object"
-        ? cached.quality_report_v2
-        : undefined,
-    total_value: toFiniteNumber(cached.total_value),
-    cash_balance: toFiniteNumber(cached.cash_balance),
-    debate_context: {
-      portfolio_snapshot: {
-        holdings_count: holdings.length,
-        non_cash_holdings_count: nonCashHoldings.length,
-        investable_holdings_count: investableHoldings.length,
-        cash_positions_count: cashPositionsCount,
-        total_value: toFiniteNumber(cached.total_value),
-        cash_balance: toFiniteNumber(cached.cash_balance),
-      },
-      coverage: {
-        ticker_coverage_pct: tickerCoveragePct,
-        sector_coverage_pct: sectorCoveragePct,
-        gain_loss_coverage_pct: gainLossCoveragePct,
-      },
-      statement_signals: statementSignals,
-      eligible_symbols: investableHoldings
-        .map((row) => row.symbol)
-        .filter((symbol, index, arr) => symbol.length > 0 && arr.indexOf(symbol) === index)
-        .slice(0, 20),
-      top_positions: topPositions,
-      excluded_positions: excludedPositions,
-    },
-  };
-}
-
-function hasRequiredDebateContext(context: Record<string, unknown> | null): boolean {
-  if (!context) return false;
-  const holdings = context.holdings;
-  const debateContext = context.debate_context;
-  if (!Array.isArray(holdings) || holdings.length === 0) return false;
-  if (!debateContext || typeof debateContext !== "object" || Array.isArray(debateContext)) return false;
-  const debate = debateContext as Record<string, unknown>;
-  const snapshot = debate.portfolio_snapshot;
-  const coverage = debate.coverage;
-  const hasSnapshot =
-    Boolean(snapshot) && typeof snapshot === "object" && !Array.isArray(snapshot);
-  const hasCoverage =
-    Boolean(coverage) && typeof coverage === "object" && !Array.isArray(coverage);
-  return hasSnapshot && hasCoverage;
-}
-
 // ============================================================================
 // Component
 // ============================================================================
@@ -447,6 +233,8 @@ interface DebateStreamViewProps {
   onDecisionReady?: (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => void;
   onDecisionPersisted?: (entry: AnalysisHistoryEntry, meta: { runId: string }) => void;
   showHeader?: boolean;
+  detailsExpanded?: boolean;
+  onDetailsExpandedChange?: (open: boolean) => void;
 }
 
 type HeaderMarketQuote = {
@@ -596,15 +384,6 @@ function getCachedHeaderQuote(userId: string, ticker: string): HeaderMarketQuote
   return best;
 }
 
-function formatHeaderPrice(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export function DebateStreamView({
   ticker,
   userId,
@@ -619,7 +398,10 @@ export function DebateStreamView({
   onDecisionReady,
   onDecisionPersisted,
   showHeader = true,
+  detailsExpanded,
+  onDetailsExpandedChange,
 }: DebateStreamViewProps) {
+  useMarketCurrency();
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
   const normalizedTicker = useMemo(
     () => String(ticker || "").trim().toUpperCase(),
@@ -627,6 +409,7 @@ export function DebateStreamView({
   );
   // State
   const [loading, setLoading] = useState(true);
+  const [localDetailsExpanded, setLocalDetailsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<ErrorType>("unknown");
   const [kaiThinking, setKaiThinking] = useState<string>("");
@@ -708,6 +491,7 @@ export function DebateStreamView({
 
   const [currentRunId, setCurrentRunId] = useState<string | null>(runId ?? null);
   const [managerTask, setManagerTask] = useState<DebateRunTask | null>(null);
+  const analysisInProgress = managerTask ? managerTask.status === "running" : loading;
   const [reloadNonce, setReloadNonce] = useState(0);
   const processedSeqRef = useRef(0);
   const decisionNotifiedRef = useRef(false);
@@ -1228,92 +1012,15 @@ export function DebateStreamView({
         setKaiVaultOwnerToken(vaultOwnerToken);
       }
 
-      let context: Record<string, unknown> | null = null;
-      let effectiveRiskProfile = riskProfileProp || "balanced";
-      if (vaultKey) {
-        try {
-          const profile = await KaiProfileService.getProfile({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-          });
-          effectiveRiskProfile =
-            (profile.preferences.risk_profile as unknown as string | null) ||
-            effectiveRiskProfile;
-          context = {
-            user_name: userId,
-            preferences: {
-              investment_horizon: profile.preferences.investment_horizon,
-              investment_horizon_selected_at:
-                profile.preferences.investment_horizon_selected_at,
-              investment_horizon_anchor_at:
-                profile.preferences.investment_horizon_anchor_at,
-              drawdown_response: profile.preferences.drawdown_response,
-              drawdown_response_selected_at:
-                profile.preferences.drawdown_response_selected_at,
-              volatility_preference: profile.preferences.volatility_preference,
-              volatility_preference_selected_at:
-                profile.preferences.volatility_preference_selected_at,
-              risk_score: profile.preferences.risk_score,
-              risk_profile: profile.preferences.risk_profile,
-              risk_profile_selected_at:
-                profile.preferences.risk_profile_selected_at,
-            },
-            financial_profile: profile,
-          };
-        } catch (profileError) {
-          console.warn("[DebateStreamView] Failed to load Kai profile context:", profileError);
-        }
-      }
-
-      let portfolioContext =
-        portfolioContextOverride && typeof portfolioContextOverride === "object"
-          ? portfolioContextOverride
-          : extractDebatePortfolioContext(userId);
-      if (!hasRequiredDebateContext(portfolioContext) && vaultKey) {
-        try {
-          const financialDomain =
-            (
-              await PkmDomainResourceService.getStaleFirst({
-                userId,
-                domain: "financial",
-                vaultKey,
-                vaultOwnerToken,
-                backgroundRefresh: false,
-              })
-            )?.data ??
-            (await PersonalKnowledgeModelService.loadDomainData({
-              userId,
-              domain: "financial",
-              vaultKey,
-              vaultOwnerToken,
-            }));
-          const hydratedContext =
-            extractDebatePortfolioContext(userId, financialDomain ?? undefined) ??
-            portfolioContext;
-          portfolioContext = hydratedContext;
-        } catch (blobError) {
-          console.warn(
-            "[DebateStreamView] Failed to hydrate debate context from the financial PKM domain:",
-            blobError
-          );
-        }
-      }
-
-      if (portfolioContext) {
-        const sourceTag =
-          portfolioSource ||
-          (portfolioContext.source_metadata &&
-          typeof portfolioContext.source_metadata === "object" &&
-          typeof (portfolioContext.source_metadata as Record<string, unknown>).source_type === "string"
-            ? ((portfolioContext.source_metadata as Record<string, unknown>).source_type as PortfolioSource)
-            : undefined);
-        context = {
-          ...(context || {}),
-          ...portfolioContext,
-          portfolio_source: sourceTag,
-        };
-      }
+      const { context, effectiveRiskProfile } = await prepareStockDebate({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        riskProfile: riskProfileProp,
+        portfolioContextOverride,
+        portfolioSource,
+      });
+      if (cancelled) return;
 
       try {
         let resolvedTask: DebateRunTask | null = null;
@@ -1470,7 +1177,7 @@ export function DebateStreamView({
           <MorphyCard showRipple={false}>
             <MorphyCardContent className="p-8 flex flex-col items-center space-y-4">
             <div className="p-4 rounded-full bg-muted/30">{display.icon}</div>
-            <h3 className="text-lg font-semibold text-center">{display.title}</h3>
+            <h3 className="ui-text-section-label text-center">{display.title}</h3>
             <p className="text-sm text-muted-foreground text-center">{error}</p>
             {retryCountdown !== null && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1520,7 +1227,7 @@ export function DebateStreamView({
         <div className="relative z-10 mb-4 overflow-hidden rounded-2xl border border-border/50 bg-background/65 px-4 py-3 shadow-sm backdrop-blur-md">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div />
-            <h1 className="justify-self-center text-[34px] font-medium tracking-normal text-foreground">
+            <h1 className="justify-self-center ui-text-section-label">
               {normalizedTicker}
             </h1>
             <div className="justify-self-end flex items-center gap-2">
@@ -1612,20 +1319,18 @@ export function DebateStreamView({
         </div>
       ) : null}
 
-      <ScrollArea className={cn("flex-1 px-2 pb-4 sm:px-3", !showHeader && "pt-0")}>
-        <div className="mx-auto w-full space-y-4 px-0 pb-8">
-          {decision ? (
-            <MorphyCard>
-              <MorphyCardContent className="p-0">
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Analysis complete.
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Use Summary or Detailed View tabs to review the recommendation outputs.
-                </p>
-              </MorphyCardContent>
-            </MorphyCard>
-          ) : null}
+      <div className="min-w-0 space-y-3">
+        <div role="status" className="space-y-2 px-1 text-xs text-muted-foreground">
+          <p>{decision ? decision.analysis_degraded ? "Limited analysis. Some research is unavailable." : "Analysis complete." : analysisInProgress ? progressLabel : "Analysis stopped."}</p>
+          {!decision && analysisInProgress ? <Progress value={overallProgress} className="h-1" aria-label="Stock analysis progress" /> : null}
+          {AGENTS.some(agent => round1States[agent]?.stage === "error" || round2States[agent]?.stage === "error") ? <p role="alert">Some findings are unavailable. Open the full analysis to review the reported errors.</p> : null}
+        </div>
+        <Collapsible open={detailsExpanded ?? localDetailsExpanded} onOpenChange={open => { setLocalDetailsExpanded(open); onDetailsExpandedChange?.(open); }}>
+          <CollapsibleTrigger asChild><button type="button" data-voice-control-id="analysis_tab_debate" className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-card px-4 text-left text-sm font-medium">
+            {decision ? "Full debate and research" : "Live analysis and research"}<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </button></CollapsibleTrigger>
+          <CollapsibleContent>
+        <div className="mx-auto w-full space-y-4 px-4 py-3">
 
           {!decision ? (
             <RoundTabsCard
@@ -1679,7 +1384,9 @@ export function DebateStreamView({
             </>
           ) : null}
         </div>
-      </ScrollArea>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
     </div>
   );
 }

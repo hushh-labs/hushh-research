@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { googlePlacement, capacitorMocks, nativeStreamFetch, previewMocks, kaiMocks } from "../fixtures/api-service-mocks";
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
+import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
+import { WalletCardAccessService } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
 
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
@@ -14,6 +16,55 @@ const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
+  it("does not dispatch a Wallet revoke when confirmation is withdrawn during token acquisition", async () => {
+    const token = deferred<string>();
+    let confirmed = true;
+    const context = { userId: "account-a", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-consent",
+      getIdToken: () => token.promise, isCurrent: () => true, canDispatch: () => confirmed };
+    const pending = WalletCardAccessService.revoke(context, "synthetic-grant");
+    confirmed = false;
+    token.resolve(makeUnsignedToken({ user_id: "account-a" }));
+    await expect(pending).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+  it("does not replay a linked-account deletion confirmation after a 401", async () => {
+    const initial = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const refreshed = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    const user = { uid: "account-a", getIdToken: vi.fn().mockResolvedValue(initial) };
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(user as never);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(refreshed);
+    mockFetch.mockResolvedValueOnce(jsonResponse({ detail: { code: "UAT_PHONE_TEST_INVALID_CODE" } }, 401));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ operation_id: "op-1", state: "admitted" }));
+    await expect(PhoneRecoveryService.confirmLinkedDeletion(user as never, "op-1", "+16505550101", { test_code: "123456" }, () => true)).rejects.toMatchObject({ status: 401 });
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(["sms", "test"] as const)("does not replay the linked-account %s phone claim after a 401", async transport => {
+    const initial = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const refreshed = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-a" } as never);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(refreshed);
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const current = () => true;
+    const claim = transport === "sms"
+      ? ApiService.claimAccountPhone("synthetic-proof", initial, "account-a", current, "never")
+      : ApiService.confirmUatPhoneTestVerification("+16505550101", "123456", "synthetic-verification", initial, "account-a", current, "never");
+    await expect(claim).rejects.toMatchObject({ status: 401 });
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not dispatch a linked-account deletion after its review is retired during token acquisition", async () => {
+    let active = true;
+    const token = deferred<string>();
+    const user = { uid: "account-a", getIdToken: vi.fn().mockReturnValue(token.promise) };
+    const pending = PhoneRecoveryService.confirmLinkedDeletion(user as never, "op-1", "+16505550101", { test_code: "123456" }, () => active);
+    active = false;
+    token.resolve(makeUnsignedToken({ user_id: "account-a" }));
+    await expect(pending).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
     const url = "https://owner-pod.example/api/one/pod/status";
     mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
@@ -37,7 +88,33 @@ describe("ApiService.apiFetch", () => {
     vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
     expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
   });
-  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+  it("binds the Firebase token to the admitted application owner", async () => {
+    const ownerId = `acct_${"a".repeat(32)}`;
+    const firebaseUid = "firebase-a";
+    publishValidatedAuthSessionPrincipal({ firebaseUid, ownerId, accountGeneration: 1 });
+    const matching = makeUnsignedToken({ sub: firebaseUid });
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(matching);
+
+    expect(await ApiService.getFirebaseIdTokenForOwner(ownerId)).toBe(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner(firebaseUid)).toBeUndefined();
+
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "firebase-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner(ownerId)).toBeUndefined();
+  });
+  it("refuses a late token after the same owner signs in again", async () => {
+    const ownerId = "owner-a";
+    publishValidatedAuthSessionOwner(ownerId);
+    const token = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    const request = ApiService.getFirebaseIdTokenForOwner(ownerId);
+
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner(ownerId);
+    token.resolve(makeUnsignedToken({ sub: ownerId }));
+
+    expect(await request).toBeUndefined();
+  });
+  it("sends explicit phone finalization in the authenticated body and omits it for ordinary refresh", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ success: true }));
     await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
     const [url, init] = mockFetch.mock.calls.at(-1)!;
@@ -46,6 +123,17 @@ describe("ApiService.apiFetch", () => {
     expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
     await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
     expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
+  it("reads committed identity through GET even when refresh and phone-finalization options are supplied", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true, identity: null }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", {
+      readOnly: true, force: true, requireSuccess: true, verifiedPhoneNumber: "+12025550101",
+    });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).toMatch(/\/api\/account\/identity$/);
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
   });
   it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
     let active = true;
@@ -383,6 +471,17 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountLifecycleOwnsAuthOutcome");
   });
 
+  it("reads only the exact cleanup operation with the cached proof after identity removal", async () => {
+    const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";
+    mockFetch.mockResolvedValueOnce(jsonResponse({ operation: { id: operationId, state: "complete", identity_removed: true } }));
+    const response = await ApiService.getAccountCleanupStatus("cached-proof", operationId);
+    expect(response.status).toBe(200);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe(`/api/account/deletion-cleanup?operation_id=${operationId}`);
+    expect(mockFetch.mock.calls[0]?.[1].headers.Authorization).toBe("Bearer cached-proof");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+  });
+
   it("keeps a local account-status request alive past the deployed eight-second bound", async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | null = null;
@@ -572,6 +671,10 @@ describe("ApiService.apiFetch", () => {
 
   it.each([
     ["ios", "/api/one/connections/directory?page=1", 60_000],
+    ["ios", "/api/pkm/memory/rewrite", 100_000],
+    ["android", "/api/pkm/memory/rewrite", 100_000],
+    ["ios", "/api/one/pod/memory/rewrite", 100_000],
+    ["android", "/api/one/pod/memory/rewrite", 100_000],
     ["android", "/api/one/connections/directory?page=1", 60_000],
     ["ios", "/api/one/agent-chat/proposals", 150_000],
     ["android", "/api/one/agent-chat/proposals", 150_000],
@@ -1527,6 +1630,21 @@ describe("ApiService.apiFetch", () => {
       "Bearer firebase-id-token",
     );
     expect(payload.meta?.market_mode).toBe("baseline");
+  });
+
+  it("asks for the India market view only when it is selected", async () => {
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce("firebase-id-token")
+      .mockResolvedValueOnce("firebase-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-11-12T10:00:00Z" }));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-11-12T10:00:00Z" }));
+
+    await ApiService.getKaiMarketBaselineInsights({ userId: "user_123", daysBack: 7, market: "IN" });
+    await ApiService.getKaiMarketBaselineInsights({ userId: "user_123", daysBack: 7, market: "US" });
+
+    const urls = mockFetch.mock.calls.map((call) => String(call[0]));
+    expect(urls[0]).toBe("/api/kai/market/insights/baseline/user_123?days_back=7&market=IN");
+    expect(urls[1]).toBe("/api/kai/market/insights/baseline/user_123?days_back=7");
   });
 
   it("keeps US Market session status independent of the viewer timezone", async () => {

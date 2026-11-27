@@ -452,6 +452,40 @@ async def vault_bootstrap_state(
                 type(identity_error).__name__,
             )
 
+        setup_capability_ids = list(state.get("setupCapabilityIds") or [])
+        if "cloud" not in setup_capability_ids:
+            try:
+                from hushh_mcp.onboarding_contract import normalize_setup_capability_ids
+                from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+                from hushh_mcp.services.owner_hosting_choice import write_cloud_setup_marker
+                from hushh_mcp.services.personal_agent_registry_repo import (
+                    PersonalAgentRegistryRepo,
+                )
+                from hushh_mcp.services.pooled_sandbox_cutover import (
+                    ensure_pooled_sandbox_placement,
+                    sandbox_pool_cutover_enabled,
+                )
+
+                if sandbox_pool_cutover_enabled():
+                    reg_row = await PersonalAgentRegistryRepo().get(user_id)
+                    if reg_row is None and phone_verified is True:
+                        reg_row = await ensure_pooled_sandbox_placement(user_id=user_id)
+                    if (
+                        isinstance(reg_row, dict)
+                        and has_hosted_ace_evidence(reg_row)
+                        and str(reg_row.get("status") or "") == "provisioned"
+                    ):
+                        await write_cloud_setup_marker(user_id)
+                        setup_capability_ids = normalize_setup_capability_ids(
+                            [*setup_capability_ids, "cloud"]
+                        )
+            except Exception as ace_marker_err:
+                logger.warning(
+                    "vault/bootstrap-state ace cloud-marker sync skipped user=%s error=%s",
+                    _mask_user_id(user_id),
+                    type(ace_marker_err).__name__,
+                )
+
         return VaultBootstrapStateResponse(
             userId=user_id,
             hasVault=has_vault,
@@ -464,7 +498,7 @@ async def vault_bootstrap_state(
             setupCompletedAt=state.get("setupCompletedAt"),
             navSetupCompletedAt=state.get("navSetupCompletedAt"),
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
-            setupCapabilityIds=state.get("setupCapabilityIds") or [],
+            setupCapabilityIds=setup_capability_ids,
             setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
             oneChatOnboarding=state.get("oneChatOnboarding"),
             initialContactsSource=state.get("initialContactsSource"),

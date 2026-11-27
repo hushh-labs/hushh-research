@@ -261,19 +261,21 @@ export class SecureResourceCacheService {
 
   static async invalidateResourcePrefix(userId: string, resourcePrefix: string): Promise<void> {
     try {
-      const database = await openDb();
-      if (!database) {
-        return;
-      }
-      const records = await listRecordsByUser(database, userId);
-      await Promise.all(
-        records
-          .filter((record) => record.resourceKey.startsWith(resourcePrefix))
-          .map((record) => deleteRecord(database, record.key))
-      );
+      await this.invalidateResourcePrefixRequired(userId, resourcePrefix);
     } catch (error) {
       console.warn("[SecureResourceCacheService] Failed to invalidate secure cache prefix:", error);
     }
+  }
+
+  /** Privacy cleanup must distinguish a completed purge from unavailable storage. */
+  static async invalidateResourcePrefixRequired(userId: string, resourcePrefix: string): Promise<void> {
+    const database = await openDb();
+    if (!database) return;
+    try {
+      const records = await listRecordsByUser(database, userId);
+      await Promise.all(records.filter(record => record.resourceKey.startsWith(resourcePrefix))
+        .map(record => deleteRecord(database, record.key)));
+    } finally { database.close(); }
   }
 
   static async invalidateUser(userId: string): Promise<void> {

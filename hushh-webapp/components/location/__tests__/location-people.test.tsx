@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -137,7 +137,7 @@ describe("LocationPeople", () => {
 
   it("renders connected people by server name and navigates row actions with ?person=", async () => {
     harness.listRecipientsPage.mockResolvedValue({
-      items: [PRIYA],
+      items: [{ ...PRIYA, connectedFromContacts: true }],
       page: 1,
       hasMore: false,
       totalCount: 1,
@@ -147,6 +147,9 @@ describe("LocationPeople", () => {
     expect(row).toHaveTextContent("Priya Sharma");
     expect(row).toHaveTextContent("Family");
     expect(row).not.toHaveTextContent("u2");
+    const avatar = within(row).getByRole("button", { name: "View Priya Sharma's profile" });
+    expect(within(avatar).getByRole("img", { name: "Connected from your contacts" })).toBeInTheDocument();
+    expect(within(avatar).queryByRole("img", { name: "Verified advisor" })).toBeNull();
 
     // The People row carries only Ask and Share. Check-In lives on the Now
     // tab and the nearby flow, so its button must not render here.

@@ -118,11 +118,10 @@ export function CommunicationPreferencesGroup({
     <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings" aria-busy={loading}>
       <SettingsGroup
         title="How One writes to you"
-        description="Writing only. Access and permissions stay unchanged."
         testId="style-settings-group"
         titleAction={
           <MorphyButton type="button" size="sm" disabled={!dirty || disabled || unavailable} onClick={onSave}
-            className="min-h-11 shrink-0 px-6" data-testid="style-settings-save">
+            className="min-h-11 shrink-0 px-6" data-testid="style-settings-save" data-profile-role="action">
             {saving ? "Saving" : "Save"}
           </MorphyButton>
         }
@@ -198,7 +197,7 @@ export function CommunicationPreferencesGroup({
       </SettingsGroup>
       <SettingsGroup
         title="Style note"
-        description="Optional writing guidance. Permissions stay unchanged."
+        description="Optional. Permissions stay unchanged."
         testId="style-settings-note-group"
       >
         <div className="flex flex-col gap-2 p-4" data-testid="style-settings-note-block">

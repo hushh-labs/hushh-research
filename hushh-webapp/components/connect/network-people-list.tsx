@@ -1,48 +1,101 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import { ConnectionsService, ConnectionsServiceRequestError, type NetworkDegree, type NetworkPage } from "@/lib/services/connections-service";
+import { Search } from "@/components/icons";
+import { NetworkPersonRow } from "@/components/connect/network-person-row";
+import { PersonProfileService } from "@/lib/services/person-profile-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { ConnectionsServiceRequestError, type NetworkDegree, type NetworkPage } from "@/lib/services/connections-service";
 import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { connectPersonName } from "@/lib/connections/person-label";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
+import { DIRECTORY_PASSIVE_REFRESH_AFTER_MS } from "@/lib/connect/directory-first-page-cache";
+import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { cn } from "@/lib/utils";
+import { NETWORK_FILTERS, NetworkPageCache, type NetworkListMode, type NetworkPageRead } from "@/lib/connect/network-page-cache";
 
-type Mode = "mutuals" | "connections" | "discovery";
-type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string };
-type ListProps = { mode: Mode; personRef?: string; visitKey: string; onReady?: () => void };
+type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
+type ListProps = { mode: NetworkListMode; personRef?: string; visitKey: string; embedded?: boolean; retainedPages?: NetworkPageCache; onReady?: () => void; onDismiss?: () => void };
+
+function cachedResult(cache: NetworkPageCache, read: NetworkPageRead, allowDiscoverySnapshot = false): NetworkPage | null {
+  const pages: NetworkPage[] = [];
+  for (let page = 1; page <= read.page; page++) {
+    const value = (allowDiscoverySnapshot ? cache.peekDiscoverySnapshot({ ...read, page }) : undefined)
+      ?? cache.peek({ ...read, page });
+    if (!value) return null;
+    pages.push(value);
+    if (!value.hasMore) break;
+  }
+  const last = pages.at(-1);
+  return last ? { ...last, items: pages.flatMap(page => page.items), suggestions: pages[0]?.suggestions } : null;
+}
+
+function markRequests(page: NetworkPage, requested: ReadonlySet<string>): NetworkPage {
+  const mark = (person: NetworkPage["items"][number]) =>
+    requested.has(person.publicPersonRef) && (!person.relationship || person.relationship === "none")
+      ? { ...person, relationship: "pending_outgoing" as const }
+      : person;
+  const items = new Map<string, NetworkPage["items"][number]>();
+  for (const person of page.items) {
+    const previous = items.get(person.publicPersonRef);
+    // A later public recommendation must not demote a qualified graph row.
+    if (!previous?.networkDegree || person.networkDegree) items.set(person.publicPersonRef, mark(person));
+  }
+  return { ...page, items: [...items.values()], suggestions: page.suggestions?.map(mark) };
+}
 export function networkDegreeLabel(degree: NetworkDegree | null | undefined): string | null {
   return degree === 1 ? "1st" : degree === 2 ? "2nd" : degree === 3 ? "3rd" : null;
 }
 
-/** Shared list owner; private rows are never retained in navigation memory. */
+/** Shared list owner. Navigation history and snapshots contain no rows. */
 export function NetworkPeopleList(props: ListProps) {
   const { userId } = useAuth();
   const generation = useSyncExternalStore(subscribeAuthSessionGeneration, getAuthSessionGeneration, () => null);
   return <NetworkListSession key={`${userId ?? "signed-out"}:${generation}`} {...props} />;
 }
-function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
+function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages, onReady, onDismiss }: ListProps) {
   const { user, userId: owner } = useAuth();
   const generation = getAuthSessionGeneration();
   const memoryKey = `network:${visitKey}`;
   const [saved] = useState(() => readConnectListMemory<Snapshot>(owner, memoryKey));
-  const [query, setQuery] = useState(saved?.query ?? "");
+  const [draftQuery, setDraftQuery] = useState(saved?.query ?? "");
+  const query = useDebouncedValue(draftQuery.trim(), 250);
+  const searchPending = draftQuery.trim() !== query;
   const [degree, setDegree] = useState<NetworkDegree | undefined>(saved?.degree);
+  const extended = mode === "discovery" && degree === 3;
   const [page, setPage] = useState(saved?.page ?? 1);
-  const [result, setResult] = useState<NetworkPage | null>(null);
-  const [busy, setBusy] = useState(true);
+  const [localPages] = useState(() => new NetworkPageCache());
+  const pageCache = retainedPages ?? localPages;
+  const [result, setResult] = useState<NetworkPage | null>(() => {
+    const cached = user && cachedResult(pageCache, { mode, personRef, degree, query, page }, true);
+    return cached ? markRequests(cached, new Set()) : null;
+  });
+  const [busy, setBusy] = useState(() => !(user && cachedResult(pageCache, { mode, personRef, degree, query, page })));
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [retry, setRetry] = useState(0);
+  const [connecting, setConnecting] = useState<Set<string>>(() => new Set());
+  const connectionIntents = useRef(new Set<string>());
+  const requestedPeople = useRef(new Set<string>());
+  const notifyingOwnRequest = useRef(false);
+  const refreshKind = useRef<"quiet" | "invalidate" | null>(null);
+  const lastForegroundRefresh = useRef(0);
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
   const root = useRef<HTMLElement>(null);
   const restore = useRef(Boolean(saved));
+  const restoreSnapshot = useRef(saved);
   const requestRef = useRef(0);
-  const previousRead = useRef<{ scope: string; page: number } | null>(null);
+  const lastSuccessfulRead = useRef<{ scope: string; page: number } | null>(null);
   const scope = JSON.stringify([owner, generation, mode, personRef, degree, query, revision]);
-  const snapshot = useRef<Snapshot>({ query, degree, page, scrollTop: 0, focusRef: saved?.focusRef });
-  snapshot.current = { ...snapshot.current, query, degree, page: result?.page ?? page };
+  const snapshot = useRef<Snapshot>({ query, degree, page, scrollTop: 0, focusRef: saved?.focusRef, focusControl: saved?.focusControl });
+  snapshot.current = { ...snapshot.current, query: draftQuery, degree, page: restore.current && busy ? page : result?.page ?? page };
+  useEffect(() => () => localPages.clear(), [localPages]);
   useLayoutEffect(() => {
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     return () => {
@@ -51,95 +104,269 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
     };
   }, [generation, owner, memoryKey]);
 
+  const refresh = useCallback((preserveRows = false) => {
+    ++requestRef.current;
+    const opener = root.current?.contains(document.activeElement) ? document.activeElement?.closest<HTMLElement>("[data-network-person]") : null;
+    restoreSnapshot.current = { ...snapshot.current,
+      scrollTop: root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop(),
+      focusRef: opener?.dataset.networkPerson,
+      focusControl: opener?.dataset.networkFocus === "mutual" ? "mutual" : opener?.dataset.networkFocus === "request" ? "request" : opener?.dataset.networkFocus === "connect" ? "connect" : "profile",
+    };
+    restore.current = true;
+    requestedPeople.current.clear();
+    refreshKind.current = preserveRows ? "quiet" : "invalidate";
+    if (!preserveRows) {
+      pageCache.clear();
+      setResult(null);
+    }
+    setRevision(value => value + 1);
+  }, [pageCache]);
+  usePeriodicTask(`network-people-availability:${owner}:${visitKey}`, DIRECTORY_PASSIVE_REFRESH_AFTER_MS, () => {
+    if (!busy && isNetworkOnline()) refresh(true);
+  }, { enabled: Boolean(user && owner) });
   useEffect(() => subscribeToConnectionGraphChanges(event => {
-    if (event.userId === owner) { setResult(null); setRevision(value => value + 1); }
-  }), [owner]);
+    if (event.userId !== owner || notifyingOwnRequest.current) return;
+    const reconcile = mode === "discovery" && event.reason === "reconcile";
+    if (reconcile) pageCache.reconcile();
+    refresh(reconcile);
+  }), [owner, mode, pageCache, refresh]);
   useEffect(() => {
-    const refresh = () => { setResult(null); setRevision(value => value + 1); };
-    const visible = () => { if (document.visibilityState === "visible") refresh(); };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", visible);
-    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", visible); };
-  }, []);
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastForegroundRefresh.current < 200) return;
+      const { degree, query, page } = snapshot.current;
+      const read = { mode, personRef, degree, query: query.trim(), page };
+      if (pageCache.peek(read) && pageCache.peek({ ...read, page: 1 })) return;
+      lastForegroundRefresh.current = now;
+      refresh(true);
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+  }, [mode, personRef, pageCache, refresh]);
+
   useEffect(() => {
     const controller = new AbortController();
     const request = ++requestRef.current;
-    const append = previousRead.current?.scope === scope && page > previousRead.current.page;
-    previousRead.current = { scope, page };
+    const previous = lastSuccessfulRead.current;
+    const append = previous?.scope === scope && page === previous.page + 1;
+    const read = { mode, personRef, degree, query, page };
+    const refresh = refreshKind.current;
+    refreshKind.current = null;
+    const cached = user && !searchPending && !append && !refresh && cachedResult(pageCache, read);
+    if (cached) {
+      lastSuccessfulRead.current = { scope, page: cached.page };
+      setResult(markRequests(cached, requestedPeople.current));
+      setBusy(false);
+      setError(null);
+      return () => controller.abort();
+    }
+    const retained = user && !searchPending && !append && !refresh && cachedResult(pageCache, read, true);
+    const keepRows = refresh === "quiet" || Boolean(retained);
     setBusy(true); setError(null);
-    if (!append) setResult(null);
-    if (!user) { setBusy(false); return () => controller.abort(); }
-    const timer = setTimeout(() => void (async () => {
+    if (retained) setResult(markRequests(retained, requestedPeople.current));
+    if (!append) {
+      lastSuccessfulRead.current = null;
+      if (!keepRows) setResult(null);
+    }
+    if (!user || searchPending) {
+      if (!user) setBusy(false);
+      return () => controller.abort();
+    }
+    void (async () => {
       try {
-        const idToken = await user.getIdToken();
-        if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
         const pages: NetworkPage[] = [];
-        for (let next = 1; next <= page; next++) {
-          const value = mode === "mutuals" && personRef
-            ? await ConnectionsService.listMutualConnections({ idToken, personRef, page: next, signal: controller.signal })
-            : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, signal: controller.signal });
+        let token: Promise<string> | undefined;
+        const getToken = () => token ??= user.getIdToken();
+        for (let next = append ? page : 1; next <= page; next++) {
+          if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
+          const value = await pageCache.load({ ...read, page: next }, getToken, Boolean(refresh) || retry > 0 && next === page);
+          if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
+          if (mode === "discovery" && page === 1 && next === 1 && !query && revision === 0) {
+            for (const filter of NETWORK_FILTERS) if (filter !== degree) void pageCache.load({ ...read, degree: filter }, getToken).catch(() => {});
+          }
           pages.push(value);
+          if (!keepRows && next === 1 && page > 1 && value.hasMore) {
+            setResult(markRequests(value, requestedPeople.current));
+          }
           if (!value.hasMore) break;
         }
         if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
         const last = pages[pages.length - 1];
-        if (last) setResult({ ...last, items: [...new Map(pages.flatMap(value => value.items).map(person => [person.publicPersonRef, person])).values()] });
+        if (last) {
+          lastSuccessfulRead.current = { scope, page: last.page };
+          const items = pages.flatMap(value => value.items);
+          setResult(current => {
+            const merged = append && current ? [...current.items, ...items] : items;
+            return markRequests({
+              ...last,
+              items: merged,
+              suggestions: append ? current?.suggestions : pages[0]?.suggestions,
+            }, requestedPeople.current);
+          });
+        }
       } catch (failure) {
         if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
-        setResult(null);
-        const unavailable = failure instanceof ConnectionsServiceRequestError && [401, 403, 404].includes(failure.status);
-        if (unavailable) saveConnectListMemory(owner, memoryKey, null);
+        const status = failure instanceof ConnectionsServiceRequestError ? failure.status : null;
+        const unavailable = status !== null && [401, 403, 404].includes(status);
+        // Requalification failures can invalidate previously visible rows. Only a rate limit permits retaining them.
+        if (!append || status !== 429) {
+          lastSuccessfulRead.current = null;
+          setResult(null);
+        }
+        if (unavailable) {
+          pageCache.clear();
+          saveConnectListMemory(owner, memoryKey, null);
+        }
         setError(unavailable ? "This connection list is unavailable." : "Could not load connections. Please try again.");
       } finally {
         if (!controller.signal.aborted && request === requestRef.current && generation === getAuthSessionGeneration()) setBusy(false);
       }
-    })(), query ? 250 : 0);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [user, owner, generation, mode, personRef, degree, query, page, revision, memoryKey, scope]);
+    })();
+    return () => controller.abort();
+  }, [user, owner, generation, mode, personRef, degree, query, searchPending, page, revision, retry, memoryKey, scope, pageCache]);
 
-  useEffect(() => { if (result && !busy) onReady?.(); }, [result, busy, onReady]);
+  useEffect(() => { if (result && !busy && !error) onReady?.(); }, [result, busy, error, onReady]);
 
   useEffect(() => {
-    if (!result || !restore.current || !saved) return;
-    restore.current = false;
+    const retained = restoreSnapshot.current;
+    if (!result || busy || !restore.current || !retained) return;
     const scroll = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
     const frame = requestAnimationFrame(() => {
-      if (scroll) scroll.scrollTop = saved.scrollTop;
-      Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[data-network-person]") ?? []).find(element => element.dataset.networkPerson === saved.focusRef)?.focus({ preventScroll: true });
+      restore.current = false;
+      if (scroll) scroll.scrollTop = retained.scrollTop;
+      const controls = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("button[data-network-person]") ?? []).filter(element => element.dataset.networkPerson === retained.focusRef);
+      const target = controls.find(element => (element.dataset.networkFocus ?? "profile") === (retained.focusControl ?? "profile"))
+        ?? controls.find(element => !element.dataset.networkFocus);
+      const fallback = root.current?.querySelector<HTMLInputElement>("input") ?? root.current;
+      (target ?? fallback)?.focus({ preventScroll: true });
     });
-    const cancel = !scroll ? restoreConnectListScroll(saved.scrollTop) : undefined;
+    const cancel = !scroll ? restoreConnectListScroll(retained.scrollTop) : undefined;
     return () => { cancelAnimationFrame(frame); cancel?.(); };
-  }, [result, saved]);
+  }, [result, busy]);
 
   const title = mode === "discovery" ? "Explore your network" : mode === "mutuals" ? `${result?.totalCount ?? ""} mutual ${result?.totalCount === 1 ? "connection" : "connections"}`.trim() : result?.person ? `${connectPersonName(result.person)}’s connections` : "Connections";
+  const remember = (personRef: string, focusControl: "profile" | "mutual" | "request" | "connect" = "profile") => {
+    const scrollTop = root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop();
+    snapshot.current = { query: draftQuery, degree, page: result?.page ?? page, scrollTop, focusRef: personRef, focusControl };
+    saveConnectListMemory(owner, memoryKey, snapshot.current);
+  };
+  // A refresh can replace rows while their explicit Connect actions are pending.
+  // Keep intent/duplicate guards with the list owner, not a transient row.
+  const connect = async (personRef: string) => {
+    if (!user || !owner || connectionIntents.current.has(personRef)) return;
+    connectionIntents.current.add(personRef);
+    setConnecting(new Set(connectionIntents.current));
+    setConnectionErrors(current => { const next = { ...current }; delete next[personRef]; return next; });
+    remember(personRef, "connect");
+    const active = () => Boolean(root.current?.isConnected) && generation === getAuthSessionGeneration();
+    try {
+      const token = await user.getIdToken();
+      if (!active()) return;
+      const relationship = await PersonProfileService.connect(personRef, token);
+      // Committed writes still wake this owner after their source list closes.
+      if (generation !== getAuthSessionGeneration()) return;
+      const pending = active() && relationship?.status === "pending_outgoing";
+      const connected = active() && relationship?.status === "connected";
+      if (pending) {
+        if (document.activeElement instanceof HTMLElement
+          && document.activeElement.dataset.networkPerson === personRef
+          && document.activeElement.dataset.networkFocus === "connect") {
+          remember(personRef, "connect");
+          restoreSnapshot.current = snapshot.current;
+          restore.current = true;
+        }
+        requestedPeople.current.add(personRef);
+        setResult(current => current ? markRequests(current, requestedPeople.current) : current);
+      } else if (connected) refresh(true);
+      notifyingOwnRequest.current = pending || connected;
+      try { CacheSyncService.onConnectionGraphMutated(owner); }
+      finally { notifyingOwnRequest.current = false; }
+    } catch {
+      if (active()) setConnectionErrors(current => ({ ...current, [personRef]: "Could not send request. Please try again." }));
+    } finally {
+      connectionIntents.current.delete(personRef);
+      if (active()) setConnecting(new Set(connectionIntents.current));
+    }
+  };
+  // Enforce the selected distance during staggered API rollouts and cache reads.
   const people = (result?.items ?? []).filter(person => !degree || person.networkDegree === degree);
-  return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-4 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
-    <header className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
-      <h1 className="break-words text-xl font-semibold">{title}</h1>
-      <p className="text-sm text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "Eligible people connected to your direct connection." : degree === 3 ? "3rd-degree connections are people connected to your 2nd-degree connections. Eligible profiles appear automatically." : "Discover people through your accepted connections. Degrees are relative to you."}</p>
-      {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
+  const Heading = embedded ? "h3" : "h1";
+  return <section ref={root} tabIndex={-1} className={cn("mx-auto w-full min-w-0 max-w-[880px] space-y-3 sm:space-y-4", !embedded && "px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5")} data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
+    <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
+      {!embedded || mode !== "discovery" ? <Heading data-connect-role="section">{title}</Heading> : null}
+      <p data-connect-role="description" className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "Eligible people connected to your direct connection." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Eligible profiles appear automatically." : "Discover people through your accepted connections. Degrees are relative to you."}</p>
+      {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p data-connect-role="description" className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
-    {mode !== "mutuals" ? <Input aria-label="Search network by name" placeholder="Search by name" value={query} onChange={event => { restore.current = false; setQuery(event.target.value); setPage(1); }} /> : null}
-    {mode === "discovery" ? <div className="flex flex-wrap gap-2" aria-label="Connection degree filters">
-      {([undefined, 1, 2, 3] as const).map(value => <button key={value ?? "all"} type="button" aria-pressed={degree === value} className="min-h-11 min-w-14 rounded-full border px-4 text-sm aria-pressed:bg-primary aria-pressed:text-primary-foreground" onClick={() => { restore.current = false; setDegree(value); setPage(1); }}>{value ? networkDegreeLabel(value) : "All"}</button>)}
-    </div> : null}
-    {busy && !result ? <p role="status" className="py-6 text-muted-foreground">Loading connections…</p> : null}
-    {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRevision(value => value + 1)}>Try again</button></div> : null}
-    {result ? <ul className="divide-y rounded-2xl border bg-card" aria-busy={busy}>
-      {people.map(person => <li key={person.publicPersonRef}><button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${connectPersonName(person)}'s profile`} className="flex min-h-[76px] w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring" onClick={event => {
-        const scrollTop = root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop();
-        snapshot.current = { query, degree, page: result.page, scrollTop, focusRef: person.publicPersonRef };
-        saveConnectListMemory(owner, memoryKey, snapshot.current);
-        openPersonProfilePreview({ personRef: person.publicPersonRef }, event.currentTarget);
-      }}>
-        <ConnectionPersonAvatar label={connectPersonName(person)} photoUrl={person.photoUrl} size="list" />
-        <span className="min-w-0 flex-1 break-words font-medium">{connectPersonName(person)}</span>
-        {networkDegreeLabel(person.networkDegree) ? <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs">{networkDegreeLabel(person.networkDegree)}</span> : null}
-        <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline" aria-hidden="true">View profile</span>
-      </button></li>)}
+    {mode !== "mutuals" ? (
+      <div className="relative">
+        <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input aria-label={extended ? "Search people by name" : "Search network by name"} placeholder="Search by name" value={draftQuery} className="ps-9" maxLength={160}
+          onChange={event => {
+            const nextQuery = event.target.value;
+            setDraftQuery(nextQuery);
+            if (nextQuery.trim() === draftQuery.trim()) return;
+            ++requestRef.current;
+            restore.current = false;
+            setResult(null);
+            setBusy(true);
+            setError(null);
+            setPage(1);
+          }} />
+      </div>
+    ) : null}
+    {mode === "discovery" ? (
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Connection degree filters">
+        {NETWORK_FILTERS.map(value => (
+          <button
+            data-connect-role="action"
+            key={value ?? "all"}
+            type="button"
+            aria-pressed={degree === value}
+            className="min-h-11 min-w-0 rounded-full border px-2 py-1.5 text-xs leading-tight [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground min-[360px]:text-sm sm:px-3"
+            onClick={() => {
+              if (value === degree) return;
+              ++requestRef.current;
+              restore.current = false;
+              const scroller = root.current?.closest<HTMLElement>("[data-network-scroll-owner]");
+              if (scroller) scroller.scrollTop = 0;
+              const read = { mode, personRef, degree: value, query, page: 1 };
+              const fresh = pageCache.peek(read);
+              const cached = fresh ?? pageCache.peekDiscoverySnapshot(read);
+              setResult(cached ? markRequests(cached, requestedPeople.current) : null);
+              setBusy(!fresh);
+              setError(null);
+              setDegree(value);
+              setPage(1);
+            }}
+          >
+            {value === 1 ? "My connections" : value === 2 ? "Through connections" : value === 3 ? "Extended network" : "All"}
+          </button>
+        ))}
+      </div>
+    ) : null}
+    {busy && !result ? <p data-connect-role="description" role="status" className="py-3 text-sm text-muted-foreground">Loading connections…</p> : null}
+    {error ? <div role="alert" className="space-y-2"><p data-connect-role="description">{error}</p><button data-connect-role="action" type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
+    {people.length ? <ul className="divide-y rounded-xl border bg-card" aria-busy={busy} aria-label={extended ? "Extended network people" : undefined}>
+      {people.map(person => <NetworkPersonRow key={person.publicPersonRef} person={person}
+        connecting={connecting.has(person.publicPersonRef)} connectionError={connectionErrors[person.publicPersonRef]}
+        onConnect={() => void connect(person.publicPersonRef)} onRemember={() => remember(person.publicPersonRef, "mutual")} onOpen={element => {
+        remember(person.publicPersonRef, element.dataset.networkFocus === "request" ? "request" : "profile");
+        openPersonProfilePreview({ personRef: person.publicPersonRef }, element);
+      }} />)}
     </ul> : null}
-    {result && !people.length ? <p role="status" className="py-4 text-muted-foreground">{degree === 3 && !query ? "No 3rd-degree connections to show yet. Connect with people you know to grow your network." : `No profiles to show${query ? " for this name" : " right now"}.`}</p> : null}
-    {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
-    {result?.hasMore ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : "Load more connections"}</button> : null}
+    {result && (!busy || result.page === page) && !people.length ? <div className="py-3 text-sm text-muted-foreground">
+      <p data-connect-role="description" role="status">{extended && !query.trim()
+        ? "No 3rd-degree connections to show yet. Connect with people you know to grow your network."
+        : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>
+      {extended && !query.trim() && onDismiss ? <button data-connect-role="action" type="button"
+        data-voice-control-id="network-find-people"
+        className="min-h-11 rounded-md text-primary hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onDismiss}>Back to Find people</button> : null}
+    </div> : null}
+    {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p data-connect-role="description" className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
+    {extended && result && people.length > 0 && !result.hasMore && !error ? <p data-connect-role="description" role="status" className="text-sm text-muted-foreground">You’ve reached the end of this list.</p> : null}
+    {result?.hasMore && !error ? <button data-connect-role="action" type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : extended ? "Load more people" : "Load more connections"}</button> : null}
   </section>;
 }

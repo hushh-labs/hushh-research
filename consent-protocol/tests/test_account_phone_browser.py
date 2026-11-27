@@ -32,7 +32,7 @@ from tests.helpers.phone_conflict_browser import (
 from tests.helpers.phone_transfer_postgres import database_url as database_url
 
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
-SCENARIOS = {"recover", "occupied", "devices"}
+SCENARIOS = {"recover", "delete", "delete_linked", "transfer", "devices"}
 
 
 class RecordedFirebase:
@@ -44,7 +44,9 @@ class RecordedFirebase:
         self.claims: dict[str, dict] = {}
         self.auth_times = {uid: int(time.time()) for uid in OWNERS.values()}
         self.challenges: dict[str, dict] = {}
+        self.proofs: dict[str, int] = {}
         self.phone = PHONE
+        self.phone_holder = "previous"
         self.unlink_count = 0
         self.sends = 0
 
@@ -52,7 +54,7 @@ class RecordedFirebase:
         return {
             "uid": OWNERS[name],
             "provider": self.provider,
-            "phone": self.phone if name == "previous" else None,
+            "phone": self.phone if name == self.phone_holder else None,
         }
 
     def token(self, uid: str, *, phone: bool = False, stamp: int | None = None):
@@ -87,7 +89,9 @@ class RecordedFirebase:
             raise ValueError("unknown fixture identity")
         return SimpleNamespace(
             uid=uid,
-            phone_number=self.phone if uid == OWNERS["previous"] else None,
+            phone_number=self.phone
+            if self.phone_holder and uid == OWNERS[self.phone_holder]
+            else None,
             email=f"{uid}@example.test",
             email_verified=True,
             display_name="Synthetic account",
@@ -136,7 +140,41 @@ class RecordedFirebase:
                 self.challenges[challenge] = {"created": int(time.time()), "spent": False}
                 self.sends += 1
                 return {"verificationId": challenge}
+            if operation == "link":
+                challenge = self.challenges.get(body.get("sessionInfo"))
+                if body.get("idToken") not in self.claims:
+                    return Response(
+                        json.dumps({"error": {"message": "INVALID_ID_TOKEN"}}),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                if not challenge or challenge["spent"] or body.get("code") != "123456":
+                    return Response(
+                        json.dumps({"error": {"message": "INVALID_CODE"}}),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                challenge["spent"] = True
+                if self.phone_holder is None:
+                    self.phone_holder = self.active
+                    return {
+                        "localId": OWNERS[self.active],
+                        "phoneNumber": PHONE,
+                        "isNewUser": False,
+                    }
+                proof = str(uuid4())
+                self.proofs[proof] = challenge["created"]
+                return {"temporaryProof": proof, "phoneNumber": PHONE, "isNewUser": False}
             if operation == "verify":
+                proof = body.get("temporaryProof")
+                if proof:
+                    stamp = self.proofs.pop(proof, None)
+                    if stamp is None or body.get("phoneNumber") != PHONE:
+                        raise HTTPException(400)
+                    return {
+                        "user": {**self.describe("previous"), "provider": "phone"},
+                        "token": self.token(OWNERS["previous"], phone=True, stamp=stamp),
+                    }
                 challenge = self.challenges.get(body.get("verificationId"))
                 if not challenge or challenge["spent"] or body.get("verificationCode") != "123456":
                     return Response(
@@ -307,15 +345,17 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         if scenario not in SCENARIOS:
             raise HTTPException(404)
         baseline.clear()
-        baseline.update(await _seed(pool, files=scenario in {"recover", "occupied"}))
+        baseline.update(await _seed(pool, files=scenario in {"recover", "transfer"}))
         recorded.active = "previous" if scenario == "devices" else "receiving-a"
         # The sign-in handoff remains the path whenever in-place deletion is off.
         monkeypatch.setenv(
             "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "delete" else "true"
         )
         recorded.phone = PHONE
+        recorded.phone_holder = "previous"
         recorded.claims.clear()
         recorded.challenges.clear()
+        recorded.proofs.clear()
         recorded.unlink_count = 0
         recorded.sends = 0
         return {"ready": True}
@@ -325,7 +365,10 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         if scenario not in {"delete", "delete_linked"}:
             raise HTTPException(404)
         # Controlled scheduler delivery; canonical lease, journal and SQL writer.
-        return {"settled": await worker.drain(limit=1)}
+        settled = await worker.drain(limit=1)
+        if scenario == "delete_linked" and settled:
+            recorded.phone_holder = None
+        return {"settled": settled}
 
     @app.post("/__phone_fixture/assert/{scenario}")
     async def assert_persisted(scenario: str):
@@ -337,9 +380,7 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
             elif scenario == "delete_linked":
                 await _assert_linked_deleted(conn, recorded, baseline)
             else:
-                await _assert_preserved(
-                    conn, recorded, baseline, scenario, recovery_action="delete"
-                )
+                await _assert_preserved(conn, recorded, baseline, scenario)
         outcomes.append(scenario)
         return {"persisted": True}
 
@@ -348,13 +389,16 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "browser_engine,provider",
+    "browser_engine,provider,readback_failure",
     [
-        ("chromium", "google.com"),
-        ("webkit", "apple.com"),
+        ("chromium", "google.com", False),
+        ("webkit", "apple.com", False),
+        ("webkit", "apple.com", True),
     ],
 )
-async def test_recorded_phone_browser_journeys(database_url, monkeypatch, browser_engine, provider):
+async def test_recorded_phone_browser_journeys(
+    database_url, monkeypatch, browser_engine, provider, readback_failure
+):
     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=4, command_timeout=5)
     engine = create_engine(database_url, pool_size=3, max_overflow=1)
     try:
@@ -365,13 +409,54 @@ async def test_recorded_phone_browser_journeys(database_url, monkeypatch, browse
         baseline = {}
         app = _fixture_app(pool, recorded, baseline, outcomes, monkeypatch)
         async with browser_backend(app) as origin:
-            result = await run_browser_process(
-                {"backend": origin, "engine": browser_engine, "provider": provider},
-                script="phone-conflict-flow.mjs",
-            )
+            try:
+                result = await run_browser_process(
+                    {
+                        "backend": origin,
+                        "engine": browser_engine,
+                        "provider": provider,
+                        "transferReadbackFailure": readback_failure,
+                    },
+                    script="phone-conflict-flow.mjs",
+                )
+            except AssertionError as error:
+                if not readback_failure:
+                    raise
+                report = None
+                for line in reversed(str(error).splitlines()):
+                    try:
+                        candidate = json.loads(line.removeprefix("Browser loop failed: "))
+                    except json.JSONDecodeError:
+                        continue
+                    if (
+                        isinstance(candidate, dict)
+                        and candidate.get("code") == "PHONE_BROWSER_LOOP_FAILED"
+                    ):
+                        report = candidate
+                        break
+                if report is None:
+                    raise
+                assert report["code"] == "PHONE_BROWSER_LOOP_FAILED"
+                assert report["stage"] == "transfer_readback"
+                assert report["diagnostics"]["transfer"] == {
+                    "get_requests": 1,
+                    "get_responses": 0,
+                    "get_failures": 1,
+                    "confirm_requests": 1,
+                    "erase_requests": 0,
+                    "click_started": True,
+                    "click_completed": True,
+                }
+                async with pool.acquire() as connection:
+                    await _assert_preserved(connection, recorded, baseline, "transfer")
+                assert outcomes == ["recover", "delete", "delete_linked"]
+                return
+        assert not readback_failure, (
+            "A blocked authoritative status read must not pass the browser gate"
+        )
         assert result["feature"] == "phone_conflict"
         assert result["engine"] == browser_engine
-        assert outcomes == ["recover", "occupied", "devices"]
+        assert outcomes == ["recover", "delete", "delete_linked", "transfer", "devices"]
         assert "legacy_257_handoff_rejected" in result["trace_loop"]
     finally:
         engine.dispose()

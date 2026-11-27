@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing, asynccontextmanager
 from typing import Any
 
-from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
+from ag_ui.core import (
+    BaseEvent,
+    EventType,
+    RunAgentInput,
+    RunErrorEvent,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
 
 from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
 from hushh_mcp.one_adk.mcp_turn_scope import McpTurnResources
-from hushh_mcp.services.chat_key import retain_request_chat_key
+from hushh_mcp.services.chat_key import current_request_chat_key, retain_request_chat_key
 from hushh_mcp.services.pod_upgrade_admission import (
     ADMISSION,
     PodUpgradeInProgress,
@@ -22,13 +31,33 @@ from hushh_mcp.services.pod_upgrade_admission import (
 
 logger = logging.getLogger(__name__)
 _CLEANUP_TASKS: set[asyncio.Task] = set()
+_POST_RUN_TASKS: set[asyncio.Task] = set()
+_POST_RUN_LOCKS: dict[str, asyncio.Lock] = {}
 _ACTIVE_THREADS: set[str] = set()
+_THREAD_TERMINAL: set[str] = set()
+_THREAD_SETTLED_EVENTS: dict[str, asyncio.Event] = {}
+
+
+def _snapshot_has_assistant_text(event: BaseEvent) -> bool:
+    for msg in getattr(event, "messages", None) or ():
+        if getattr(msg, "role", None) != "assistant":
+            continue
+        content = getattr(msg, "content", None)
+        if isinstance(content, str) and content.strip():
+            return True
+    return False
 
 
 def _cleanup_finished(task: asyncio.Task) -> None:
     _CLEANUP_TASKS.discard(task)
     if not task.cancelled() and task.exception() is not None:
         logger.error("pod_chat.cleanup_failed")
+
+
+def _post_run_finished(task: asyncio.Task) -> None:
+    _POST_RUN_TASKS.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning("pod_chat.post_run_failed")
 
 
 class PodTimedADKAgent(TimedADKAgent):
@@ -150,6 +179,7 @@ class PodTimedADKAgent(TimedADKAgent):
             raise RuntimeError("Pod conversation recovery write failed.") from None
 
     async def _settle(self, *, cancel: bool, permit: Any, thread: str) -> None:
+        permit_transferred = False
         with retain_request_chat_key():
             try:
                 tasks = tuple(self._pod_background)
@@ -160,6 +190,10 @@ class PodTimedADKAgent(TimedADKAgent):
                     await asyncio.gather(*tasks, return_exceptions=True)
                 if self._pod_hooks:
                     await asyncio.gather(*self._pod_hooks, return_exceptions=True)
+                if self._pod_mcp_scope is not None:
+                    await self._pod_mcp_scope.close()
+                await self.close()
+
                 post_run = getattr(self, "_pod_post_run", None)
                 last_input = getattr(self, "_pod_last_input", None)
                 if (
@@ -168,19 +202,46 @@ class PodTimedADKAgent(TimedADKAgent):
                     and post_run is not None
                     and last_input is not None
                 ):
+                    holder = current_request_chat_key()
+                    retained = holder.retain() if holder is not None else False
+                    runtime_scope = self._pod_runtime_scope
+
+                    async def _run_detached_post_run() -> None:
+                        lock = _POST_RUN_LOCKS.setdefault(thread, asyncio.Lock())
+                        try:
+                            async with lock:
+                                with runtime_scope():
+                                    await post_run(last_input)
+                        except Exception:
+                            logger.warning("pod_chat.post_run_failed")
+                        finally:
+                            try:
+                                await permit.release()
+                            finally:
+                                if retained and holder is not None:
+                                    holder.release()
+                                if not lock.locked() and _POST_RUN_LOCKS.get(thread) is lock:
+                                    _POST_RUN_LOCKS.pop(thread, None)
+
                     try:
-                        with self._pod_runtime_scope():
-                            await post_run(last_input)
-                    except Exception:
-                        logger.warning("pod_chat.post_run_failed")
-                if self._pod_mcp_scope is not None:
-                    await self._pod_mcp_scope.close()
-                await self.close()
+                        post_task = asyncio.create_task(_run_detached_post_run())
+                    except BaseException:
+                        if retained and holder is not None:
+                            holder.release()
+                        raise
+                    _POST_RUN_TASKS.add(post_task)
+                    post_task.add_done_callback(_post_run_finished)
+                    permit_transferred = True
             finally:
                 try:
-                    await permit.release()
+                    if not permit_transferred:
+                        await permit.release()
                 finally:
                     _ACTIVE_THREADS.discard(thread)
+                    _THREAD_TERMINAL.discard(thread)
+                    settled_event = _THREAD_SETTLED_EVENTS.pop(thread, None)
+                    if settled_event is not None:
+                        settled_event.set()
 
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         if self._pod_started:
@@ -188,6 +249,11 @@ class PodTimedADKAgent(TimedADKAgent):
         self._pod_started = True
         self._pod_last_input = input
         await self._pod_require_access()
+        if input.thread_id in _ACTIVE_THREADS and input.thread_id in _THREAD_TERMINAL:
+            settled_event = _THREAD_SETTLED_EVENTS.get(input.thread_id)
+            if settled_event is not None:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(settled_event.wait(), timeout=2.0)
         if input.thread_id in _ACTIVE_THREADS or len(_ACTIVE_THREADS) >= 8:
             yield RunErrorEvent(
                 code="POD_CHAT_BUSY",
@@ -195,10 +261,16 @@ class PodTimedADKAgent(TimedADKAgent):
             )
             return
         _ACTIVE_THREADS.add(input.thread_id)
+        _THREAD_TERMINAL.discard(input.thread_id)
+        _THREAD_SETTLED_EVENTS[input.thread_id] = asyncio.Event()
         try:
             permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
         except PodUpgradeInProgress:
             _ACTIVE_THREADS.discard(input.thread_id)
+            _THREAD_TERMINAL.discard(input.thread_id)
+            ev = _THREAD_SETTLED_EVENTS.pop(input.thread_id, None)
+            if ev is not None:
+                ev.set()
             yield RunErrorEvent(
                 code="POD_CHAT_UPDATING",
                 message="Your private agent is updating. Check Software updates in Settings before trying again.",
@@ -206,9 +278,19 @@ class PodTimedADKAgent(TimedADKAgent):
             return
         except BaseException:
             _ACTIVE_THREADS.discard(input.thread_id)
+            _THREAD_TERMINAL.discard(input.thread_id)
+            ev = _THREAD_SETTLED_EVENTS.pop(input.thread_id, None)
+            if ev is not None:
+                ev.set()
             raise
         terminal = False
         last_access_check = 0.0
+        saw_run_started = False
+        saw_assistant_text = False
+        saw_server_tool_result = False
+        saw_interrupt = False
+        saw_error = False
+        pending_tool_calls: set[str] = set()
         try:
             with self._pod_runtime_scope(), retain_request_chat_key():
                 if self._pod_before_run is not None:
@@ -223,23 +305,89 @@ class PodTimedADKAgent(TimedADKAgent):
                         ):
                             await self._pod_require_access()
                             last_access_check = time.monotonic()
+                        if event.type == EventType.RUN_STARTED:
+                            saw_run_started = True
+                        elif event.type in (
+                            EventType.TEXT_MESSAGE_CONTENT,
+                            EventType.TEXT_MESSAGE_CHUNK,
+                        ):
+                            if str(getattr(event, "delta", "") or ""):
+                                saw_assistant_text = True
+                        elif event.type == EventType.MESSAGES_SNAPSHOT:
+                            if _snapshot_has_assistant_text(event):
+                                saw_assistant_text = True
+                        elif event.type == EventType.TOOL_CALL_START:
+                            call_id = str(getattr(event, "tool_call_id", "") or "")
+                            if call_id:
+                                pending_tool_calls.add(call_id)
+                        elif event.type == EventType.TOOL_CALL_RESULT:
+                            saw_server_tool_result = True
+                            call_id = str(getattr(event, "tool_call_id", "") or "")
+                            pending_tool_calls.discard(call_id)
+                        elif event.type == EventType.CUSTOM:
+                            if "interrupt" in str(getattr(event, "name", "") or "").lower():
+                                saw_interrupt = True
+                        elif event.type == EventType.RUN_ERROR:
+                            saw_error = True
+                            _THREAD_TERMINAL.add(input.thread_id)
                         if event.type == EventType.RUN_FINISHED:
                             tasks = tuple(self._pod_background)
                             if tasks:
-                                results = await asyncio.wait_for(
-                                    asyncio.shield(asyncio.gather(*tasks, return_exceptions=True)),
-                                    timeout=10,
-                                )
-                                if any(isinstance(result, BaseException) for result in results):
-                                    self._pod_persistence_failed = True
-                            if self._pod_persistence_failed:
+                                try:
+                                    results = await asyncio.wait_for(
+                                        asyncio.shield(
+                                            asyncio.gather(*tasks, return_exceptions=True)
+                                        ),
+                                        timeout=10,
+                                    )
+                                    if any(isinstance(result, BaseException) for result in results):
+                                        if saw_assistant_text:
+                                            logger.warning(
+                                                "pod_chat.background_degraded_after_stream"
+                                            )
+                                        else:
+                                            self._pod_persistence_failed = True
+                                except TimeoutError:
+                                    if saw_assistant_text:
+                                        logger.warning("pod_chat.background_timeout_after_stream")
+                                    else:
+                                        self._pod_persistence_failed = True
+                            if self._pod_persistence_failed and not saw_assistant_text:
+                                _THREAD_TERMINAL.add(input.thread_id)
                                 yield RunErrorEvent(
                                     code="POD_CHAT_RECOVERY_FAILED",
                                     message="The answer could not be saved safely. Reconnect before continuing.",
                                 )
                                 return
                             if self._pod_after_run is not None:
-                                await self._run_hook(self._pod_after_run, input)
+                                if saw_assistant_text:
+                                    try:
+                                        await self._run_hook(self._pod_after_run, input)
+                                    except Exception:  # noqa: BLE001 - never overwrite streamed answer
+                                        logger.warning("pod_chat.after_run_degraded_after_stream")
+                                else:
+                                    await self._run_hook(self._pod_after_run, input)
+                            if (
+                                not saw_assistant_text
+                                and not saw_error
+                                and not saw_interrupt
+                                and not pending_tool_calls
+                                and (saw_server_tool_result or saw_run_started)
+                            ):
+                                fallback_id = f"msg_fallback_{input.run_id}"
+                                fallback_text = (
+                                    "I ran that step, but couldn't put together a final reply. "
+                                    "Please try asking again."
+                                )
+                                yield TextMessageStartEvent(
+                                    message_id=fallback_id, role="assistant"
+                                )
+                                yield TextMessageContentEvent(
+                                    message_id=fallback_id, delta=fallback_text
+                                )
+                                yield TextMessageEndEvent(message_id=fallback_id)
+                                saw_assistant_text = True
+                            _THREAD_TERMINAL.add(input.thread_id)
                             terminal = True
                         yield event
         finally:

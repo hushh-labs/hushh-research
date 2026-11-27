@@ -33,6 +33,7 @@ from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
+from sqlalchemy.exc import TimeoutError as SqlalchemyPoolTimeoutError
 from sqlalchemy.pool import NullPool, QueuePool
 
 from db.connection import database_unavailable_hint, format_database_unavailable_details
@@ -205,7 +206,17 @@ def _run_with_connection_retry(
             raise
         except Exception as exc:
             last_error = exc
-            should_retry = attempt < _DB_RETRY_ATTEMPTS and _is_transient_connection_error(exc)
+            # A full pool is capacity pressure, not a broken socket. Replacing
+            # its pool while callers still hold connections increases pressure.
+            pool_exhausted = any(
+                isinstance(error, SqlalchemyPoolTimeoutError)
+                for error in _iter_exception_chain(exc)
+            )
+            should_retry = (
+                attempt < _DB_RETRY_ATTEMPTS
+                and not pool_exhausted
+                and _is_transient_connection_error(exc)
+            )
             if not should_retry:
                 raise
             logger.warning(

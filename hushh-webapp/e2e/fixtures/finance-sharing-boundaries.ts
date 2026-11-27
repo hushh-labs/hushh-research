@@ -7,13 +7,33 @@ export const sharingModel = mapPortfolioToDashboardViewModel({
   holdings: [{ symbol: "TEST", name: "Sample company", market_value: 8000, quantity: 10, price: 800, cost_basis: 7000, sector: "Technology" }],
   historical_values: [{ date: "2026-10-01", value: 9000 }, { date: "2026-10-15", value: 9500 }, { date: "2026-10-27", value: 10000 }],
 });
-const context = { userId: "synthetic-owner", vaultKey: "fixture-only", vaultOwnerToken: "fixture-only", getIdToken: async () => "fixture-only", isCurrent: () => true };
+const analysisModel = mapPortfolioToDashboardViewModel({
+  total_value: 10000,
+  holdings: [
+    { symbol: "SBSI", name: "Southside Bancshares", market_value: 2910, quantity: 10, price: 291, asset_type: "equity" },
+    { symbol: "CASH", name: "US Dollar", market_value: 4850, quantity: 4850, price: 1, asset_type: "Cash" },
+    { symbol: "FUND", name: "Sample fund", market_value: 2240, quantity: 10, price: 224, asset_type: "ETF" },
+  ],
+});
+const fundAndCashModel = mapPortfolioToDashboardViewModel({
+  total_value: 10000,
+  holdings: [
+    { symbol: "FUND", name: "Sample fund", market_value: 4560, quantity: 10, price: 456, asset_type: "ETF" },
+    { symbol: "CASH", name: "US Dollar", market_value: 5440, quantity: 5440, price: 1, asset_type: "Cash" },
+  ],
+});
+const context = { userId: "synthetic-owner", vaultKey: "a".repeat(64), vaultOwnerToken: "fixture-only", getIdToken: async () => "fixture-only", isCurrent: () => true };
 const capture = () => context;
 export function useFinanceShareContext() { return { capture, session: "synthetic-session", ready: true }; }
+export function requireFinanceSession(value: { isCurrent: () => boolean }) {
+  if (!value.isCurrent()) throw new Error("Synthetic vault session retired");
+}
 export async function readSavedFinance() {
   const updated = document.body.dataset.portfolioReviewChanged === "true";
-  return { model: updated ? { ...sharingModel, hero: { ...sharingModel.hero, totalValue: 12000 } } : sharingModel,
-    profile: { preferences: { investment_horizon: "long_term", drawdown_response: "stay", volatility_preference: "moderate", loss_capacity: "flexible" } }, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
+  const model = document.body.dataset.portfolioReviewFundAndCash === "true" ? fundAndCashModel : analysisModel;
+  const lossCapacity = document.body.dataset.portfolioPersonaIncomplete === "true" ? null : "flexible";
+  return { model: updated ? { ...model, hero: { ...model.hero, totalValue: 12000 } } : model,
+    profile: { preferences: { investment_horizon: "long_term", drawdown_response: "buy_more", volatility_preference: "large", loss_capacity: lossCapacity } }, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
 export function pendingFinanceShare() { return null; }
 const people = [{ userId: "synthetic-recipient", displayName: "Sample connection", isFinanceAdvisor: true, publicPersonRef: "11111111-1111-4111-8111-111111111111", keyId: "synthetic-key", publicKeyJwk: { kty: "EC" } }];
 people.push(...Array.from({ length: 24 }, (_, index) => ({ ...people[0]!, userId: `synthetic-${index}`, displayName: `Other connection ${index + 1}`, isFinanceAdvisor: false, publicPersonRef: `11111111-1111-4111-8111-${String(index + 2).padStart(12, "0")}` })));
@@ -50,4 +70,8 @@ export const FinanceSharingService = {
   decrypt: async () => received,
   stop: async () => { document.body.dataset.financeEnded = "true"; return { stopped: true }; },
   review: async () => { document.body.dataset.financeReviews = "1"; return "Synthetic review: the shared allocation is concentrated in equities."; },
+};
+
+export const KaiProfileService = {
+  getProfile: async () => (await readSavedFinance()).profile,
 };

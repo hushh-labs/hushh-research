@@ -12,29 +12,42 @@ import type { ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
 import type { ReceiptProgress } from "@/lib/services/mail-receipt-resource-service";
 import styles from "./mail-workspace.module.css";
 
-export function ReceiptSyncToolbar({ snapshot, refreshing, error, disabled, onRefresh, onRestore, progress = null, migration = false, active = true, restoring = false }: {
-  snapshot: ReceiptSnapshot | null; refreshing: boolean; error: string | null; disabled: boolean; onRefresh?: () => void; onRestore?: () => void;
-  progress?: ReceiptProgress | null; migration?: boolean; active?: boolean; restoring?: boolean;
+export function receiptSyncStatus({ snapshot, refreshing, restoring, progress, error, disabled }: {
+  snapshot: ReceiptSnapshot | null; refreshing: boolean; restoring?: boolean; progress?: ReceiptProgress | null; error: string | null; disabled: boolean;
 }) {
-  const pathname = usePathname();
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const openingSettings = useRef(false);
-  const closeDetails = useCallback(() => { setDetailsOpen(false); return true; }, []);
-  useBackLayer(pathname, active && detailsOpen ? 2 : 0, closeDetails);
-  useEffect(() => { if (!active) setDetailsOpen(false); }, [active]);
-  const status = restoring ? "Opening saved receipts…" : refreshing
+  return restoring ? "Opening saved receipts…" : refreshing
     ? progress?.phase === "opening" ? "Opening saved receipts…" : progress?.phase === "saving" ? `Saving ${progress.found} receipt${progress.found === 1 ? "" : "s"}…`
       : progress?.checked ? `${progress.checked} mail messages checked · ${progress.found} receipts found` : "Checking Mail for receipts…"
     : error || (disabled ? "New receipt updates aren’t available with this setup yet."
       : snapshot ? `${snapshot.coverage.partial ? "Some Mail remains unchecked · " : ""}Updated ${formatLocalDateTime(snapshot.freshness, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
       : "Ready to check for receipts.");
+}
+
+export function ReceiptSyncToolbar({ snapshot, refreshing, error, disabled, onRefresh, onRestore, progress = null, migration = false, active = true, restoring = false, compact = false, detailsOpen: controlledDetailsOpen, onDetailsOpenChange }: {
+  snapshot: ReceiptSnapshot | null; refreshing: boolean; error: string | null; disabled: boolean; onRefresh?: () => void; onRestore?: () => void;
+  progress?: ReceiptProgress | null; migration?: boolean; active?: boolean; restoring?: boolean; compact?: boolean; detailsOpen?: boolean; onDetailsOpenChange?: (open: boolean) => void;
+}) {
+  const pathname = usePathname();
+  const [localDetailsOpen, setLocalDetailsOpen] = useState(false);
+  const detailsOpen = controlledDetailsOpen ?? localDetailsOpen;
+  const setDetailsOpen = onDetailsOpenChange ?? setLocalDetailsOpen;
+  const trigger = useRef<HTMLButtonElement>(null);
+  const openingSettings = useRef(false);
+  const closeDetails = useCallback(() => { setDetailsOpen(false); return true; }, [setDetailsOpen]);
+  useBackLayer(pathname, active && detailsOpen ? 2 : 0, closeDetails);
+  useEffect(() => { if (!active) setDetailsOpen(false); }, [active, setDetailsOpen]);
+  const status = receiptSyncStatus({ snapshot, refreshing, restoring, progress, error, disabled });
   const retry = onRestore ?? onRefresh;
   return <Dialog open={active && detailsOpen} onOpenChange={open => { openingSettings.current = false; setDetailsOpen(open); }}>
-  <div className="flex min-h-20 items-center justify-between gap-3" data-no-auto-fade="true" data-testid="receipt-sync-toolbar" aria-busy={refreshing || restoring}>
+  <div className={compact ? "flex min-h-11 items-center justify-between gap-3" : "flex min-h-20 items-center justify-between gap-3"} data-no-auto-fade="true" data-testid="receipt-sync-toolbar" aria-busy={refreshing || restoring}>
     <div className="min-w-0 flex-1" role="status" aria-live="polite">
-      <SectionTitle as="p">{snapshot ? "Saved receipts" : "Your receipts"}</SectionTitle>
-      <HelperText as="p" className="block min-h-10 text-muted-foreground">{status}</HelperText>
+      {compact ? <div className="flex flex-wrap items-baseline gap-x-2">
+        <SectionTitle as="p">{snapshot ? "Saved receipts" : "Your receipts"}</SectionTitle>
+        <HelperText as="p" className="block text-muted-foreground">{status}</HelperText>
+      </div> : <>
+        <SectionTitle as="p">{snapshot ? "Saved receipts" : "Your receipts"}</SectionTitle>
+        <HelperText as="p" className="block min-h-10 text-muted-foreground">{status}</HelperText>
+      </>}
     </div>
     <div className="flex shrink-0 flex-col items-end gap-1">
       {retry ? <MailActionButton disabled={refreshing || restoring} onClick={retry} aria-busy={refreshing || restoring}

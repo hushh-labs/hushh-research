@@ -29,6 +29,7 @@ class ActivationLease:
         purchase_id,
         source_revisions=None,
         negative_net_acknowledgement=None,
+        activate_immediately: bool = False,
         conn=None,
     ):
         self._admit()
@@ -49,14 +50,17 @@ class ActivationLease:
             ):
                 raise CommerceError("reserved_purchase_required")
             await require_negative_net_acknowledgement(c, p, negative_net_acknowledgement)
-            if p["status"] == "reserved" or (
-                p["status"] == "preparing" and p["activation_at"] <= now
-            ):
-                # Owner gets five minutes to encrypt with a fixed authenticated
-                # expiry. Re-preparation is explicit, never a shifted old AAD.
-                activation = (now + timedelta(minutes=5)).replace(
-                    microsecond=(now.microsecond // 1000) * 1000
+            if (
+                p["status"] == "reserved"
+                or (p["status"] == "preparing" and p["activation_at"] <= now)
+                or (
+                    p["status"] == "preparing" and activate_immediately and p["activation_at"] > now
                 )
+            ):
+                # Owner gets immediate activation on single-click share, or five
+                # minutes for scheduled staging, with a fixed authenticated expiry.
+                lead = timedelta(0) if activate_immediately else timedelta(minutes=5)
+                activation = (now + lead).replace(microsecond=(now.microsecond // 1000) * 1000)
                 if activation >= p["fulfillment_deadline"]:
                     raise CommerceError("fulfillment_expired")
                 p = await self._row(
@@ -108,6 +112,7 @@ class ActivationLease:
         request_id,
         source_revisions=None,
         negative_net_acknowledgement=None,
+        activate_immediately: bool = False,
         conn=None,
     ):
         p = await self.lookup_by_request(request_id, conn)
@@ -118,6 +123,7 @@ class ActivationLease:
             purchase_id=p["purchaseId"],
             source_revisions=source_revisions,
             negative_net_acknowledgement=negative_net_acknowledgement,
+            activate_immediately=activate_immediately,
             conn=conn,
         )
 
@@ -146,6 +152,7 @@ class ActivationLease:
         envelope,
         authority_check,
         negative_net_acknowledgement=None,
+        activate_on_stage: bool = False,
         conn=None,
     ):
         p = await self.lookup_by_request(request_id, conn)
@@ -172,6 +179,7 @@ class ActivationLease:
             staged_export=envelope,
             authority_check=authority_check,
             negative_net_acknowledgement=negative_net_acknowledgement,
+            activate_on_stage=activate_on_stage,
             conn=conn,
         )
 
@@ -192,6 +200,7 @@ class EncryptedActivation:
         staged_export,
         authority_check: AuthorityCheck,
         negative_net_acknowledgement=None,
+        activate_on_stage: bool = False,
         conn=None,
     ):
         self._admit()
@@ -248,6 +257,7 @@ class EncryptedActivation:
                 authority_check,
                 submitted,
                 negative_net_acknowledgement,
+                activate_on_stage,
             )
 
         return await self._transaction(operation, conn)
@@ -268,6 +278,7 @@ class EncryptedActivation:
         authority_check: Any,
         submitted: Any,
         negative_net_acknowledgement: Any,
+        activate_on_stage: bool = False,
     ) -> Any:
         await self._environment(c)
         p = await self._row(
@@ -298,6 +309,7 @@ class EncryptedActivation:
             recipient_key_fingerprint,
             submitted,
             staged_export,
+            activate_on_stage=activate_on_stage,
         )
         frozen = await c.fetchval(
             "SELECT EXISTS(SELECT 1 FROM scope_commerce_allocations a JOIN scope_commerce_funding_lots f USING(lot_id) WHERE a.purchase_id=$1 AND f.frozen)",
@@ -358,12 +370,18 @@ class EncryptedActivation:
         recipient_key_fingerprint: str,
         submitted: Any,
         staged_export: dict[str, Any],
+        *,
+        activate_on_stage: bool = False,
     ):
         now = await c.fetchval("SELECT clock_timestamp()")
+        stage_deadline = (
+            p["activation_at"] + timedelta(minutes=5) if activate_on_stage else p["activation_at"]
+        )
         if (
             p["status"] != "preparing"
             or str(p["preparation_id"]) != str(preparation_id)
-            or now >= p["activation_at"]
+            or now >= stage_deadline
+            or now >= p["expires_at"]
             or now >= p["fulfillment_deadline"]
         ):
             raise CommerceError("preparation_expired")

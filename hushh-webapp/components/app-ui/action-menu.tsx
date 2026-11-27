@@ -111,11 +111,11 @@ function WebActionMenu({
     <Button
       ref={triggerRef}
       type="button"
-      size="icon"
-      variant="ghost"
+      size="icon-touch"
+      variant="plain"
       aria-label={label}
       data-testid={testId}
-      className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+      className="text-[color:var(--app-accent)] hover:text-[color:var(--app-accent-hover)]"
     >
       {TriggerIcon ? (
         <TriggerIcon className="h-[21px] w-[21px]" aria-hidden="true" />

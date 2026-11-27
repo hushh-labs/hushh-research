@@ -63,11 +63,10 @@ def is_owner_item_grant_scope(scope: str | None) -> bool:
         return False
     _attr, domain, branch, item_id = raw_parts
     policy = DOMAIN_SHARING_POLICY_REGISTRY.get(domain)
-    if policy is None or not policy.per_item_grant_branch or not policy.per_item_id_pattern:
+    if policy is None or not policy.per_item_id_pattern:
         return False
-    return branch == policy.per_item_grant_branch and bool(
-        re.fullmatch(policy.per_item_id_pattern, item_id)
-    )
+    branches = policy.per_item_grant_branches or (policy.per_item_grant_branch,)
+    return branch in branches and bool(re.fullmatch(policy.per_item_id_pattern, item_id))
 
 
 def consent_token_scope_value(token_obj: Any) -> str:
@@ -144,6 +143,8 @@ def is_private_pkm_export_scope(scope: str | None) -> bool:
     manifest has since been corrected.  Narrow financial branches remain
     requestable when materialized and consented.
     """
+    if str(scope or "").startswith("attr.credentials.") and is_owner_item_grant_scope(scope):
+        return False
     domain, _path = normalize_pkm_scope(scope)
     if domain in INTERNAL_ONLY_DOMAIN_SLUGS:
         return True

@@ -18,8 +18,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 import hushh_mcp.services.one_location_agent_service as location_service_module
-from db.db_client import DatabaseClient
+from db.db_client import DatabaseClient, DatabaseExecutionError
 from hushh_mcp.services.account_service import AccountService
+from hushh_mcp.services.feed_location_policy import with_cleared_feed_receipts
 from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 from tests.feed_fixture_support import add_followup_fence_relations
@@ -87,7 +88,10 @@ def feed_db():
                 CREATE TABLE drive_request_payment_refunds(request_id UUID, status TEXT,
                   amount_cents BIGINT);
                 CREATE TABLE drive_bulk_shares(share_id UUID PRIMARY KEY, user_id TEXT,
-                  origin_request_id UUID, approved_at TIMESTAMPTZ, progressive_batch BOOLEAN);
+                  origin_request_id UUID, approved_at TIMESTAMPTZ, progressive_batch BOOLEAN,
+                  expires_at TIMESTAMPTZ DEFAULT now() + interval '1 day');
+                CREATE TABLE drive_request_bulk_removals(share_id UUID, position INT,
+                  recipient_user_id TEXT);
                 CREATE TABLE drive_bulk_share_effects(share_id UUID, user_id TEXT, position INT,
                   recipient_user_id TEXT, state TEXT);
                 CREATE TABLE drive_bulk_share_files(share_id UUID, user_id TEXT, position INT,
@@ -160,6 +164,313 @@ def listed_ids(service: FeedService, user_id: str) -> list[int]:
     return [int(item["id"]) for item in service.list_feed(user_id, limit=100)["items"]]
 
 
+def policy_event(
+    engine, viewer, event_type, metadata, *, source=None, peer=None, domain="location"
+):
+    with engine.begin() as connection:
+        event_id = connection.execute(
+            text("""
+          INSERT INTO feed_events(user_id,source_domain,event_type,metadata,source_row_id)
+          VALUES (:viewer,:domain,:event,CAST(:metadata AS JSONB),:source) RETURNING id
+        """),
+            {
+                "viewer": viewer,
+                "domain": domain,
+                "event": event_type,
+                "metadata": json.dumps(metadata),
+                "source": source,
+            },
+        ).scalar_one()
+        if peer:
+            connection.execute(
+                text("INSERT INTO feed_event_counterparts VALUES (:id,:peer)"),
+                {"id": event_id, "peer": peer},
+            )
+    return event_id
+
+
+def test_important_feed_is_incoming_and_preserves_other_dri_rows(feed_db):
+    grant = str(uuid.uuid4())
+    incoming = policy_event(
+        feed_db,
+        OWNER,
+        "location_share_created",
+        {"feed_audience": "recipient", "reason": "recipient_revoke"},
+        source=grant,
+        peer=OTHER,
+    )
+    added = policy_event(
+        feed_db,
+        OWNER,
+        "circle_member_added",
+        {"circle_id": str(uuid.uuid4()), "circle_name": "Friends"},
+        peer=OTHER,
+    )
+    accepted = policy_event(
+        feed_db,
+        OWNER,
+        "connection_accepted",
+        {"actor_is_self": False},
+        domain="connections",
+        peer=OTHER,
+    )
+    other_dri = policy_event(feed_db, OWNER, "kai_analysis_completed", {}, domain="kai")
+    # A self-initiated Circle join is not an incoming addition from someone else.
+    policy_event(
+        feed_db, OWNER, "circle_member_added", {"circle_id": str(uuid.uuid4())}, peer=OWNER
+    )
+    for event, meta, domain in [
+        ("location_share_created", {}, "location"),
+        ("location_share_expired", {}, "location"),
+        ("location_share_viewed", {}, "location"),
+        ("location_access_request", {"feed_audience": "requester"}, "location"),
+        ("location_access_request", {}, "location"),
+        ("location_circle_message", {"circle_id": "circle-a"}, "location"),
+        ("connection_accepted", {"actor_is_self": True}, "connections"),
+        ("connection_withdrawn", {"actor_is_self": False}, "connections"),
+    ]:
+        policy_event(feed_db, OWNER, event, meta, domain=domain)
+    policy_event(feed_db, OTHER, "circle_member_added", {})
+    service = session(feed_db)
+    assert set(listed_ids(service, OWNER)) == {incoming, added, accepted, other_dri}
+    assert service.unread_count(OWNER) == 4
+    assert listed_ids(service, OTHER) == []  # Unbound legacy copy has no exact Circle workflow.
+
+
+def test_exact_sms_incidents_survive_independent_dismiss_undo_clear_and_source_cleanup(feed_db):
+    old_grant, new_grant, other_grant = (str(uuid.uuid4()) for _ in range(3))
+    meta = {
+        "feed_audience": "recipient",
+        "share_kind": "sos",
+        "feed_sms_confirmed": True,
+        "counterpart_label": "Same name",
+    }
+    old = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=old_grant, peer=SOS_SENDER
+    )
+    latest = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=new_grant, peer=SOS_SENDER
+    )
+    independent = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=other_grant, peer=OTHER
+    )
+    service = session(feed_db)
+    assert set(listed_ids(service, OWNER)) == {old, latest, independent}
+    assert service.unread_count(OWNER) == 3
+    prior_key = next(
+        row["activity_group_id"]
+        for row in service.list_feed(OWNER)["items"]
+        if int(row["id"]) == latest
+    )
+    ended = policy_event(
+        feed_db, OWNER, "location_share_revoked", meta, source=old_grant, peer=SOS_SENDER
+    )
+    assert set(listed_ids(session(feed_db), OWNER)) == {ended, latest, independent}
+    assert service.unread_count(OWNER) == 2
+    token = service.dismiss(OWNER, item_id=latest)["dismissal_token"]
+    assert set(listed_ids(session(feed_db), OWNER)) == {ended, independent}
+    assert service.restore(OWNER, item_id=latest, dismissal_token=token)["restored"] is True
+    assert set(listed_ids(session(feed_db), OWNER)) == {ended, latest, independent}
+    service.clear(OWNER, up_to_id=ended)
+    assert listed_ids(session(feed_db), OWNER) == []
+    assert service.unread_count(OWNER) == 0
+    with feed_db.begin() as connection:
+        connection.execute(text("DELETE FROM one_location_share_grants"))
+    assert listed_ids(session(feed_db), OWNER) == []
+    newest_grant = str(uuid.uuid4())
+    newest = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=newest_grant, peer=SOS_SENDER
+    )
+    assert listed_ids(session(feed_db), OWNER) == [newest]
+    assert service.unread_count(OWNER) == 1
+    assert (
+        service.list_feed(OWNER)["items"][0]["activity_group_id"]
+        == "location-grant:" + newest_grant
+    )
+    assert service.list_feed(OWNER)["items"][0]["activity_group_id"] != prior_key
+
+
+def test_history_revision_recovers_missed_sms_and_clear_hints_without_cross_account_leaks(
+    feed_db, monkeypatch
+):
+    meta = {"feed_audience": "recipient", "share_kind": "sos", "feed_sms_confirmed": True}
+    own_grant, foreign_grant = str(uuid.uuid4()), str(uuid.uuid4())
+    with feed_db.begin() as connection:
+        for grant_id, recipient in [(own_grant, OWNER), (foreign_grant, OTHER)]:
+            connection.execute(
+                text("""
+              INSERT INTO one_location_share_grants
+                (id,owner_user_id,recipient_user_id,recipient_key_id,status,duration_mode)
+              VALUES (CAST(:id AS uuid),:sender,:recipient,'key','revoked','until_stopped')
+            """),
+                {"id": grant_id, "sender": SOS_SENDER, "recipient": recipient},
+            )
+    service = session(feed_db)
+    policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=str(uuid.uuid4()), peer=SOS_SENDER
+    )
+    first_revision = service.list_feed(OWNER)["history_revision"]
+    latest = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=own_grant, peer=SOS_SENDER
+    )
+    replaced_revision = service.list_feed(OWNER)["history_revision"]
+    assert (
+        replaced_revision == first_revision
+    )  # Independent arrivals do not invalidate loaded history.
+    policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=str(uuid.uuid4()), peer=OTHER
+    )
+    assert service.list_feed(OWNER)["history_revision"] == replaced_revision
+
+    # Another device can miss a live dismissal/Undo hint. Its next snapshot
+    # still drops obsolete loaded pages, even when the first page is nonempty.
+    token = service.dismiss(OWNER, item_id=latest)["dismissal_token"]
+    assert service.list_feed(OWNER)["history_revision"] != replaced_revision
+    assert service.restore(OWNER, item_id=latest, dismissal_token=token)["restored"] is True
+    assert service.list_feed(OWNER)["history_revision"] == replaced_revision
+
+    monkeypatch.setattr(location_service_module, "get_db", lambda: DatabaseClient(feed_db))
+    location = OneLocationAgentService()
+    assert location.clear_received_grants(recipient_user_id=OTHER, grant_ids=[foreign_grant]) == [
+        foreign_grant
+    ]
+    assert service.list_feed(OWNER)["history_revision"] == replaced_revision
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("""
+          CREATE FUNCTION reject_feed_clear() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN RAISE EXCEPTION 'TEST_FEED_RECEIPT_CLEAR_FAILURE'; END $$;
+          CREATE TRIGGER reject_feed_clear BEFORE UPDATE ON feed_events
+          FOR EACH ROW EXECUTE FUNCTION reject_feed_clear();
+        """)
+        )
+    with pytest.raises(DatabaseExecutionError, match="TEST_FEED_RECEIPT_CLEAR_FAILURE"):
+        location.clear_received_grants(recipient_user_id=OWNER, grant_ids=[own_grant])
+    with feed_db.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT recipient_cleared_at FROM one_location_share_grants WHERE id=CAST(:id AS uuid)"
+                ),
+                {"id": own_grant},
+            ).scalar_one()
+            is None
+        )
+        connection.execute(text("DROP TRIGGER reject_feed_clear ON feed_events"))
+    assert location.clear_received_grants(recipient_user_id=OWNER, grant_ids=[own_grant]) == [
+        own_grant
+    ]
+    after_clear = session(feed_db).list_feed(OWNER)
+    assert after_clear["history_revision"] != replaced_revision
+    assert len(after_clear["history_revision"]) == 32
+    assert str(latest) not in [row["id"] for row in after_clear["items"]]
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("DELETE FROM one_location_share_grants WHERE id=CAST(:id AS uuid)"),
+            {"id": own_grant},
+        )
+    assert str(latest) not in [row["id"] for row in session(feed_db).list_feed(OWNER)["items"]]
+
+
+def test_legacy_clear_retention_keeps_receipt_hidden_and_invalidates_stale_undo(feed_db):
+    grant = str(uuid.uuid4())
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("""
+          INSERT INTO one_location_share_grants
+            (id,owner_user_id,recipient_user_id,recipient_key_id,status,recipient_cleared_at)
+          VALUES (CAST(:id AS uuid),:sender,:recipient,'key','revoked',NOW())
+        """),
+            {"id": grant, "sender": SOS_SENDER, "recipient": OWNER},
+        )
+    meta = {"feed_audience": "recipient", "share_kind": "sos", "feed_sms_confirmed": True}
+    receipt = policy_event(
+        feed_db, OWNER, "location_share_created", meta, source=grant, peer=SOS_SENDER
+    )
+    foreign = policy_event(
+        feed_db, OTHER, "location_share_created", meta, source=grant, peer=SOS_SENDER
+    )
+    service = session(feed_db)
+    stale_undo = service.dismiss(OWNER, item_id=receipt)["dismissal_token"]
+    # Exercise the production retention primitive with an old server-side Clear.
+    # The domain's existing stale-grant selector supplies these authoritative rows.
+    with feed_db.begin() as connection:
+        connection.execute(
+            text(
+                with_cleared_feed_receipts("""
+          WITH feed_clear_candidates AS (
+            SELECT id AS grant_id, recipient_user_id, recipient_cleared_at AS cleared_at
+              FROM one_location_share_grants
+             WHERE id=CAST(:id AS uuid) AND recipient_cleared_at IS NOT NULL
+          ), hidden AS (__CLEARED_FEED_RECEIPTS__)
+          DELETE FROM one_location_share_grants WHERE id=CAST(:id AS uuid)
+            AND (SELECT count(*) FROM hidden) >= 0
+        """)
+            ),
+            {"id": grant},
+        )
+        assert (
+            connection.execute(
+                text("SELECT dismissed_at FROM feed_events WHERE id=:id"), {"id": foreign}
+            ).scalar_one()
+            is None
+        )
+    assert service.restore(OWNER, item_id=receipt, dismissal_token=stale_undo)["restored"] is False
+    assert listed_ids(session(feed_db), OWNER) == []
+
+
+def test_share_expiry_updates_one_group_without_a_new_unread_item(feed_db):
+    grant = str(uuid.uuid4())
+    meta = {"feed_audience": "recipient"}
+    created = policy_event(feed_db, OWNER, "location_share_created", meta, source=grant)
+    first = session(feed_db).list_feed(OWNER)["items"][0]
+    session(feed_db).mark_read(OWNER, up_to_id=created)
+    expired = policy_event(feed_db, OWNER, "location_share_expired", meta, source=grant)
+    page = session(feed_db).list_feed(OWNER)
+    assert [row["id"] for row in page["items"]] == [str(expired)]
+    assert (
+        page["items"][0]["activity_group_id"]
+        == first["activity_group_id"]
+        == "location-grant:" + grant
+    )
+    assert page["items"][0]["metadata"]["feed_silent"] is True
+    assert page["items"][0]["read"] is True
+    assert page["unread_count"] == 0
+    session(feed_db).dismiss(OWNER, item_id=expired)
+    assert listed_ids(session(feed_db), OWNER) == []
+
+
+def test_circle_contexts_are_independent_and_deleted_source_never_revives_an_add(feed_db):
+    circle_a, circle_b = str(uuid.uuid4()), str(uuid.uuid4())
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (CAST(:id AS uuid),:owner)"),
+            {"id": circle_a, "owner": OTHER},
+        )
+    first = policy_event(feed_db, OWNER, "circle_member_added", {"circle_id": circle_a}, peer=OTHER)
+    second = policy_event(
+        feed_db, OWNER, "circle_member_added", {"circle_id": circle_b}, peer=OTHER
+    )
+    deleted = policy_event(feed_db, OWNER, "circle_deleted", {}, source=circle_a)
+    policy_event(feed_db, OTHER, "circle_deleted", {}, source=circle_a)
+    service = session(feed_db)
+    assert set(listed_ids(service, OWNER)) == {deleted, second}
+    assert listed_ids(service, OTHER) == []  # Own Circle deletion is not incoming.
+    page = service.list_feed(OWNER, limit=1)
+    assert [int(row["id"]) for row in page["items"]] == [deleted]
+    assert page["next_cursor"] is not None
+    assert [
+        int(row["id"])
+        for row in service.list_feed(OWNER, cursor=page["next_cursor"], limit=1)["items"]
+    ] == [second]
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("DELETE FROM one_location_circles WHERE id=CAST(:id AS uuid)"), {"id": circle_a}
+        )
+    assert listed_ids(session(feed_db), OWNER) == [second]
+    assert first not in listed_ids(session(feed_db), OWNER)
+
+
 def test_partial_delivery_counts_only_active_claims_for_each_participant(feed_db):
     active, superseded = str(uuid.uuid4()), str(uuid.uuid4())
     with feed_db.begin() as connection:
@@ -172,6 +483,7 @@ def test_partial_delivery_counts_only_active_claims_for_each_participant(feed_db
         for share in (active, superseded):
             connection.execute(
                 text("""INSERT INTO drive_bulk_shares
+                (share_id,user_id,origin_request_id,approved_at,progressive_batch)
                 VALUES (:share,:owner,:request,now(),TRUE)"""),
                 {"share": share, "owner": OWNER, "request": REQUEST},
             )
@@ -267,7 +579,11 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
     assert laptop.restore(
         OWNER, item_id=owner["no_files"], dismissal_token=removal["dismissal_token"]
     ) == {"status": "ok", "restored": True}
-    assert set(hidden_with_it) <= set(listed_ids(session(feed_db), OWNER))
+    assert listed_ids(session(feed_db), OWNER) == [
+        owner["analysis"],
+        owner["consent_latest"],
+        owner["no_files"],
+    ]
 
     removal = phone.dismiss(OWNER, item_id=owner["no_files"])
     phone.clear(OWNER, up_to_id=owner["consent_latest"])
@@ -285,8 +601,12 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
     assert listed_ids(signed_in_again, OWNER) == [later, owner["analysis"]]
 
     # The other account's identical rows are untouched.
-    assert listed_ids(signed_in_again, OTHER) == sorted(other.values(), reverse=True)
-    assert signed_in_again.unread_count(OTHER) == len(other)
+    assert listed_ids(signed_in_again, OTHER) == [
+        other["analysis"],
+        other["consent_latest"],
+        other["no_files"],
+    ]
+    assert signed_in_again.unread_count(OTHER) == 3
 
     # Account deletion's Feed statement leaves nothing for that account.
     with feed_db.begin() as connection:
@@ -300,7 +620,10 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
     fresh = session(feed_db)
     fresh_page = fresh.list_feed(OWNER_SIGNED_UP_AGAIN)
     revision = fresh_page.pop("history_revision")
+    assert fresh_page.pop("clear_version") is None
+    assert fresh_page.pop("read_snapshot")["up_to_id"] is None
     assert fresh_page == {
+        "live_incidents": {"items": [], "next_cursor": None},
         "items": [],
         "next_cursor": None,
         "unread_count": 0,
@@ -340,6 +663,135 @@ def test_historical_pwm_attention_is_hidden_without_hiding_reviewable_drafts(fee
         str(rows["ready"]),
     ]
     assert listed_ids(session(feed_db), OTHER) == []
+
+
+def test_feed_omits_routine_notices_and_reconnect_without_current_source(feed_db):
+    rows = seed(
+        feed_db,
+        OWNER,
+        [
+            ("sent", "connected_systems", "document_share_request_sent", {}),
+            ("complete", "connected_systems", "drive_search_completed", {}),
+            ("limited", "connected_systems", "drive_search_limited", {}),
+            ("failed", "connected_systems", "drive_search_failed", {}),
+            ("stopped", "connected_systems", "drive_search_stopped", {}),
+            ("timeout", "consent", "consent_timed_out", {}),
+            ("payment", "connected_systems", "document_share_payment_confirmed", {}),
+            ("delivery", "connected_systems", "document_share_outcome", {}),
+            ("reconnect", "connected_systems", "connector_reconnect_required", {}),
+            ("legacy_connector", "connected_systems", "connector_connected", {}),
+        ],
+    )
+    service = session(feed_db)
+    service.record_event(
+        user_id=OWNER,
+        source_domain="connected_systems",
+        event_type="connector_connected",
+        source_row_id="google_drive:1",
+    )
+    service.record_event(
+        user_id=OWNER,
+        source_domain="connected_systems",
+        event_type="connector_connected",
+        source_row_id="another_connector:1",
+    )
+
+    first = service.list_feed(OWNER, limit=3)
+    assert [item["event_type"] for item in first["items"]] == [
+        "document_share_outcome",
+        "document_share_payment_confirmed",
+        "document_share_request_sent",
+    ]
+    assert first["next_cursor"] is None
+    assert first["unread_count"] == service.unread_count(OWNER) == 3
+    # Sources are retained; suppressing routine presentation never deletes history.
+    assert account_rows(feed_db, OWNER) == len(rows) + 2
+
+
+def test_document_activity_groups_before_pagination_and_ignores_late_payment(feed_db):
+    rows = seed(
+        feed_db,
+        OWNER,
+        [
+            ("connection", "connections", "connection_accepted", {}),
+            (
+                "request",
+                "connected_systems",
+                "document_share_request_sent",
+                {"request_id": REQUEST},
+            ),
+            (
+                "partial",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": REQUEST, "user_facing_status": "partial"},
+            ),
+            (
+                "delivered",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": REQUEST, "user_facing_status": "completed"},
+            ),
+            (
+                "late_payment",
+                "connected_systems",
+                "document_share_payment_confirmed",
+                {"request_id": REQUEST},
+            ),
+            (
+                "separate",
+                "connected_systems",
+                "document_share_request_sent",
+                {"request_id": PAID_REQUEST},
+            ),
+        ],
+    )
+    service = session(feed_db)
+    first = service.list_feed(OWNER, limit=1)
+    assert first["items"][0]["activity_group_id"] == f"document:{PAID_REQUEST}"
+    second = service.list_feed(OWNER, cursor=int(first["next_cursor"]), limit=1)
+    item = second["items"][0]
+    assert item["id"] == str(rows["delivered"])
+    assert item["activity_group_id"] == f"document:{REQUEST}"
+    assert item["activity_revision"] == str(rows["late_payment"])
+    assert second["unread_count"] == 2
+    third = service.list_feed(OWNER, cursor=int(second["next_cursor"]), limit=1)
+    assert [entry["id"] for entry in third["items"]] == [str(rows["connection"])]
+    assert third["next_cursor"] is None
+
+    # A receipt remains findable after delivery replaces the payment headline.
+    receipt = service.search_activity(OWNER, query="receipt", scope="drive")["items"]
+    assert len(receipt) == 1 and receipt[0]["id"] == str(rows["delivered"])
+    assert receipt[0]["search_events"] == ["document_share_payment_confirmed"]
+    current = service.search_activity(OWNER, scope="drive")["items"]
+    assert all(item["search_events"] == [] for item in current)
+    assert service.search_activity(OTHER, query="receipt", scope="drive")["items"] == []
+
+    removal = service.dismiss(OWNER, item_id=int(item["activity_revision"]))
+    assert removal["dismissed_ids"] == [
+        str(rows[name]) for name in ("request", "partial", "delivered", "late_payment")
+    ]
+    seed(
+        feed_db,
+        OWNER,
+        [
+            (
+                "retry",
+                "connected_systems",
+                "document_share_payment_confirmed",
+                {"request_id": REQUEST},
+            )
+        ],
+    )
+    assert listed_ids(session(feed_db), OWNER) == [rows["separate"], rows["connection"]]
+    assert service.restore(
+        OWNER, item_id=int(item["activity_revision"]), dismissal_token=removal["dismissal_token"]
+    )["restored"]
+    assert listed_ids(session(feed_db), OWNER) == [
+        rows["separate"],
+        rows["delivered"],
+        rows["connection"],
+    ]
 
 
 def test_drive_removal_reads_the_current_payment_status(feed_db):
@@ -389,16 +841,17 @@ def test_drive_removal_reads_the_current_payment_status(feed_db):
     )
     service = session(feed_db)
 
-    # The expired checkout is history the Feed still shows; it stays.
+    # An expired checkout and a paid one both belong to their own request.
     assert service.dismiss(OWNER, item_id=rows["expired_outcome"])["dismissed_ids"] == [
-        str(rows["expired_outcome"])
+        str(rows["expired_pay"]),
+        str(rows["expired_outcome"]),
     ]
     # A paid order's Pay row was hidden behind the outcome; it leaves with it.
     assert service.dismiss(OWNER, item_id=rows["paid_outcome"])["dismissed_ids"] == [
         str(rows["paid_pay"]),
         str(rows["paid_outcome"]),
     ]
-    assert listed_ids(session(feed_db), OWNER) == [rows["expired_pay"]]
+    assert listed_ids(session(feed_db), OWNER) == []
 
 
 def test_sos_clear_is_stored_for_the_recipient_and_never_hides_a_live_share(feed_db, monkeypatch):
@@ -471,3 +924,73 @@ def test_sos_clear_is_stored_for_the_recipient_and_never_hides_a_live_share(feed
     apply(feed_db, RECIPIENT_CLEAR_ROLLBACK)
     apply(feed_db, RECIPIENT_CLEAR_MIGRATION)
     assert cleared() == first
+
+
+def test_finance_projection_precedes_pagination_and_keeps_operations_distinct(feed_db):
+    def event(owner, kind, source, metadata, created):
+        with feed_db.begin() as conn:
+            return conn.execute(
+                text("""INSERT INTO feed_events(
+                user_id, source_domain, event_type, source_row_id, metadata, created_at)
+                VALUES(:owner,'kai',:kind,:source,CAST(:metadata AS jsonb),CAST(:created AS timestamptz))
+                RETURNING id"""),
+                dict(
+                    owner=owner,
+                    kind=kind,
+                    source=source,
+                    metadata=json.dumps(metadata),
+                    created=created,
+                ),
+            ).scalar_one()
+
+    def funding(owner, transfer, status, day, direction=None):
+        return event(
+            owner,
+            "funding_transfer_status",
+            f"{transfer}:{status}",
+            {"user_facing_status": status, "direction": direction, "amount": 10},
+            f"2025-10-{day}T12:00:00Z",
+        )
+
+    completion = funding(OWNER, "first", "completed", "01", "INCOMING")
+    second = funding(OWNER, "same-amount", "completed", "02", "INCOMING")
+    returned = funding(OWNER, "first", "returned", "04")
+    late = funding(OWNER, "first", "failed", "03", "INCOMING")
+    funding(OTHER, "first", "returned", "04")
+    old_parser = event(OWNER, "kai_import_completed", "parser", {}, "2025-10-04T13:00:00Z")
+    first_run = event(
+        OWNER,
+        "kai_analysis_completed",
+        "run-1",
+        {"ticker": "AAPL", "run_id": "run-1"},
+        "2025-10-05T12:00:00Z",
+    )
+    last_run = event(
+        OWNER,
+        "kai_analysis_completed",
+        "run-2",
+        {"ticker": "AAPL", "run_id": "run-2"},
+        "2025-10-05T13:00:00Z",
+    )
+
+    viewer = session(feed_db)
+    first_page = viewer.list_feed(OWNER, limit=2)
+    assert [int(row["id"]) for row in first_page["items"]] == [last_run, first_run]
+    assert first_page["unread_count"] == 3
+    assert listed_ids(viewer, OWNER) == [last_run, first_run, returned, second]
+    assert old_parser not in listed_ids(viewer, OWNER)
+    [record] = viewer.historical_funding(OWNER, terms=["returned", "october"])
+    assert record["itemId"] == str(returned)
+    assert record["direction"] == "transfer"
+    assert [step["status"] for step in record["milestones"]] == ["completed", "failed", "returned"]
+    assert viewer.historical_funding(OTHER, item_id=returned) == []
+
+    viewer.mark_read(OWNER, up_to_id=last_run)
+    assert session(feed_db).unread_count(OWNER) == 0
+    assert set(viewer.dismiss(OWNER, item_id=returned)["dismissed_ids"]) == {
+        str(completion),
+        str(returned),
+        str(late),
+    }
+    assert session(feed_db).historical_funding(OWNER, item_id=returned) == []
+    assert second in listed_ids(session(feed_db), OWNER)

@@ -16,7 +16,11 @@ async def prepare_text_attempt(owner, request, provider, index, current, stream)
             raise ValueError("Managed Vertex alternate is not configured")
         vertex = owner.fallback_factory()
     try:
-        request = request.model_copy(deep=True)
+        # ADK tools can hold live AG-UI queues. Isolate the provider payload
+        # while keeping those tools bound to the active turn.
+        tools = request.tools_dict.copy()
+        request = request.model_copy(update={"tools_dict": {}}).model_copy(deep=True)
+        request.tools_dict = tools
         request.model = vertex.model
         if owner.vertex_thinking_level is not None:
             from google.genai import types

@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useEffect, useId, useRef } from "react";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 
@@ -49,7 +50,7 @@ export function useMarketLiveRefresh(
     let lastAttemptAt: number | null = null;
 
     const run = async (allowClosed = false): Promise<void> => {
-      if (!active || inFlight || document.visibilityState !== "visible" || !navigator.onLine) return;
+      if (!active || inFlight || document.visibilityState !== "visible" || !isNetworkOnline()) return;
       const session = usMarketRefreshSession();
       const now = Date.now();
       const interval = session ? MARKET_REFRESH_INTERVAL_MS : CLOSED_MARKET_REFRESH_INTERVAL_MS;

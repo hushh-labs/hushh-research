@@ -49,6 +49,7 @@ OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"  # n
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
+FIREBASE_AUTH_PROJECT_ID_ENV = "FIREBASE_AUTH_PROJECT_ID"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 # Server-held Plaid custody is retired. These two keys exist solely so
 # scripts/ops/plaid_server_custody_retire.py can decrypt the remaining stored
@@ -78,6 +79,7 @@ BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
+    "firebase_auth_project_id": FIREBASE_AUTH_PROJECT_ID_ENV,
     "auth_db_listener_isolation_enabled": "AUTH_DB_LISTENER_ISOLATION_ENABLED",
     "pod_dev_inference_bridge_json": "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON",
     "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
@@ -90,6 +92,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_plg_activity_all_registered": "ONE_PLG_ACTIVITY_ALL_REGISTERED",
     "one_plg_audience_enabled": "ONE_PLG_AUDIENCE_ENABLED",
     "one_plg_subscription_enabled": "ONE_PLG_SUBSCRIPTION_ENABLED",
+    "one_plg_dev_export_enabled": "ONE_PLG_DEV_EXPORT_ENABLED",
+    "one_plg_activity_dev_enabled": "ONE_PLG_ACTIVITY_DEV_ENABLED",
+    "one_plg_uat_export_enabled": "ONE_PLG_UAT_EXPORT_ENABLED",
+    "one_plg_activity_uat_enabled": "ONE_PLG_ACTIVITY_UAT_ENABLED",
+    "one_plg_owner_export_enabled": "ONE_PLG_OWNER_EXPORT_ENABLED",
+    "one_plg_attempt_email_enabled": "ONE_PLG_ATTEMPT_EMAIL_ENABLED",
     "email_auth_enabled": "EMAIL_AUTH_ENABLED",
     "email_auth_risk_manifest": "EMAIL_AUTH_RISK_MANIFEST",
     "email_auth_mail_api_endpoint": "EMAIL_AUTH_MAIL_API_ENDPOINT",
@@ -104,6 +112,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "answer_work_drain_enabled": "ANSWER_WORK_DRAIN_ENABLED",
     "answer_work_drain_audience": "ANSWER_WORK_DRAIN_AUDIENCE",
     "environment": "ENVIRONMENT",
+    "gcp_project_id": "GCP_PROJECT_ID",
+    "dev_target": "DEV_TARGET",
+    "hosted_custody_profile": "HUSHH_HOSTED_CUSTODY_PROFILE",
+    "db_user": "DB_USER",
     "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
     "google_cloud_project": "GOOGLE_CLOUD_PROJECT",
@@ -204,6 +216,9 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
     "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
+    "website_pwm_worker_audience": "WEBSITE_PWM_WORKER_AUDIENCE",
+    "website_pwm_worker_identity": "WEBSITE_PWM_WORKER_IDENTITY",
+    "website_pwm_grant_url": "WEBSITE_PWM_GRANT_URL",
     "one_todo_suggestions_enabled": "ONE_TODO_SUGGESTIONS_ENABLED",
     "one_magic_intelligence_phase": "ONE_MAGIC_INTELLIGENCE_PHASE",
     "one_magic_intelligence_inner_team_emails": "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
@@ -222,6 +237,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_voice_mail_narration_enabled": "ONE_VOICE_MAIL_NARRATION_ENABLED",
     # Connect Azure hub settings (public identifiers); absent, the routes refuse.
     "hussh_azure_app_client_id": "HUSSH_AZURE_APP_CLIENT_ID",
+    "hussh_hosted_azure_client_id": "HUSSH_HOSTED_AZURE_CLIENT_ID",
     "hussh_azure_broker_sa": "HUSSH_AZURE_BROKER_SA",
     "hussh_azure_oauth_redirect_uri": "HUSSH_AZURE_OAUTH_REDIRECT_URI",
     "hussh_pod_image_reader_sa": "HUSSH_POD_IMAGE_READER_SA",
@@ -731,6 +747,36 @@ def pod_hosted_adc_enabled() -> bool:
     return hosted_runtime_deployment() is not None
 
 
+def pod_storage_gateway_gcs_bucket() -> str:
+    """Hub-side GCS bucket backing zero-role ``PrefixTokenObjectStore`` pods."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET")
+
+
+def pod_storage_gateway_gcs_prefix() -> str:
+    """Optional prefix inside the Hub-side GCS storage gateway bucket."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_GCS_PREFIX").strip("/")
+
+
+def pod_storage_gateway_local_root() -> str:
+    """Optional local directory root backing the storage gateway in dev/tests."""
+    return _clean_env("HUSSH_POD_STORAGE_GATEWAY_LOCAL_ROOT")
+
+
+def pod_model_gateway_url() -> str:
+    """Sentinel L7 Vertex Model Gateway base URL inside the sandbox cluster."""
+    return _clean_env("HUSSH_MODEL_GATEWAY_URL").rstrip("/")
+
+
+def pod_model_gateway_token() -> str:
+    """Per-lease Sentinel surrogate token swapped for Vertex AI OAuth outside the sandbox."""
+    return _clean_env("HUSSH_MODEL_GATEWAY_TOKEN")
+
+
+def pod_sentinel_model_enabled() -> bool:
+    """True when this pod should route managed Gemini calls through Sentinel's L7 gateway."""
+    return pod_mode() and bool(pod_model_gateway_url() and pod_model_gateway_token())
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 
@@ -765,6 +811,40 @@ def personal_agent_reconcile_enabled() -> bool:
     a destructive-to-hosts action that must be turned on deliberately, separately
     from turning the personal-agent surface on."""
     return _bool_from_value(_clean_env("PERSONAL_AGENT_RECONCILE_ENABLED"), default=False)
+
+
+def umbrella_cell_replenisher_enabled() -> bool:
+    """Enable autonomous warm-skeleton replenishment in ``dev`` Umbrella Compute Cells.
+
+    Hard-fenced off outside ``deploy_lane() == "dev"`` so ``uat``, ``production``,
+    and local/test harnesses never mutate cloud cell inventory unless explicitly
+    running under Dev lane control alongside ``PERSONAL_AGENT_ENABLED``.
+    """
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
+
+    if deploy_lane() != "dev":
+        return False
+    if not personal_agent_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_UMBRELLA_REPLENISHER_ENABLED"), default=True)
+
+
+def umbrella_cell_auto_scaleout_enabled() -> bool:
+    """Enable automatic horizontal cell scale-out above the 80% soft watermark in ``dev``."""
+    if not umbrella_cell_replenisher_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_UMBRELLA_CELL_AUTOSCALEOUT_ENABLED"), default=True)
+
+
+def source_pod_retirement_sweep_enabled() -> bool:
+    """Enable the 3-day two-key source-pod retirement sweep in ``dev`` only."""
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane  # noqa: PLC0415
+
+    if deploy_lane() != "dev":
+        return False
+    if not personal_agent_enabled():
+        return False
+    return _bool_from_value(_clean_env("HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED"), default=True)
 
 
 def personal_agent_upgrade_sweep_enabled() -> bool:
@@ -1235,6 +1315,7 @@ def get_firebase_credential_settings() -> FirebaseCredentialSettings:
     )
     return FirebaseCredentialSettings(
         admin_credentials_json=admin_credentials_json,
+        auth_project_id=_clean_env(FIREBASE_AUTH_PROJECT_ID_ENV),
     )
 
 
@@ -1253,6 +1334,19 @@ def clear_runtime_settings_caches() -> None:
     get_core_security_settings.cache_clear()
     get_firebase_credential_settings.cache_clear()
     get_app_runtime_settings.cache_clear()
+
+
+def ensure_pod_sandbox_signing_key() -> str:
+    """Provision an isolated per-sandbox signing key during virgin lease activation."""
+    import secrets  # noqa: PLC0415
+
+    existing = _clean_env(APP_SIGNING_KEY_ENV)
+    if len(existing) >= 32:
+        return existing
+    generated = secrets.token_hex(32)
+    os.environ[APP_SIGNING_KEY_ENV] = generated
+    clear_runtime_settings_caches()
+    return generated
 
 
 hydrate_runtime_environment()

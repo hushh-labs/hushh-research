@@ -481,24 +481,27 @@ def test_connection_request_accepts_alias_only_in_body(client, monkeypatch):
     assert response.headers["cache-control"] == "private, no-store"
 
 
-def test_presence_errors_keep_stable_code_and_message(client, monkeypatch):
+def test_nearby_connect_keeps_the_phone_verification_error(client, monkeypatch):
+    message = "Verify your phone number to send nearby connection requests."
+
     class FakePresenceService:
-        def get_state(self, **kwargs):
+        def request_connection(self, **kwargs):
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED",
-                "Verify your phone number before appearing to nearby people.",
+                message,
                 status_code=403,
             )
 
-    monkeypatch.setattr(
-        location_routes,
-        "_nearby_presence_service",
-        lambda: FakePresenceService(),
+    monkeypatch.setattr(location_routes, "_nearby_presence_service", FakePresenceService)
+    response = client.post(
+        "/api/one/location/nearby-presence/connection-request",
+        json={"participantAlias": "alias-1"},
     )
-    response = client.get("/api/one/location/nearby-presence")
-
     assert response.status_code == 403
-    assert response.json()["detail"]["code"] == ("NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED")
+    assert response.json()["detail"] == {
+        "code": "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED",
+        "message": message,
+    }
 
 
 def test_nearby_place_picker_rejects_unknown_category(client):

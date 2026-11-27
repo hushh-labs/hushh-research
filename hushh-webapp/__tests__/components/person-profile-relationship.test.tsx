@@ -5,6 +5,7 @@ import { viewerProfile } from "./person-profile/fixtures";
 
 const mocks = vi.hoisted(() => ({
   getViewer: vi.fn(), getPublic: vi.fn(), getRelationship: vi.fn(),
+  invalidatePublicProfiles: vi.fn(),
   removeConnection: vi.fn(), featureReadiness: vi.fn(), packets: vi.fn(),
   user: { uid: "viewer", getIdToken: async () => "viewer-token" },
 }));
@@ -31,6 +32,7 @@ vi.mock("@/lib/services/person-profile-service", async (original) => ({
   ...await original<typeof import("@/lib/services/person-profile-service")>(),
   PersonProfileService: {
     getPublic: mocks.getPublic, getViewer: mocks.getViewer, getRelationship: mocks.getRelationship,
+    invalidatePublicProfiles: mocks.invalidatePublicProfiles,
     removeConnection: mocks.removeConnection, getRequestHistory: async () => ({ bundles: [], nextCursor: null }),
   },
 }));
@@ -91,6 +93,7 @@ describe("Person profile relationship controls", () => {
     fireEvent.click(remove);
     await waitFor(() => expect(mocks.removeConnection).toHaveBeenCalledWith("actual-public-ref", "viewer-token"));
     await screen.findByText("Not connected");
+    expect(mocks.invalidatePublicProfiles).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Connected, connection options" })).toBeNull();
   });
 

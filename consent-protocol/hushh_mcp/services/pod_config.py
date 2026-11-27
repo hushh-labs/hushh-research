@@ -43,9 +43,42 @@ class PodConfig:
     memory_review_budget_seconds: float = 45.0
     memory_digest_max_chars: int = 1200
     memory_bank_rebuild_on_tick: bool = True
+    # Stage 2a offline agency & security controls:
+    # Out-of-the-box background preparation defaults ON per connector; optional
+    # session_only_lockdown blocks offline wakes altogether for high-security owners.
+    session_only_lockdown: bool = False
+    background_prep_enabled: bool = True
+    background_prep_gmail: bool = True
+    background_prep_calendar: bool = True
+    background_prep_drive: bool = True
+    background_prep_contacts: bool = True
+    background_prep_mcp: bool = True
+    background_daily_wake_cap: int = 24
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+_CONNECTOR_BACKGROUND_FIELDS: dict[str, str] = {
+    "gmail": "background_prep_gmail",
+    "calendar": "background_prep_calendar",
+    "drive": "background_prep_drive",
+    "contacts": "background_prep_contacts",
+    "mcp": "background_prep_mcp",
+}
+
+
+def background_connector_enabled(config: PodConfig, connector: str) -> bool:
+    """Whether ``connector`` may run during an offline background wake."""
+    if config.session_only_lockdown or not config.background_prep_enabled:
+        return False
+    key = str(connector or "").strip().lower()
+    if key.startswith("custom_"):
+        key = "mcp"
+    field_name = _CONNECTOR_BACKGROUND_FIELDS.get(key)
+    if not field_name:
+        return False
+    return bool(getattr(config, field_name, False))
 
 
 _DEFAULT = PodConfig()
@@ -54,6 +87,7 @@ _BOUNDS: dict[str, tuple[float, float]] = {
     "memory_review_max_records": (1, 100),
     "memory_review_budget_seconds": (5.0, 120.0),
     "memory_digest_max_chars": (0, 4000),
+    "background_daily_wake_cap": (1, 96),
 }
 
 

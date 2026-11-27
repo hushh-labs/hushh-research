@@ -22,9 +22,6 @@ export function OwnerKeyContent({
   vault,
   needsVaultCreation,
   lastFailure,
-  provider,
-  endpoint,
-  deployment,
   draftKey,
   notice,
   defaultModel,
@@ -34,8 +31,6 @@ export function OwnerKeyContent({
   load,
   approveUpdate,
   requestVault,
-  setEndpoint,
-  setDeployment,
   setDraftKey,
   setNotice,
   checkAndUse,
@@ -47,9 +42,7 @@ export function OwnerKeyContent({
   vault: boolean;
   needsVaultCreation: boolean;
   lastFailure: string | null;
-  provider: "openai" | "azure_openai";
-  endpoint: string;
-  deployment: string;
+  provider: "openai";
   draftKey: string;
   notice: KeyNotice;
   defaultModel: string | null;
@@ -59,8 +52,6 @@ export function OwnerKeyContent({
   load: () => Promise<void>;
   approveUpdate: () => Promise<void>;
   requestVault: () => void;
-  setEndpoint: (value: string) => void;
-  setDeployment: (value: string) => void;
   setDraftKey: (value: string) => void;
   setNotice: (value: KeyNotice) => void;
   checkAndUse: () => Promise<void>;
@@ -157,24 +148,6 @@ export function OwnerKeyContent({
             role="alert"
             className="text-destructive"
           >{`Your agent’s last check failed. ${lastFailure}`}</HelperText>
-        ) : null}
-        {provider === "azure_openai" ? (
-          <>
-            <Input
-              aria-label="Azure AI endpoint"
-              placeholder="https://your-resource.openai.azure.com/"
-              value={endpoint}
-              onChange={(event) => setEndpoint(event.target.value)}
-              disabled={busy !== null}
-            />
-            <Input
-              aria-label="Azure AI deployment"
-              placeholder="Deployment name"
-              value={deployment}
-              onChange={(event) => setDeployment(event.target.value)}
-              disabled={busy !== null}
-            />
-          </>
         ) : null}
         <Input
           type="password"
