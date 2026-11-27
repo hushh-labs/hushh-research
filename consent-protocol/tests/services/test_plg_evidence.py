@@ -1311,6 +1311,56 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     assert "PRIVATE_CUSTOMER" not in json.dumps(private)
 
 
+def test_catalog_attributes_owner_operation_observations_without_aliasing_other_agents(
+    monkeypatch, tmp_path
+):
+    import json
+
+    from hushh_mcp.services import plg_catalog
+
+    generated_path = plg_catalog.generated_contract_path
+    observations = json.loads(generated_path("plg", "observability-actions.v1.json").read_text())
+    # Exercise the reviewed emitter shapes before every destination includes them.
+    # This changes the test input only, never the destination's generated contract.
+    observations["events"].update(
+        {
+            "one_career_action": ["resume_parse", "resume_save", "application_send"],
+            "one_document_request_action": ["question_send", "file_request_send", "review_request"],
+            "one_unclassified_action": ["observed"],
+        }
+    )
+    observation_path = tmp_path / "observability-actions.v1.json"
+    observation_path.write_text(json.dumps(observations))
+    monkeypatch.setattr(
+        plg_catalog,
+        "generated_contract_path",
+        lambda *parts: (
+            observation_path
+            if parts == ("plg", "observability-actions.v1.json")
+            else generated_path(*parts)
+        ),
+    )
+    activity_catalog.cache_clear()
+    try:
+        for environment in ("uat", "production"):
+            actions = {row["id"]: row for row in activity_catalog(environment)["actions"]}
+            for event, owner in (
+                ("one_career_action", "agent_career"),
+                ("one_document_request_action", "agent_documents"),
+            ):
+                for action in observations["events"][event]:
+                    row = actions[f"observation:{event}:{action}"]
+                    assert (row["agentId"], row["kind"], row["proof"]) == (
+                        owner,
+                        "action",
+                        "client_reported",
+                    )
+            assert actions["observation:one_unclassified_action:observed"]["agentId"] == "agent_one"
+            assert actions["files.upload"]["agentId"] == "agent_files"
+    finally:
+        activity_catalog.cache_clear()
+
+
 @pytest.mark.asyncio
 async def test_owner_snapshot_catalog_uses_its_environment_without_cross_lane_cache():
     request = evidence.PilotRequest(version=2, accounts=[])
