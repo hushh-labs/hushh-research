@@ -179,6 +179,8 @@ def activity_catalog(environment: str = "production") -> dict:
         "one_wallet_": "agent_wallet",
         "one_calendar_": "agent_calendar",
         "one_kyc_": "agent_kyc",
+        "one_career_": "agent_career",
+        "one_document_request_": "agent_documents",
         "one_crm_": "agent_connected_systems",
         "one_location_": "agent_location",
         "gmail_": "agent_email",
