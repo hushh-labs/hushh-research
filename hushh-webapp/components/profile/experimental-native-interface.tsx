@@ -24,10 +24,11 @@ export function useExperimentalNativeInterface() {
       if (settings.experimentalNativeInterface !== value) await updateSettings({ experimentalNativeInterface: value });
       if (value === customNativePresentationEnabled()) {
         morphyToast.success("Current interface kept.");
-      } else if (!await applySavedNativeInterface(value)) {
-        morphyToast.success("Saved. Reopen the app to apply this interface.");
+      } else {
+        const applied = await applySavedNativeInterface(value).catch(() => false);
+        if (!applied) morphyToast.info("Preference saved. Fully close and reopen the app to switch interfaces.");
       }
-    } catch { morphyToast.error("Couldn’t apply the interface change. Check your preference and try again."); }
+    } catch { morphyToast.error("Couldn’t save the interface preference. Try again."); }
     finally { pending.current = false; setSaving(false); }
   };
   const active = customNativePresentationEnabled();
@@ -36,7 +37,7 @@ export function useExperimentalNativeInterface() {
   const selected = live ? active : saved;
   const pendingChange = available && settings !== null && saved !== active;
   const description = pendingChange
-    ? live ? `Experimental. ${active ? "Native" : "Standard"} is active. Tap the switch to apply the saved choice.`
+    ? live ? `Experimental. ${active ? "Native" : "Standard"} is active. Tap to retry, or fully close and reopen the app to use ${saved ? "native" : "standard"}.`
       : `Experimental. ${active ? "Native" : "Standard"} is active now. Fully close and reopen the app to use ${saved ? "native" : "standard"}.`
     : `Experimental. ${active ? "Native" : "Standard"} is active now.`;
   return { available, active, selected, pendingChange, description, ready: settings !== null, saving, change };
