@@ -56,6 +56,7 @@ import { SettingsDetailPanel } from "@/components/profile/settings-ui";
 import { WalletSharingHistory, type WalletNativeHistoryProjection } from "./wallet-sharing-history";
 import { WalletCollectionSkeleton } from "./wallet-collection-skeleton";
 import workspaceStyles from "./wallet-workspace.module.css";
+import { useWalletCardNumber } from "./use-wallet-card-number";
 import { presentationState, mergeSavedCard, removeCardPresentation, rejectPresentationArtwork } from "@/lib/wallet/wallet-presentation-state";
 import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
@@ -859,6 +860,11 @@ export function WalletWorkspace() {
     };
   }, []);
 
+  const numberScope = useMemo(() => ({ visit: profileVisit, revision: numberScopeRevision }), [profileVisit, numberScopeRevision]);
+  const ownerNumber = useWalletCardNumber({ card: focusedCard,
+    active: ready && activeTab === "cards" && focusedCardId === focusedCard?.cardId && selectedDeckCardId === focusedCardId,
+    scope: numberScope, getContext: getCardShareContext });
+
   const readSecurityCode = async (cardId: string): Promise<string | undefined> => {
     const context = getCardShareContext(cardId);
     const epoch = snapshotVaultSessionEpoch();
@@ -1071,6 +1077,7 @@ export function WalletWorkspace() {
         key={focusedCard.cardId}
         card={focusedCard}
         name={cardholderNames[focusedCard.cardId]}
+        pan={ownerNumber.pan} numberFailed={ownerNumber.failed} onRetryNumber={ownerNumber.retry}
         onCopyCardNumber={() => copyCardNumber(focusedCard.cardId)}
         onReadSecurityCode={() => readSecurityCode(focusedCard.cardId)}
         securityCodeScope={`${renderedOwnerId}:${numberScopeRevision}`}
@@ -1217,7 +1224,7 @@ export function WalletWorkspace() {
           ) : null}
 
           {showSearch ? (
-            <div className="relative w-full max-w-[360px]">
+            <div className="relative mx-auto w-full max-w-[820px]">
               <ProfilePaneSearchIcon
                 aria-hidden="true"
                 className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2"
@@ -1250,6 +1257,7 @@ export function WalletWorkspace() {
               nativeHistoryContext={getHistoryContext}
               addDisabled={Boolean(currentSave)}
               cardholderNames={cardholderNames}
+              selectedNumber={ownerNumber.pan} numberFailed={ownerNumber.failed} onRetryNumber={ownerNumber.retry}
               artworks={artworks}
               pendingArtworkIds={ownedSnapshot?.pendingArtworkIds}
               selectedCardId={selectedDeckCardId}

@@ -14,14 +14,17 @@ import {
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { maskedCardNumberGroups } from "@/lib/wallet/wallet-card-presentation";
+import { formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 import { cardNetworkLabel } from "./card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { WalletSecurityCode } from "./wallet-security-code";
 
-export function WalletSavedCardDetails({ card, name, onCopyCardNumber, onRemove, disabled = false, active = true, onReadSecurityCode, securityCodeScope }: {
+export function WalletSavedCardDetails({ card, name, pan, numberFailed = false, onRetryNumber, onCopyCardNumber, onRemove, disabled = false, active = true, onReadSecurityCode, securityCodeScope }: {
   card: WalletCardSummary;
   name?: string;
+  pan?: string | null;
+  numberFailed?: boolean;
+  onRetryNumber?: () => void;
   onCopyCardNumber: () => Promise<boolean>;
   onRemove: () => void;
   disabled?: boolean;
@@ -34,7 +37,7 @@ export function WalletSavedCardDetails({ card, name, onCopyCardNumber, onRemove,
   const expiry = `${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}`;
   const network = cardNetworkLabel(card.brand);
   const rows = [
-    { icon: ProfilePaneCardIcon, label: "Card number", value: maskedCardNumberGroups(card.brand, card.last4).join(" "), copy: onCopyCardNumber },
+    { icon: ProfilePaneCardIcon, label: "Card number", value: active && pan ? formatCardNumber(card.brand, pan) : numberFailed ? "Could not load card number." : "Loading…", copy: onCopyCardNumber },
     { icon: ProfilePaneAccountIcon, label: "Name on card", value: name || "Not provided", copyValue: name },
     { icon: ProfilePaneCardNetworkIcon, label: "Card network", value: network, copyValue: network },
     { icon: ProfilePaneCalendarIcon, label: "Expiry (MM/YY)", value: expiry, copyValue: expiry, copyLabel: "Copy expiry date" },
@@ -67,6 +70,7 @@ export function WalletSavedCardDetails({ card, name, onCopyCardNumber, onRemove,
         {rows.map((row) => <SettingsRow key={row.label} density="compact" icon={row.icon} iconTone="transparent" title={row.label} trailing={
           <span className="flex min-w-0 items-center justify-end gap-2">
             <span className="min-w-0 break-words text-right">{row.value}</span>
+            {row.label === "Card number" && numberFailed && onRetryNumber ? <button type="button" className="min-h-11 px-2 text-[color:var(--app-accent)]" onClick={onRetryNumber}>Retry</button> : null}
             {row.copy || row.copyValue ? <button
               type="button"
               className="-my-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)] disabled:opacity-50"

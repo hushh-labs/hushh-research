@@ -57,6 +57,7 @@ const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
   deleteCard: vi.fn(),
   getCard: vi.fn(),
+  getCardNumber: vi.fn(),
   addCard: vi.fn(),
 }));
 vi.mock("@/lib/services/wallet-card-service", async () => {
@@ -86,6 +87,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
+      getCardNumber: serviceMock.getCardNumber,
       addCard: async (...args: unknown[]) => { const saved = await serviceMock.addCard(...args); bumpPkmInvalidationEpoch("user_1", "wallet"); return saved; },
       matchesQuery: actual.WalletService.matchesQuery,
     },
@@ -125,6 +127,7 @@ describe("Wallet visit introduction", () => {
     vaultMock.locked = false;
     serviceMock.listCardSummaries.mockResolvedValue([]);
     serviceMock.getCard.mockReset();
+    serviceMock.getCardNumber.mockReset().mockResolvedValue(null);
   });
   afterEach(() => vi.clearAllMocks());
   const enter = async () => {
@@ -174,6 +177,7 @@ describe("Wallet visit introduction", () => {
   it("keeps real cards behind Continue and opens unlocked saved details with recipients", async () => {
     const cards = makeCards(2);
     serviceMock.listCardSummaries.mockResolvedValue(cards);
+    serviceMock.getCardNumber.mockResolvedValue("4242424242421000");
     serviceMock.getCard.mockResolvedValue({
       summary: cards[0],
       secrets: { pan: "4242424242421000", cardholderName: "Test Cardholder" },
@@ -185,8 +189,9 @@ describe("Wallet visit introduction", () => {
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
     const details = within(screen.getByRole("region", { name: "Saved card details" }));
-    expect(await details.findByText("•••• •••• •••• 1000")).toBeVisible();
-    expect(document.body).not.toHaveTextContent("4242 4242 4242 1000");
+    expect(await details.findByText("4242 4242 4242 1000")).toBeVisible();
+    expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Card number 4242 4242 4242 1000");
+    expect(serviceMock.getCardNumber).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0" }));
     expect(details.getByText("Test Cardholder")).toBeVisible();
     expect(details.getByText("Visa")).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: /Manage access/ }));
@@ -201,6 +206,7 @@ describe("Wallet visit introduction", () => {
   it("returns a saved payment card to Cards while retaining the three system cards", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
     serviceMock.addCard.mockResolvedValue({ cardId: "saved", summary });
+    serviceMock.getCardNumber.mockResolvedValue("4242424242424242");
     serviceMock.getCard.mockResolvedValue({
       summary,
       secrets: { pan: "4242424242424242", cardholderName: "New card" },
@@ -221,8 +227,9 @@ describe("Wallet visit introduction", () => {
     expect(screen.getByRole("button", { name: "Open Agent One Profile", hidden: true })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "All (4)", hidden: true })).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
-    expect(await within(screen.getByRole("region", { name: "Saved card details" })).findByText("•••• •••• •••• 4242")).toBeVisible();
-    expect(document.body).not.toHaveTextContent("4242 4242 4242 4242");
+    expect(await within(screen.getByRole("region", { name: "Saved card details" })).findByText("4242 4242 4242 4242")).toBeVisible();
+    expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Card number 4242 4242 4242 4242");
+    expect(serviceMock.getCardNumber).toHaveBeenCalledWith(expect.objectContaining({ cardId: "saved" }));
     fireEvent.click(await screen.findByRole("button", { name: /Manage access/ }));
     expect(await screen.findByText("No active shares")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Close detail panel", exact: true }));

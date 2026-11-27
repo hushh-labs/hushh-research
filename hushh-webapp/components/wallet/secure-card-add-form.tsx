@@ -309,7 +309,7 @@ export function SecureCardAddFormView({ owner, onCancel, backRoute, compact, sho
   scanInToolbar = false, collectSecurityCode = false, active = true, inSheet = false, footerHost }: SecureCardAddFormProps & { owner: SecureCardFormOwner }) {
   const { id, errorsRef, cardholderName, securityCode, setSecurityCode, pan, network, setNetwork, scanReading, expiry, issuingRegion, setIssuingRegion, errors, submitting, scanning, setScanning, editedFields, changeCardholderName, changeEntry, ownerKey, draftVisible, digits, brand, networkHint, networkLoading, supportedNetworks, catalogFailed, setCatalogRevision, fieldErrors, submit, readScan } = owner;
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void submit(); };
-  const scanner = scanEnabled ? <WalletCardScanner twoSided={scanInToolbar || inSheet} backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting}
+  const scanner = scanEnabled ? <WalletCardScanner expandable={scanInToolbar || inSheet} backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting}
     compactControls={inSheet} featured={scanInToolbar && !inSheet && !scanReading}
     showPhotoActions={inSheet || !scanInToolbar || Boolean(scanReading)} onBusyChange={setScanning} onRead={readScan} /> : null;
 

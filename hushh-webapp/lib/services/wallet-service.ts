@@ -569,7 +569,7 @@ export class WalletService {
     return presentations;
   }
 
-  /** Decrypts one card fully. Call only from a reveal surface; never hand the result to a model. */
+  /** Decrypts one card for its authorized local reader; never hand the result to a model. */
   static async getCard(
     params: VaultContextParams & { cardId: string },
   ): Promise<{ summary: WalletCardSummary; secrets: WalletCardSecrets } | null> {
@@ -586,6 +586,14 @@ export class WalletService {
         cardholderName: String(rawSecrets.cardholder_name ?? ""),
       },
     };
+  }
+
+  /** Owner Wallet display only; never include this value in summaries or chat. */
+  static async getCardNumber(params: VaultContextParams & { cardId: string }): Promise<string | null> {
+    const card = await this.getCard(params);
+    if (!card) return null;
+    const pan = normalizePan(card.secrets.pan);
+    return /^\d{12,19}$/.test(pan) && pan.endsWith(card.summary.last4) ? pan : null;
   }
 
   /** Dedicated owner-only action. Shared/chat card readers never receive codes. */

@@ -69,6 +69,7 @@ const serviceMock = vi.hoisted(() => ({
   recoverCardArtworks: vi.fn(),
   deleteCard: vi.fn(),
   getCard: vi.fn(),
+  getCardNumber: vi.fn(),
   addCard: vi.fn(),
 }));
 const profileMock = vi.hoisted(() => ({ getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) }));
@@ -104,6 +105,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       },
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
+      getCardNumber: serviceMock.getCardNumber,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       addCard: async (...args: unknown[]) => { const saved = await serviceMock.addCard(...args); bumpPkmInvalidationEpoch("user_1", "wallet"); return saved; },
       matchesQuery: actual.WalletService.matchesQuery,
@@ -145,6 +147,7 @@ beforeEach(() => CacheService.getInstance().clear());
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockReset().mockResolvedValue(makeCards(4));
     serviceMock.addCard.mockReset();
+    serviceMock.getCardNumber.mockReset().mockResolvedValue(null);
     serviceMock.recoverCardArtworks.mockReset().mockResolvedValue([]);
     serviceMock.deleteCard.mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });

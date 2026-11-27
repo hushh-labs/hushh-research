@@ -37,12 +37,19 @@ struct NativeWalletCollection: Decodable {
     let cards: [NativeWalletTile]; let addId: String; let addEnabled: Bool
     var accessId: String?; var sharedTabId: String?; var view: String?
     let selectedId: String?; let detailVisitId: String?; let closeId: String; let detailTitle: String; let detailBusy: Bool
-    var detailQrData: String?; var detailImageData: String?
+    var detailQrData: String?; var detailImageData: String?; var detailNumber: String?
     var navigation: NativeWalletDetailNavigation?
     var visitor: NativeWalletVisitor?
     var valid: Bool {
         let ids = cards.map(\.id) + [addId, closeId] + (accessId.map { [$0] } ?? [])
-        return (visitor == nil || visitor!.valid && navigation == nil && cards.contains(where: { $0.id == selectedId && ["profile", "nws"].contains($0.kind) })) &&
+        let numberValid = detailNumber.map { number in
+            guard view != "sharing", let card = cards.first(where: { $0.id == selectedId && $0.kind == "payment" }) else { return false }
+            let digits = number.replacingOccurrences(of: " ", with: "")
+            return card.last4.range(of: "^[0-9]{4}$", options: .regularExpression) != nil &&
+                number.range(of: "^[0-9 ]{12,24}$", options: .regularExpression) != nil &&
+                digits.range(of: "^[0-9]{12,19}$", options: .regularExpression) != nil && digits.hasSuffix(card.last4)
+        } ?? true
+        return numberValid && (visitor == nil || visitor!.valid && navigation == nil && cards.contains(where: { $0.id == selectedId && ["profile", "nws"].contains($0.kind) })) &&
             (navigation == nil || navigation!.valid && navigation!.total == cards.count && selectedId != nil && selectedId != accessId &&
             !([navigation!.sectionId] + navigation!.actionIds).contains(where: { ids.contains($0) })) &&
             (sharedTabId == nil || NativeDrawerIdentity.identifier(sharedTabId!)) && (view == nil || ["cards", "sharing"].contains(view!)) &&
@@ -51,7 +58,7 @@ struct NativeWalletCollection: Decodable {
             Set(ids).count == ids.count && detailTitle.utf16.count <= 256 && (selectedId == nil ? detailVisitId == nil : detailVisitId.map(NativeDrawerIdentity.identifier) == true && (selectedId == accessId || cards.contains { $0.id == selectedId }))
     }
     static func closed(_ value: [String: Any]) -> Bool {
-        guard Set(value.keys).isSubset(of: ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "accessId", "sharedTabId", "view", "navigation", "visitor"]),
+        guard Set(value.keys).isSubset(of: ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "detailNumber", "accessId", "sharedTabId", "view", "navigation", "visitor"]),
               let cards = value["cards"] as? [[String: Any]] else { return false }
         if let raw = value["navigation"] {
             guard let nav = raw as? [String: Any], Set(nav.keys) == ["sectionId", "allId", "previousId", "nextId", "addId", "position", "total"] else { return false }
@@ -184,6 +191,7 @@ struct NativeWalletWorkspaceBody: View {
     private(set) var visit: String
     let closeId: String
     @Published var card: NativeWalletTile?
+    @Published var number: String?
     @Published var sections: [NativeDrawerSection] = []
     @Published var navigation: NativeWalletDetailNavigation?
     @Published var visitor: NativeWalletVisitor?
@@ -210,7 +218,7 @@ struct NativeWalletWorkspaceBody: View {
     }
     func update(_ state: NativeWorkspaceProjection, wallet: NativeWalletCollection) {
         guard let nextVisit = wallet.detailVisitId else { return }; visit = nextVisit
-        card = wallet.cards.first { $0.id == wallet.selectedId }; sections = state.sections; navigation = wallet.navigation; visitor = wallet.visitor
+        card = wallet.cards.first { $0.id == wallet.selectedId }; number = wallet.detailNumber; sections = state.sections; navigation = wallet.navigation; visitor = wallet.visitor
         if qrSource != wallet.detailQrData { qrSource = wallet.detailQrData; qr = qrSource.flatMap(NativeWalletCollection.image) }
         if imageSource != wallet.detailImageData { imageSource = wallet.detailImageData; image = imageSource.flatMap(NativeWalletCollection.image) }
         feedback = state.feedback; search = state.search; title = wallet.detailTitle; busy = wallet.detailBusy
@@ -220,7 +228,7 @@ struct NativeWalletWorkspaceBody: View {
     func navigationEnabled(_ id: String) -> Bool {
         enabled && !busy && sections.first(where: { $0.id == navigation?.sectionId })?.rows.contains(where: { $0.id == id && $0.enabled && $0.pending != true }) == true
     }
-    func clear() { enabled = false; card = nil; sections = []; navigation = nil; visitor = nil; search = nil; editor = nil; feedback = nil; dismissFeedback = nil; activateFeedback = nil; qr = nil; image = nil; qrSource = nil; imageSource = nil; title = ""; action = nil }
+    func clear() { enabled = false; card = nil; number = nil; sections = []; navigation = nil; visitor = nil; search = nil; editor = nil; feedback = nil; dismissFeedback = nil; activateFeedback = nil; qr = nil; image = nil; qrSource = nil; imageSource = nil; title = ""; action = nil }
 }
 
 @available(iOS 26.0, *)
@@ -245,7 +253,7 @@ struct NativeWalletCardDetailBody: View {
                     NativeWalletVisitorBody(visitor: visitor).listRowBackground(Color.clear)
                 } else if let image = model.image { Image(uiImage: image).resizable().scaledToFit().listRowBackground(Color.clear).accessibilityLabel("Your card") }
                 else if let card = model.card {
-                    NativeWalletCardArtwork(card: card).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 12, trailing: 0))
+                    NativeWalletCardArtwork(card: card, number: model.number).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 12, trailing: 0))
                 }
                 if let qr = model.qr {
                     DisclosureGroup("QR code", isExpanded: $showingQR) {
@@ -365,6 +373,7 @@ private struct NativeWalletVisitorBody: View {
 /// wallet-card-presentation; full numbers and security codes never paint here.
 private struct NativeWalletCardArtwork: View {
     let card: NativeWalletTile
+    var number: String? = nil
     @State private var decoded: UIImage?
     @State private var source: String?
     var body: some View {
@@ -374,7 +383,7 @@ private struct NativeWalletCardArtwork: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack { Text(card.kind == "payment" ? card.network : "Hussh One").font(.headline); Spacer(); Image(systemName: card.kind == "payment" ? "creditcard" : "person.crop.rectangle") }
             Spacer(minLength: 8)
-            Text(card.kind == "payment" ? "••••  ••••  ••••  \(card.last4)" : card.title).font(.title3.monospaced())
+            Text(card.kind == "payment" ? (number ?? "••••  ••••  ••••  \(card.last4)") : card.title).font(.title3.monospaced())
             HStack {
                 Text(card.holder.isEmpty ? card.network : card.holder).font(.subheadline)
                 Spacer(minLength: 12)

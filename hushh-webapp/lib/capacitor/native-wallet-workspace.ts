@@ -1,6 +1,7 @@
 /** Private, in-memory Wallet display replicas. Card operations, authorisation
  * and encryption remain in the existing Wallet feature owners. No URLs, keys,
- * PANs or CVVs belong in the collection projection. */
+ * PANs or CVVs belong in collection tiles. The selected owner detail may carry
+ * its number for the lifetime of that private visit. */
 export type NativeWalletTile = {
   id: string;
   kind: "payment" | "profile" | "referral" | "nws";
@@ -28,6 +29,7 @@ export type NativeWalletCollection = {
   detailBusy: boolean;
   detailQrData?: string;
   detailImageData?: string;
+  detailNumber?: string;
   navigation?: { sectionId: string; allId: string; previousId: string; nextId: string; addId: string; position: number; total: number };
   visitor?: NativeWalletVisitor;
 };
@@ -35,7 +37,7 @@ const text = (value: unknown, maximum: number, empty = false): value is string =
   typeof value === "string" && (empty || value.length > 0) && value.length <= maximum;
 const closed = (value: object, keys: readonly string[]) => Object.keys(value).every(key => keys.includes(key));
 export function validNativeWalletCollection(value: NativeWalletCollection): boolean {
-  if (!value || !closed(value, ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "accessId", "sharedTabId", "view", "navigation", "visitor"]) ||
+  if (!value || !closed(value, ["cards", "addId", "addEnabled", "selectedId", "detailVisitId", "closeId", "detailTitle", "detailBusy", "detailQrData", "detailImageData", "detailNumber", "accessId", "sharedTabId", "view", "navigation", "visitor"]) ||
     !text(value.addId, 128) || !text(value.closeId, 128) || value.addId === value.closeId ||
     typeof value.addEnabled !== "boolean" || typeof value.detailBusy !== "boolean" || !text(value.detailTitle, 256, true) ||
     value.sharedTabId !== undefined && !text(value.sharedTabId, 128) || value.view !== undefined && !["cards", "sharing"].includes(value.view) ||
@@ -52,6 +54,12 @@ export function validNativeWalletCollection(value: NativeWalletCollection): bool
       card.overlayDetails !== undefined && typeof card.overlayDetails !== "boolean" ||
       !text(card.holder, 120, true) || !text(card.expiry, 7, true) || !/^(?:\d{4})?$/.test(card.last4)) return false;
     ids.add(card.id);
+  }
+  if (value.detailNumber !== undefined) {
+    const selected = value.cards.find(card => card.id === value.selectedId && card.kind === "payment");
+    if (!selected || !/^\d{4}$/.test(selected.last4) || value.view === "sharing" || typeof value.detailNumber !== "string" ||
+        !/^[0-9 ]{12,24}$/.test(value.detailNumber) || !/^\d{12,19}$/.test(value.detailNumber.replaceAll(" ", "")) ||
+        !value.detailNumber.endsWith(selected.last4)) return false;
   }
   if (value.visitor !== undefined) {
     const visitor = value.visitor;

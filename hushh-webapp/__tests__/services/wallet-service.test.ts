@@ -268,6 +268,11 @@ describe("WalletService", () => {
     await expect(WalletService.listCardPresentations(CONTEXT)).rejects.toBe(failure);
   });
 
+  it("reads only the selected owner number without adding it to summaries", async () => {
+    expect(await WalletService.getCardNumber({ ...CONTEXT, cardId: CARD_ID })).toBe("4111111111111111");
+    expect(await WalletService.getCardNumber({ ...CONTEXT, cardId: "missing-card" })).toBeNull();
+    expect(JSON.stringify(await WalletService.listCardSummaries(CONTEXT))).not.toContain("4111111111111111");
+  });
   it("getCard returns both halves for the reveal surface", async () => {
     const full = await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID });
     expect(full?.secrets.pan).toBe("4111111111111111");

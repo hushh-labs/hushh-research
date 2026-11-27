@@ -112,6 +112,7 @@ const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
   deleteCard: vi.fn(),
   getCard: vi.fn(),
+  getCardNumber: vi.fn(),
   getCardSecurityCode: vi.fn(),
   addCard: vi.fn(),
 }));
@@ -143,6 +144,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
+      getCardNumber: serviceMock.getCardNumber,
       getCardSecurityCode: serviceMock.getCardSecurityCode,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       addCard: async (...args: unknown[]) => { const saved = await serviceMock.addCard(...args); bumpPkmInvalidationEpoch("user_1", "wallet"); return saved; },
@@ -178,6 +180,7 @@ describe("Wallet video browser workspace", () => {
     navigationMock.search = "";
     serviceMock.listCardSummaries.mockReset().mockResolvedValue(makeCards(2));
     serviceMock.deleteCard.mockResolvedValue(undefined);
+    serviceMock.getCardNumber.mockReset().mockImplementation(async ({ cardId }: { cardId: string }) => `555555555555${String(1000 + Number(cardId.split("_")[1]))}`);
     serviceMock.getCardSecurityCode.mockReset().mockResolvedValue("007");
     serviceMock.getCard.mockReset().mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242424242", cvv: "123", pin: "9876" } });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
@@ -303,7 +306,7 @@ describe("Wallet video browser workspace", () => {
     view.rerender(<WalletWorkspace />);
     expect(next?.isCurrent()).toBe(false);
   });
-  it("keeps owner numbers masked and security codes and financial placeholders hidden", async () => {
+  it("shows the selected owner number on the card and in details while keeping codes private", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
     expect(screen.queryByText("Card recipients")).toBeNull();
@@ -312,11 +315,32 @@ describe("Wallet video browser workspace", () => {
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Name on card");
     expect(screen.queryByText("Card balance")).toBeNull();
     expect(screen.getByRole("button", { name: "Remove card" })).toBeVisible();
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
-    expect(screen.getAllByTestId("wallet-card-face").at(-1)!).toHaveAttribute("data-revealed", "false");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1000"));
+    expect(screen.getAllByTestId("wallet-card-face").at(-1)!).toHaveAttribute("data-revealed", "true");
+    expect(screen.getAllByTestId("wallet-card-face").at(-1)!).toHaveTextContent("Card number 5555 5555 5555 1000");
     fireEvent.click(screen.getByRole("button", { name: "All (5)", hidden: true }));
     expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove card" })).toBeNull();
+  });
+  it.each(["owner", "lock", "tab", "card", "visibility", "epoch", "unmount"])("discards a delayed display number after %s changes", async boundary => {
+    const view = await open();
+    let finish!: (value: string) => void;
+    serviceMock.getCardNumber.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
+    await waitFor(() => expect(serviceMock.getCardNumber).toHaveBeenCalled());
+    const visibility = boundary === "visibility" ? vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden") : null;
+    try {
+      if (boundary === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
+      if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); }
+      if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+      if (boundary === "card") fireEvent.click(screen.getByRole("button", { name: "Next card" }));
+      if (boundary === "visibility") fireEvent(document, new Event("visibilitychange"));
+      if (boundary === "epoch") act(() => advanceVaultSessionEpoch());
+      if (boundary === "unmount") view.unmount();
+      await act(async () => { finish("5555555555551000"); });
+      expect(document.body).not.toHaveTextContent("5555 5555 5555 1000");
+      expect(serviceMock.getCardSecurityCode).not.toHaveBeenCalled();
+    } finally { visibility?.mockRestore(); }
   });
   it("confirms removal after token renewal and preserves the card when cancelled", async () => {
     const view = await open();
@@ -337,7 +361,7 @@ describe("Wallet video browser workspace", () => {
   it("returns to the overview after removal and opens the remaining card with working number access", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1000"));
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(2).slice(1));
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
@@ -347,7 +371,7 @@ describe("Wallet video browser workspace", () => {
     serviceMock.getCard.mockClear();
     fireEvent.click(remaining);
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1001"));
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: "card_1" })));
   });
@@ -400,7 +424,7 @@ describe("Wallet video browser workspace", () => {
     expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0" }));
     expect(document.body).not.toHaveTextContent("4242424242424242");
     expect(document.body).not.toHaveTextContent("4242 4242 4242 4242");
-    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1000");
     expect(document.querySelector('textarea')).toBeNull();
     expect(screen.getByTestId("wallet-owner-cvv")).toHaveTextContent("•••");
     expect(serviceMock.getCardSecurityCode).not.toHaveBeenCalled();
@@ -453,7 +477,7 @@ describe("Wallet video browser workspace", () => {
     let resolveCopy!: (result: unknown) => void;
     const view = await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1000"));
     serviceMock.getCard.mockImplementationOnce(() => new Promise((resolve) => { resolveCopy = resolve; }));
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     if (change === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
@@ -478,7 +502,7 @@ describe("Wallet video browser workspace", () => {
     try {
       const view = await open();
       fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
-      await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
+      await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1000"));
       serviceMock.getCard.mockImplementationOnce(() => new Promise(resolve => { resolveCopy = resolve; }));
       fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
       expect(write).toHaveBeenCalledTimes(1);
@@ -492,7 +516,7 @@ describe("Wallet video browser workspace", () => {
         expect(text).toBe("4242424242424242");
       }
       if (ownerChanges) expect(document.body).not.toHaveTextContent("4242424242424242");
-      else expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
+      else expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1000");
     } finally { vi.unstubAllGlobals(); }
   });
   it("opens the existing Add form from a selected card", async () => {
@@ -613,7 +637,7 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("5555 5555 5555 1001"));
     fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Card 1", exact: true })).toHaveFocus());
   });

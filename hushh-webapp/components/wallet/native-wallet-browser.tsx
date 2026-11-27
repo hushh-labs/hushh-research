@@ -19,6 +19,7 @@ import type { WalletCardBrowserProps } from "./wallet-card-browser";
 
 import { WALLET_DEMO_CARDS, isAgentWalletCard } from "./wallet-demo-cards";
 import { cardNetworkLabel } from "./card-network-mark";
+import { formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 
 /** One route body and owned child slot. Private handles bind to the existing
  * callbacks, never URLs or operation parameters interpreted by native code. */
@@ -50,6 +51,7 @@ export function NativeWalletBrowser(props: WalletCardBrowserProps & { renderFall
   useLayoutEffect(() => { setSelected(props.selectedCardId); }, [props.selectedCardId]);
   const selectedCard = [...props.cards, ...WALLET_DEMO_CARDS].find(card => card.cardId === selected);
   const selectedPayment = props.cards.find(card => card.cardId === selected);
+  const selectedNumber = selectedPayment?.cardId === props.selectedCardId ? props.selectedNumber : null;
   const publish = useCallback((value: WalletPanelProjection) => {
     ports.replace(value);
     const signature = JSON.stringify({ title: value.title, busy: value.busy, collectionNavigation: value.collectionNavigation, visitor: value.visitor, sections: value.sections, search: value.search, qrData: value.qrData, imageData: value.imageData, editor: value.editor ? { draft: value.editor.draft, busy: value.editor.busy, error: value.editor.error } : null });
@@ -138,6 +140,7 @@ export function NativeWalletBrowser(props: WalletCardBrowserProps & { renderFall
       detailTitle: value?.title ?? (accessSelected ? "Wallet access" : selectedCard?.nickname || "Your card"),
       detailBusy: (accessSelected || !!selectedCard) && !value || (value?.busy ?? false),
       ...(navigation ? { navigation } : {}),
+      ...(selectedPayment && selectedNumber ? { detailNumber: formatCardNumber(selectedPayment.brand, selectedNumber) } : {}),
       ...(value?.visitor ? { visitor: value.visitor } : {}),
       ...(value?.qrData ? { detailQrData: value.qrData } : {}), ...(value?.imageData ? { detailImageData: value.imageData } : {}) },
   };
@@ -155,6 +158,7 @@ export function NativeWalletBrowser(props: WalletCardBrowserProps & { renderFall
       selectedCard && isAgentWalletCard(selectedCard.cardId) ? <WalletCardWorkspace embedded passVariant={selectedCard.cardId === "agent-one-nws" ? "nws" : "profile"}
         nativeRender={model => <NativeWalletIdentityPanel model={model} variant={selectedCard.cardId === "agent-one-nws" ? "nws" : "profile"} handle={key => handle(`${selectedCard.cardId}-${key}`)} publish={publish} onClose={onClose} />} /> :
       selectedPayment && props.nativeOperations ? <NativeWalletPaymentPanel key={selectedPayment.cardId} card={selectedPayment} active={props.active !== false}
+      pan={selectedNumber} numberFailed={props.numberFailed} onRetryNumber={props.onRetryNumber}
       name={props.cardholderNames?.[selectedPayment.cardId]} operations={props.nativeOperations} disabled={!!props.disabled}
       handle={key => handle(`${selectedPayment.cardId}-${key}`)} publish={publish} onClose={onClose} /> : null}
   </>;
