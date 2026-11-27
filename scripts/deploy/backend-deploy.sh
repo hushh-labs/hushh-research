@@ -1057,6 +1057,107 @@ sys.exit(0 if required.issubset(names) else 1)
   fi
 fi
 # END UAT ACE SANDBOX PARITY
+# BEGIN PROD ACE SANDBOX PARITY
+# Enable Production Confidential Sandbox (ACE) runtime parity in hushh-pda when
+# the Edge Gateway and isolated Production custody/identity secrets exist.
+# BYOC live provisioning and HUSHH_DEV_SIMULATION_ENABLED remain strictly unset.
+if [[ "${_DEPLOY_ENV}" == "production" && "${PROJECT_ID}" == "hushh-pda" && -z "${commerce_preview_prefix:-}" ]]; then
+  _prod_ace_edge_json="$(gcloud run services describe "sandbox-edge-gateway" \
+    --project="$PROJECT_ID" --region="${_REGION}" --format=json 2>/dev/null || true)"
+  _prod_ace_edge_url="$(printf '%s' "${_prod_ace_edge_json}" | python3 -c 'import json,sys
+try:
+    doc = json.load(sys.stdin)
+    print((doc.get("status") or {}).get("url") or "")
+except Exception:
+    print("")
+')"
+  if [[ -n "${_prod_ace_edge_url}" ]] \
+    && gcloud secrets describe "hussh-custody-broker-seal-key" --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe "sandbox-edge-identity-master-key" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    for _required_prod_ed25519 in \
+      CONSENT_ED25519_PRIVATE_KEY \
+      CONSENT_ED25519_PUBLIC_KEYS \
+      OWNER_FEED_ED25519_PRIVATE_KEY \
+      OWNER_FEED_ED25519_PUBLIC_KEYS; do
+      if ! gcloud secrets describe "${_required_prod_ed25519}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+        echo "Production ACE capability closure failed: missing required Secret Manager secret ${_required_prod_ed25519} in ${PROJECT_ID}." >&2
+        exit 1
+      fi
+    done
+    if ! printf '%s' "${_prod_ace_edge_json}" | python3 -c 'import json,sys
+doc = json.load(sys.stdin)
+containers = (((doc.get("spec") or {}).get("template") or {}).get("spec") or {}).get("containers") or [{}]
+names = {str(item.get("name") or "") for item in (containers[0].get("env") or [])}
+required = {"CONSENT_ED25519_PUBLIC_KEYS", "OWNER_FEED_ED25519_PUBLIC_KEYS"}
+sys.exit(0 if required.issubset(names) else 1)
+'; then
+      echo "Production ACE capability closure failed: sandbox-edge-gateway is missing CONSENT_ED25519_PUBLIC_KEYS or OWNER_FEED_ED25519_PUBLIC_KEYS." >&2
+      exit 1
+    fi
+    hub_url="$(gcloud run services describe "${_BACKEND_SERVICE}" \
+      --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+    if [[ "${_CLOUD_RUN_NO_TRAFFIC:-false}" == "true" && "${_CLOUD_RUN_TAG:-}" == "stage" && -n "${hub_url}" ]]; then
+      hub_url="https://stage---${hub_url#https://}"
+    fi
+    append_optional_env "HUSSH_HUB_BASE_URL" "${hub_url}"
+    append_optional_env "POD_HUB_IDENTITY_AUTH_ENABLED" "true"
+    personal_agent_enabled="true"
+    personal_agent_backend="gcp"
+    personal_agent_autoprovision="true"
+    gcp_backend_live="true"
+    if [[ -n "${_RUNTIME_SERVICE_ACCOUNT:-}" ]]; then
+      pod_invoker_member="serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}"
+    fi
+    personal_agent_reconcile="true"
+    personal_agent_reachability="true"
+    hosted_pod_tier="true"
+    hosted_pod_project="${PROJECT_ID}"
+    pod_turn_enabled="true"
+    pod_directive_transport="true"
+    pod_data_door="true"
+    pod_local_pkm="true"
+    pod_durable_identity="true"
+    pod_migration="true"
+    pod_files_enabled="true"
+    trusted_device_enabled="true"
+    agent_sandbox_cutover_enabled="1"
+    hub_storage_prefix_base_url="${hub_url:+${hub_url}/api/one/pod/storage-gateway}"
+    hub_storage_token_provider="ace_prefix_bearer"
+    pod_storage_gateway_gcs_bucket="hussh-hosted-pods-prod"
+    sandbox_edge_public_url="${_prod_ace_edge_url}"
+    source_pod_retirement_sweep_enabled="true"
+    dev_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
+    dev_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
+    consent_signing_alg="ed25519"
+    consent_ed25519_kid="hushh-consent-prod-1"
+    dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"
+    dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"
+    owner_feed_signing_alg="ed25519"
+    owner_feed_ed25519_kid="hushh-owner-feed-prod-1"
+    dev_owner_feed_private_secret="OWNER_FEED_ED25519_PRIVATE_KEY"
+    dev_owner_feed_public_keys_secret="OWNER_FEED_ED25519_PUBLIC_KEYS"
+    if gcloud secrets describe CONSENT_AUDIT_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
+      && gcloud secrets describe CONSENT_AUDIT_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
+      consent_audit_chain="true"
+      consent_audit_signing_alg="ed25519"
+      consent_audit_ed25519_kid="hushh-audit-prod-1"
+      dev_consent_audit_private_secret="CONSENT_AUDIT_ED25519_PRIVATE_KEY"
+      dev_consent_audit_public_keys_secret="CONSENT_AUDIT_ED25519_PUBLIC_KEYS"
+    fi
+  else
+    echo "Production ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
+  fi
+fi
+# END PROD ACE SANDBOX PARITY
+if [[ "${agent_sandbox_cutover_enabled:-}" == "1" && -z "${commerce_preview_prefix:-}" ]]; then
+  _sandbox_schedule_queue="projects/${PROJECT_ID}/locations/${_REGION}/queues/hussh-sandbox-schedules"
+  _sandbox_task_worker="hussh-sandbox-task-worker@${PROJECT_ID}.iam.gserviceaccount.com"
+  if gcloud tasks queues describe "hussh-sandbox-schedules" --location="${_REGION}" --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud iam service-accounts describe "${_sandbox_task_worker}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    append_optional_env "HUSSH_SANDBOX_TASK_QUEUE" "${_sandbox_schedule_queue}"
+    append_optional_env "HUSSH_SANDBOX_TASK_WORKER_EMAIL" "${_sandbox_task_worker}"
+  fi
+fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
 append_optional_env "PERSONAL_AGENT_AUTOPROVISION_ENABLED" "${personal_agent_autoprovision}"
@@ -1122,13 +1223,14 @@ if [[ "${_DEPLOY_ENV}" == "uat" && -z "${commerce_preview_prefix:-}" ]]; then
 fi
 append_optional_secret "${dev_owner_feed_public_keys_secret}" "OWNER_FEED_ED25519_PUBLIC_KEYS"
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
-  for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
+  for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_WEB_OAUTH_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
     GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT; do
     append_optional_secret "${connector_pin}" "${connector_pin}"
   done
 fi
-if [[ "${_DEPLOY_ENV}" == "uat" && -z "${commerce_preview_prefix:-}" ]]; then
+if [[ ( "${_DEPLOY_ENV}" == "uat" || "${_DEPLOY_ENV}" == "production" ) && -z "${commerce_preview_prefix:-}" ]]; then
   append_optional_secret "GOOGLE_IOS_CONNECTOR_CLIENT_ID" "GOOGLE_IOS_CONNECTOR_CLIENT_ID"
+  append_optional_secret "GOOGLE_WEB_OAUTH_CLIENT_ID" "GOOGLE_WEB_OAUTH_CLIENT_ID"
 fi
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
