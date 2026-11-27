@@ -653,3 +653,25 @@ def test_dots_and_tags_merge_nothing_outside_gmail():
         _message(sender="Jane <janedoe@company.com>"), owner_email="jane.doe@company.com"
     )
     assert source.recipient_email == "janedoe@company.com"
+
+
+def test_reply_all_rejects_oversized_cc_list_instead_of_hiding_recipients():
+    """Every source-bound Cc recipient must be visible before confirmation."""
+    twenty = [f"peer{i}@example.com" for i in range(reply_source.MAX_REPLY_ALL_CC_RECIPIENTS)]
+    msg_ok = _message()
+    msg_ok["payload"]["headers"].append({"name": "Cc", "value": ", ".join(twenty)})
+    derived = reply_source.reply_source_from_message(
+        msg_ok, account=ACCOUNT, owner_email=OWNER_EMAIL, mode="reply_all"
+    )
+    assert list(derived.cc_list) == twenty
+
+    # Negative control: 21 Cc recipients fail closed instead of silently truncating.
+    msg_too_many = _message()
+    msg_too_many["payload"]["headers"].append(
+        {"name": "Cc", "value": ", ".join([*twenty, "extra21@example.com"])}
+    )
+    with pytest.raises(GmailDeliveryError) as exc:
+        reply_source.reply_source_from_message(
+            msg_too_many, account=ACCOUNT, owner_email=OWNER_EMAIL, mode="reply_all"
+        )
+    assert (exc.value.code, exc.value.status_code) == (reply_source.TOO_MANY_CC_RECIPIENTS, 422)

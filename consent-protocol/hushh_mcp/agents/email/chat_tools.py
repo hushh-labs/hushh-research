@@ -1682,7 +1682,7 @@ async def open_gmail_reply_draft(
             "message": "I couldn't verify that email's reply details just now. Try again.",
         }
 
-    cc_list = list(source.cc_list[:20])
+    cc_list = list(source.cc_list)
     payload: dict[str, Any] = {
         "kind": "gmail_reply_draft",
         "source_mail_ref": sealed_ref,

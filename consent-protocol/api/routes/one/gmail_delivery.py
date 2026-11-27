@@ -410,6 +410,8 @@ async def gmail_save_draft(
                 source_workflow_id=None,
                 source_mail_ref=payload.source_mail_ref,
             )
+            if payload.draft_ref is not None or payload.revision is not None:
+                draft_payload.update(draft_ref=payload.draft_ref, revision=payload.revision)
             if payload.sender_token is not None:
                 draft_payload["sender_token"] = payload.sender_token
             if payload.action_id:
