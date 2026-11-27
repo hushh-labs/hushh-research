@@ -8,6 +8,8 @@ import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta, timezone
+from urllib.parse import quote
 import retention_preflight_evidence as evidence
 from retention_admission import uat_worker_release_run_id
 from retention_publication_source import read_source as _source
@@ -23,6 +25,8 @@ RUNNER_WARNING = evidence.RUNNER_WARNING
 # authority as a scoped tick; each environment's proof decides what qualifies.
 UNSCOPED_TICK_TITLE = "Capacity Maintenance"
 _PUBLICATION_READERS = 3
+_HISTORY_SEARCH_LIMIT = 1000
+_HISTORY_PAGE_SIZE = 100
 
 
 def _require(owner, condition, message):
@@ -433,16 +437,17 @@ def _publication_time(owner, saved, job):
     return completed
 
 
-def _inventory_response(owner, response, expected_total, offset, seen):
+def _inventory_response(owner, response, expected_total, offset, seen, *, search_sample=False):
     count = response.get("total_count")
     runs = response.get("workflow_runs")
     _require(
         owner,
         type(count) is int
-        and 0 <= count < 1000
+        and 0 <= count <= _HISTORY_SEARCH_LIMIT
+        and (search_sample or count < _HISTORY_SEARCH_LIMIT)
         and (expected_total is None or count == expected_total)
         and isinstance(runs, list)
-        and len(runs) == min(100, count - offset),
+        and len(runs) == min(_HISTORY_PAGE_SIZE, count - offset),
         "maintenance history is incomplete; reconciliation required",
     )
     for run in runs:
@@ -458,24 +463,22 @@ def _inventory_response(owner, response, expected_total, offset, seen):
     return count, runs
 
 
-def _inventory_page(owner, repository, page):
+def _inventory_page(owner, repository, page, created=""):
+    date_filter = f"&created={quote(created, safe='')}" if created else ""
     return owner.api(
         repository,
-        f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
+        f"workflows/capacity-maintenance.yml/runs?branch=main{date_filter}"
+        f"&per_page={_HISTORY_PAGE_SIZE}&page={page}",
     )
 
 
-def _inventory(owner, repository):
-    """Finish bounded metadata discovery before any checkpoint can end the walk."""
-    seen, collected = set(), []
-    total, runs = _inventory_response(
-        owner, _inventory_page(owner, repository, 1), None, 0, seen
-    )
-    collected.extend(runs)
+def _complete_inventory_window(owner, repository, first_page, seen, created=""):
+    total, collected = _inventory_response(owner, first_page, None, 0, seen)
+    collected = list(collected)
     if len(collected) == total:
         return collected
 
-    page_count = (total + 99) // 100
+    page_count = (total + _HISTORY_PAGE_SIZE - 1) // _HISTORY_PAGE_SIZE
     with ThreadPoolExecutor(max_workers=min(_PUBLICATION_READERS, page_count - 1)) as executor:
         for start in range(2, page_count + 1, _PUBLICATION_READERS):
             pages = range(start, min(start + _PUBLICATION_READERS, page_count + 1))
@@ -484,12 +487,12 @@ def _inventory(owner, repository):
                 for page in pages:
                     context = contextvars.copy_context()
                     future = executor.submit(
-                        context.run, _inventory_page, owner, repository, page
+                        context.run, _inventory_page, owner, repository, page, created
                     )
                     futures.append((page, future))
                 for page, future in futures:
                     _, runs = _inventory_response(
-                        owner, future.result(), total, (page - 1) * 100, seen
+                        owner, future.result(), total, (page - 1) * _HISTORY_PAGE_SIZE, seen
                     )
                     collected.extend(runs)
             finally:
@@ -499,6 +502,81 @@ def _inventory(owner, repository):
         owner,
         len(collected) == total,
         "maintenance history is incomplete; reconciliation required",
+    )
+    return collected
+
+
+def _creation_filter(first, last):
+    def utc_text(value):
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if first is None:
+        return f"<={utc_text(last)}" if last is not None else ""
+    if last is None:
+        return f">={utc_text(first)}"
+    return f"{utc_text(first)}..{utc_text(last)}"
+
+
+def _creation_times(owner, runs, first, last):
+    times = [owner._github_timestamp(run.get("created_at")) for run in runs]
+    _require(
+        owner,
+        all(
+            time is not None
+            and time.microsecond == 0
+            and (first is None or first <= time)
+            and (last is None or time <= last)
+            for time in times
+        ),
+        "maintenance run creation time is outside the requested inventory window",
+    )
+    return times
+
+
+def _inventory(owner, repository, *, partition_capped=False):
+    """Finish bounded metadata discovery before any checkpoint can end the walk."""
+    first_page = _inventory_page(owner, repository, 1)
+    if not partition_capped or first_page.get("total_count") != _HISTORY_SEARCH_LIMIT:
+        return _complete_inventory_window(owner, repository, first_page, set())
+
+    # GitHub caps filtered searches at 1,000. Partition on immutable creation
+    # timestamps and retain every window, including old runs with recent reruns.
+    seen, sampled, collected = set(), set(), []
+    windows = [(None, None, first_page)]
+    while windows:
+        first, last, response = windows.pop()
+        created = _creation_filter(first, last)
+        if response is None:
+            response = _inventory_page(owner, repository, 1, created)
+        if response.get("total_count") != _HISTORY_SEARCH_LIMIT:
+            rows = _complete_inventory_window(owner, repository, response, seen, created)
+            _creation_times(owner, rows, first, last)
+            collected.extend(rows)
+            continue
+
+        sample_ids = set()
+        total, newest = _inventory_response(
+            owner, response, None, 0, sample_ids, search_sample=True
+        )
+        last_page = _HISTORY_SEARCH_LIMIT // _HISTORY_PAGE_SIZE
+        tail = _inventory_page(owner, repository, last_page, created)
+        _, oldest = _inventory_response(
+            owner, tail, total, (last_page - 1) * _HISTORY_PAGE_SIZE, sample_ids, search_sample=True
+        )
+        _creation_times(owner, newest, first, last)
+        oldest_times = _creation_times(owner, oldest, first, last)
+        cutoff = sorted(oldest_times)[len(oldest_times) // 2]
+        _require(
+            owner, last is None or cutoff < last,
+            "maintenance history cannot be split into complete creation windows",
+        )
+        sampled.update(sample_ids)
+        windows.extend(((first, cutoff, None), (cutoff + timedelta(seconds=1), last, None)))
+
+    _require(
+        owner,
+        len(collected) >= _HISTORY_SEARCH_LIMIT and sampled <= seen,
+        "maintenance history changed during inventory partitioning",
     )
     return collected
 
@@ -527,7 +605,7 @@ def assert_published(owner, repository, environment):
     """Inspect executions that can follow the exact published Save boundary, regardless of run ID."""
     other = owner.SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
     relevant = []
-    for run in _inventory(owner, repository):
+    for run in _inventory(owner, repository, partition_capped=environment == "uat"):
         if (
             run.get("path") != WORKFLOW
             or run.get("head_branch") != "main"

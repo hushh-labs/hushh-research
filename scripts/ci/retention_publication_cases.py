@@ -7,7 +7,9 @@ import importlib
 import io
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 import retention_publication as publication
 import retention_publication_source as publication_source
@@ -185,6 +187,63 @@ class ExistingPublicationCases:
             self.assertRaises(MAINTENANCE.retention.UnsafeState),
         ):
             publication._inventory(MAINTENANCE, "org/repo")
+
+    def test_uat_partitions_capped_history_without_losing_an_old_rerun(self):
+        origin = datetime(2026, 10, 7, tzinfo=timezone.utc)
+        rows = [
+            {
+                "id": number,
+                "created_at": (origin + timedelta(hours=number)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "run_attempt": 1,
+            }
+            for number in range(2300, 0, -1)
+        ]
+        rows[-1].update(run_attempt=2, updated_at="2027-02-01T12:00:00Z")
+        filters = set()
+
+        def api(_repository, endpoint):
+            query = parse_qs(urlsplit(endpoint).query)
+            page = int(query["page"][0])
+            created = query.get("created", [""])[0]
+            filters.add(created)
+            matching = rows
+            if created.startswith("<="):
+                matching = [run for run in rows if run["created_at"] <= created[2:]]
+            elif created.startswith(">="):
+                matching = [run for run in rows if run["created_at"] >= created[2:]]
+            elif created:
+                first, last = created.split("..")
+                matching = [run for run in rows if first <= run["created_at"] <= last]
+            capped = matching[:1000]
+            return {
+                "total_count": len(capped),
+                "workflow_runs": capped[(page - 1) * 100 : page * 100],
+            }
+
+        owner = self._publication_owner()
+        owner.api.side_effect = api
+        recovered = publication._inventory(owner, "org/repo", partition_capped=True)
+        self.assertEqual(sorted(recovered, key=lambda row: -row["id"]), rows)
+        self.assertTrue(any(".." in query for query in filters))
+
+    def test_uat_refuses_a_capped_window_with_one_creation_timestamp(self):
+        timestamp = "2026-11-27T14:21:10Z"
+        rows = [{"id": number, "created_at": timestamp} for number in range(1, 1001)]
+
+        def api(_repository, endpoint):
+            query = parse_qs(urlsplit(endpoint).query)
+            page = int(query["page"][0])
+            created = query.get("created", [""])[0]
+            eligible = [] if created.startswith(">=") and created[2:] > timestamp else rows
+            return {
+                "total_count": len(eligible),
+                "workflow_runs": eligible[(page - 1) * 100 : page * 100],
+            }
+
+        owner = self._publication_owner()
+        owner.api.side_effect = api
+        with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "complete creation windows"):
+            publication._inventory(owner, "org/repo", partition_capped=True)
 
     def test_inventory_reads_remaining_pages_in_bounded_context_copied_order(self):
         request_context = contextvars.ContextVar("inventory-request-context", default=None)

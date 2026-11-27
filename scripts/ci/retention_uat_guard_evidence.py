@@ -70,7 +70,18 @@ STATIC_PROFILE = {
     PUBLICATION: ("bafacd6c02ddca13af0fed45199dff8e2a284148", 22947),
     "scripts/ci/retention_pass_diagnostics.py": ("d5d8181a7bbb60bd544753575dda74f1f92806c0", 5439),
 }
-SOURCE_PROFILES += (STATIC_PROFILE,)
+# Frozen Main 686d7431. The guard stopped tick 46015149189 before its
+# first checkpoint or provider operation. The job never ran the Save step.
+STATIC_PROFILES = (
+    STATIC_PROFILE,
+    {
+        base.OWNER: ("697d819d55d46716505ffe4e3b0c2b8b9482a611", 99773),
+        base.WORKFLOW: ("d3f33618aa93361afea1cf99dadd8717ef263cd3", 22339),
+        PUBLICATION: ("aa583855b133bdd83089efdfd3a1f515951c4f20", 30966),
+        "scripts/ci/retention_pass_diagnostics.py": ("86ffd27e4c189c63ec493a662b9e843b815996ed", 6608),
+    },
+)
+SOURCE_PROFILES += STATIC_PROFILES
 OWNER_BLOBS = frozenset(profile[base.OWNER][0] for profile in SOURCE_PROFILES)
 # retention_publication prints one record per older attempt it qualified; stdout
 # may flush them after the stderr diagnostic. More records than this refuse.
@@ -152,8 +163,8 @@ def _proof_record(body, *, allow_clock_records=False) -> bool:
     )
 
 
-def _reviewed(source_blobs, workflow_blob) -> bool:
-    for profile in SOURCE_PROFILES:
+def _reviewed(source_blobs, workflow_blob, *, static=False) -> bool:
+    for profile in STATIC_PROFILES if static else SOURCE_PROFILES:
         expected = {
             path: {"sha": sha, "size": size} for path, (sha, size) in profile.items()
         }
@@ -226,12 +237,10 @@ def qualify_guard_run(
         indexes = [i for i, body in enumerate(segment) if body == base._CHECKOUT_COMMAND]
         if len(indexes) == 1 and indexes[0] + 1 < len(segment):
             checkout = segment[indexes[0] + 1]
-    if static and source_blobs != {path: {"sha": sha, "size": size} for path, (sha, size) in STATIC_PROFILE.items()}:
-        return None
     if (
         rows is None
         or checkout is None
-        or not _reviewed(source_blobs, workflow_blob)
+        or not _reviewed(source_blobs, workflow_blob, static=static)
         or not re.fullmatch(r"[0-9a-f]{40}", checkout or "")
         or not _guard_failure(rows, job, static=static)
     ):
