@@ -118,6 +118,15 @@ def _digest(value: dict) -> str:
     ).hexdigest()
 
 
+def _validate_admitted_request(name: str, args: Any, state: Any) -> dict:
+    request = validate_request(name, args)
+    if name == PORTFOLIO_CONTEXT_TOOL:
+        expanded = state.get(STATE_PORTFOLIO_CONTEXT_ENABLED) == 2
+        if expanded != (request.get("detail") == "expanded"):
+            raise ValueError("Portfolio detail does not match the admitted client.")
+    return request
+
+
 def before_receipt_tool(tool: Any, args: dict, context: Any) -> dict | None:
     name = getattr(tool, "name", "")
     if name not in PRIVATE_DEVICE_READ_TOOLS:
@@ -129,7 +138,7 @@ def before_receipt_tool(tool: Any, args: dict, context: Any) -> dict | None:
     if not context.state.get("hussh:user_id") or not context.state.get("hussh:consent_token"):
         return {"status": "unavailable", "code": "vault_required"}
     try:
-        request = validate_request(name, args)
+        request = _validate_admitted_request(name, args, context.state)
     except (ValueError, KeyError, TypeError):
         return {"status": "unavailable", "code": "invalid_receipt_request"}
     call_id = getattr(context, "function_call_id", None)
@@ -658,7 +667,7 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
         ):
             raise ValueError("Receipt owner authority is unavailable.")
         try:
-            request = validate_request(call.name, call.args)
+            request = _validate_admitted_request(call.name, call.args, callback_context.state)
         except (ValueError, KeyError, TypeError):
             invalid.append(part)
             continue

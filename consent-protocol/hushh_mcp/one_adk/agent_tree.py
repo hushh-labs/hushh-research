@@ -1090,6 +1090,14 @@ def _compose_one_instruction_parts(
                 "interactive view of their holdings, allocation, or performance. Live prices "
                 "and news use the market tools."
             )
+            if state_getter(STATE_PORTFOLIO_CONTEXT_ENABLED) == 2:
+                identity_instruction += (
+                    " Set detail to expanded for this tool. For holdings, distinguish "
+                    "investment_rows from grouped total_count and unique_tickers. "
+                    "Use the reported counts even when the detailed rows are limited. "
+                    "Explain the counts in plain language. If unique_tickers is null, "
+                    "say the distinct ticker count is unknown."
+                )
         else:
             identity_instruction += (
                 " For portfolio holdings, allocation, performance or sources, call "

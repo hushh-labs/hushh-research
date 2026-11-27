@@ -81,6 +81,13 @@ from hushh_mcp.one_adk.pod_chat_transport import (
     stop_preparing_turn,
     turn_is_preparing,
 )
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_DESCRIPTION,
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+    portfolio_context_parameters,
+    portfolio_context_version,
+)
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.receipt_client_tools import STATE_RECEIPT_RESULT
@@ -268,11 +275,31 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
                 parameters=ACCOUNT_CONTEXT_PARAMETERS,
             )
         )
-    return _trusted_turn_state(input.thread_id, forwarded, owner, account_enabled=account_enabled)
+    portfolio_version = portfolio_context_version(forwarded)
+    if portfolio_version:
+        input.tools.append(
+            Tool(
+                name=PORTFOLIO_CONTEXT_TOOL,
+                description=PORTFOLIO_CONTEXT_DESCRIPTION,
+                parameters=portfolio_context_parameters(portfolio_version),
+            )
+        )
+    return _trusted_turn_state(
+        input.thread_id,
+        forwarded,
+        owner,
+        account_enabled=account_enabled,
+        portfolio_version=portfolio_version,
+    )
 
 
 def _trusted_turn_state(
-    thread_id: str, forwarded: dict, owner: PodChatContext, *, account_enabled: bool = False
+    thread_id: str,
+    forwarded: dict,
+    owner: PodChatContext,
+    *,
+    account_enabled: bool = False,
+    portfolio_version: int = 0,
 ) -> tuple[dict, PodTurnRequest]:
     options = PodTurnRequest.model_validate(
         {
@@ -315,6 +342,7 @@ def _trusted_turn_state(
     location_review = admit_location_chat_review(forwarded, owner_admitted=True)
     state = {
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
+        STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_version,
         owner_style.STATE_OWNER_STYLE: owner_style.admit_owner_style(
             forwarded, owner_admitted=True
         ),
