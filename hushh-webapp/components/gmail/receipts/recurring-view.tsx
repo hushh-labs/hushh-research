@@ -1,15 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { MoreHorizontal, Plus } from "@/components/icons";
+import { CheckCircle2, MoreHorizontal, Plus } from "@/components/icons";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { nextCycle } from "@/lib/mail/receipt-cadence";
-import { formatMinor } from "@/lib/mail/receipt-money";
 import { type DetectedBill, detectRecurringBills } from "@/lib/mail/receipt-recurring-detect";
-import { type TrackedBill, hidePattern, nextDateFor, resumeTracking, skipOccurrence, trackBill } from "@/lib/mail/receipt-tracking";
+import { type NewBill, type TrackedBill, hidePattern, nextDateFor, resumeTracking, skipOccurrence, trackBill, trackBills } from "@/lib/mail/receipt-tracking";
 import { FREQUENCY_LABEL, billAmount, shortDate } from "@/lib/mail/receipt-tracking-present";
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { cn } from "@/lib/utils";
@@ -40,6 +39,16 @@ function cardFor(tracked: TrackedBill | null, detected: DetectedBill | null, tod
   };
 }
 
+/** The bill One saves when the owner tracks a detected pattern. The receipts show it; no payment authority comes with it. */
+function newBillFrom(d: DetectedBill): NewBill {
+  return {
+    patternKey: d.patternKey, source: "detected", name: d.name, icon: d.icon, kind: d.kind, currency: d.currency, frequency: d.frequency,
+    agreedMinor: d.agreedMinor, anchorDay: d.anchorDay, nextOn: d.nextOn, reason: d.reason,
+    evidence: d.evidence.map((e) => ({ ref: e.ref, label: e.label, amountMinor: e.amountMinor, on: e.on })),
+    history: d.history,
+  };
+}
+
 export function RecurringView({ rows, onOpenReceipt }: { rows: readonly RecentReceiptRow[]; onOpenReceipt: (receiptKey: string) => void }) {
   const tracking = useReceiptTracking();
   const doc = tracking?.doc ?? null;
@@ -66,15 +75,31 @@ export function RecurringView({ rows, onOpenReceipt }: { rows: readonly RecentRe
   const track = useCallback(async (item: BillCard) => {
     if (!tracking || !item.detected) return;
     const d = item.detected;
-    const ok = await tracking.apply((current, ctx) => trackBill(current, {
-      patternKey: d.patternKey, source: "detected", name: d.name, icon: d.icon, kind: d.kind, currency: d.currency, frequency: d.frequency,
-      agreedMinor: d.agreedMinor, anchorDay: d.anchorDay, nextOn: d.nextOn, reason: d.reason,
-      evidence: d.evidence.map((e) => ({ ref: e.ref, label: e.label, amountMinor: e.amountMinor, on: e.on })),
-      history: d.history,
-    }, ctx));
+    const ok = await tracking.apply((current, ctx) => trackBill(current, newBillFrom(d), ctx));
     setNotice(ok ? `Tracking ${d.name}. One shows its next date and any price rise.` : tracking.saveError);
     if (ok) setSheet(null);
   }, [tracking]);
+
+  // The owner picks bills, then one saved change tracks every one of them.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const trackSelected = useCallback(async () => {
+    if (!tracking) return;
+    const chosen = cards.filter((item) => !item.tracked && item.detected && selected.has(item.key));
+    if (!chosen.length) return;
+    const ok = await tracking.apply((current, ctx) => trackBills(current, chosen.map((item) => newBillFrom(item.detected!)), ctx));
+    if (ok) {
+      setSelected(new Set());
+      setNotice(`Tracking ${chosen.length === 1 ? chosen[0]!.name : `${chosen.length} bills`}. One shows each next date and flags a rise of more than 20%.`);
+    } else setNotice(tracking.saveError);
+  }, [cards, selected, tracking]);
+  // A bill that is tracked, hidden or gone is no longer a choice.
+  useEffect(() => {
+    setSelected((previous) => {
+      const open = new Set(cards.filter((item) => !item.tracked).map((item) => item.key));
+      const kept = [...previous].filter((key) => open.has(key));
+      return kept.length === previous.size ? previous : new Set(kept);
+    });
+  }, [cards]);
 
   const skip = useCallback(async (item: BillCard) => {
     if (!tracking || !item.tracked || !item.nextOn) return;
@@ -83,20 +108,17 @@ export function RecurringView({ rows, onOpenReceipt }: { rows: readonly RecentRe
     setNotice(ok ? `Skipped ${item.name} on ${shortDate(item.nextOn)}. Next is ${shortDate(next)}.` : tracking.saveError);
   }, [tracking]);
 
-  const byDate = (list: BillCard[]) => list.filter((item) => item.nextOn).sort((a, b) => a.nextOn!.localeCompare(b.nextOn!))[0] ?? null;
-  // A tracked bill leads; until something is tracked, the soonest bill One found is shown as an estimate.
-  const upcoming = byDate(cards.filter((item) => item.tracked)) ?? byDate(cards);
   const ready = status === "ready";
+  const chosenCount = cards.filter((item) => !item.tracked && selected.has(item.key)).length;
 
   return (
     <div className="space-y-4" data-testid="recurring-view" role="tabpanel" id="receipts-panel-recurring" aria-labelledby="receipts-view-recurring">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className={cn(styles.cardTitle, "text-foreground")}>Recurring payments</h3>
-        <button type="button" onClick={() => setSheet({ kind: "add" })} disabled={!ready} className={cn(styles.secondaryPill, "!w-auto shrink-0")}>
-          <Plus aria-hidden="true" className="size-4" /> Add bill
-        </button>
+      <div className="space-y-2">
+        <h3 className={cn(styles.chooserTitle, "text-foreground")}>Choose your bills</h3>
+        <p className="text-[15px] leading-[22px] text-muted-foreground">
+          One tracks the bills you pick and shows each next date. If a bill rises by more than 20%, One flags it for your review. It doesn’t pay bills.
+        </p>
       </div>
-      <p className="text-[13px] leading-[19px] text-muted-foreground">One tracks these bills from your receipts. It doesn’t pay them.</p>
 
       {status === "error" ? (
         <p className="flex items-center justify-between gap-3 rounded-2xl bg-[color:var(--app-warning-tint)] px-4 py-3 text-[13px] leading-[19px] text-foreground" role="alert" data-testid="tracking-error">
@@ -107,46 +129,59 @@ export function RecurringView({ rows, onOpenReceipt }: { rows: readonly RecentRe
       {tracking?.saveError ? <p className="rounded-2xl bg-[color:var(--app-warning-tint)] px-4 py-3 text-[13px] leading-[19px] text-foreground" role="alert">{tracking.saveError}</p> : null}
       {notice && !tracking?.saveError ? <p className="rounded-2xl bg-muted/60 px-4 py-3 text-[13px] leading-[19px] text-foreground" role="status" data-testid="recurring-notice">{notice}</p> : null}
 
-      <section className={cn(card, "p-4 sm:p-5")} aria-label="Next payment" data-testid="next-payment">
-        <h3 className={cn(styles.cardTitle, "text-foreground")}>Next payment</h3>
-        <p className="mt-1 text-[14px] leading-[21px] text-muted-foreground">
-          {status === "loading" ? "Opening your tracked bills…" : upcoming
-            ? `${upcoming.name} · ${shortDate(upcoming.nextOn, true)} · ${upcoming.kind === "fixed" && upcoming.agreedMinor ? formatMinor(upcoming.agreedMinor, upcoming.currency) : "Amount when the bill arrives"}`
-            : "No recurring bills yet. Add one, or wait for three receipts on a regular rhythm."}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[17px] leading-[24px] font-semibold text-foreground" data-testid="bill-count">
+          {status === "loading" && !cards.length ? "Looking for recurring bills…" : `${cards.length} recurring ${cards.length === 1 ? "payment" : "payments"}`}
         </p>
-        {upcoming ? <p className="text-[12px] leading-[18px] text-muted-foreground">{upcoming.nextBasis === "yours" ? "Date set by you." : "Estimated from your receipts."}{upcoming.tracked ? "" : " Not tracked yet."}</p> : null}
-      </section>
+        <button type="button" onClick={() => setSheet({ kind: "add" })} disabled={!ready} className={cn(styles.secondaryPill, "!w-auto shrink-0")}>
+          <Plus aria-hidden="true" className="size-4" /> Add bill
+        </button>
+      </div>
 
       <section className={cn(card, "overflow-hidden")} aria-label="Recurring bills">
         {cards.length ? (
           <ul className="divide-y divide-border/60" data-testid="bill-list">
             {cards.map((item) => {
               const amount = billAmount({ kind: item.kind, agreedMinor: item.agreedMinor, currency: item.currency }, item.lastPaid);
+              const checked = selected.has(item.key);
               return (
-                <li key={item.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-3" data-testid="bill-row" data-bill-status={item.tracked ? "tracking" : "suggested"}>
-                  <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)_132px_112px]">
-                    <BillIcon icon={item.icon} />
-                    <button type="button" onClick={() => setSheet({ kind: "detail", bill: item })} className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]">
-                      <span className="block truncate text-[14px] leading-[21px] font-semibold text-foreground">{item.name}</span>
-                      {item.reason ? <span className="line-clamp-2 text-[12px] leading-[18px] text-muted-foreground sm:line-clamp-1">{item.reason}</span> : null}
-                      {item.priceRise ? <span className="block text-[12px] leading-[18px] font-medium text-[color:var(--app-warning-deep)]" data-testid="row-price-rise">Up {item.priceRise.percent}% from usual</span> : null}
-                    </button>
-                    <div className="col-span-2 flex items-center justify-between gap-3 pl-12 sm:contents">
-                      <p className="min-w-0 text-[12px] leading-[18px] text-muted-foreground sm:text-[13px]">
-                        <span className="block text-foreground/80">{item.nextOn ? `Next ${shortDate(item.nextOn)}` : "Date unknown"}</span>
-                        <span className="block">{FREQUENCY_LABEL[item.frequency]} · {item.nextBasis === "yours" ? "your date" : "est."}</span>
-                      </p>
-                      <div className="text-right">
-                        {!item.tracked ? <button type="button" onClick={() => void track(item)} disabled={!ready} className="mb-0.5 min-h-11 px-1 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]">Track bill</button> : null}
-                        <p className="text-[14px] leading-[21px] font-bold tabular-nums text-foreground">
-                          {amount.prefix ? <span className="mr-1 text-[12px] font-normal text-muted-foreground">{amount.prefix}</span> : null}{amount.text ?? <span className="text-[12px] font-normal text-muted-foreground">Amount on the bill</span>}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                <li key={item.key} className={styles.billRow} data-testid="bill-row" data-bill-status={item.tracked ? "tracking" : "suggested"} data-selected={checked ? "true" : undefined}>
+                  {item.tracked ? (
+                    <span className={styles.billCheck} title="Tracking" data-testid="bill-tracking-mark">
+                      <CheckCircle2 aria-hidden="true" className="size-6 text-[color:var(--app-accent)]" />
+                      <span className="sr-only">Tracking {item.name}</span>
+                    </span>
+                  ) : (
+                    <label className={styles.billCheck}>
+                      <input
+                        type="checkbox"
+                        className={styles.checkbox}
+                        checked={checked}
+                        disabled={!ready}
+                        onChange={(event) => setSelected((previous) => {
+                          const next = new Set(previous);
+                          if (event.target.checked) next.add(item.key); else next.delete(item.key);
+                          return next;
+                        })}
+                      />
+                      <span className="sr-only">Select {item.name}</span>
+                    </label>
+                  )}
+                  <button type="button" onClick={() => setSheet({ kind: "detail", bill: item })} className={styles.billName} data-testid="bill-open">
+                    <span className="block truncate text-[16px] leading-[22px] font-semibold text-foreground">{item.name}</span>
+                    {item.priceRise ? <span className="block text-[12px] leading-[18px] font-medium text-[color:var(--app-warning-deep)]" data-testid="row-price-rise">Up {item.priceRise.percent}% from usual</span>
+                      : item.tracked ? <span className="block text-[12px] leading-[18px] text-muted-foreground">Tracking</span> : null}
+                  </button>
+                  <p className={styles.billWhen}>
+                    {FREQUENCY_LABEL[item.frequency]} · {item.nextOn ? shortDate(item.nextOn) : "Date unknown"}
+                    {item.nextOn && item.nextBasis !== "yours" ? <span className="text-[12px]"> · est.</span> : null}
+                  </p>
+                  <p className={styles.billAmount}>
+                    {amount.prefix ? <span className="mr-1 text-[12px] font-normal text-muted-foreground">{amount.prefix}</span> : null}{amount.text ?? <span className="text-[12px] font-normal text-muted-foreground">Amount on the bill</span>}
+                  </p>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button type="button" aria-label={`More for ${item.name}`} className="inline-flex size-11 items-center justify-center rounded-full text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" data-testid="bill-menu"><MoreHorizontal aria-hidden="true" className="size-5" /></button>
+                      <button type="button" aria-label={`More for ${item.name}`} className={styles.billMenu} data-testid="bill-menu"><MoreHorizontal aria-hidden="true" className="size-5" /></button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-[210px]">
                       {!item.tracked ? <DropdownMenuItem disabled={!ready} onSelect={() => void track(item)}>Track bill</DropdownMenuItem> : null}
@@ -173,6 +208,17 @@ export function RecurringView({ rows, onOpenReceipt }: { rows: readonly RecentRe
           </p>
         )}
       </section>
+
+      {chosenCount ? (
+        <div className={styles.selectionBar} role="region" aria-label="Selected bills" data-testid="bill-selection-bar">
+          <p className="text-[16px] leading-[22px] font-medium text-foreground" role="status">
+            {chosenCount} {chosenCount === 1 ? "bill" : "bills"} selected
+          </p>
+          <button type="button" className={cn(styles.primaryPill, "!w-auto shrink-0")} disabled={!ready} onClick={() => void trackSelected()} data-testid="track-selected">
+            Track selected bills
+          </button>
+        </div>
+      ) : null}
 
       {stopped.length ? (
         <section className={cn(card, "overflow-hidden")} aria-label="Stopped bills">

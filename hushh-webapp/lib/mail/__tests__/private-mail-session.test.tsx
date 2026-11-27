@@ -53,3 +53,22 @@ it("warms from unlock outside Mail, restores the last slot, and hides late or re
   expect(screen.getByText("No mailbox")).toBeDefined();
   expect(screen.queryByText("summary-C")).toBeNull();
 });
+
+it("lists a mailbox whose permission lapsed as expired and never selects it", async () => {
+  mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey: "fixture", vaultOwnerToken: "fixture"});
+  mocks.list.mockResolvedValue([
+    {accountId: "L", credentialId: "grant-L", email: "lapsed@example.test", status: "needs_reauth", capabilities: {read: false}, isDefault: true},
+    {accountId: "B", credentialId: "grant-B", email: "B@example.test", status: "connected", capabilities: {read: true}},
+  ]);
+  mocks.tasks.mockResolvedValue({tasks: []});
+  mocks.brief.mockResolvedValue({account: "summary"});
+  function Expired() {
+    const session = usePrivateMailSession()!;
+    return <><p>{"selected:" + (session.selected?.accountId ?? "none")}</p><p>{"expired:" + session.expired.map(row => row.email).join(",")}</p></>;
+  }
+  localStorage.clear();
+  render(<PrivateMailSessionProvider><Expired /></PrivateMailSessionProvider>);
+  await screen.findByText("expired:lapsed@example.test");
+  expect(screen.getByText("selected:B")).toBeDefined();
+});
+

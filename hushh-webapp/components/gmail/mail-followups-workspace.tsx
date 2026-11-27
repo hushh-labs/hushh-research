@@ -294,7 +294,6 @@ export function MailFollowupsWorkspace({
           connection={selected.credentialId}
           verifiedAddress={selected.email ?? undefined}
           session={session}
-          onBack={onBack}
         />
       ) : (
         <>

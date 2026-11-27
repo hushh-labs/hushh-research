@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { z } from "zod";
 import { MailActionButton } from "./mail-action-button";
 import { MailTaskReminder } from "./mail-task-reminder";
+import { MailTrackDialog } from "./mail-track-dialog";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { CacheService } from "@/lib/services/cache-service";
 import { MailFollowupsBoard } from "./mail-followups-board";
 import { checkMailFollowup, useSettledMailTasks } from "./mail-followups-session-watch";
@@ -11,7 +15,6 @@ import {
   type FollowupMailbox,
   type MailFollowup,
   evidenceSchema,
-  sourceListSchema,
 } from "@/lib/mail/mail-followup-model";
 import { MailFollowupsService } from "@/lib/services/mail-followups-service";
 import {
@@ -31,8 +34,10 @@ import {
   type ScheduledTasksStatus,
 } from "@/lib/services/pod-scheduled-tasks";
 
-type Rows = z.infer<typeof sourceListSchema>["items"];
 type Evidence = z.infer<typeof evidenceSchema>;
+
+/** A draft the Overview asked for on one email. It becomes a Task only when the owner saves it. */
+export type MailDraftRequest = { id: string; sourceId: string; title: string; expectation: string };
 
 const EDIT_PREFIX = "mail_followup_draft_edit:";
 subscribeVaultSessionEpoch(() => CacheService.getInstance().invalidatePattern(EDIT_PREFIX));
@@ -44,32 +49,29 @@ export function MailFollowupsScreen({
   verifiedAddress,
   savedTasks,
   handoff,
+  draftRequest,
   mail = MailFollowupsService,
-  onBack,
 }: {
   mail?: typeof MailFollowupsService;
   handoff?: { key: string; action: "evidence" | "plan" };
+  /** One draft the Overview asked for; it is consumed once. */
+  draftRequest?: MailDraftRequest;
   session: TodoWriteParams;
   account: string;
   connection: string;
   verifiedAddress?: string;
   savedTasks?: ReturnType<typeof tasks.load>;
-  onBack: () => void;
 }) {
-  const [view, setView] = useState<
-    "board" | "search" | "evidence" | "review" | "plan" | "draft"
-  >("board");
+  const [view, setView] = useState<"board" | "evidence" | "plan" | "draft">("board");
+  const [trackOpen, setTrackOpen] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<Omit<MailDraftRequest, "id">>();
   const [activeTask, setActiveTask] = useState<TodoItem>();
   const [downloaded, setDownloaded] = useState(false);
   const [draft, setDraft] = useState<MailFollowup["draft"]>();
   const [notice, setNotice] = useState("");
   const [box, setBox] = useState<FollowupMailbox>();
   const [items, setItems] = useState<TodoItem[]>([]);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Rows>();
-  const [source, setSource] = useState("");
-  const [expectation, setExpectation] = useState("");
-  const [promise, setPromise] = useState<MailFollowup>();
+  const [tasksReady, setTasksReady] = useState(false);
   const [evidence, setEvidence] = useState<Evidence>();
   const scheduler = useMemo(
     () => new PodScheduledTasksClient(session.userId),
@@ -104,50 +106,43 @@ export function MailFollowupsScreen({
     setBusy(false);
     setError("");
   }
+  // The mailbox is resolved once per mailbox. A Task write replaces `savedTasks` and must not
+  // reset this screen or cancel the operation that caused it, so Tasks refresh in their own effect.
   useEffect(() => {
     const controller = new AbortController();
-    flight.current = controller;
-    setBusy(true);
     setBox(undefined);
-    setItems([]);
     setError("");
-    Promise.all([
+    Promise.resolve(
       verifiedAddress
         ? { account, connection, address: verifiedAddress }
         : mail.account(account, connection, controller.signal),
-      savedTasks ?? tasks.load({ userId, vaultOwnerToken, vaultKey }),
-    ])
-      .then(([mailbox, saved]) => {
-        if (!controller.signal.aborted && isVaultSessionEpochCurrent(epoch)) {
-          if (mailbox.account !== account || mailbox.connection !== connection)
-            throw new Error("Mailbox changed.");
-          setBox(mailbox);
-          setItems(saved.tasks);
-        }
+    )
+      .then((mailbox) => {
+        if (controller.signal.aborted || !isVaultSessionEpochCurrent(epoch)) return;
+        if (mailbox.account !== account || mailbox.connection !== connection)
+          throw new Error("Mailbox changed.");
+        setBox(mailbox);
       })
       .catch(() => {
         if (!controller.signal.aborted)
           setError("Follow-ups could not load for this connection.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBusy(false);
       });
-    return () => {
-      controller.abort();
-      flight.current?.abort();
-    };
-  }, [
-    userId,
-    vaultKey,
-    vaultOwnerToken,
-    epoch,
-    revision,
-    account,
-    connection,
-    verifiedAddress,
-    savedTasks,
-    mail,
-  ]);
+    return () => controller.abort();
+  }, [epoch, revision, account, connection, verifiedAddress, mail]);
+  useEffect(() => {
+    const controller = new AbortController();
+    (savedTasks ?? tasks.load({ userId, vaultOwnerToken, vaultKey }))
+      .then((saved) => {
+        if (controller.signal.aborted || !isVaultSessionEpochCurrent(epoch)) return;
+        setItems(saved.tasks);
+        setTasksReady(true);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setError("Follow-ups could not load for this connection.");
+      });
+    return () => controller.abort();
+  }, [userId, vaultKey, vaultOwnerToken, epoch, revision, savedTasks]);
 
   async function run<T>(
     read: (signal: AbortSignal) => Promise<T>,
@@ -191,7 +186,7 @@ export function MailFollowupsScreen({
   );
   const consumed = useRef(false);
   useEffect(() => {
-    if (!box || !handoff || consumed.current) return;
+    if (!box || !tasksReady || !handoff || consumed.current) return;
     consumed.current = true;
     const task = items.find(
       (row) =>
@@ -203,7 +198,7 @@ export function MailFollowupsScreen({
       return;
     }
     openHandoff(task, handoff.action);
-  }, [box, handoff, items]);
+  }, [box, tasksReady, handoff, items]);
   function plan(task: TodoItem) {
     cancel();
     setScheduleMode(false);
@@ -267,8 +262,9 @@ export function MailFollowupsScreen({
   }
 
   function editDraft(next: NonNullable<MailFollowup["draft"]>) {
-    if (!activeTask || !isVaultSessionEpochCurrent(epoch)) return;
-    CacheService.getInstance().set(editKey(activeTask, next.to), { subject: next.subject, body: next.body });
+    if (!isVaultSessionEpochCurrent(epoch)) return;
+    // A draft with no Task yet is held only in this view; it is stored once it is saved.
+    if (activeTask) CacheService.getInstance().set(editKey(activeTask, next.to), { subject: next.subject, body: next.body });
     setDraft(next);
   }
 
@@ -310,42 +306,68 @@ export function MailFollowupsScreen({
       },
     );
   }
-  function back() {
+  // The app's own Back returns from a detail to the board before it leaves Mail; the board has no Back of its own.
+  const pathname = usePathname();
+  useBackLayer(normalizeStaticExportPathname(pathname), view === "board" ? 0 : 1, () => {
     cancel();
-    if (view === "board") onBack();
-    else setView("board");
-  }
+    setPendingDraft(undefined);
+    setView("board");
+    return true;
+  });
+
+  // A draft the Overview asked for opens for review here. It creates nothing until it is saved.
+  const draftConsumed = useRef<string>("");
+  useEffect(() => {
+    if (!box || !draftRequest || draftConsumed.current === draftRequest.id) return;
+    draftConsumed.current = draftRequest.id;
+    cancel();
+    setActiveTask(undefined);
+    setScheduleMode(false);
+    setSendAt("");
+    setNotice("");
+    setPendingDraft({ sourceId: draftRequest.sourceId, title: draftRequest.title, expectation: draftRequest.expectation });
+    void run(
+      (signal) => mail.draft(box, draftRequest.sourceId, draftRequest.expectation, signal),
+      (prepared) => {
+        setDraft(prepared);
+        setView("draft");
+      },
+    );
+    // `run` and `cancel` are recreated on every render; the request id is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [box, draftRequest]);
+
   return (
     <section>
-      <MailActionButton onClick={back}>
-        {view === "board" ? "Back to Mail" : "Back to Follow-ups"}
-      </MailActionButton>
-      {box && (
-        <p className="my-2 text-sm text-muted-foreground">{box.address}</p>
+      {view !== "board" && (
+        <MailActionButton
+          onClick={() => {
+            cancel();
+            setPendingDraft(undefined);
+            setView("board");
+          }}
+        >
+          Back to Follow-ups
+        </MailActionButton>
       )}
       {error && (
         <p role="alert">
           {error}{" "}
-          {!box && (
-            <MailActionButton onClick={() => setRevision((n) => n + 1)}>
+          {!(box && tasksReady) && (
+            <MailActionButton onClick={() => { setTasksReady(false); setRevision((n) => n + 1); }}>
               Try again
             </MailActionButton>
           )}
         </p>
       )}
-      {busy && <p role="status">Checking…</p>}
-      {box && view === "board" && (
+      {(busy || (!error && !(box && tasksReady))) && <p role="status">Checking…</p>}
+      {box && tasksReady && view === "board" && (
         <MailFollowupsBoard
           tasks={items}
           mailboxes={[box]}
           onTrack={() => {
             cancel();
-            setSource("");
-            setExpectation("");
-            setQuery("");
-            setResults(undefined);
-            setPromise(undefined);
-            setView("search");
+            setTrackOpen(true);
           }}
           onEvidence={openEvidence}
           onAction={plan}
@@ -356,6 +378,17 @@ export function MailFollowupsScreen({
         />
       )}
       {notice && view === "board" && <p role="status">{notice}</p>}
+      {box && (
+        <MailTrackDialog
+          open={trackOpen}
+          onClose={() => setTrackOpen(false)}
+          mail={mail}
+          box={box}
+          session={session}
+          existing={items}
+          onTracked={(saved) => setItems(saved.tasks)}
+        />
+      )}
       {box && activeTask?.mailFollowup && view === "plan" && (
         <section className="grid gap-3">
           <h2>{activeTask.title}</h2>
@@ -494,9 +527,14 @@ export function MailFollowupsScreen({
           )}
         </section>
       )}
-      {view === "draft" && box && activeTask && draft && (
+      {view === "draft" && box && (activeTask || pendingDraft) && draft && (
         <section className="grid gap-3">
           <h2>Review draft</h2>
+          {!activeTask && pendingDraft && (
+            <p className="text-sm text-muted-foreground">
+              {pendingDraft.title}. Saving creates one Task linked to this email.
+            </p>
+          )}
           <p>From {box.address}</p>
           <p>To {draft.to}</p>
           <label>
@@ -518,7 +556,7 @@ export function MailFollowupsScreen({
               onChange={(e) => editDraft({ ...draft, body: e.target.value })}
             />
           </label>
-          {scheduleMode && (
+          {scheduleMode && activeTask && (
             <>
               <label>
                 Send at ({Intl.DateTimeFormat().resolvedOptions().timeZone})
@@ -578,174 +616,45 @@ export function MailFollowupsScreen({
             disabled={busy || !draft.body.trim()}
             onClick={() =>
               void run(
-                async () => {
-                  const result = await tasks.updateMail(session, activeTask, {
-                    draft,
-                  });
+                async (signal) => {
+                  let task = activeTask;
+                  if (!task && pendingDraft) {
+                    // Saving is the confirmation: it creates or reuses the one Task for this exact email.
+                    const found = await mail.track(
+                      box,
+                      pendingDraft.sourceId,
+                      pendingDraft.expectation,
+                      signal,
+                      items.flatMap((row) =>
+                        row.mailFollowup?.source === pendingDraft.sourceId && row.mailFollowup.connection === box.connection
+                          ? [row.mailFollowup.quote]
+                          : [],
+                      ),
+                    );
+                    if (found.account !== box.account || found.connection !== box.connection || found.source !== pendingDraft.sourceId)
+                      throw new Error("The mailbox changed. Open the email again.");
+                    const tracked = await tasks.trackMail(session, found);
+                    if (!tracked.success) throw new Error("The shared task could not be saved.");
+                    signal.throwIfAborted();
+                    task = (await tasks.load(session)).tasks.find((row) => row.id === found.key);
+                  }
+                  if (!task) throw new Error("Your draft could not be saved.");
+                  const result = await tasks.updateMail(session, task, { draft });
                   if (!result.success)
                     throw new Error("Your draft could not be saved.");
                   return tasks.load(session);
                 },
                 (saved) => {
                   setItems(saved.tasks);
+                  setPendingDraft(undefined);
                   setView("board");
-                  CacheService.getInstance().invalidate(editKey(activeTask, draft.to));
+                  if (activeTask) CacheService.getInstance().invalidate(editKey(activeTask, draft.to));
                   setNotice("Draft saved for review.");
                 },
               )
             }
           >
             Save for review
-          </MailActionButton>
-        </section>
-      )}
-      {box && view === "search" && (
-        <div className="grid gap-4">
-          <h2>Track a conversation</h2>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              setSource("");
-              setResults(undefined);
-              void run(
-                (signal) => mail.search(box, query.trim(), signal),
-                (result) => setResults(result.items),
-              );
-            }}
-          >
-            <label className="grid gap-1">
-              Person or topic
-              <input
-                className="rounded-lg border p-2"
-                maxLength={512}
-                required
-                value={query}
-                onChange={(e) => {
-                  cancel();
-                  setQuery(e.target.value);
-                  setResults(undefined);
-                  setSource("");
-                }}
-              />
-            </label>
-            <MailActionButton type="submit" disabled={!query.trim() || busy}>
-              Find conversation
-            </MailActionButton>
-          </form>
-          {results && !results.length && <p>No emails matched this search.</p>}
-          {results?.map((row) => (
-            <label key={row.source} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="mail-source"
-                checked={source === row.source}
-                onChange={() => {
-                  cancel();
-                  setSource(row.source);
-                }}
-              />
-              <span>
-                {row.subject} · {row.sender}
-              </span>
-            </label>
-          ))}
-          {source && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void run(
-                  (signal) =>
-                    mail.track(
-                      box,
-                      source,
-                      expectation.trim(),
-                      signal,
-                      items.flatMap((task) => {
-                        const prior = task.mailFollowup;
-                        return prior?.source === source &&
-                          prior.connection === box.connection
-                          ? [prior.quote]
-                          : [];
-                      }),
-                    ),
-                  (finding) => {
-                    if (
-                      finding.account === box.account &&
-                      finding.connection === box.connection &&
-                      finding.source === source
-                    ) {
-                      setPromise(finding);
-                      setView("review");
-                    } else setError("The mailbox changed. Search again.");
-                  },
-                );
-              }}
-            >
-              <label className="grid gap-1">
-                What are you waiting for?
-                <textarea
-                  className="rounded-lg border p-2"
-                  required
-                  maxLength={500}
-                  value={expectation}
-                  onChange={(e) => {
-                    cancel();
-                    setExpectation(e.target.value);
-                  }}
-                />
-              </label>
-              <MailActionButton
-                type="submit"
-                disabled={!expectation.trim() || busy}
-              >
-                Check with Mail AI
-              </MailActionButton>
-            </form>
-          )}
-        </div>
-      )}
-      {view === "review" && promise && (
-        <section>
-          <h2>{promise.title}</h2>
-          <p>
-            Waiting on{" "}
-            {promise.waiting_on === "owner" ? "you" : promise.participant}
-          </p>
-          <p>{promise.fulfilment}</p>
-          {promise.promised_wording && (
-            <p>
-              Promised {promise.promised_wording}
-              {promise.due_date && (
-                <>
-                  {" "}
-                  · Task due {promise.due_date}
-                  {promise.due_time && " at " + promise.due_time}
-                </>
-              )}
-            </p>
-          )}
-          <blockquote className="my-2 border-l-2 pl-3">
-            {promise.quote}
-          </blockquote>
-          <MailActionButton
-            disabled={busy}
-            onClick={() =>
-              void run(
-                async (signal) => {
-                  const result = await tasks.trackMail(session, promise);
-                  if (!result.success)
-                    throw new Error("The shared task could not be saved.");
-                  signal.throwIfAborted();
-                  return tasks.load(session);
-                },
-                (saved) => {
-                  setItems(saved.tasks);
-                  setView("board");
-                },
-              )
-            }
-          >
-            Track in Tasks
           </MailActionButton>
         </section>
       )}

@@ -32,10 +32,10 @@ for (const width of [393, 1280]) {
     const button = (name: string) =>
       page.getByRole("button", { name, exact: true });
     await button("Track a conversation").click();
-    await page.getByLabel("Person or topic").fill("agreement");
-    await button("Find conversation").click();
-    await page.getByRole("radio").check();
-    await page.getByLabel("What are you waiting for?").fill("Signed agreement");
+    const picker = page.getByRole("dialog");
+    await picker.getByPlaceholder("Person or topic").fill("agreement");
+    await picker.getByRole("button", { name: /Signed agreement/ }).click();
+    await picker.getByLabel("What are you waiting for?").fill("Signed agreement");
     await button("Check with Mail AI").click();
     await button("Track in Tasks").click();
     await button("Plan follow-up").click();

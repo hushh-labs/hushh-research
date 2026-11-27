@@ -89,8 +89,10 @@ export type CompletedItem = {
   line: string | null;
   sentAt: string;
   to: string | null;
-  /** Opens the exact sent message. */
+  /** Opens the exact message behind the row: the sent email, or the reply that arrived. */
   sourceId: string;
+  /** Link text for `sourceId`. A confirmed send says "View sent email", which is the default. */
+  viewLabel?: string;
 };
 
 export type MailCompleted = { account: string; items: CompletedItem[] };
