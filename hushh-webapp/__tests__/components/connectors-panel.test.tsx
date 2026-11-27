@@ -1761,7 +1761,7 @@ describe("supported connector catalog", () => {
       await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
       await post(settlement(attemptOf(popup)!.attemptId), popup);
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
-      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Not connected", { exact: true })).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar connected.")).not.toBeInTheDocument();
     });
@@ -1810,7 +1810,7 @@ describe("supported connector catalog", () => {
       const attempt = attemptOf(popup)!;
       fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
-      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Not connected", { exact: true })).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(popup.close).toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: "Cancel sign-in" })).not.toBeInTheDocument();
@@ -1863,7 +1863,7 @@ describe("supported connector catalog", () => {
       state.connectCalendar.mockRejectedValue(Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }));
       await openCalendar();
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
-      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Not connected", { exact: true })).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(state.calendarCompleteNativeConnect).not.toHaveBeenCalled();
     });
