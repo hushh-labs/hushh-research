@@ -2267,6 +2267,7 @@ function MailPageContent({
       ) : null}
     </div>
   );
+  const connectionCheckFailed = !privateMail && !isConnected && Boolean(gmail.statusError);
   const content = (
     <AppPageShell ref={nativeFrame}
       as="div"
@@ -2285,16 +2286,16 @@ function MailPageContent({
             ? "native-route-gmail"
             : "native-route-one-setup-gmail",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
-        dataState: loadingReceipts
+        dataState: loadingReceipts || (!privateMail && loadingStatus)
           ? "loading"
-          : receiptListError
+          : receiptListError || connectionCheckFailed
             ? "error"
             : !isConnected
               ? "unavailable-valid"
               : visibleReceipts.length > 0
                 ? "loaded"
                 : "empty-valid",
-        errorCode: receiptListError ? "gmail_receipts_load_failed" : null,
+        errorCode: receiptListError ? "gmail_receipts_load_failed" : connectionCheckFailed ? "gmail_connection_check_failed" : null,
         errorMessage: receiptListError,
       }}
     >
