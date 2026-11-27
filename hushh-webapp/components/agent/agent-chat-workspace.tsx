@@ -9929,7 +9929,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     const stack = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
     const transcript = transcriptRef.current;
-    if (!stack || !transcript || typeof ResizeObserver === "undefined") return;
+    if (!stack || !transcript || isPuppySurface || typeof ResizeObserver === "undefined") return;
     const publish = () => {
       const atEnd =
         transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 24;
@@ -9947,7 +9947,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const composerFocused = stack.contains(document.activeElement) ||
         (nativeDockPorts?.owned && document.documentElement.classList.contains("kb-open"));
       const end = messagesEndRef.current;
-      if (isCanonicalChatRoute && !isPuppySurface && end && composerFocused &&
+      if (isCanonicalChatRoute && end && composerFocused &&
           !transcriptUserScrollRef.current && transcriptStuckToEndRef.current) {
         const top = transcriptRevealScrollTop(measureTranscriptReveal(transcript, end, agentDockOccluder));
         if (top > transcript.scrollTop + 1) {
@@ -9968,13 +9968,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
     const unsubscribe = nativeDockPorts?.subscribeLayout(scheduleLayout);
     const keyboardSlot = stack.closest("[data-bottom-shell-agent-slot]");
-    keyboardSlot?.addEventListener("transitionend", scheduleLayout);
-    window.visualViewport?.addEventListener("resize", scheduleLayout);
-    window.addEventListener("resize", scheduleLayout);
+    const onDockTransition = (event: Event) => {
+      if (event.target === keyboardSlot) scheduleLayout();
+    };
+    if (isCanonicalChatRoute) {
+      keyboardSlot?.addEventListener("transitionend", onDockTransition);
+      window.visualViewport?.addEventListener("resize", scheduleLayout);
+      window.addEventListener("resize", scheduleLayout);
+    }
     return () => {
       observer.disconnect();
       unsubscribe?.();
-      keyboardSlot?.removeEventListener("transitionend", scheduleLayout);
+      keyboardSlot?.removeEventListener("transitionend", onDockTransition);
       window.visualViewport?.removeEventListener("resize", scheduleLayout);
       window.removeEventListener("resize", scheduleLayout);
       cancelAnimationFrame(layoutFrame);
@@ -10709,7 +10714,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
                   // When the reader scrolls up or moves noticeably away from the bottom,
                   // immediately clear any programmatic lock and mark active reader control.
-                  if (scrollTop < previousScrollTop - 2 || distanceFromBottom > 64) {
+                  // When a keyboard closes, the browser can clamp the old
+                  // position to the new maximum. That upward move is layout.
+                  const clampedToEnd = previousScrollTop > maxScrollTop + 2 && distanceFromBottom <= 2;
+                  if ((scrollTop < previousScrollTop - 2 && !clampedToEnd) || distanceFromBottom > 64) {
                     clearTranscriptProgrammaticScroll();
                     transcriptUserScrollRef.current = true;
                   } else if (distanceFromBottom <= 16) {
