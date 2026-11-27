@@ -595,7 +595,11 @@ def propose_location_action(
                 "people": [] if people is None else people,
                 "circles": [] if circles is None else circles,
                 "duration_hours": duration_hours,
-                "duration_mode": duration_mode,
+                # A location request already has timed semantics. Gemini sometimes
+                # supplies that redundant word alongside the correct numeric duration.
+                "duration_mode": None
+                if action == "ask" and duration_mode == "timed"
+                else duration_mode,
                 "direction": direction,
             }
         )

@@ -604,3 +604,23 @@ def test_conversation_requires_a_terms_decision_in_the_first_model_call_only_for
         )
         assert other == email
         assert declaration.parameters_json_schema["required"] == original
+
+
+def test_request_accepts_redundant_timed_mode_without_changing_the_requested_recipient_or_duration():
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+
+    def ask(mode):
+        return propose_location_action(
+            "ask",
+            people=["Ankit"],
+            duration_hours=1,
+            duration_mode=mode,
+            terms_check="as_requested",
+            tool_context=context,
+        )
+
+    timed = ask("timed")
+    assert timed["status"] == "proposal_ready"
+    assert timed["action"] == "ask" and timed["people"] == ["Ankit"] and timed["durationHours"] == 1
+    assert "durationMode" not in timed
+    assert ask("until_stopped")["status"] == "invalid_proposal"
