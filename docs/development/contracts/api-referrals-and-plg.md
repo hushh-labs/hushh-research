@@ -716,3 +716,12 @@ proof or erasure dispatch. A caller cannot delete another email account to claim
 its number. Historical linked-deletion status and cancellation remain available.
 The original owner may still independently sign in and use ordinary account
 deletion; no live account or existing phone binding is changed by this release.
+
+Private product activity admission advertises optional `resultVersion: 1` wire
+support. Only governed client event observations may provide nullable `result`
+(`success`, `error`, `expected_error`); other values are rejected. The optional
+`one_product_activity_observations.event_result` expansion preserves old rows as
+unknown. Missing expansion or rollback uses the legacy insert without interrupting
+capture. Result never changes receipt identity or overwrites an existing receipt.
+Neither phase nor result proves a domain-confirmed effect; retention, enrollment,
+owner admission and access remain unchanged.
