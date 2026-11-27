@@ -25,7 +25,8 @@ export const MAIL_BRIEF_PROMPT = "Brief me on my mail";
 const MAX_PEEKS = 2;
 
 type MailAttentionStackProps = {
-  onAskOne: (prompt: string) => void;
+  onAskOne?: (prompt: string) => void;
+  renderWelcome?: (briefPrompt: string | null) => React.ReactNode;
   onOpenItem?: (item: MailAttentionItem) => void;
   /** Called when an action leaves nothing to show, so the owner can place focus. */
   onEmpty?: () => void;
@@ -142,7 +143,7 @@ function CollapsedStack({ items, onOpenItem, onAct }: {
  * nothing unless something qualifies. Choices are per viewer on this device;
  * Mail itself is unchanged.
  */
-export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty, briefDisabled }: MailAttentionStackProps) {
+export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty, briefDisabled, renderWelcome }: MailAttentionStackProps) {
   const { items, remindLater, markDone } = useMailAttention();
   const pathname = usePathname() || "/";
   const [expanded, setExpanded] = useState(false);
@@ -176,18 +177,23 @@ export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty, briefDisable
       action: { label: "Undo", onClick: () => undo() },
     });
   }, [onEmpty, remindLater, markDone]);
-  if (!items.length) return null;
+  const welcome = renderWelcome?.(items.length ? MAIL_BRIEF_PROMPT : null);
+  if (!items.length) return welcome ?? null;
   return (
+    <>
+    {welcome}
     <section ref={sectionRef} aria-labelledby={headingId} data-testid="mail-attention-stack" className="mx-auto mt-3 w-full max-w-2xl px-1 sm:px-2">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
           <h3 id={headingId} data-profile-role="group-label">Mail</h3>
           <p data-profile-role="description" className="break-words">{summarizeMailAttention(items)}</p>
         </div>
-        <Button type="button" variant="ghost" size="compact" className="shrink-0" aria-label="Brief me on my mail"
-          disabled={briefDisabled} onClick={() => onAskOne(MAIL_BRIEF_PROMPT)}>
-          Brief me
-        </Button>
+        {onAskOne ? (
+          <Button type="button" variant="ghost" size="compact" className="shrink-0" aria-label="Brief me on my mail"
+            disabled={briefDisabled} onClick={() => onAskOne(MAIL_BRIEF_PROMPT)}>
+            Brief me
+          </Button>
+        ) : null}
       </div>
       <div id={regionId} ref={regionRef} tabIndex={-1} className="mt-3 outline-none">
         {isExpanded ? (
@@ -210,5 +216,6 @@ export function MailAttentionStack({ onAskOne, onOpenItem, onEmpty, briefDisable
         </div>
       ) : null}
     </section>
+    </>
   );
 }

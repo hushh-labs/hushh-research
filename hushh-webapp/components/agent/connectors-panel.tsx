@@ -1701,7 +1701,7 @@ function OwnerConnectorsPanel({
           ? "Calendar connected."
           : outcome === "failed"
             ? "Could not finish Calendar connection. Try again."
-            : "Calendar not connected.",
+            : calendar.connected ? "Calendar changes weren’t enabled." : "",
       );
     });
   };
@@ -2453,12 +2453,11 @@ function OwnerConnectorsPanel({
     ...(gmail.status?.connected && !isNativeMailSurface && missingMailPermissionsCount >= 2 ? { enableAll: detailAction("Enable all Mail permissions", mailBusy || gmail.loadingStatus, () => { void connectMail("full"); }) } : {}),
     ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
   };
-  const baseCalendarHelper = !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null;
   const calendarPermissions = googleCalendarPermissions(calendar.status);
   const calendarDetail: Extract<ConnectorDetailPresentation, { kind: "calendar" }> = {
     kind: "calendar", description: calendarDescription, status: calendarStatusLabel,
     message: calendarPopupPending ? "Finish signing in with Google in the window that opened." : calendarBusy ? "Updating Calendar…" : calendarMessage,
-    helper: [baseCalendarHelper, showGoogleClearanceNote ? GOOGLE_APPS_CLEARANCE_NOTE : null].filter(Boolean).join(" ") || null,
+    helper: showGoogleClearanceNote ? GOOGLE_APPS_CLEARANCE_NOTE : null,
     connection: calendar.connected ? detailAction("Disconnect Calendar", calendarBusy, () => setConfirm("calendar"), true) :
       detailAction(calendarConnectLabel, calendarBusy, () => { void connectCalendar(); }),
     permissions: calendar.connected ? calendarPermissions.rows : [],
@@ -3190,15 +3189,6 @@ function OwnerConnectorsPanel({
                       )}
                     </div>
                   )}
-                  {!calendar.error && !calendar.connected && !calendarNeedsReconnect ? (
-                    <p className="text-sm text-muted-foreground">
-                      Private by default. Disconnect anytime.
-                    </p>
-                  ) : calendar.connected ? (
-                    <p className="text-sm text-muted-foreground">
-                      Disconnect anytime.
-                    </p>
-                  ) : null}
                   {googleClearanceNote}
                   {calendarPopupPending && (
                     <Button

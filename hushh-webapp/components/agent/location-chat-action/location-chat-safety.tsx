@@ -51,11 +51,13 @@ function deliveryFacts(result: ChatSosDelivery) {
   ];
 }
 
-export function LocationChatSafety({ action, ownerId, token, allowReview, onConversationReply, onConversationText }: {
+export function LocationChatSafety({ action, ownerId, token, allowReview, hidden, onFinished, onConversationReply, onConversationText }: {
   action: LocationSafetyAction;
   ownerId: string;
   token: string;
   allowReview: boolean;
+  hidden?: boolean;
+  onFinished?: (finished: boolean) => void;
 } & LocationConversationProps) {
   const [editing, setEditing] = useState(action === "sms_contacts");
   const [closed, setClosed] = useState(false);
@@ -130,7 +132,7 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
       setClosed(true);
     }
   }
-  useBackLayer(ROUTES.HOME, allowReview && !closed ? 1 : 0, () => { close(); return true; });
+  useBackLayer(ROUTES.HOME, allowReview && !closed && !hidden ? 1 : 0, () => { close(); return true; });
 
   function retry() {
     setError(undefined);
@@ -267,6 +269,11 @@ export function LocationChatSafety({ action, ownerId, token, allowReview, onConv
   }
 
   const active = Boolean(review?.activeGrants.length || review?.incident?.grantIds.length);
+  const finished = closed || (action === "sos_review" && Boolean(delivery)) ||
+    (action === "sos_stop" && Boolean(review) && !active);
+  useEffect(() => {
+    if (allowReview) onFinished?.(finished);
+  }, [allowReview, finished, onFinished]);
   const paused = readOneLocationControlState(ownerId).paused;
   const ready = review?.recipients.filter(isSosShareReadyRecipient) ?? [];
   const recipients = ready.length > 5 ? `${ready.length} emergency contacts` : ready.map(personName).join(", ");

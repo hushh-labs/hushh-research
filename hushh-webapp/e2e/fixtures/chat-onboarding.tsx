@@ -18,14 +18,13 @@ import { saveChatPreferredName } from "../../lib/agent/owner-style-settings-writ
 import { ApiService } from "@/lib/services/api-service";
 import type { ChatOnboardingTurn } from "../../lib/agent/chat-onboarding/chat-onboarding-machine";
 import {
-  CHAT_ONBOARDING_FOCUS_PLAN,
   focusChips,
   welcomeText,
 } from "../../lib/agent/chat-onboarding/chat-onboarding-script";
 
 /**
- * One chat's onboarding at real width: the shipped transcript, chips, connect
- * action and daily tip, inside the chat's reading column. The assistant bubble
+ * One chat's onboarding at real width: transcript and choice layout inside
+ * the chat's reading column, alongside isolated suggestion and tip samples. The assistant bubble
  * is a stand-in with AgentBubble's exact width and type classes (the real one
  * pulls the whole signed-in workspace into the bundle); the onboarding pieces
  * under test are the real modules. The person's own turn wears the shipped
@@ -43,21 +42,14 @@ const TURNS: ChatOnboardingTurn[] = [
     chips: focusChips(),
   },
 ];
-const EXPLANATION: ChatOnboardingTurn = {
-  id: "t4",
-  role: "assistant",
-  text: CHAT_ONBOARDING_FOCUS_PLAN.email.explanation,
-  anchor: null,
-  action: CHAT_ONBOARDING_FOCUS_PLAN.email.action!,
-};
-
 function Harness() {
   const [tipOpen, setTipOpen] = useState(true);
   const controller: ChatOnboardingController = {
     resolved: false,
-    turns: [...TURNS, EXPLANATION],
-    activeChipTurnId: "t3",
-    shownTurns: new Map([...TURNS, EXPLANATION].map((turn) => [turn.id, "9:41 AM"])),
+    turns: TURNS,
+    activeControlTurnId: "t3",
+    isActiveTurn: (turn) => turn.id === "t3",
+    shownTurns: new Map(TURNS.map((turn) => [turn.id, "9:41 AM"])),
     shownTurnTimes: new Map(),
     markShown: () => undefined,
     busy: false,

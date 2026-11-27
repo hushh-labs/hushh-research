@@ -273,10 +273,7 @@ async function assertContract(page: Page, viewportWidth: number) {
   // Chips and the connect action start at the assistant column's left edge.
   const bubble = (await page.locator('[data-message-role="assistant"]').first().boundingBox())!;
   const firstChip = (await chips.first().boundingBox())!;
-  const connect = (await page.getByTestId("chat-onboarding-connect").boundingBox())!;
   expect(Math.abs(firstChip.x - bubble.x)).toBeLessThanOrEqual(6);
-  expect(Math.abs(connect.x - bubble.x)).toBeLessThanOrEqual(6);
-  expect(connect.height).toBeGreaterThanOrEqual(44);
 
   // Starters occupy three equal desktop tracks and one phone track. Follow-ups
   // remain quiet text rows. Both are borderless, left-aligned and focusable.
