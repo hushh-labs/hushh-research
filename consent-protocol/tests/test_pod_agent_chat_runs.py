@@ -128,7 +128,7 @@ def _turn(**forwarded):
 
 
 def _owner():
-    authority = SimpleNamespace(local_token=lambda claims: "local-token")
+    authority = SimpleNamespace(environment="uat", local_token=lambda claims: "local-token")
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 
@@ -138,8 +138,11 @@ async def test_location_conversation_requires_a_capable_owner_chat(monkeypatch):
         STATE_LOCATION_CHAT_REVIEW,
     )
 
-    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
-    card = {"screenContext": {"route": {"pathname": "/"}}, "locationChatReview": True}
+    monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
+    card = {
+        "screenContext": {"route": {"pathname": "/?locationSetupReturn=example"}},
+        "locationChatReview": True,
+    }
     for props, review, conversation in (
         (card, True, False),
         ({**card, "locationChatConversation": True}, True, True),

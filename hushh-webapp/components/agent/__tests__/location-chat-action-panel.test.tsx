@@ -462,9 +462,10 @@ test("a typed SOS confirmation uses the reviewed roster and reports the actual d
   expect(transcript.mock.lastCall?.[1]).toContain("Meet at the entrance");
   expect(router.reply?.("yes", withoutNote)).toBe(false);
   expect(sendChatSos).not.toHaveBeenCalled();
-  await act(async () => { router.reply?.("yes", transcript.mock.lastCall?.[1]); });
+  fireEvent.click(screen.getByRole("button", { name: "Send Save My Soul alert" }));
+  await waitFor(() => expect(sendChatSos).toHaveBeenCalledTimes(1));
   expect(sendChatSos).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ownerId: "owner", review, note: "Meet at the entrance" }));
-  expect(transcript).toHaveBeenLastCalledWith("review", expect.stringContaining("delivery unknown: Priya"));
+  await waitFor(() => expect(transcript).toHaveBeenLastCalledWith("review", expect.stringContaining("delivery unknown: Priya")));
 });
 
 test("a standalone current location preview leaves account sharing off and makes no capture until a gesture", async () => {
@@ -638,8 +639,14 @@ test.each(["exact", "exact suffixed", "changed roster", "changed scope", "sharin
     const claim = vi.fn(() => ({ ...terms!, current: () => current }));
     render(<LocationChatActionPanel proposal={proposal} ownerId="owner" token="token" allowReview
       claimDirectShare={claim} onUnlock={() => {}} onConversationText={text} />);
+    if (scenario !== "wrong prepared duration") {
+      const button = await screen.findByRole("button", { name: "Share live location" });
+      expect(executeMainLocationPlan).not.toHaveBeenCalled();
+      fireEvent.click(button);
+    }
     if (scenario === "exact" || scenario === "exact suffixed") {
-      await waitFor(() => expect(text).toHaveBeenLastCalledWith("direct", "Shared your live location with Maya for 1 hour."));
+      const expectedCircle = scenario === "exact suffixed" ? "NM Circle" : "the NM circle";
+      await waitFor(() => expect(text).toHaveBeenLastCalledWith("direct", `Shared your live location with Maya (${expectedCircle}) for 1 hour.`));
       expect(executeMainLocationPlan).toHaveBeenCalledExactlyOnceWith("token", plan.planId, expect.objectContaining({ recipientKeyId: "maya-key" }));
       expect(resolveMainLocationChoices).toHaveBeenCalledWith(expect.objectContaining({ proposal: expect.objectContaining({ circles: ["nm circle"] }) }));
     } else {
@@ -721,7 +728,7 @@ test("a large reviewed Circle exposes its names in pages and reports only confir
   act(() => { expect(reply!("more")).toBe(true); });
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 8"));
   expect(executeMainLocationPlan).not.toHaveBeenCalled();
-  act(() => { expect(reply!("yes")).toBe(true); });
+  fireEvent.click(screen.getByRole("button", { name: "Send location request" }));
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Sent your location request to 7 members of the NM circle for 1 hour."));
   expect(text.mock.lastCall![1]).toContain("Request to Member 8 failed.");
   expect(text.mock.lastCall![1].match(/Sent your location request/g)).toHaveLength(1);
@@ -731,10 +738,35 @@ test("a large reviewed Circle exposes its names in pages and reports only confir
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Member 8 · unconfirmed"));
   expect(executeMainLocationPlan).toHaveBeenCalledTimes(8);
   expect(locationPlanSentence(plans.slice(0, 2), [circle], true))
-    .toBe("Sent your location request to Member 1 and Member 2 for 1 hour.");
+    .toBe("Sent your location request to Member 1 and Member 2 (the NM circle) for 1 hour.");
   const differentTerms = [plans[0]!, { ...plans[1]!, durationHours: 2 }];
   expect(locationPlanGroups(differentTerms).map(group => locationPlanSentence(group, [circle], true))).toEqual([
-    "Sent your location request to Member 1 for 1 hour.", "Sent your location request to Member 2 for 2 hours.",
+    "Sent your location request to Member 1 (the NM circle) for 1 hour.", "Sent your location request to Member 2 (the NM circle) for 2 hours.",
   ]);
-  expect(locationReviewText(differentTerms, [circle])).toContain("Member 2 to share their location for 2 hours");
+  expect(locationReviewText(differentTerms, [circle])).toContain("Member 2 (the NM circle) to share their location for 2 hours");
+});
+
+
+test("an explicit stop for everyone reviews every active outgoing grant before revocation", async () => {
+  vi.clearAllMocks();
+  const targets = ["Ankit", "Maya"].map(label => ({ label, grantId: label, personUserId: label }));
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Outgoing", targets, requiresSelection: true }]);
+  for (const target of targets) {
+    const plan = { planId: target.grantId, grantId: target.grantId, personUserId: target.personUserId,
+      personDisplayLabel: target.label, action: "stop" as const, status: "pending" as const };
+    vi.mocked(expandMainLocationTarget).mockResolvedValueOnce([target]);
+    vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce(plan);
+    vi.mocked(executeMainLocationPlan).mockResolvedValueOnce({ ...plan, status: "executed", receipt: { grantId: target.grantId } });
+  }
+  let reply: LocationConversationReply | null = null;
+  const text = vi.fn();
+  render(<LocationChatActionPanel proposal={{ id: "stop-all", action: "stop", direction: "all", conversation: true }}
+    ownerId="owner" token="token" allowReview onUnlock={() => {}} onConversationText={text}
+    onConversationReply={(_id, handle) => { reply = handle; }} />);
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Stop sharing your location with Ankit and Maya?"));
+  expect(executeMainLocationPlan).not.toHaveBeenCalled();
+  act(() => { expect(reply!("yes")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Stopped sharing your location with Ankit and Maya."));
+  expect(executeMainLocationPlan).toHaveBeenCalledTimes(2);
 });

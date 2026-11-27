@@ -131,6 +131,24 @@ describe("inline Location workspace", () => {
     expect(screen.getByText("On for all contacts")).toBeInTheDocument();
   });
 
+  it("keeps the time limit in the conversational review and in the confirmed write", async () => {
+    const scope = { kind: "circles", circleIds: ["family"] };
+    const enabledAt = new Date().toISOString();
+    const expiresAt = new Date(Date.parse(enabledAt) + 3 * 3_600_000).toISOString();
+    mock.getState.mockResolvedValue({ autoApprovePreference: { enabled: false, ruleVersion: 1 } });
+    mock.updateAutoApprovePreference.mockResolvedValue({ enabled: true, scope, ruleVersion: 2, enabledAt, expiresAt });
+    let reply: (text: string, question?: string) => boolean = () => false;
+    const transcript = vi.fn();
+    render(<LocationChatSettings token="token" ownerId="owner" autoApprovalIntent="enable" autoApprovalHours={3}
+      suggestedCircles={["Family"]} onConversationText={transcript}
+      onConversationReply={(handler) => { reply = handler ?? (() => false); }} />);
+    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("for the next 3 hours")));
+    expect(mock.updateAutoApprovePreference).not.toHaveBeenCalled();
+    await act(async () => { reply("yes", transcript.mock.lastCall?.[0]); });
+    expect(mock.updateAutoApprovePreference).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "token", enabled: true, scope, durationHours: 3 });
+    expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("Shares approved under this rule end by then."));
+  });
+
   it("reviews the named Circle directly in Chat and publishes the saved approval preference", async () => {
     const owner = "auto-approval-owner";
     const preference = { enabled: true, scope: { kind: "circles", circleIds: ["family"] }, ruleVersion: 2 };

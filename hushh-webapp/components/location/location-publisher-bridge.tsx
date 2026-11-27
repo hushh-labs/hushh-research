@@ -64,6 +64,8 @@ import { resolveLocationRecoveryGuide } from "@/lib/one-location/location-permis
 import { isLocationPermissionDeniedError } from "@/lib/one-location/location-readiness";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { isFixedLocationGrant, isSmsTriggeredGrant } from "@/lib/one-location/notifications";
+import { selectAutoApprovableRequests } from "@/lib/one-location/auto-approve-requests";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";
 import { LIVE_LOCATION_UPDATE_INTERVAL_MS, liveHeartbeatPoint } from "@/lib/one-location/live-heartbeat";
@@ -309,6 +311,69 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     if (!owner) return;
     OneLocationStateResource.invalidate(owner);
   }, []);
+
+  const approval = state?.autoApprovePreference;
+  useEffect(() => {
+    if (pathname !== ROUTES.HOME || !uid || !vaultOwnerToken || !vaultKey ||
+      !approval?.enabled || !approval.ruleVersion || sharing.effective !== "sharing") return;
+    const ruleVersion = approval.ruleVersion;
+    let closed = false;
+    let running = false;
+    const available = () => !closed && document.visibilityState === "visible" &&
+      uidRef.current === uid && tokenRef.current === vaultOwnerToken && Boolean(vaultKeyRef.current) &&
+      sharingRef.current.effective === "sharing";
+    const processRequests = async () => {
+      if (running || !available()) return;
+      if (approval.expiresAt != null && !(Date.parse(approval.expiresAt) > Date.now())) return;
+      running = true;
+      try {
+        const current = await OneLocationService.getState(vaultOwnerToken);
+        const rule = current.autoApprovePreference;
+        if (!available()) return;
+        if (!rule?.enabled || rule.ruleVersion !== ruleVersion) {
+          invalidateState();
+          return;
+        }
+        const pending = selectAutoApprovableRequests({
+          pendingRequests: current.requests.filter((request) => request.ownerUserId === uid),
+          enabled: rule.enabled, enabledAt: rule.enabledAt, expiresAt: rule.expiresAt,
+          scope: rule.scope, paused: sharingRef.current.paused, alreadyAttemptedIds: new Set(),
+        });
+        for (const request of pending) {
+          if (!available()) break;
+          if (!request.requestRevision || (rule.expiresAt != null && !(Date.parse(rule.expiresAt) > Date.now()))) continue;
+          try {
+            await OneLocationService.approveRequest({
+              vaultOwnerToken, requestId: request.id, expectedRequestRevision: request.requestRevision,
+              approvalMode: "automatic", autoApproveRuleVersion: ruleVersion,
+            });
+            // Reload the canonical grants and recipient keys for the encrypted publisher.
+            if (available()) invalidateState();
+          } catch {
+            // The locked rule can exclude a requester. Continue with independent requests.
+          }
+        }
+      } catch {
+        // A foreground wake or the next refresh retries temporary network errors.
+      } finally {
+        running = false;
+      }
+    };
+    void processRequests();
+    const unsubscribe = subscribeToOneLocationStateChanges((event) => {
+      if (event.userId === uid && event.domains.includes("workspace")) void processRequests();
+    });
+    document.addEventListener("visibilitychange", processRequests);
+    window.addEventListener("online", processRequests);
+    const interval = window.setInterval(processRequests, 30_000);
+    return () => {
+      closed = true;
+      unsubscribe();
+      document.removeEventListener("visibilitychange", processRequests);
+      window.removeEventListener("online", processRequests);
+      window.clearInterval(interval);
+    };
+  }, [approval?.enabled, approval?.expiresAt, approval?.ruleVersion, invalidateState, pathname, sharing.effective, uid, vaultKey, vaultOwnerToken]);
 
   // The Location workspace maintains its own public link while it is open.
   // In Chat an active link needs updates even when there are no private grants.

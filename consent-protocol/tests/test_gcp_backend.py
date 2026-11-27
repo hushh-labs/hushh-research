@@ -54,6 +54,26 @@ def test_render_deploy_config_is_a_cloud_run_service():
     assert cfg["metadata"]["labels"]["hussh-billing-space"] == "sp_1"
 
 
+@pytest.mark.parametrize(
+    ("setting", "expected"), [(None, "false"), ("off", "false"), ("true", "true")]
+)
+def test_private_chat_inherits_location_rollout(monkeypatch, setting, expected):
+    from hushh_mcp.services.pod_common_env import shared_non_gcp_pod_env
+
+    if setting is None:
+        monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", setting)
+    config = _backend().render_deploy_config(_spec())
+    for entries in (
+        config["spec"]["template"]["spec"]["containers"][0]["env"],
+        shared_non_gcp_pod_env(_spec(), "us-central1"),
+    ):
+        assert [e["value"] for e in entries if e["name"] == "ONE_MAIN_CHAT_LOCATION_ENABLED"] == [
+            expected
+        ]
+
+
 def test_rendered_config_carries_identity_but_no_secrets():
     cfg = _backend().render_deploy_config(_spec())
     env = cfg["spec"]["template"]["spec"]["containers"][0]["env"]

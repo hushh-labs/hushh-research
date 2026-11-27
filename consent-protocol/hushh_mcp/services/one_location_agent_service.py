@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -3107,6 +3108,13 @@ class OneLocationAgentService:
         scope_kind = str((row or {}).get("scope_kind") or "")
         circle_id = str((row or {}).get("circle_id") or "") or None
         circle_ids = [str(value) for value in ((row or {}).get("circle_ids") or []) if value]
+        deadline = (row or {}).get("expires_at") if scope_kind == "timed" else None
+        if (
+            scope_kind == "timed"
+            and deadline
+            and deadline > ((row or {}).get("checked_at") or _utcnow())
+        ):
+            scope_kind = "circles" if circle_ids else "circle" if circle_id else "all_contacts"
         if (
             not enabled
             or scope_kind not in {"all_contacts", "circle", "circles"}
@@ -3131,6 +3139,7 @@ class OneLocationAgentService:
             "enabled": True,
             "scope": scope,
             "enabledAt": _iso((row or {}).get("enabled_at")),
+            **({"expiresAt": _iso(deadline)} if deadline is not None else {}),
             "ruleVersion": int((row or {}).get("rule_version") or 0),
             "updatedAt": _iso((row or {}).get("updated_at")),
         }
@@ -5417,6 +5426,7 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         duration_hours: float,
+        expires_at: datetime | None = None,
     ) -> dict[str, str]:
         """Mint a signed HCT capability token for a device-to-device grant.
 
@@ -5432,6 +5442,7 @@ class OneLocationAgentService:
             agent_id=AgentID(f"device:{recipient_user_id}"),
             scope=ConsentScope.CAP_LOCATION_LIVE_VIEW,
             expires_in_ms=expires_in_ms,
+            **({"expires_at_ms": int(expires_at.timestamp() * 1000)} if expires_at else {}),
         )
         return {"token": token.token, "token_id": token.token}
 
@@ -6319,7 +6330,7 @@ class OneLocationAgentService:
                 # NOT one lane per share kind: `drive_to`, `check_in`,
                 # `pick_me_up` and plain `share` all sit in the non-emergency
                 # lane together and go on replacing each other exactly as before.
-                conn.execute(
+                replaced_shares = conn.execute(
                     text(
                         """
                         UPDATE one_location_share_grants
@@ -6331,11 +6342,21 @@ class OneLocationAgentService:
                         # lane itself is BOUND as `:is_sos_lane`; nothing
                         # caller-supplied reaches this statement.
                         + _share_lane_match_sql()
-                        + """
-                        """
+                        + " RETURNING expires_at"
                     ),
                     params,
                 )
+                # Refusing rolls the lane replacement back in the same transaction.
+                # A timed rule cannot shorten an independently authorized longer share.
+                if params.get("auto_approve_until") is not None and any(
+                    expiry is None or expiry > params["expires_at"]
+                    for expiry in replaced_shares.scalars()
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_EXISTING_SHARE",
+                        "An existing share lasts longer. Review this request.",
+                        status_code=409,
+                    )
                 row = (
                     conn.execute(
                         text(
@@ -6434,6 +6455,7 @@ class OneLocationAgentService:
         require_owned_source_circle: bool = False,
         source: str | None = None,
         _key_writer_guarded: bool = False,
+        _auto_approve_until: datetime | None = None,
     ) -> dict[str, Any]:
         if share_kind == "pin":
             raise OneLocationAgentError(
@@ -6472,6 +6494,7 @@ class OneLocationAgentService:
                     require_owned_source_circle=require_owned_source_circle,
                     source=source,
                     _key_writer_guarded=True,
+                    **({"_auto_approve_until": _auto_approve_until} if _auto_approve_until else {}),
                 )
             resolved_kind = share_kind or _classify_share_kind(reason)
 
@@ -6514,6 +6537,24 @@ class OneLocationAgentService:
             share_kind=resolved_kind,
             now=_utcnow(),
         )
+        if _auto_approve_until is not None:
+            # The request duration was validated above. A rule ending in five
+            # minutes may grant five minutes despite the normal 15-minute minimum.
+            if expires_at is None or duration is None or not enforce_connection:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_RULE_INVALID", "Review this request.", status_code=409
+                )
+            expires_at = min(expires_at, _auto_approve_until)
+            remaining = (expires_at - _utcnow()).total_seconds()
+            if remaining <= 0:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_RULE_STALE",
+                    "The automatic approval window ended.",
+                    status_code=409,
+                )
+            # The NUMERIC(6,2) duration is only a display value. Access and
+            # the signed capability both use the exact timestamp below.
+            duration = max(0.01, round(remaining / 3600, 2))
         if resolved_kind == "sos" and not self._is_sms_contact(
             owner_user_id=owner_user_id, contact_user_id=recipient_user_id
         ):
@@ -6533,6 +6574,7 @@ class OneLocationAgentService:
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
                 duration_hours=duration,
+                **({"expires_at": expires_at} if _auto_approve_until is not None else {}),
             )
             if duration is not None
             else None
@@ -6557,6 +6599,7 @@ class OneLocationAgentService:
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
+            "auto_approve_until": _auto_approve_until,
             "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
             "require_owned_source_circle": require_owned_source_circle,
@@ -7616,7 +7659,7 @@ class OneLocationAgentService:
         row = self._execute_one(
             """
             SELECT enabled, scope_kind, circle_id, circle_ids, enabled_at,
-                   rule_version, updated_at
+                   rule_version, updated_at, expires_at, clock_timestamp() AS checked_at
             FROM one_location_auto_approve_preferences
             WHERE user_id = :user_id
             LIMIT 1
@@ -7633,8 +7676,22 @@ class OneLocationAgentService:
         scope_kind: str | None,
         circle_id: str | None,
         circle_ids: list[str] | None = None,
+        duration_hours: float | None = None,
     ) -> dict[str, Any]:
         """Write one revocable standing rule using the server clock."""
+        if duration_hours is not None:
+            if not enabled or not math.isfinite(duration_hours):
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_WINDOW_INVALID",
+                    "Choose a finite approval window.",
+                    status_code=422,
+                )
+            try:
+                normalize_duration_hours(duration_hours)
+            except ValueError as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_WINDOW_INVALID", str(exc), status_code=422
+                ) from exc
         normalized_scope = str(scope_kind or "").strip()
         normalized_circle_id = str(circle_id or "").strip() or None
         # De-duplicated but NOT sorted -- order carries no meaning, so a
@@ -7755,12 +7812,13 @@ class OneLocationAgentService:
                         """
                         INSERT INTO one_location_auto_approve_preferences (
                           user_id, enabled, scope_kind, circle_id, circle_ids,
-                          enabled_at, rule_version, created_at, updated_at
+                          enabled_at, expires_at, rule_version, created_at, updated_at
                         ) VALUES (
                           :user_id, :enabled, :scope_kind,
                           CAST(:circle_id AS UUID),
                           CAST(:circle_ids AS UUID[]),
-                          CASE WHEN :enabled THEN NOW() ELSE NULL END,
+                          CASE WHEN :enabled THEN statement_timestamp() ELSE NULL END,
+                          statement_timestamp() + CAST(:window_hours AS double precision) * INTERVAL '1 hour',
                           1, NOW(), NOW()
                         )
                         ON CONFLICT (user_id) DO UPDATE SET
@@ -7768,17 +7826,21 @@ class OneLocationAgentService:
                           scope_kind = EXCLUDED.scope_kind,
                           circle_id = EXCLUDED.circle_id,
                           circle_ids = EXCLUDED.circle_ids,
-                          enabled_at = CASE WHEN EXCLUDED.enabled THEN NOW() ELSE NULL END,
+                          enabled_at = EXCLUDED.enabled_at,
+                          expires_at = EXCLUDED.expires_at,
                           rule_version = one_location_auto_approve_preferences.rule_version + 1,
                           updated_at = NOW()
                         RETURNING enabled, scope_kind, circle_id, circle_ids,
-                                  enabled_at, rule_version, updated_at
+                                  enabled_at, expires_at, rule_version, updated_at, clock_timestamp() AS checked_at
                         """
                     ),
                     {
                         "user_id": user_id,
                         "enabled": enabled,
-                        "scope_kind": normalized_scope or None,
+                        "scope_kind": "timed"
+                        if duration_hours is not None
+                        else normalized_scope or None,
+                        "window_hours": duration_hours,
                         "circle_id": normalized_circle_id,
                         "circle_ids": normalized_circle_ids or None,
                     },
@@ -7814,6 +7876,11 @@ class OneLocationAgentService:
                             "circle_ids": [str(value) for value in (stored.get("circle_ids") or [])]
                             or None,
                             "enabled_at": _iso(stored.get("enabled_at")),
+                            **(
+                                {"expires_at": _iso(stored["expires_at"])}
+                                if stored.get("expires_at")
+                                else {}
+                            ),
                             "rule_version": int(stored.get("rule_version") or 0),
                         }
                     ),
@@ -7965,9 +8032,10 @@ class OneLocationAgentService:
         row = self._execute_one(
             """
             SELECT enabled, scope_kind, circle_id, circle_ids, enabled_at,
-                   rule_version, updated_at
+                   rule_version, updated_at, expires_at
             FROM one_location_auto_approve_preferences
             WHERE user_id = :user_id
+              AND (scope_kind IS DISTINCT FROM 'timed' OR expires_at > clock_timestamp())
             FOR UPDATE
             """,
             {"user_id": user_id},
@@ -7985,6 +8053,11 @@ class OneLocationAgentService:
         scope_kind = str(row.get("scope_kind") or "")
         circle_id = str(row.get("circle_id") or "") or None
         circle_ids = [str(value) for value in (row.get("circle_ids") or []) if value]
+        if scope_kind == "timed" and row.get("expires_at"):
+            scope_kind = "circles" if circle_ids else "circle" if circle_id else "all_contacts"
+        else:
+            # An older writer may replace a timed rule without clearing its deadline.
+            row = {**row, "expires_at": None}
         if (
             scope_kind not in {"all_contacts", "circle", "circles"}
             or row.get("enabled_at") is None
@@ -7996,7 +8069,7 @@ class OneLocationAgentService:
                 "Auto-approve is unavailable. Review this request.",
                 status_code=409,
             )
-        return dict(row)
+        return {**row, "scope_kind": scope_kind}
 
     def _first_owned_circle_membership(
         self,
@@ -11454,7 +11527,10 @@ class OneLocationAgentService:
                     request_row.get("requested_at"),
                     field_name="requestedAt",
                 )
-                if requested_at <= automatic_enabled_at:
+                if requested_at <= automatic_enabled_at or (
+                    automatic_preference.get("expires_at")
+                    and requested_at >= automatic_preference["expires_at"]
+                ):
                     raise OneLocationAgentError(
                         "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE",
                         "This request needs approval.",
@@ -11683,6 +11759,11 @@ class OneLocationAgentService:
                     enforce_connection=automatic_preference is not None
                     or bound_circle_id is not None,
                     require_owned_source_circle=automatic_scope in {"circle", "circles"},
+                    **(
+                        {"_auto_approve_until": automatic_preference["expires_at"]}
+                        if automatic_preference and automatic_preference.get("expires_at")
+                        else {}
+                    ),
                     _key_writer_guarded=True,
                 )
             )
@@ -11704,15 +11785,28 @@ class OneLocationAgentService:
                   AND owner_user_id = :owner_user_id
                   AND status = 'pending'
                   AND (expires_at IS NULL OR expires_at > clock_timestamp())
+                  AND (CAST(:auto_approve_until AS timestamptz) IS NULL
+                       OR CAST(:auto_approve_until AS timestamptz) > clock_timestamp())
                 RETURNING *
                 """,
                 {
                     "owner_user_id": owner_user_id,
                     "request_id": request_id,
                     "grant_id": grant["id"],
+                    "auto_approve_until": (automatic_preference or {}).get("expires_at"),
                 },
             )
             if not resolved:
+                if (
+                    automatic_preference
+                    and automatic_preference.get("expires_at")
+                    and automatic_preference["expires_at"] <= _utcnow()
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_RULE_STALE",
+                        "The automatic approval window ended.",
+                        status_code=409,
+                    )
                 if _request_expiry_has_passed(request_row):
                     raise OneLocationAgentError(
                         "LOCATION_REQUEST_EXPIRED",
