@@ -21,4 +21,4 @@ Detailed operating rules referenced from `.agents/skills/repo-operations/SKILL.m
 
 ## Private Pod Hosting
 
-For private pod hosting, owner updates, and legacy bootstrap, follow the [Dev pod runbook](../../../../docs/operations/hosting/dev-pod-first-light-runbook.md), which owns durable admission, spend limits, owner custody, release provenance, and cleanup.
+For private pod hosting, owner updates, and legacy bootstrap, follow the [Dev pod runbook](../../../../docs/operations/hosting/dev-pod-first-light-runbook.md), which owns durable admission, spend limits, owner custody, release provenance, and cleanup. Cluster owners provision GKE Sandbox RBAC policy groups (`Role` and `RoleBinding`) across `dev`, `uat`, and `production`; routine deploys (`scripts/deploy/reconcile-sandbox-cluster.sh`) verify allocator authorization read-only, reconcile workload definitions (`SandboxTemplate` and `SandboxWarmPool` with `Recreate`), and never mutate RBAC or manually delete pods under deploy WIF.
