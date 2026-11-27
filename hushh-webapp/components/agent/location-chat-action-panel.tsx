@@ -9,7 +9,6 @@ import { LocationChatPublicShare } from "@/components/agent/location-chat-action
 import { LocationChatPublicLinks } from "@/components/agent/location-chat-action/location-chat-public-links";
 import { captureChatLocation, chatLocationPermissionIssue, enableChatDeviceLocation, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "@/components/agent/location-chat-action/location-chat-permission";
 import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
-import { Button } from "@/components/ui/button";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { flushLocationStops, hasQueuedLocationStop, locationStopQueueRevision, queueLocationStop, subscribeLocationStopQueue } from "@/lib/location/pending-stops";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -160,7 +159,7 @@ type PanelProps = {
 };
 
 export function LocationChatActionPanel(props: PanelProps) {
-  const { onConversationText, onConversationReply, proposal } = props;
+  const { onConversationText, onConversationReply, onNearbyReady, ownerId, token, proposal } = props;
   const publish = useCallback((text: string) => onConversationText?.(proposal.id, text), [onConversationText, proposal.id]);
   const register = useCallback((handler: LocationConversationReply | null) => onConversationReply?.(proposal.id, handler), [onConversationReply, proposal.id]);
   const childConversation = onConversationText && props.allowReview ? { onConversationText: publish, onConversationReply: register } : {};
@@ -187,19 +186,19 @@ export function LocationChatActionPanel(props: PanelProps) {
   const [checkedSetup, setCheckedSetup] = useState<{ proposal: MainLocationProposal; settings: Awaited<ReturnType<typeof getLocationAccountSettings>>; observedAt: number } | null>(null);
   const [setupError, setSetupError] = useState("");
   useEffect(() => {
-    if (!firstUse || !props.token || !props.ownerId) return;
+    if (!firstUse || !token || !ownerId) return;
     let active = true;
-    void getLocationAccountSettings(props.token).then(async settings => {
+    void getLocationAccountSettings(token).then(async settings => {
       if (!active) return;
       if (settings.sharing_state !== "on" && !settings.sharing_consent_accepted_at) {
         if (!await firstUse(proposal) && active) setSetupError("I couldn’t open Location setup. Please send your request again.");
         return;
       }
-      if (action === "nearby_check_in") props.onNearbyReady?.(proposal);
+      if (action === "nearby_check_in") onNearbyReady?.(proposal);
       setCheckedSetup({ proposal, settings, observedAt: Date.now() });
     }).catch(() => { if (active) setSetupError("I couldn’t check your Location setup. Please send your request again."); });
     return () => { active = false; };
-  }, [action, firstUse, proposal, props.ownerId, props.token, props.onNearbyReady]);
+  }, [action, firstUse, proposal, ownerId, token, onNearbyReady]);
   useEffect(() => { if (setupError) onConversationText?.(proposal.id, setupError); }, [onConversationText, proposal.id, setupError]);
   if (firstUse && props.token && checkedSetup?.proposal !== proposal)
     return <div ref={node}>{!onConversationText && setupError ? <p role="status">{setupError}</p> : null}</div>;
