@@ -7,7 +7,7 @@
  *
  * The flow asks three questions, one per assistant turn:
  *   name  -> what should One call the person
- *   focus -> what should One help with first (leads into ONE connect action)
+ *   focus -> what should One help with first (offers one action before continuing)
  *   tone  -> how should One talk
  * then, when a picked name or tone was given, one confirmation turn. A typed
  * name uses the existing semantic name writer and confirms its save separately.
@@ -140,6 +140,7 @@ export type ChatOnboardingChipId =
   | `focus_${ChatOnboardingFocus | "chat"}`
   | `tone_${ChatOnboardingTone}`
   | "skip"
+  | "continue_after_focus"
   | "save"
   | "dont_save"
   | "retry_save";

@@ -121,29 +121,33 @@ export function ChatOnboardingChips({
   label,
   disabled,
   autoFocus,
+  action,
   onChip,
 }: {
   chips: readonly ChatOnboardingChip[];
   label: string;
   disabled: boolean;
   autoFocus: boolean;
+  action?: ReactNode;
   onChip: (chipId: ChatOnboardingChipId) => void;
 }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const group = useRef<HTMLDivElement>(null);
   const isFocusChoice = chips.some((chip) => chip.id.startsWith("focus_"));
 
   useEffect(() => {
     // Only recover focus the previous chip group dropped when it unmounted;
     // never pull focus out of the composer or anywhere else.
     const active = typeof document === "undefined" ? null : document.activeElement;
-    if (autoFocus && (!active || active === document.body)) refs.current[0]?.focus();
+    if (autoFocus && (!active || active === document.body))
+      group.current?.querySelector<HTMLButtonElement>("button:enabled")?.focus();
   }, [autoFocus]);
 
   // Arrow keys move between chips; Tab still leaves the group as usual.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const index = refs.current.findIndex((node) => node === document.activeElement);
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:enabled"));
+    const index = buttons.findIndex((node) => node === document.activeElement);
     if (index < 0) return;
-    const last = chips.length - 1;
+    const last = buttons.length - 1;
     const next =
       event.key === "ArrowRight" || event.key === "ArrowDown"
         ? Math.min(last, index + 1)
@@ -156,23 +160,22 @@ export function ChatOnboardingChips({
               : null;
     if (next === null) return;
     event.preventDefault();
-    refs.current[next]?.focus();
+    buttons[next]?.focus();
   };
 
   return (
     <div
+      ref={group}
       role="group"
       aria-label={label}
       data-testid="chat-onboarding-chips"
       onKeyDown={onKeyDown}
       className={isFocusChoice ? "mt-2 grid grid-cols-3 gap-2 px-1 sm:flex sm:flex-wrap" : "mt-2 flex flex-wrap gap-2 px-1"}
     >
-      {chips.map((chip, index) => (
+      {action}
+      {chips.map((chip) => (
         <button
           key={chip.id}
-          ref={(node) => {
-            refs.current[index] = node;
-          }}
           type="button"
           disabled={disabled}
           data-chip-id={chip.id}
@@ -190,10 +193,12 @@ function ConnectActionButton({
   action,
   onConnect,
   gmailConnected,
+  disabled,
 }: {
   action: ChatOnboardingConnectAction;
   onConnect: (action: ChatOnboardingConnectAction, trigger: HTMLButtonElement) => void;
   gmailConnected: boolean;
+  disabled: boolean;
 }) {
   const brand = action.kind === "connector" ? action.provider : null;
   if (brand === "gmail" && gmailConnected) {
@@ -207,6 +212,7 @@ function ConnectActionButton({
     <div className="mt-1 px-1">
       <button
         type="button"
+        disabled={disabled}
         data-testid="chat-onboarding-connect"
         data-connect-kind={action.kind}
         data-connect-target={action.kind === "connector" ? action.provider : action.href}
@@ -227,7 +233,7 @@ function OnboardingTurnView({
   delayMs,
   timestamp,
   shownAtMs,
-  chipsLive,
+  controlsLive,
   busy,
   autoFocusChips,
   renderBubble,
@@ -243,7 +249,7 @@ function OnboardingTurnView({
   delayMs: number;
   timestamp: string | undefined;
   shownAtMs: number | undefined;
-  chipsLive: boolean;
+  controlsLive: boolean;
   busy: boolean;
   autoFocusChips: boolean;
   afterTurn?: ReactNode;
@@ -310,14 +316,14 @@ function OnboardingTurnView({
         ephemeral: true,
         renderAsPlainAssistantMessage: true,
       })}
-      {extrasReady && turn.action ? (
-        <ConnectActionButton action={turn.action} onConnect={onConnect} gmailConnected={gmailConnected} />
-      ) : null}
-      {extrasReady && chipsLive && turn.chips?.length ? (
+      {extrasReady && controlsLive && turn.chips?.length ? (
         <>
           <ChatOnboardingChips
             chips={turn.chips}
-            label="Reply options"
+            label={turn.action ? "Continue setup" : "Reply options"}
+            action={turn.action ? (
+              <ConnectActionButton action={turn.action} onConnect={onConnect} gmailConnected={gmailConnected} disabled={busy} />
+            ) : undefined}
             disabled={busy}
             autoFocus={autoFocusChips}
             onChip={onChip}
@@ -357,7 +363,7 @@ export function ChatOnboardingTurns({
   const views = turns.map((turn, index) => {
     const animate = !reducedMotion && !controller.shownTurns.has(turn.id);
     const delayMs = delays[index] ?? 0;
-    const chipsLive = controller.activeChipTurnId === turn.id;
+    const controlsLive = controller.activeControlTurnId === turn.id;
     return (
       <OnboardingTurnView
         key={turn.id}
@@ -366,16 +372,18 @@ export function ChatOnboardingTurns({
         delayMs={delayMs}
         timestamp={controller.shownTurns.get(turn.id)}
         shownAtMs={controller.shownTurnTimes.get(turn.id)}
-        chipsLive={chipsLive}
+        controlsLive={controlsLive}
         busy={controller.busy}
-        autoFocusChips={chipsLive && chipChosen}
+        autoFocusChips={controlsLive && chipChosen}
         renderBubble={renderBubble}
         onShown={controller.markShown}
         onChip={(chipId) => {
           setChipChosen(true);
-          controller.onChip(chipId);
+          controller.onChip(turn, chipId);
         }}
-        onConnect={onConnect}
+        onConnect={(action, trigger) => {
+          if (controller.isActiveTurn(turn)) onConnect(action, trigger);
+        }}
         gmailConnected={gmailConnected}
         afterTurn={controller.resolved && turn.id === controller.turns.at(-1)?.id ? completion : undefined}
         onCompletionShown={onCompletionShown}

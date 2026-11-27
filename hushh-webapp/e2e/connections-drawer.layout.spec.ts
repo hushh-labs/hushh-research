@@ -1568,7 +1568,8 @@ test("closing Calendar consent without finishing ends quietly as not connected",
   await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn");
   await consent.close();
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
-  await expect(page.getByText("Calendar not connected.")).toBeVisible();
+  await expect(page.getByText("Not connected", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Calendar not connected.")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Connect Calendar", exact: true }).last()).toBeEnabled();
   expect(calendar.statusReads).toBe(0);

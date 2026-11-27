@@ -55,6 +55,7 @@ export type ChatOnboardingStep =
   | "saving_name"
   | "name_save_failed"
   | "focus"
+  | "focus_action"
   | "tone"
   | "confirm"
   | "saving"
@@ -139,7 +140,7 @@ export function isAwaitingTypedName(state: ChatOnboardingState | null): boolean 
 }
 
 /** Steps where a picked name is the person's live choice, not yet in memory. */
-const PICKED_NAME_STEPS: ReadonlySet<ChatOnboardingStep> = new Set(["focus", "tone", "confirm", "saving"]);
+const PICKED_NAME_STEPS: ReadonlySet<ChatOnboardingStep> = new Set(["focus", "focus_action", "tone", "confirm", "saving"]);
 
 /**
  * The name the person picked that memory does not hold yet, so One's label can
@@ -398,15 +399,28 @@ export function reduceChatOnboarding(
     const focus = chipId.slice("focus_".length) as ChatOnboardingFocus | "chat";
     const plan = CHAT_ONBOARDING_FOCUS_PLAN[focus];
     if (!plan) return { state, effects: [] };
+    const selected = pushTurn(state, { role: "user", text: focusLabel(focus), anchor });
+    if (plan.action) {
+      const next = pushTurn({ ...selected, step: "focus_action" }, {
+        role: "assistant",
+        text: plan.explanation,
+        anchor,
+        action: plan.action,
+        chips: [{ id: "continue_after_focus", label: "Continue in chat" }],
+      });
+      return { state: next, effects: [] };
+    }
     const progress = mark(state.progress, "focus", "answered");
-    let next = pushTurn({ ...state, progress }, { role: "user", text: focusLabel(focus), anchor });
-    next = pushTurn(next, {
-      role: "assistant",
-      text: plan.explanation,
-      anchor,
-      ...(plan.action ? { action: plan.action } : {}),
+    const explained = pushTurn({ ...selected, progress }, {
+      role: "assistant", text: plan.explanation, anchor,
     });
-    next = askQuestion(next, "tone", toneQuestionText(), anchor, firstName);
+    const next = askQuestion(explained, "tone", toneQuestionText(), anchor, firstName);
+    return { state: next, effects: [{ type: "persist_progress", progress }] };
+  }
+
+  if (current === "focus_action" && chipId === "continue_after_focus") {
+    const progress = mark(state.progress, "focus", "answered");
+    const next = askQuestion({ ...state, progress }, "tone", toneQuestionText(), anchor, firstName);
     return { state: next, effects: [{ type: "persist_progress", progress }] };
   }
 
@@ -453,8 +467,8 @@ export function reduceChatOnboarding(
   return { state, effects: [] };
 }
 
-/** The assistant turn whose chips are live: the latest turn, when it is One's. */
-export function activeChipTurnId(state: ChatOnboardingState | null): string | null {
+/** The one turn whose onboarding controls are actionable. */
+export function activeControlTurnId(state: ChatOnboardingState | null): string | null {
   const last = state?.turns.at(-1);
   if (!last || last.role !== "assistant" || !last.chips?.length) return null;
   if (state?.step === "done" || state?.step === "saving" || state?.step === "saving_name") return null;

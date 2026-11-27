@@ -1,6 +1,6 @@
 "use client";
 
-import { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+import { chatStructuredExperienceItems, latestMailQuickActionId, onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
 export { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -477,13 +477,11 @@ export function AgentTurnStreamPanel({
   );
   const experienceItems = useMemo(
     () =>
-      onePerPersonSharedCard(structuredExperiences.length > 0
-        ? structuredExperiences
-        : structuredExperience
-          ? [{ id: "legacy-structured-experience", experience: structuredExperience }]
-          : []),
+      onePerPersonSharedCard(chatStructuredExperienceItems({ structuredExperiences, structuredExperience })),
     [structuredExperience, structuredExperiences],
   );
+
+  const liveMailActionId = latestMailQuickActionId(experienceItems);
 
   // One's lead-in ("I'll ask Kushal. Here's what I'd request:") reads before
   // the ask card it introduces, the way a person talks.
@@ -537,7 +535,7 @@ export function AgentTurnStreamPanel({
                 onCompileDriveNotes={onCompileDriveNotes}
                 onDownloadDriveNotes={scopedCompilation ? onDownloadDriveNotes : undefined}
                 driveCompilation={scopedCompilation}
-                onMailQuickAction={onMailQuickAction}
+                onMailQuickAction={id === liveMailActionId ? onMailQuickAction : undefined}
               />;
             })}
           </div>
