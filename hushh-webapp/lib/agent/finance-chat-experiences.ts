@@ -4,6 +4,30 @@ export const FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE = "one.finance_stock_preview.
 export const FINANCE_PORTFOLIO_EXPERIENCE_TYPE = "one.finance_portfolio.v1" as const;
 export const FINANCE_TOP_GAINERS_EXPERIENCE_TYPE = "one.finance_top_gainers.v1" as const;
 export const FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE = "one.finance_portfolio_upload.v1" as const;
+export const NATIVE_FINANCE_RECEIPT_TYPE = "one.native_finance_receipt.v1" as const;
+
+const NATIVE_FINANCE_RECEIPT_LABELS = {
+  holdings: "Holdings view offered",
+  allocation: "Allocation view offered",
+  performance: "Performance view offered",
+  sources: "Portfolio sources offered",
+  gainers: "Market gainers view offered",
+  losers: "Market losers view offered",
+  movers: "Market movers view offered",
+  analysis: "Stock analysis offered",
+  upload: "Portfolio upload offered",
+  plaid: "Link account offered",
+  switch: "Portfolio switch offered",
+  delete: "Statement removal offered",
+  connection: "Portfolio sharing offered",
+  verified_advisor: "Advisor sharing offered",
+  received: "Received Finance offered",
+} as const;
+
+type NativeFinanceReceipt = {
+  type: typeof NATIVE_FINANCE_RECEIPT_TYPE;
+  label: (typeof NATIVE_FINANCE_RECEIPT_LABELS)[keyof typeof NATIVE_FINANCE_RECEIPT_LABELS];
+};
 
 type FinanceTopGainersExperience = {
   type: typeof FINANCE_TOP_GAINERS_EXPERIENCE_TYPE;
@@ -28,7 +52,19 @@ export type FinanceCardExperience =
   | FinancePortfolioExperience
   | FinanceStockPreviewExperience
   | FinancePortfolioUploadExperience
+  | NativeFinanceReceipt
   | FinanceTopGainersExperience;
+
+export function parseNativeFinanceReceipt(content: unknown): NativeFinanceReceipt | null {
+  const record = asRecord(content);
+  const offer = record?.offer;
+  if (record?.type !== NATIVE_FINANCE_RECEIPT_TYPE || typeof offer !== "string" ||
+      !Object.hasOwn(NATIVE_FINANCE_RECEIPT_LABELS, offer)) return null;
+  return {
+    type: NATIVE_FINANCE_RECEIPT_TYPE,
+    label: NATIVE_FINANCE_RECEIPT_LABELS[offer as keyof typeof NATIVE_FINANCE_RECEIPT_LABELS],
+  };
+}
 
 export function parseFinancePortfolioUpload(content: unknown): FinancePortfolioUploadExperience | null {
   const record = asRecord(content);

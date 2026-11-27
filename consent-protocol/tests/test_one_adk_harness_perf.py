@@ -198,6 +198,7 @@ async def test_dev_finance_presenter_streams_catalog_offers_with_the_installed_a
             {"component": "FinancePlaidConnection"},
             {"component": "FinanceShareProposal", "audience": "connection"},
             {"component": "FinanceShareProposal", "audience": "verified_advisor"},
+            {"component": "FinanceShareProposal", "audience": "received"},
         ]
     )
     submitted = selected + [{"component": "FinanceStockPreview", "ticker": "link://invalid"}]

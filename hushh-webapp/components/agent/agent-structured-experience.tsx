@@ -143,6 +143,8 @@ export function AgentStructuredExperienceView({
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.native_finance_receipt.v1":
+      return <p className="ui-text-row-description">{experience.label}</p>;
     case "one.finance_top_gainers.v1":
       return <FinanceTopGainersCard historical={experience.historical} />;
     case "one.finance_portfolio.v1":

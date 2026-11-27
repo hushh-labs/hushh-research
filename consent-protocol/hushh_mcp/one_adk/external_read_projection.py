@@ -23,6 +23,7 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_MAIL_EMPTY_RETRIES,
     STATE_SELECTED_DRIVE_SHARE,
 )
+from hushh_mcp.one_adk.finance_a2ui import native_finance_receipt_kind
 from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME
 from hushh_mcp.one_adk.plaid_connector_tools import (
     PLAID_RESULT_STATUSES,
@@ -290,7 +291,11 @@ def durable_external_read_projection(session: Session) -> Session:
             if part.function_call and part.function_call.name == A2UI_TOOL_NAME:
                 part.function_call.args = {}
             if part.function_response and part.function_response.name == A2UI_TOOL_NAME:
-                part.function_response.response = {"content_redacted": True}
+                finance_receipt = native_finance_receipt_kind(part.function_response.response)
+                part.function_response.response = {
+                    "content_redacted": True,
+                    **({"financeHistoryReceipt": finance_receipt} if finance_receipt else {}),
+                }
             if part.thought and part.text:
                 part.text = None
             if part.function_response and part.function_response.name in READ_TOOLS:

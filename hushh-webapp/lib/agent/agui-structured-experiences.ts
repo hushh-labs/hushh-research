@@ -3,11 +3,13 @@ import {
   FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE,
   FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE,
   FINANCE_TOP_GAINERS_EXPERIENCE_TYPE,
+  NATIVE_FINANCE_RECEIPT_TYPE,
   parseFinancePortfolio,
   parseFinancePortfolioUpload,
   parseFinanceStockPreview,
   parseFinanceTopGainers,
   parseFinanceToolResult,
+  parseNativeFinanceReceipt,
   type FinanceCardExperience,
 } from "./finance-chat-experiences";
 import { asRecord, parseRecord, unwrapToolResult } from "./tool-result-envelope";
@@ -810,6 +812,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE]: parseFinancePortfolioUpload,
   [FINANCE_TOP_GAINERS_EXPERIENCE_TYPE]: parseFinanceTopGainers,
   [FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE]: parseFinanceStockPreview,
+  [NATIVE_FINANCE_RECEIPT_TYPE]: parseNativeFinanceReceipt,
   [SHARED_WITH_ME_CARD_EXPERIENCE_TYPE]: parseSharedWithMeCard,
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,

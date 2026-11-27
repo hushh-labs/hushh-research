@@ -470,14 +470,17 @@ parts. Tool arguments and provider progress stay server-side. An upstream
 disconnect before `done` leaves any received text visible and marks the turn
 failed.
 
-An A2UI Finance sharing proposal can name the connection or verified-advisor
-audience. Only the live app turn can enable the existing sharing review. This
+An A2UI Finance sharing proposal can offer the connection or verified-advisor
+review, or open the Received view of the existing sharing manager. The person
+chooses the share in the manager. Only the live app turn can enable the sharing review. This
 review reads the current saved portfolio again before encrypting for the
 chosen recipient, keeps amounts hidden by default, and keeps recipient model
 processing off. The same live-turn checks protect statement upload, the
 reviewed source picker, Plaid connection, and stock analysis. The app resolves
 recipients, saves, and confirmation receipts through the existing controllers.
-Restored proposals are inactive.
+Encrypted history retains a fixed label for a native Finance offer. Reopening
+the conversation renders that label as a read-only receipt. Recipient records,
+portfolio values, and confirmation authority stay with the app's controllers.
 
 The Saved Portfolio component lets an admitted live turn render the active
 portfolio through the app's existing vault-protected Finance card. The

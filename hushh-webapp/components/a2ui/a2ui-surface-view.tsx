@@ -107,7 +107,9 @@ function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId, 
     case "FinanceShareProposal":
       return allowFinanceShare
         ? <FinanceShareProposal audience={node.audience} />
-        : <p className="ui-text-row-description">Portfolio sharing was proposed.</p>;
+        : <p className="ui-text-row-description">
+          {node.audience === "received" ? "Received Finance was offered." : "Portfolio sharing was proposed."}
+        </p>;
     case "FinancePortfolioUpload":
       return financeActionOfferId
         ? <FinancePortfolioUploadCard offerId={financeActionOfferId} allowUpload />

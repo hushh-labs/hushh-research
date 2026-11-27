@@ -205,19 +205,22 @@ it("shows the saved statement name and import time, or the linked Plaid label", 
   expect(view.container.querySelector("time")).toBeNull();
 });
 
-it("keeps restored finance share proposals inert and rejects model-supplied share terms", () => {
-  const proposal = { id: "root", component: "FinanceShareProposal", audience: "verified_advisor" };
+it.each([
+  ["verified_advisor", "Portfolio sharing was proposed.", { showAmounts: true }],
+  ["received", "Received Finance was offered.", { grantId: "model-chosen-grant" }],
+])("keeps restored %s share proposals inert and rejects model-supplied share terms", (audience, label, unsupported) => {
+  const proposal = { id: "root", component: "FinanceShareProposal", audience };
   const surface = {
     ...create,
     createSurface: { ...create.createSurface, components: [proposal] },
   };
   const accepted = applyA2uiMessage(new Map(), surface).get("holdings")!;
   const view = render(createElement(A2uiSurfaceView, { surface: accepted }));
-  expect(view.getByText("Portfolio sharing was proposed.")).toBeTruthy();
+  expect(view.getByText(label)).toBeTruthy();
   expect(view.queryByRole("button")).toBeNull();
   const state = new Map();
   expect(applyA2uiMessage(state, {
     ...surface,
-    createSurface: { ...surface.createSurface, components: [{ ...proposal, showAmounts: true }] },
+    createSurface: { ...surface.createSurface, components: [{ ...proposal, ...unsupported }] },
   })).toBe(state);
 });

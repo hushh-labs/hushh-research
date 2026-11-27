@@ -18,7 +18,7 @@ type Component =
   | { id: string; component: "FinanceTopGainers" }
   | { id: string; component: "FinancePlaidConnection" }
   | { id: string; component: "FinancePortfolioPicker"; mode: "switch" | "delete" }
-  | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" };
+  | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" | "received" };
 
 export type A2uiSurface = Readonly<{
   components: ReadonlyMap<string, Component>;
@@ -123,7 +123,7 @@ function parseComponent(value: unknown): Component | null {
         : null;
     case "FinanceShareProposal":
       return keys(value, ["id", "component", "audience"]) &&
-        (value.audience === "connection" || value.audience === "verified_advisor")
+        (value.audience === "connection" || value.audience === "verified_advisor" || value.audience === "received")
         ? { id, component, audience: value.audience }
         : null;
     case "MarketSnapshot": {
