@@ -87,6 +87,8 @@ def has_credential(row: dict) -> bool:
 def _transition_target(target: str, profile: str) -> bool:
     if profile == "hussh_uat_mail_web":
         return target == "ace" and os.getenv("HUSHH_DEPLOY_ENV") == "uat"
+    if profile == "hussh_web":
+        return target == "ace" or is_owner_cloud_target(target)
     return is_owner_cloud_target(target)
 
 

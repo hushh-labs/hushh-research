@@ -17,6 +17,7 @@
  */
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { agentRecipientFromBinding, type AiSelectionSealContext } from "./ai-selection-recipient";
+import { isHostedWebOAuthOrigin, UAT_MAIL_ORIGIN } from "./hosted-web-oauth-origins";
 import { base64AnyDecode, base64UrlEncode, type AiSelectionRecipient } from "./ai-selection-seal";
 
 export const CONNECTOR_SEAL_ALG = "X25519-HKDF-SHA256-AES256GCM" as const;
@@ -26,9 +27,10 @@ const X25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
 const X25519_PKCS8_PREFIX = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20];
 
 export const GOOGLE_CONNECTORS = ["gmail", "calendar", "drive", "contacts"] as const;
+export const HOSTED_WEB_GOOGLE_CONNECTORS = ["gmail", "calendar", "drive"] as const;
 export type GoogleConnector = (typeof GOOGLE_CONNECTORS)[number];
 export type ConnectorProvider = "google" | "mcp";
-export type GoogleClientProfile = "hussh_ios" | "hussh_android" | "hussh_uat_mail_web" | "owner_client";
+export type GoogleClientProfile = "hussh_ios" | "hussh_android" | "hussh_web" | "hussh_uat_mail_web" | "owner_client";
 
 export type AuthorizationCodePlaintext = {
   kind: "authorization_code";
@@ -118,8 +120,12 @@ export function assertConnectorPlaintext(connectorId: string, value: ConnectorCr
       if (!validIntent) throw new ConnectorSealError('CREDENTIAL_INVALID');
     }
     const validProof = value.clientProfile === "hussh_uat_mail_web"
-      ? connectorId === "gmail" && value.codeVerifier === null && value.redirectUri === "https://uat.one.hussh.ai"
-      : typeof value.codeVerifier === "string" && VERIFIER_RE.test(value.codeVerifier);
+      ? connectorId === "gmail" && value.codeVerifier === null && value.redirectUri === UAT_MAIL_ORIGIN
+      : value.clientProfile === "hussh_web"
+        ? (HOSTED_WEB_GOOGLE_CONNECTORS as readonly string[]).includes(connectorId) &&
+            value.codeVerifier === null &&
+            isHostedWebOAuthOrigin(value.redirectUri)
+        : typeof value.codeVerifier === "string" && VERIFIER_RE.test(value.codeVerifier);
     const valid = GOOGLE_CLIENT_RE.test(value.clientId) && validProof &&
       Boolean(value.code) && !/\s/.test(value.code) && value.scopes.length > 0;
     if (!valid) throw new ConnectorSealError("CREDENTIAL_INVALID");
@@ -260,9 +266,13 @@ export async function sealConnectorCredentialRequestBody(
   assertConnectorPlaintext(connectorId, plaintext);
   const transition = suppliedTransition === undefined ? undefined : googleConnectorTransition(suppliedTransition);
   if (transition && (plaintext.kind !== 'authorization_code' ||
-      !['hussh_ios', 'hussh_android', 'hussh_uat_mail_web'].includes(plaintext.clientProfile))) throw new ConnectorSealError('GOOGLE_TRANSITION_INVALID');
-  const recipient = await agentRecipientFromBinding(context, { requiredScope: 'pod.config', ownerCloudOnly: true,
-    uatMailSandbox: plaintext.kind === 'authorization_code' && plaintext.clientProfile === 'hussh_uat_mail_web' });
+      !['hussh_ios', 'hussh_android', 'hussh_web', 'hussh_uat_mail_web'].includes(plaintext.clientProfile))) throw new ConnectorSealError('GOOGLE_TRANSITION_INVALID');
+  const recipient = await agentRecipientFromBinding(context, {
+    requiredScope: 'pod.config',
+    ownerCloudOnly: true,
+    uatMailSandbox: plaintext.kind === 'authorization_code' && plaintext.clientProfile === 'hussh_uat_mail_web',
+    hostedWebSandbox: plaintext.kind === 'authorization_code' && plaintext.clientProfile === 'hussh_web',
+  });
   const envelope = await sealConnectorCredential(connectorId, plaintext, recipient, now);
   return JSON.stringify(transition ? { envelope, transition } : envelope);
 }

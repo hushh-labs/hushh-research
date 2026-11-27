@@ -25,7 +25,7 @@ export async function agentRecipientFromBinding({
   endpoint,
   session,
   transport,
-}: AiSelectionSealContext, authority?: { requiredScope: string; ownerCloudOnly: boolean; uatMailSandbox?: boolean }): Promise<AiSelectionRecipient> {
+}: AiSelectionSealContext, authority?: { requiredScope: string; ownerCloudOnly: boolean; hostedWebSandbox?: boolean; uatMailSandbox?: boolean }): Promise<AiSelectionRecipient> {
   const response = await transport.hub(
     `/api/account/trusted-devices/${encodeURIComponent(session.subjectId)}/pod-binding`,
     { method: "GET", cache: "no-store" },
@@ -56,7 +56,9 @@ export async function agentRecipientFromBinding({
       !Array.isArray(binding.scopes) || !binding.scopes.includes(authority.requiredScope) ||
       (authority.uatMailSandbox
         ? binding.environment !== "uat" || binding.deployment_target !== "ace" || !isPrivatePodBinding(binding)
-        : authority.ownerCloudOnly && !isOwnerCloudTarget(binding.deployment_target)))) {
+        : authority.hostedWebSandbox
+          ? !((binding.deployment_target === "ace" || isOwnerCloudTarget(binding.deployment_target)) && isPrivatePodBinding(binding))
+          : authority.ownerCloudOnly && !isOwnerCloudTarget(binding.deployment_target)))) {
     throw new Error('OWNER_SESSION_REQUIRED');
   }
   return { hushhId: endpoint.hushhId, podKeyId: endpoint.podKeyId, publicKey: binding.pod_public_key };

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -51,8 +52,12 @@ class NoRedirectConnect(connect):
         return exc
 
 
+_SANDBOX_EDGE_PATH_RE = re.compile(r"^/u/[a-zA-Z0-9_-]{1,128}/?$")
+
+
 def _socket_url(url: str) -> str:
     parsed = urlsplit(url)
+    clean_path = parsed.path or ""
     if (
         parsed.scheme != "https"
         or not parsed.hostname
@@ -60,10 +65,11 @@ def _socket_url(url: str) -> str:
         or parsed.password
         or parsed.query
         or parsed.fragment
-        or parsed.path not in {"", "/"}
+        or (clean_path not in {"", "/"} and not _SANDBOX_EDGE_PATH_RE.fullmatch(clean_path))
     ):
         raise ValueError("private pod endpoint unavailable")
-    return "wss://" + parsed.netloc + "/api/one/pod/live"
+    prefix = "" if clean_path in {"", "/"} else clean_path.rstrip("/")
+    return "wss://" + parsed.netloc + prefix + "/api/one/pod/live"
 
 
 @dataclass
