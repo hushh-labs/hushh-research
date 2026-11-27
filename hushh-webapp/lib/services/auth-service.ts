@@ -20,6 +20,11 @@ import {
 } from "./phone-deletion-verification";
 import { linkFirebasePhone, type PhoneLinkConflict } from "./firebase-phone-link";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import {
+  isInteractiveRecaptchaChallengeOpen,
+  WEB_VERIFY_INITIAL_TIMEOUT_MS,
+  WEB_VERIFY_INTERACTIVE_EXTENSION_MS,
+} from "@/lib/auth/recaptcha-challenge-dom";
 import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import {
   type ApplicationVerifier,
@@ -1597,21 +1602,27 @@ export class AuthService {
       });
 
       const provider = new PhoneAuthProvider(auth);
-      const WEB_VERIFY_START_TIMEOUT_MS = 25_000;
       const verificationId = await new Promise<string>((resolve, reject) => {
         if (options?.signal?.aborted) {
           reject(this.createPhoneVerificationError("aborted", "Phone verification was cancelled."));
           return;
         }
         let settled = false;
+        let extendedForInteractiveChallenge = false;
+        let timer: ReturnType<typeof setTimeout>;
         const onAbort = () => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
           reject(this.createPhoneVerificationError("aborted", "Phone verification was cancelled."));
         };
-        const timer = setTimeout(() => {
+        const expireStart = () => {
           if (settled) return;
+          if (!extendedForInteractiveChallenge && isInteractiveRecaptchaChallengeOpen()) {
+            extendedForInteractiveChallenge = true;
+            timer = setTimeout(expireStart, WEB_VERIFY_INTERACTIVE_EXTENSION_MS);
+            return;
+          }
           settled = true;
           options?.signal?.removeEventListener("abort", onAbort);
           try {
@@ -1625,7 +1636,8 @@ export class AuthService {
               "Sending the verification code took too long. Request a new code.",
             ),
           );
-        }, WEB_VERIFY_START_TIMEOUT_MS);
+        };
+        timer = setTimeout(expireStart, WEB_VERIFY_INITIAL_TIMEOUT_MS);
         options?.signal?.addEventListener("abort", onAbort, { once: true });
         Promise.resolve(
           provider.verifyPhoneNumber(normalizedPhoneNumber, options?.recaptchaVerifier),
@@ -1771,6 +1783,13 @@ export class AuthService {
       return explicitCode.replace(/^auth\//, "");
     }
 
+    if (
+      (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) ||
+      (error as { name?: unknown })?.name === "TimeoutError"
+    ) {
+      return "network-request-failed";
+    }
+
     const message = String(
       (error as { message?: unknown })?.message ?? "",
     ).toLowerCase();
@@ -1785,6 +1804,7 @@ export class AuthService {
     if (message.includes("invalid-app-credential"))
       return "invalid-app-credential";
     if (message.includes("captcha-check-failed")) return "captcha-check-failed";
+    if (message.includes("internal-error")) return "internal-error";
     if (message.includes("unauthorized-domain")) return "unauthorized-domain";
     if (message.includes("app-not-authorized")) return "app-not-authorized";
     if (message.includes("missing-client-identifier")) return "missing-client-identifier";
@@ -1898,6 +1918,13 @@ export class AuthService {
       return this.createPhoneVerificationError(
         code,
         "Enter a valid phone number with your country code and try again.",
+      );
+    }
+
+    if (code === "internal-error" && (context === "link_start" || context === "replace_start")) {
+      return this.createPhoneVerificationError(
+        "recaptcha-incomplete",
+        "Security verification did not complete. Complete the verification challenge if prompted, or refresh the page and try again.",
       );
     }
 
