@@ -45,6 +45,7 @@ flowchart LR
 | Read API, route, cache, and native contracts | `Reference` | [Technical references](references.md) · [Web & mobile docs](../../hushh-webapp/docs/README.md) · [Backend docs](../../consent-protocol/docs/README.md) |
 | Author or evolve documentation | `How-To` | [Documentation standard](documentation.md) |
 | Work with the coding-agent framework | `Reference` | [Engineering principles](engineering-principles.md) · [`.agents` guide](../../.agents/README.md) · [Framework checks](agents/README.md) |
+| Keep local disk, worktrees, and dependencies healthy | `Reference` | [Worktree and dependency hygiene](worktree-and-dependency-hygiene.md) |
 
 > [!NOTE]
 > Release permissions, branch rules, and deployment workflows live exclusively in [Operations](../operations/README.md) so there is never a competing release procedure.
