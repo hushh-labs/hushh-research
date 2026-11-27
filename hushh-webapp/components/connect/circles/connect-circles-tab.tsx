@@ -664,6 +664,7 @@ export function ConnectCirclesTab({
       <CreateCircleFlow
         key={`${currentUserId}:${vaultOwnerToken}`}
         busy={busy}
+        creationObservedByOwner
         customTypes={allCustomGroups.map(group => group.label)}
         customTypesSupported={customTypesSupported}
         pathname={ROUTES.CONNECT}
