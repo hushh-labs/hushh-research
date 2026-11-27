@@ -6781,10 +6781,15 @@ final class AppUITests: XCTestCase {
             "Your Map did not settle before the close interaction"
         )
 
-        // The native Google Maps view does not expose the WebView overlay
-        // controls to XCUI reliably. Tap the visible close affordance by its
-        // stable safe-area position so this test exercises real hit testing.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.07)).tap()
+        XCTAssertEqual(status["bootstrap"], "vault_unlocked")
+        let close = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@", "map-close", "Back to Location"
+        )).firstMatch
+        guard close.waitForExistence(timeout: 8) else {
+            XCTFail("Your Map did not expose its authored Back control")
+            return
+        }
+        close.tap()
 
         let closeDeadline = Date().addingTimeInterval(15)
         while Date() < closeDeadline {
