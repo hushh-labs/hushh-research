@@ -4,8 +4,42 @@
     "analysis_stream_error": [],
     "analysis_stream_started": [],
     "analysis_stream_terminal_decision": [],
+    "consent_action_result": [
+      "approve",
+      "deny",
+      "revoke"
+    ],
+    "consent_action_submitted": [
+      "approve",
+      "deny",
+      "revoke"
+    ],
+    "gmail_connect_result": [
+      "start",
+      "complete"
+    ],
+    "gmail_connect_started": [
+      "incremental",
+      "full"
+    ],
+    "gmail_disconnect_result": [],
+    "gmail_receipts_loaded": [],
+    "gmail_sync_requested": [
+      "manual"
+    ],
+    "gmail_sync_result": [
+      "queue",
+      "already_running",
+      "complete",
+      "poll"
+    ],
     "growth_funnel_step_completed": [],
     "hushh_mail_signin_screen_view": [],
+    "import_parse_completed": [],
+    "import_quality_gate_failed": [],
+    "import_quality_gate_passed": [],
+    "import_save_completed": [],
+    "import_upload_started": [],
     "investor_activation_completed": [],
     "market_insights_loaded": [],
     "marketplace_profile_viewed": [
