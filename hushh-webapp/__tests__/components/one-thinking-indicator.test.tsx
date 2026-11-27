@@ -16,7 +16,7 @@ describe("OneThinkingIndicator honest lifecycle labels", () => {
       "data-turn-phase",
       "waking",
     );
-    expect(screen.getByText("Waking your sandbox…")).toBeTruthy();
+    expect(screen.getByText("Starting up…")).toBeTruthy();
     expect(screen.queryByText(/Distilling context|Consulting your wiki/i)).toBeNull();
 
     rerender(<OneThinkingIndicator phase="unlocking" />);

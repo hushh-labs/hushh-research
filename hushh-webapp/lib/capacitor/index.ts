@@ -116,6 +116,7 @@ export interface HushhAuthPlugin extends NativeDeletionPhoneProofPlugin {
     purpose: "read" | "send" | "compose";
     preserveSend?: boolean;
     preserveModify?: boolean;
+    loginHint?: string;
   }): Promise<{
     serverAuthCode: string;
   }>;
@@ -130,6 +131,7 @@ export interface HushhAuthPlugin extends NativeDeletionPhoneProofPlugin {
     includeCalendarList?: boolean;
     includeGuestPhotos?: boolean;
     includeMeetingFiles?: boolean;
+    loginHint?: string;
   }): Promise<{
     serverAuthCode: string;
   }>;

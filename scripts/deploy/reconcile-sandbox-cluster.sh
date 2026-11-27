@@ -28,7 +28,7 @@ case "${PROJECT_ID}" in
     DEPLOY_ENV="uat"
     DEFAULT_CLUSTER="hussh-one-sandbox-uat"
     DEFAULT_EDGE_SA="hussh-sandbox-edge-uat@${PROJECT_ID}.iam.gserviceaccount.com"
-    DEFAULT_WARM_REPLICAS="1"
+    DEFAULT_WARM_REPLICAS="2"
     DEFAULT_CORS="https://uat.one.hussh.si,https://uat.one.hushh.si,https://uat.one.hussh.ai,https://uat.one.hushh.ai,http://localhost:3000"
     DEFAULT_PLAID_ENV="sandbox"
     ;;
@@ -63,6 +63,7 @@ if ! gcloud iam service-accounts describe "${EDGE_SA}" --project="${PROJECT_ID}"
   echo "Sandbox cluster reconcile (${DEPLOY_ENV}): service account ${EDGE_SA} absent; skipping." >&2
   exit 0
 fi
+EDGE_SA_UNIQUE_ID="$(gcloud iam service-accounts describe "${EDGE_SA}" --project="${PROJECT_ID}" --format='value(uniqueId)' 2>/dev/null || true)"
 
 ENDPOINT="$(gcloud container clusters describe "${CLUSTER_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(endpoint)' 2>/dev/null || true)"
 CA_B64="$(gcloud container clusters describe "${CLUSTER_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(masterAuth.clusterCaCertificate)' 2>/dev/null || true)"
@@ -144,23 +145,25 @@ verify_uat_sandbox_allocator() {
   local binding_json="${WORK_DIR}/sandbox-edge-binding.json"
   kctl -n hussh-agents get role sandbox-edge-allocator -o json > "${role_json}"
   kctl -n hussh-agents get rolebinding sandbox-edge-allocator-binding -o json > "${binding_json}"
-  python3 - "${role_json}" "${binding_json}" "${EDGE_SA}" <<'PY'
+  python3 - "${role_json}" "${binding_json}" "${EDGE_SA}" "${EDGE_SA_UNIQUE_ID:-}" <<'PY'
 import json
 import sys
 from itertools import product
 from pathlib import Path
 
-role_path, binding_path, edge_account = sys.argv[1:]
+role_path, binding_path, edge_account, edge_unique_id = sys.argv[1:]
 role = json.loads(Path(role_path).read_bytes())
 binding = json.loads(Path(binding_path).read_bytes())
 api_group = "rbac.authorization.k8s.io"
 role_ref = {"apiGroup": api_group, "kind": "Role", "name": "sandbox-edge-allocator"}
 edge_subject = {"apiGroup": api_group, "kind": "User", "name": edge_account}
+subjects = binding.get("subjects", [])
 if (
     role.get("metadata", {}).get("namespace") != "hussh-agents"
     or binding.get("metadata", {}).get("namespace") != "hussh-agents"
     or binding.get("roleRef") != role_ref
-    or edge_subject not in binding.get("subjects", [])
+    or edge_subject not in subjects
+    or (edge_unique_id and {"apiGroup": api_group, "kind": "User", "name": edge_unique_id} not in subjects)
 ):
     raise SystemExit("UAT Sandbox allocator binding must reference its existing Role and Edge identity.")
 
@@ -336,6 +339,7 @@ fi
 
 kctl -n hussh-sandbox-system create secret generic sentinel-proxy-secrets \
   "${SECRET_ARGS[@]}" --dry-run=client -o yaml | kctl apply -f - >/dev/null
+SENTINEL_SECRETS_SHA256="$(kctl -n hussh-sandbox-system get secret sentinel-proxy-secrets -o jsonpath='{.data}' 2>/dev/null | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest())')"
 
 if [[ -s "${WEB_CID_FILE}" ]]; then
   kctl -n hussh-agents create secret generic sandbox-public-oauth-config \
@@ -372,6 +376,8 @@ spec:
       app: sentinel-egress-proxy
   template:
     metadata:
+      annotations:
+        hussh.ai/secrets-sha256: "${SENTINEL_SECRETS_SHA256}"
       labels:
         app: sentinel-egress-proxy
     spec:
@@ -633,6 +639,13 @@ fi
 
 TEMPLATE_MANIFEST="${WORK_DIR}/sandbox-template-and-pool.yaml"
 if [[ "${DEPLOY_ENV}" != "uat" ]]; then
+  EDGE_UNIQUE_SUBJECT=""
+  if [[ -n "${EDGE_SA_UNIQUE_ID:-}" ]]; then
+    EDGE_UNIQUE_SUBJECT="
+  - kind: User
+    name: \"${EDGE_SA_UNIQUE_ID}\"
+    apiGroup: rbac.authorization.k8s.io"
+  fi
   cat > "${TEMPLATE_MANIFEST}" <<EOF
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -655,7 +668,7 @@ metadata:
 subjects:
   - kind: User
     name: "${EDGE_SA}"
-    apiGroup: rbac.authorization.k8s.io
+    apiGroup: rbac.authorization.k8s.io${EDGE_UNIQUE_SUBJECT}
 roleRef:
   kind: Role
   name: sandbox-edge-allocator
