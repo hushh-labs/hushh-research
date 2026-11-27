@@ -271,7 +271,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         plaid_posture, plaid_client_ready = admit_plaid_posture(forwarded, owner_admitted=True)
     except ValueError:
         raise HTTPException(413, detail={"code": "POD_CHAT_PLAID_POSTURE_TOO_LARGE"}) from None
-    location_review = admit_location_chat_review(forwarded, owner_admitted=True)
+    location_review = admit_location_chat_review(
+        forwarded, owner_admitted=True, pod_environment=owner.authority.environment
+    )
     state = {
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         owner_style.STATE_OWNER_STYLE: owner_style.admit_owner_style(
@@ -283,7 +285,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         STATE_LOCATION_CHAT_CONVERSATION: location_review
         and forwarded.get("locationChatConversation") is True,
         STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
-            forwarded, owner_admitted=True
+            forwarded, owner_admitted=True, pod_environment=owner.authority.environment
         ),
         STATE_MCP_APPROVAL: admit_resume_receipt(
             forwarded, owner_id=owner.owner, conversation_id=input.thread_id

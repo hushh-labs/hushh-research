@@ -43,6 +43,15 @@ native web bundles with `NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED=true`.
 Use signed-in test accounts with vault access and registered Location recipient
 keys. Use a named Circle with at least two participants.
 
+For a private Chat runtime, verify the installed owner runtime or hosted sandbox
+image supports conversational Location. The shared backend revision and sandbox
+edge gateway do not establish which image a private Chat session uses.
+
+Ask to share just a city, hide coordinates, stop on arrival, or expire automatic
+approval after three hours. Verify that Chat explains the unsupported condition
+and that no Send control or standing approval appears. A bare “yes” must retain
+the restriction. An explicitly revised, supported request can start a fresh review.
+
 Test both the pinned One conversation and an ordinary new or reopened chat.
 Use a client advertising `locationChatConversation` for the typed exchanges
 below. On a previous client advertising only `locationChatReview`, verify that
@@ -61,10 +70,12 @@ Check its actual recipients before confirming. Repeat with “no” and verify
 that no one receives access. Complete these exchanges with the chat composer.
 
 With a ready device and a test Circle named NM, type “Share my location with NM circle for 1 hour”
-and press Send in the foreground chat. Verify that this single command starts
-the one-hour private share with the actual NM recipients and that the receipt
-names the people reached. No second confirmation is needed for this complete
-command. Repeat on a narrow phone and on desktop. With a larger Circle, check that one
+and send the message. Verify Chat resolves NM and the one-hour duration, then shows
+**Share live location** beside its reply. Verify no grant exists before confirmation.
+Press the button or reply “yes” and verify the recipient receives the one-hour share.
+Repeat with “Ask Ankit to share his location with me for one hour.” Verify **Send location
+request** sends to the resolved connection while the sender stays in Chat. Use a test
+emergency contact to verify **Send Save My Soul alert** appears after its audience is ready. Repeat on a narrow phone and on desktop. With a larger Circle, check that one
 receipt shows the outcome and duration. Ask for the names to inspect the
 recipients in Chat. Keep the composer visible while reading or paging through
 choices, including when the keyboard opens.

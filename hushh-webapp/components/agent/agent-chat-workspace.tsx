@@ -2873,6 +2873,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     router.push(ROUTES.ONE_LOCATION_CHECK_IN);
   }, [router, vaultSessionEpoch]);
   const locationChatContinuation = useRef<{ proposalId: string; context: MainLocationContinuation } | null>(null);
+  const [locationSendHost, setLocationSendHost] = useState<HTMLDivElement | null>(null);
   const locationReply = useRef<{ proposalId: string; handle: LocationConversationReply } | null>(null);
   const rememberLocationReply = useCallback((proposalId: string, handle: LocationConversationReply | null) => {
     if (handle) locationReply.current = { proposalId, handle };
@@ -9170,7 +9171,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
     const locationShareSubmission = Symbol("location-composer");
-    shareSubmission.current = { id: locationShareSubmission, proposed: false };
     // Only after the person chose "Something else" for their name, and only
     // when it is name-shaped; anything else is an ordinary turn to One.
     if (!attachment && chatOnboarding.captureComposerText(typedText)) {
@@ -9308,6 +9308,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return true;
       }
     }
+    // An explicit answer to the active Location review keeps its audience snapshot.
+    shareSubmission.current = locationShareSubmission ? { id: locationShareSubmission, proposed: false } : null;
     // Hands-free voice & free-text confirmation for a mounted AskProposalCard:
     // replying "yes send" / "send it" / "confirm" submits the visible proposal
     // directly instead of forcing a manual tap on the card.
@@ -11556,6 +11558,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
+                  {locationChatReviewEnabled && message.role === "assistant" && message.id === visibleMessages.at(-1)?.id &&
+                    !message.receiptRedacted && !redactedAnswerIds.has(message.id) && !isChatLoading && !isStreaming &&
+                    (message.locationChatProposal || message.locationReplyFor)
+                    ? <div ref={setLocationSendHost} /> : null}
                   {locationChatReviewEnabled && message.locationChatProposal && returnedLocation?.outcome !== "cancelled" && !(locationConversation &&
                     usesLocationChildConversation(message.locationChatProposal.action) &&
                     (message.restoredFromHistory && !resumedLocation || message.id !== latestLocationProposalMessageId)) ? (
@@ -11567,6 +11573,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       proposal={resumedLocation ? returnedLocation.proposal : message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
                       allowReview={message.id === latestLocationProposalMessageId && (!locationConversation || Boolean(liveLocationConversation))}
+                      sendHost={liveLocationConversation && latestLocationAnswer &&
+                        (latestLocationAnswer.locationReplyFor ?? latestLocationAnswer.locationChatProposal?.id) === message.locationChatProposal.id
+                        ? locationSendHost : null}
                       onContinuationChange={rememberLocationContinuation}
                       claimEnable={resumedLocation ? undefined : claimLocationEnable}
                       claimDirectShare={freshLocation && !resumedLocation ? claimDirectShare : undefined}
