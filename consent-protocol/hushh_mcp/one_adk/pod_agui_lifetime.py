@@ -326,7 +326,7 @@ class PodTimedADKAgent(TimedADKAgent):
                             tool_count += 1
                             if call_id:
                                 pending_tool_calls.add(call_id)
-                                if event.tool_call_name == TOOL_NAME:
+                                if getattr(event, "tool_call_name", None) == TOOL_NAME:
                                     location_call_id = call_id
                         elif event.type == EventType.TOOL_CALL_RESULT:
                             saw_server_tool_result = True
@@ -337,7 +337,7 @@ class PodTimedADKAgent(TimedADKAgent):
                                 and call_id in pending_tool_calls
                             ):
                                 try:
-                                    result = json.loads(event.content)
+                                    result = json.loads(getattr(event, "content", "") or "")
                                 except (TypeError, ValueError):
                                     result = None
                                 proposal = location_chat_proposal_from_result(result)

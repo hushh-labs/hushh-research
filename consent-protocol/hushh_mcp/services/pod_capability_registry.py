@@ -80,6 +80,12 @@ POD_CAPABILITIES: tuple[PodCapability, ...] = (
         why="the pod runs Agent One; off, POST /api/one/pod/turn 404s",
     ),
     PodCapability(
+        env_var="ONE_MAIN_CHAT_LOCATION_ENABLED",
+        locus="pod",
+        dev_intent="on",
+        why="owner Chat offers in-chat Location actions when the shared Dev release enables them",
+    ),
+    PodCapability(
         env_var="POD_LOCAL_PKM_ENABLED",
         locus="pod",
         dev_intent="on",
