@@ -42,6 +42,11 @@ export type MainLocationPlan = {
   nextExpiresAt?: string | null;
   durationHours?: number | null;
   durationMode?: "timed" | "until_stopped" | null;
+  shareMode?: "live" | "static_pin" | "task_bound" | null;
+  precision?: "precise" | "approximate" | "city" | null;
+  startsAt?: string | null;
+  taskLabel?: string | null;
+  calendarEventId?: string | null;
   expiresAt?: string | null;
   recipientKey?: { keyId: string; publicKeyJwk: JsonWebKey } | null;
   status: "pending" | "executed";
@@ -85,8 +90,13 @@ export function prepareMainLocationPlan(token: string, proposal: MainLocationPro
     grantId: target.grantId,
     requestId: target.requestId,
     circleId: target.circleId,
-    durationHours: proposal.action === "share_pin" ? undefined : proposal.durationHours,
-    durationMode: proposal.action === "share_pin" ? undefined : proposal.durationMode,
+    durationHours: proposal.action === "share_pin" || proposal.shareMode === "static_pin" ? undefined : proposal.durationHours,
+    durationMode: proposal.action === "share_pin" || proposal.shareMode === "static_pin" ? undefined : proposal.durationMode,
+    ...(proposal.shareMode ? { shareMode: proposal.shareMode } : {}),
+    ...(proposal.precision ? { precision: proposal.precision } : {}),
+    ...(proposal.startsAt ? { startsAt: proposal.startsAt } : {}),
+    ...(proposal.endsAt ? { endsAt: proposal.endsAt } : {}),
+    ...(proposal.taskLabel ? { taskLabel: proposal.taskLabel } : {}),
   });
 }
 

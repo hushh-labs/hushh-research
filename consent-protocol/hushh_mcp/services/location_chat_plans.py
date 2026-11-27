@@ -11,7 +11,16 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, get_args
 from uuid import UUID
 
-from hushh_mcp.operons.location.policy import MAX_LOCATION_SHARE_HOURS
+from hushh_mcp.operons.location.policy import (
+    MAX_CHAT_LOCATION_SHARE_HOURS,
+    MAX_LOCATION_SHARE_HOURS,
+    MAX_SCHEDULED_TRIP_SHARE_DAYS,
+    MAX_SCHEDULED_TRIP_SHARE_HOURS,
+    MAX_TASK_BOUND_SHARE_HOURS,
+    normalize_grant_precision,
+    normalize_share_mode,
+    resolve_fixed_end_hours,
+)
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.one_location_agent_service import (
     DEFAULT_APPROVAL_DURATION_HOURS,
@@ -224,9 +233,37 @@ class LocationChatPlanService:
         request: dict[str, Any] | None,
         grant: dict[str, Any] | None,
         now: datetime,
+        share_mode: str | None = None,
+        starts_at: datetime | None = None,
+        ends_at: datetime | None = None,
+        circle_id: str | None = None,
     ) -> tuple[float | None, str | None, datetime | None]:
         if action not in _DURATION_ACTIONS:
             return None, None, None
+        if share_mode == "static_pin":
+            return _DEFAULT_PIN_HOURS, "timed", now + timedelta(hours=_DEFAULT_PIN_HOURS)
+        if ends_at is not None:
+            if starts_at is not None and circle_id:
+                if ends_at <= starts_at:
+                    raise _invalid("End time must be after the trip start time.")
+                span_hours = round((ends_at - starts_at).total_seconds() / 3600.0, 2)
+                if span_hours < 0.25 or span_hours > MAX_SCHEDULED_TRIP_SHARE_HOURS:
+                    raise _invalid(
+                        f"Scheduled Circle trip shares must be between 15 minutes and {MAX_SCHEDULED_TRIP_SHARE_DAYS} days."
+                    )
+                return span_hours, "timed", ends_at
+            max_fixed = (
+                MAX_TASK_BOUND_SHARE_HOURS
+                if share_mode == "task_bound"
+                else MAX_CHAT_LOCATION_SHARE_HOURS
+            )
+            try:
+                hours, target = resolve_fixed_end_hours(
+                    ends_at=ends_at, now=now, max_hours=max_fixed
+                )
+            except ValueError as exc:
+                raise _invalid(str(exc)) from exc
+            return hours, "timed", target
         if action == "approve" and request and duration_hours is None and duration_mode is None:
             duration_hours = request.get("requested_duration_hours")
             duration_mode = request.get("requested_duration_mode")
@@ -237,14 +274,28 @@ class LocationChatPlanService:
                 duration_hours=duration_hours, duration_mode=duration_mode
             )
             return hours, mode, None
+        if (
+            share_mode == "task_bound"
+            and duration_hours is not None
+            and duration_hours > MAX_TASK_BOUND_SHARE_HOURS
+        ):
+            raise _invalid(
+                f"Task-bound location shares are limited to {int(MAX_TASK_BOUND_SHARE_HOURS)} hours."
+            )
         relative = action in _RELATIVE_ACTIONS or (
             action == "approve" and request is not None and bool(request.get("extends_grant_id"))
+        )
+        max_trip = (
+            MAX_SCHEDULED_TRIP_SHARE_HOURS
+            if circle_id and (starts_at is not None or (duration_hours or 0) > 24.0)
+            else None
         )
         hours, expiry, mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
             share_kind="share",
             now=now,
+            max_hours=max_trip,
         )
         if relative:
             if not grant or grant.get("expires_at") is None or hours is None:
@@ -268,6 +319,12 @@ class LocationChatPlanService:
         circle_id: str | None = None,
         origin_id: str | None = None,
         attempt_id: str | None = None,
+        share_mode: Literal["live", "static_pin", "task_bound"] | None = None,
+        precision: Literal["precise", "approximate", "city"] | None = None,
+        starts_at: str | None = None,
+        ends_at: str | None = None,
+        task_label: str | None = None,
+        calendar_event_id: str | None = None,
     ) -> dict[str, Any]:
         if action not in _ACTIONS:
             raise _invalid("Choose a supported location action.")
@@ -279,6 +336,42 @@ class LocationChatPlanService:
         attempt_id = _uuid(attempt_id)
         if not (person_user_id or grant_id or request_id):
             raise _invalid("Choose a person, share, or request first.")
+        resolved_share_mode: str | None = None
+        if share_mode is not None:
+            if action != "share_live":
+                raise _invalid("Share mode is only supported for new outgoing shares.")
+            try:
+                resolved_share_mode = normalize_share_mode(share_mode)
+            except ValueError as exc:
+                raise _invalid(str(exc)) from exc
+        resolved_precision: str | None = None
+        if precision is not None:
+            if action not in {"share_live", "approve"}:
+                raise _invalid("Precision is only supported when starting or approving a share.")
+            try:
+                resolved_precision = normalize_grant_precision(precision)
+            except ValueError as exc:
+                raise _invalid(str(exc)) from exc
+        parsed_starts_at: datetime | None = (
+            _parse_datetime(starts_at, field_name="startsAt") if starts_at else None
+        )
+        parsed_ends_at: datetime | None = (
+            _parse_datetime(ends_at, field_name="endsAt") if ends_at else None
+        )
+        if (parsed_starts_at or parsed_ends_at) and action not in _DURATION_ACTIONS:
+            raise _invalid("This location action does not accept start or end times.")
+        cleaned_task_label = (
+            " ".join(str(task_label).split())[:120]
+            if task_label and str(task_label).strip()
+            else None
+        )
+        cleaned_calendar_event_id = (
+            str(calendar_event_id).strip()[:160]
+            if calendar_event_id and str(calendar_event_id).strip()
+            else None
+        )
+        if (cleaned_task_label or cleaned_calendar_event_id) and action != "share_live":
+            raise _invalid("Task and calendar context apply only to outgoing shares.")
         if (
             (request_id and action not in _REQUEST_ACTIONS)
             or (grant_id and action not in _GRANT_ACTIONS | _SHARE_ACTIONS | {"approve"})
@@ -293,9 +386,17 @@ class LocationChatPlanService:
                     or duration_mode == "until_stopped"
                 )
             )
+            or (
+                resolved_share_mode == "static_pin"
+                and (
+                    duration_hours not in {None, _DEFAULT_PIN_HOURS}
+                    or duration_mode == "until_stopped"
+                    or parsed_ends_at is not None
+                )
+            )
         ):
             raise _invalid("Choose terms for this location action.")
-        intent_values = [
+        intent_values: list[Any] = [
             action,
             person_user_id,
             grant_id,
@@ -306,6 +407,27 @@ class LocationChatPlanService:
         ]
         if attempt_id:
             intent_values.append(attempt_id)
+        if any(
+            v is not None
+            for v in (
+                resolved_share_mode,
+                resolved_precision,
+                starts_at,
+                ends_at,
+                cleaned_task_label,
+                cleaned_calendar_event_id,
+            )
+        ):
+            intent_values.append(
+                {
+                    "shareMode": resolved_share_mode,
+                    "precision": resolved_precision,
+                    "startsAt": _iso(parsed_starts_at),
+                    "endsAt": _iso(parsed_ends_at),
+                    "taskLabel": cleaned_task_label,
+                    "calendarEventId": cleaned_calendar_event_id,
+                }
+            )
         intent = hashlib.sha256(
             json.dumps(intent_values, separators=(",", ":")).encode()
         ).hexdigest()
@@ -418,6 +540,10 @@ class LocationChatPlanService:
                 request=request,
                 grant=grant,
                 now=now,
+                share_mode=resolved_share_mode,
+                starts_at=parsed_starts_at,
+                ends_at=parsed_ends_at,
+                circle_id=circle_id,
             )
             key_id = None
             if action in _SHARE_ACTIONS:
@@ -430,7 +556,7 @@ class LocationChatPlanService:
                 if action in {"ask", "ask_extension"}
                 else None
             )
-            terms = {
+            terms: dict[str, Any] = {
                 "attemptId": attempt_id,
                 "personDisplayLabel": _identity_display_label(
                     self.location._identity_row(person_user_id)
@@ -449,6 +575,16 @@ class LocationChatPlanService:
                 "boundOutgoingRequest": prior_ask,
                 "keyId": key_id,
             }
+            if resolved_share_mode is not None:
+                terms["shareMode"] = resolved_share_mode
+            if resolved_precision is not None:
+                terms["precision"] = resolved_precision
+            if parsed_starts_at is not None:
+                terms["startsAt"] = _iso(parsed_starts_at)
+            if cleaned_task_label is not None:
+                terms["taskLabel"] = cleaned_task_label
+            if cleaned_calendar_event_id is not None:
+                terms["calendarEventId"] = cleaned_calendar_event_id
             row = self.location._execute_one(
                 """
                 INSERT INTO one_location_chat_plans (
@@ -513,6 +649,9 @@ class LocationChatPlanService:
             "expiresAt": _iso(row["expires_at"]),
             "status": "executed" if receipt is not None else "pending",
         }
+        for optional_key in ("shareMode", "precision", "startsAt", "taskLabel", "calendarEventId"):
+            if terms.get(optional_key) is not None:
+                response[optional_key] = terms[optional_key]
         if receipt is not None:
             response["receipt"] = {
                 key: receipt[key]
@@ -706,8 +845,13 @@ class LocationChatPlanService:
         if action == "share_live":
             if envelope is None:
                 raise _invalid("This location share requires an encrypted location.")
+            effective_share_mode = str(terms.get("shareMode") or "live")
+            effective_share_kind = "pin" if effective_share_mode == "static_pin" else "share"
             self.location._assert_envelope_precision_matches_preference(
-                owner_user_id=user_id, envelope=envelope, share_kind="share"
+                owner_user_id=user_id,
+                envelope=envelope,
+                share_kind=effective_share_kind,
+                reviewed_precision=terms.get("precision"),
             )
             result = self.location.create_grant_with_initial_envelope(
                 owner_user_id=user_id,
@@ -718,9 +862,14 @@ class LocationChatPlanService:
                 client_operation_id=operation,
                 confirmed_at=confirmed_at or _utcnow(),
                 envelope=envelope,
-                share_kind="share",
+                share_kind=effective_share_kind,
                 source_circle_id=terms["circleId"],
                 enforce_connection=True,
+                share_mode=effective_share_mode,
+                precision=terms.get("precision"),
+                starts_at=terms.get("startsAt"),
+                task_label=terms.get("taskLabel"),
+                calendar_event_id=terms.get("calendarEventId"),
             )
             return {
                 "grantId": result["grant"]["id"],

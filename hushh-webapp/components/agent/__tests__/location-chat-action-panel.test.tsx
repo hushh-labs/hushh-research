@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { MouseEvent, ReactNode } from "react";
 import { expect, test, vi } from "vitest";
 import { executeMainLocationPlan, expandMainLocationTarget, inspectMainLocationPlan, prepareMainLocationPlan, resolveMainLocationChoices, restoreMainLocationPlans } from "@/lib/agent/main-chat-location";
-import { getLocationAccountSettings, updateLocationAccountSettings } from "@/lib/location/account-settings";
+import { getLocationAccountSettings, pauseLocationUpdates, resumeLocationUpdates, updateLocationAccountSettings } from "@/lib/location/account-settings";
 import { parseMainLocationProposal } from "@/lib/agent/main-chat-location-contract";
 import { directLocationShareTerms, locationPlanGroups, locationPlanSentence, locationReviewText, typedLocationEnableAuthority, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
 import { loadChatSosReview, sendChatSos } from "@/lib/one-location/chat-sos";
@@ -36,14 +36,19 @@ vi.mock("@/lib/agent/main-chat-location", () => ({
   expandMainLocationTarget: vi.fn(async (_token, _owner, target) => [target]),
 }));
 vi.mock("@/lib/location/account-settings", () => ({
-  getLocationAccountSettings: vi.fn(), updateLocationAccountSettings: vi.fn(), LocationAccountSettingsResource: { write: vi.fn() },
+  getLocationAccountSettings: vi.fn(), updateLocationAccountSettings: vi.fn(),
+  pauseLocationUpdates: vi.fn(), resumeLocationUpdates: vi.fn(),
+  LocationAccountSettingsResource: { write: vi.fn() },
 }));
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: { viewEnvelope: vi.fn(async () => ({})), getPermissionState: vi.fn(async () => ({ state: "granted" })),
     requestLocationPermission: vi.fn(),
+    getState: vi.fn(async () => ({ recipients: [], ownerGrants: [], receivedGrants: [], requests: [], referrals: [], publicInvites: [], publicInviteSubmissions: [], capabilityScopes: [] })),
     listRecipients: vi.fn(async () => []), removeSmsContact: vi.fn(), addSmsContact: vi.fn(),
     listCircles: vi.fn(async () => [{ id: "family", name: "Family" }]),
     listRecipientsPage: vi.fn(async () => ({ items: [], page: 1, hasMore: false })),
+    revokeAllOwnerGrants: vi.fn(async () => ({ revokedCount: 2, revokedGrantIds: ["g1", "g2"], revokedLinkIds: [] })),
+    createGeofence: vi.fn(), listGeofences: vi.fn(async () => ({ rules: [] })),
     captureCurrentPosition: vi.fn(async () => ({ latitude: 1, longitude: 1, capturedAt: new Date().toISOString(), sourcePlatform: "web" })) },
 }));
 vi.mock("@/lib/one-location/chat-sos", () => ({
@@ -785,3 +790,38 @@ test("an explicit stop for everyone reviews every active outgoing grant before r
   await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Stopped sharing your location with Ankit and Maya."));
   expect(executeMainLocationPlan).toHaveBeenCalledTimes(2);
 });
+
+test("stopAll and pause_updates execute inline E2E actions and parse new proposal terms", async () => {
+  vi.clearAllMocks();
+  const parsed = parseMainLocationProposal({
+    id: "11111111-1111-4111-8111-111111111111",
+    type: "location.chat_action",
+    action: "share_live",
+    people: ["Maya"],
+    shareMode: "static_pin",
+    precision: "city",
+  });
+  expect(parsed?.shareMode).toBe("static_pin");
+  expect(parsed?.precision).toBe("city");
+
+  render(<LocationChatActionPanel proposal={{ id: "stop-all", action: "stop", stopAll: true }} ownerId="owner" token="token" allowReview onUnlock={() => {}} />);
+  await waitFor(() => expect(OneLocationService.revokeAllOwnerGrants).toHaveBeenCalledWith({
+    vaultOwnerToken: "token", includeSos: false, includePublicLinks: true,
+  }));
+  expect(screen.getByText(/Stopped 2 live shares/)).toBeTruthy();
+
+  vi.mocked(pauseLocationUpdates).mockResolvedValueOnce({
+    sharing_state: "on", sharing_enabled: true, precision: "precise",
+    sharing_consent_version: "v1", sharing_consent_accepted_at: null,
+    sharing_enabled_at: null, sharing_disabled_at: null,
+    os_permission_reported: "granted", os_permission_reported_at: null,
+    paused_until: "2090-01-01T12:00:00.000Z", is_paused: true,
+    sharingState: "on", sharingEnabled: true, sharingConsentVersion: "v1",
+    sharingConsentAcceptedAt: null, osPermissionReported: "granted",
+    pausedUntil: "2090-01-01T12:00:00.000Z", isPaused: true,
+  });
+  render(<LocationChatActionPanel proposal={{ id: "pause-2h", action: "pause_updates", durationHours: 2 }} ownerId="owner" token="token" allowReview onUnlock={() => {}} />);
+  await waitFor(() => expect(pauseLocationUpdates).toHaveBeenCalledWith("token", 2));
+  expect(resumeLocationUpdates).not.toHaveBeenCalled();
+});
+

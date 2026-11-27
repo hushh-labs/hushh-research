@@ -223,6 +223,11 @@ export type OneLocationGrant = {
   feedSmsConfirmed?: boolean;
   /** Recipient-only time of first confirmed SOS publication, never draft creation. */
   feedConfirmedAt?: string | null;
+  shareMode?: "live" | "static_pin" | "task_bound" | string | null;
+  precision?: "precise" | "approximate" | "city" | string | null;
+  startsAt?: string | null;
+  taskLabel?: string | null;
+  calendarEventId?: string | null;
 };
 
 export type OneLocationAccessRequest = {
@@ -785,7 +790,55 @@ export type PlainLocationPoint = {
    * server can refuse an envelope that disagrees with the owner's stored
    * preference (it can never see the coordinate itself).
    */
-  precision?: "precise" | "approximate";
+  precision?: "precise" | "approximate" | "city";
+  cityLabel?: string | null;
+};
+
+export type OneLocationGeofenceRule = {
+  id: string;
+  ownerUserId: string;
+  triggerType: "share_on_arrival" | "stop_on_arrival";
+  placeKind: "public_place" | "saved_home";
+  placeLabel: string;
+  publicPlaceId?: string | null;
+  publicLat?: number | null;
+  publicLng?: number | null;
+  radiusMeters: number;
+  recipientUserIds: string[];
+  recipientNames: string[];
+  shareDurationHours?: number | null;
+  precision?: "precise" | "approximate" | "city" | null;
+  status: "armed" | "triggered" | "cancelled" | "expired" | string;
+  triggeredAt?: string | null;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type TriggerGeofenceResponse = {
+  rule: OneLocationGeofenceRule;
+  alreadyTriggered: boolean;
+  grants: OneLocationGrant[];
+  revokedCount: number;
+};
+
+export type OneLocationRequestBlock = {
+  blockedUserId: string;
+  reason?: string | null;
+  createdAt?: string | null;
+};
+
+export type RevokeAllGrantsResponse = {
+  revokedCount: number;
+  revokedGrantIds: string[];
+  revokedLinkIds: string[];
+};
+
+export type EmergencyOverrideResponse = {
+  status: string;
+  durationHours: number;
+  recipientCount: number;
+  grants: OneLocationGrant[];
 };
 
 export type OneLocationEncryptedEnvelope = {

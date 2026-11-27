@@ -9586,3 +9586,118 @@ def test_public_link_rejects_retired_owner_but_treats_retired_phone_match_as_a_v
     with pytest.raises(OneLocationAgentError) as failure:
         service.resolve_public_invite(public_token=created["publicToken"])
     assert failure.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+
+def test_geofence_saved_home_never_persists_server_coordinates(monkeypatch):
+    from hushh_mcp.services.one_location_geofence_service import OneLocationGeofenceService
+
+    captured: list[dict] = []
+
+    def fake_execute_one(self, sql, params):
+        captured.append(dict(params))
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "owner_user_id": params["owner_user_id"],
+            "trigger_type": params["trigger_type"],
+            "place_kind": params["place_kind"],
+            "place_label": params["place_label"],
+            "public_place_id": params["public_place_id"],
+            "public_lat": params["public_lat"],
+            "public_lng": params["public_lng"],
+            "radius_meters": params["radius_meters"],
+            "recipient_user_ids": params["recipient_user_ids"],
+            "share_duration_hours": params["share_duration_hours"],
+            "precision": params["precision"],
+            "status": "armed",
+            "metadata": params["metadata_json"],
+        }
+
+    agent = OneLocationAgentService()
+    monkeypatch.setattr(agent, "_insert_event", lambda **_: None)
+    geofence = OneLocationGeofenceService(agent)
+    monkeypatch.setattr(OneLocationGeofenceService, "_execute_one", fake_execute_one)
+
+    # Privacy boundary: saved_home strips coordinates even if caller passes them.
+    home_rule = geofence.create_rule(
+        owner_user_id="user_a",
+        trigger_type="stop_on_arrival",
+        place_kind="saved_home",
+        place_label="Home",
+        public_lat=37.7749,
+        public_lng=-122.4194,
+    )
+    assert home_rule["publicLat"] is None and home_rule["publicLng"] is None
+    assert captured[-1]["public_lat"] is None and captured[-1]["public_lng"] is None
+
+    # Negative control: public_place persists its public coordinates.
+    airport_rule = geofence.create_rule(
+        owner_user_id="user_a",
+        trigger_type="share_on_arrival",
+        place_kind="public_place",
+        place_label="SFO Airport",
+        public_lat=37.6213,
+        public_lng=-122.3790,
+        recipient_user_ids=["user_b"],
+        recipient_names=["Mom"],
+        share_duration_hours=2.0,
+    )
+    assert airport_rule["publicLat"] == pytest.approx(37.6213)
+    assert captured[-1]["public_lat"] == pytest.approx(37.6213)
+
+
+def test_location_request_block_rejects_blocked_peer_and_allows_unblocked(monkeypatch):
+    service = OneLocationAgentService()
+    blocked_pairs = {("owner", "blocked_peer")}
+    monkeypatch.setattr(
+        service,
+        "_is_location_peer_blocked",
+        lambda *, owner_user_id, requester_user_id: (
+            (owner_user_id, requester_user_id) in blocked_pairs
+        ),
+    )
+    monkeypatch.setattr(service, "_assert_location_accounts_active", lambda *_: None)
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.request_access(requester_user_id="blocked_peer", owner_user_id="owner")
+    assert failure.value.code == "LOCATION_REQUEST_BLOCKED"
+    assert failure.value.status_code == 403
+
+    # Negative control: unblocked peer passes the block guard cleanly.
+    assert (
+        service._is_location_peer_blocked(owner_user_id="owner", requester_user_id="friend")
+        is False
+    )
+
+
+def test_precision_guard_enforces_city_and_allows_explicit_precise_override(monkeypatch):
+    service = OneLocationAgentService()
+    monkeypatch.setattr(service, "_execute_one", lambda *_, **__: {"precision": "approximate"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service._assert_envelope_precision_matches_preference(
+            owner_user_id="owner",
+            envelope={"metadata": {"precision": "approximate"}},
+            share_kind="share",
+            reviewed_precision="city",
+        )
+    assert failure.value.code == "LOCATION_PRECISION_MISMATCH"
+    # City tag satisfies a city-reviewed share.
+    service._assert_envelope_precision_matches_preference(
+        owner_user_id="owner",
+        envelope={"metadata": {"precision": "city"}},
+        share_kind="share",
+        reviewed_precision="city",
+    )
+    # Explicitly reviewed precise override bypasses approximate account default (US-040).
+    service._assert_envelope_precision_matches_preference(
+        owner_user_id="owner",
+        envelope={"metadata": {"precision": "precise"}},
+        share_kind="share",
+        reviewed_precision="precise",
+    )
+    # Negative control: without reviewed override, precise fails against approximate default.
+    with pytest.raises(OneLocationAgentError) as default_failure:
+        service._assert_envelope_precision_matches_preference(
+            owner_user_id="owner",
+            envelope={"metadata": {"precision": "precise"}},
+            share_kind="share",
+        )
+    assert default_failure.value.code == "LOCATION_PRECISION_MISMATCH"

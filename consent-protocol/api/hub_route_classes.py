@@ -413,6 +413,7 @@ GET,PATCH /api/one/connect/voice-preferences
 GET,PATCH /api/one/email/information-requests/preference
 POST /api/one/insurance-agents/search
 GET,PATCH /api/one/location/account-settings
+POST /api/one/location/account-settings/pause
 GET,PATCH /api/one/location/setup-progress
 GET,PUT /api/one/models/preference
 GET /api/one/runtime/providers

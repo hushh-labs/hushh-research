@@ -38,6 +38,10 @@ import {
   type LocationPublishPrecision,
 } from "@/lib/location/coarsen";
 import {
+  createGeofenceMonitor,
+  type GeofenceMonitorController,
+} from "@/lib/location/geofence-monitor";
+import {
   indexRecipientsByUserId,
   publishPointToGrants,
   type PublishFailure,
@@ -267,11 +271,29 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
   stateRef.current = state;
 
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
+  const serverTimedPaused = Boolean(
+    settings.settings?.paused_until &&
+      Date.parse(settings.settings.paused_until) > Date.now(),
+  );
   const grants = activeOwnerGrants(state).filter((grant) =>
     !isFixedLocationGrant(grant) && !hasQueuedLocationStop(uid, grant.id) &&
     (isSmsTriggeredGrant(grant)
       ? sharing.os === "granted" && !sharing.paused
-      : sharing.effective === "sharing"));
+      : sharing.effective === "sharing" && !serverTimedPaused));
+  // Auto-refresh settings when a server-side timed pause expires (US-030).
+  useEffect(() => {
+    const pausedUntil = settings.settings?.paused_until;
+    if (!uid || !vaultOwnerToken || !pausedUntil) return;
+    const remainingMs = Date.parse(pausedUntil) - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) return;
+    const delayMs = Math.min(remainingMs + 500, 24 * 60 * 60 * 1000);
+    const timer = window.setTimeout(() => {
+      void LocationAccountSettingsResource.load(uid, vaultOwnerToken, {
+        force: true,
+      }).catch(() => undefined);
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [uid, vaultOwnerToken, settings.settings?.paused_until]);
   useEffect(() => {
     if (!uid || !vaultOwnerToken) return;
     const retry = () => {
@@ -300,6 +322,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
   // Refs the watch loop reads without re-subscribing.
   const watchIdRef = useRef<string | null>(null);
+  const geofenceMonitorRef = useRef<GeofenceMonitorController | null>(null);
   const lastPublishedRef = useRef<PlainLocationPoint | null>(null);
   const lastPublishedAtRef = useRef(0);
   const inFlightRef = useRef(false);
@@ -375,6 +398,29 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     };
   }, [approval?.enabled, approval?.expiresAt, approval?.ruleVersion, invalidateState, pathname, sharing.effective, uid, vaultKey, vaultOwnerToken]);
 
+  // Resilient geofence monitor for armed arrival rules (US-027, US-034).
+  useEffect(() => {
+    if (!uid || !vaultOwnerToken) {
+      geofenceMonitorRef.current?.dispose();
+      geofenceMonitorRef.current = null;
+      return;
+    }
+    const monitor = createGeofenceMonitor({
+      userId: uid,
+      getVaultOwnerToken: () => tokenRef.current,
+      getVaultKey: () => vaultKeyRef.current,
+      getDefaultPrecision: () => sharingRef.current.precision,
+    });
+    geofenceMonitorRef.current = monitor;
+    void monitor.refreshRules().catch(() => undefined);
+    return () => {
+      monitor.dispose();
+      if (geofenceMonitorRef.current === monitor) {
+        geofenceMonitorRef.current = null;
+      }
+    };
+  }, [uid, vaultOwnerToken]);
+
   // The Location workspace maintains its own public link while it is open.
   // In Chat an active link needs updates even when there are no private grants.
   const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing"
@@ -432,6 +478,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
     const publishMovement = async (point: PlainLocationPoint) => {
       if (cancelled) return;
+      void geofenceMonitorRef.current?.evaluatePoint(point).catch(() => undefined);
       const token = tokenRef.current;
       const owner = uidRef.current;
       if (!token || !owner || !grantsRef.current.length) return;

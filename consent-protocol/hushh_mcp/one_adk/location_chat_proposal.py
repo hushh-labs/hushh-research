@@ -40,8 +40,10 @@ OfferedLocationChatAction = Literal[
     "enable_location",
     "enable_device_location",
     "resume_updates",
+    "pause_updates",
     "sos_review",
     "sos_stop",
+    "emergency_share",
     "sms_contacts",
     "manage_circles",
     "manage_places",
@@ -54,6 +56,10 @@ OfferedLocationChatAction = Literal[
     "check_in",
     "nearby_check_in",
     "view_self",
+    "sharing_history",
+    "set_geofence",
+    "manage_geofences",
+    "block_location_peer",
 ]
 # Stored reviews may refer to a current-position pin made by an older client.
 LocationChatAction = Literal[OfferedLocationChatAction, "share_pin"]
@@ -97,7 +103,10 @@ _REVIEWED_TERMS = _SHARE_TERMS | {
     "list_shares",
     "list_requests",
 }
-
+ShareMode = Literal["live", "static_pin", "task_bound"]
+GrantPrecision = Literal["precise", "approximate", "city"]
+GeofenceTrigger = Literal["share_on_arrival", "stop_on_arrival"]
+GeofencePlaceKind = Literal["public_place", "saved_home"]
 _LIST_ACTIONS = frozenset({"list_shares", "list_requests"})
 _UNTARGETED_ACTIONS = frozenset(
     {
@@ -105,8 +114,10 @@ _UNTARGETED_ACTIONS = frozenset(
         "enable_location",
         "enable_device_location",
         "resume_updates",
+        "pause_updates",
         "sos_review",
         "sos_stop",
+        "emergency_share",
         "sms_contacts",
         "manage_places",
         "manage_ratings",
@@ -117,6 +128,8 @@ _UNTARGETED_ACTIONS = frozenset(
         "manage_links",
         "nearby_check_in",
         "view_self",
+        "sharing_history",
+        "manage_geofences",
     }
 )
 _TIME_ACTIONS = frozenset(
@@ -132,16 +145,17 @@ _TIME_ACTIONS = frozenset(
         "ask_extension",
         "approve",
         "check_in",
+        "pause_updates",
+        "set_geofence",
     }
 )
 
 _LOCATION_REVIEW_TOOL = (
-    "Use propose_location_action for the following actions in this Chat, instead of "
-    "older share tools, delegation, or navigation. Private location sharing is live. "
-    "If someone explicitly requests a one-time pin, static position, or snapshot "
-    "for another person, answer in text that One offers live location sharing and ask "
-    "whether they would like a timed live share instead. Do not propose any action "
-    "on that turn. Wait for their answer. 'Where am I?' still uses view_self. "
+    "Use propose_location_action for every Location request in this Chat instead of "
+    "older share tools, delegation, or navigation. Never transfer or delegate to "
+    "ask_location_agent. For a one-time static position or snapshot for another person "
+    "without live tracking, propose action='share_live' with share_mode='static_pin' "
+    "and the named recipient (never pass action='share_pin'). 'Where am I?' uses view_self. "
 )
 
 _VOICE_SHARE_FLOW = (
@@ -218,8 +232,30 @@ _LOCATION_ACTIONS = (
     "review, save or delete places, manage_ratings to review or change the owner's "
     "place ratings, manage_contacts to find contacts or review contact invitations, "
     "manage_links to review or stop public links, "
-    "and manage_settings for Location settings, pause, precision, ghost mode, "
-    "and notification preferences. To turn on automatic approval of incoming Location "
+    "and manage_settings for Location settings, precision, ghost mode, "
+    "and notification preferences. "
+    "For stopping all active shares at once ('stop sharing with everyone' / 'revoke all'), "
+    "use stop with stop_all=True. For temporarily pausing outgoing location updates without "
+    "ending active shares ('pause location updates for 2 hours'), use pause_updates with "
+    "duration_hours. For an urgent emergency location share to trusted contacts ('emergency, "
+    "share my location now'), use emergency_share (never pass people or circles). "
+    "For fixed end times ('until 9pm tonight'), pass ends_at as an ISO-8601 timestamp on "
+    "share_live (up to 8 hours for ad-hoc chat shares). For multi-day Circle trips ('share "
+    "with Family for our 3-day trip'), pass circles plus starts_at and ends_at (up to 30 days). "
+    "For per-share precision ('city only' or 'approximate only' or overriding default approximate "
+    "to exact for one share), pass precision='city', 'approximate', or 'precise' on share_live. "
+    "For driver pickup or delivery task sharing, pass share_mode='task_bound' and task_label "
+    "on share_live (up to 6 hours). For sharing live location with arrival ETA to a meeting or "
+    "dinner attendee, read Calendar first if needed and pass include_eta=True on share_live. "
+    "For 'who did I share my location with this week' or sharing audit history, use sharing_history "
+    "with history_days (default 7). For arrival-triggered rules ('share with Mom when I reach "
+    "the airport' or 'stop sharing when I get home'), use set_geofence with geofence_trigger "
+    "('share_on_arrival' or 'stop_on_arrival'), geofence_place, and geofence_place_kind "
+    "('saved_home' for Home, 'public_place' otherwise); use manage_geofences to view or cancel "
+    "armed arrival rules. For removing someone from trusted location sharing and blocking future "
+    "location requests while keeping their non-location connection, use block_location_peer with "
+    "people=[name]. "
+    "To turn on automatic approval of incoming Location "
     "requests use enable_auto_approve, carrying explicitly named Circles. To turn it "
     "off use disable_auto_approve. The owner reviews the scope in this chat. "
     "Use check_in for privately sharing "
@@ -249,9 +285,9 @@ _LOCATION_TYPED_FOLLOWUP = (
     "Location follow-up; do not route an unrelated question to Location. "
     "For questions about Circles or members, call list_my_location_circles or "
     "get_location_circle_members. For Connections, use list_my_connections. For "
-    "Location capabilities, place discovery, or other informational requests, use "
-    "the existing Location tools and authored workflows. Delegate support questions "
-    "to ask_location_agent. Match the user's request to an existing action or workflow "
+    "Location actions, sharing history, geofences, pauses, revocations, or capabilities, "
+    "handle them directly in Chat with propose_location_action or concise direct answers; "
+    "never delegate to ask_location_agent. Match the user's request to an existing action "
     "before offering to open a screen. A requested navigation only opens the screen. "
     "A question about safety never sends an alert. Report a change only after the owning "
     "tool or app verifies it. Keep non-Location requests on their existing routes."
@@ -430,6 +466,17 @@ class LocationChatIntent(BaseModel):
     )
     duration_mode: DurationMode | None = Field(default=None, alias="durationMode")
     direction: Direction | None = None
+    share_mode: ShareMode | None = Field(default=None, alias="shareMode")
+    precision: GrantPrecision | None = None
+    starts_at: str | None = Field(default=None, alias="startsAt", max_length=64)
+    ends_at: str | None = Field(default=None, alias="endsAt", max_length=64)
+    task_label: str | None = Field(default=None, alias="taskLabel", max_length=120)
+    include_eta: bool | None = Field(default=None, alias="includeEta")
+    geofence_trigger: GeofenceTrigger | None = Field(default=None, alias="geofenceTrigger")
+    geofence_place: str | None = Field(default=None, alias="geofencePlace", max_length=140)
+    geofence_place_kind: GeofencePlaceKind | None = Field(default=None, alias="geofencePlaceKind")
+    stop_all: bool | None = Field(default=None, alias="stopAll")
+    history_days: int | None = Field(default=None, alias="historyDays", ge=1, le=30)
 
     @field_validator("people", "circles")
     @classmethod
@@ -472,6 +519,7 @@ class LocationChatIntent(BaseModel):
             "manage_circles",
             "enable_auto_approve",
             "check_in",
+            "set_geofence",
         }:
             raise ValueError("This action does not accept Circles.")
         if self.direction is not None and self.action not in _LIST_ACTIONS:
@@ -483,6 +531,35 @@ class LocationChatIntent(BaseModel):
             raise ValueError("Share mode is only used for a new or updated outgoing share.")
         if self.duration_mode == "until_stopped" and self.duration_hours is not None:
             raise ValueError("Choose a timed share or a share until stopped.")
+        if self.share_mode is not None and self.action != "share_live":
+            raise ValueError("Share mode is only valid for share_live.")
+        if self.precision is not None and self.action not in {
+            "share_live",
+            "approve",
+            "set_geofence",
+        }:
+            raise ValueError("Precision applies only to sharing, approving, or arrival rules.")
+        if (
+            self.starts_at is not None or self.ends_at is not None
+        ) and self.action not in _TIME_ACTIONS:
+            raise ValueError("Start and end times apply only to timed Location actions.")
+        if (self.task_label is not None or self.include_eta is not None) and self.action not in {
+            "share_live",
+            "share_private",
+        }:
+            raise ValueError("Task label and ETA apply only to outgoing shares.")
+        if (
+            self.geofence_trigger is not None
+            or self.geofence_place is not None
+            or self.geofence_place_kind is not None
+        ) and self.action != "set_geofence":
+            raise ValueError("Geofence fields apply only to set_geofence.")
+        if self.stop_all is not None and self.action != "stop":
+            raise ValueError("stop_all applies only to stop.")
+        if self.stop_all is True and (self.people or self.circles):
+            raise ValueError("stop_all stops all active shares without naming recipients.")
+        if self.history_days is not None and self.action != "sharing_history":
+            raise ValueError("history_days applies only to sharing_history.")
         return self
 
 
@@ -535,6 +612,17 @@ def propose_location_action(
     duration_hours: float | None = None,
     duration_mode: DurationMode | None = None,
     direction: Direction | None = None,
+    share_mode: ShareMode | None = None,
+    precision: GrantPrecision | None = None,
+    starts_at: str | None = None,
+    ends_at: str | None = None,
+    task_label: str | None = None,
+    include_eta: bool | None = None,
+    geofence_trigger: GeofenceTrigger | None = None,
+    geofence_place: str | None = None,
+    geofence_place_kind: GeofencePlaceKind | None = None,
+    stop_all: bool | None = None,
+    history_days: int | None = None,
     tool_context: Any = None,
     terms_check: LocationTerms | None = None,
     complete_turn: bool = False,
@@ -543,18 +631,18 @@ def propose_location_action(
 
     Actions are share_options, share_private, share_public, share_live, ask, view, list_shares, list_requests,
     stop, set_duration, extend, ask_extension, approve, decline, setup_location,
-    enable_location, enable_device_location, resume_updates, sos_review, sos_stop,
-    sms_contacts, manage_circles, manage_places, manage_ratings, manage_contacts, manage_settings,
-    enable_auto_approve, disable_auto_approve, manage_links,
-    check_in, nearby_check_in, and view_self. People
-    and Circles are names as given, not IDs. Supply duration_hours as a
-    number only when stated. For list direction use incoming, outgoing, or all.
+    enable_location, enable_device_location, resume_updates, pause_updates, sos_review, sos_stop,
+    emergency_share, sms_contacts, manage_circles, manage_places, manage_ratings, manage_contacts,
+    manage_settings, enable_auto_approve, disable_auto_approve, manage_links,
+    check_in, nearby_check_in, view_self, sharing_history, set_geofence, manage_geofences,
+    and block_location_peer. People and Circles are names as given, not IDs.
+    Supply duration_hours as a number only when stated. For list direction use
+    incoming, outgoing, or all. Use share_mode='static_pin' for a one-time static pin
+    or 'task_bound' for driver/delivery tasks. Use precision='city'|'approximate'|'precise'
+    for per-share precision. Use ends_at/starts_at ISO timestamps for fixed end times or
+    Circle trips. Use stop_all=True on stop to revoke all active shares.
     terms_check classifies all requested limits, including those from earlier turns.
-    as_requested means every term is expressible. Use place_only for no map/coordinates,
-    conditional for event triggers, fixed_end for an exact clock cutoff, temporary_rule
-    for an expiring approval, timed_pause for automatic resume, history_window for a
-    retrospective list, combined_eta for sharing a trip ETA, one_time for a snapshot, and other_restriction for any
-    other unsupported limit. explicit_replacement requires explicitly revised terms.
+    as_requested means every term is expressible. explicit_replacement requires explicitly revised terms.
     complete_turn is true only if the device review fully handles this turn's request.
     The app verifies the audience and handles consent. This tool never executes a share.
     """
@@ -606,6 +694,17 @@ def propose_location_action(
             "status": "invalid_proposal",
             "message": "One offers live location sharing. Ask if they would like a timed live share.",
         }
+    if action == "emergency_share" and tool_context is not None:
+        from hushh_mcp.one_adk.external_read_boundary import STATE_EXTERNAL_READ
+
+        if tool_context.state.get(STATE_EXTERNAL_READ):
+            return {
+                "status": "blocked_by_external_read",
+                "message": (
+                    "Emergency location override cannot be started from untrusted external "
+                    "content. Ask directly in a fresh message."
+                ),
+            }
     try:
         intent = LocationChatIntent.model_validate(
             {
@@ -621,6 +720,17 @@ def propose_location_action(
                 and duration_hours is not None
                 else duration_mode,
                 "direction": direction,
+                "share_mode": share_mode,
+                "precision": precision,
+                "starts_at": starts_at,
+                "ends_at": ends_at,
+                "task_label": task_label,
+                "include_eta": include_eta,
+                "geofence_trigger": geofence_trigger,
+                "geofence_place": geofence_place,
+                "geofence_place_kind": geofence_place_kind,
+                "stop_all": stop_all,
+                "history_days": history_days,
             }
         )
     except ValidationError:

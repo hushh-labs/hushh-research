@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   APPROXIMATE_GRID_DEGREES,
   APPROXIMATE_MIN_ACCURACY_M,
+  CITY_GRID_DEGREES,
+  CITY_MIN_ACCURACY_M,
   coarsenPoint,
   pointMatchesPrecision,
   resolvePublishPrecision,
@@ -167,5 +169,25 @@ describe("pointMatchesPrecision", () => {
     expect(
       pointMatchesPrecision(coarsenPoint(POINT, "approximate"), "approximate"),
     ).toBe(true);
+  });
+
+  it("city snaps to 0.1 degree grid, floors accuracy at 10 km, drops drive, and yields to SOS", () => {
+    const city = coarsenPoint(POINT, "city");
+    expect(city.latitude).toBe(37.8);
+    expect(city.longitude).toBe(-122.4);
+    expect(city.accuracyM).toBe(CITY_MIN_ACCURACY_M);
+    expect(city.drive).toBeNull();
+    expect(city.precision).toBe("city");
+    expect(Math.abs(city.latitude - POINT.latitude)).toBeLessThanOrEqual(
+      CITY_GRID_DEGREES / 2 + 1e-9,
+    );
+    expect(pointMatchesPrecision(city, "city")).toBe(true);
+    expect(pointMatchesPrecision(city, "approximate")).toBe(false);
+    expect(
+      resolvePublishPrecision({ preference: "precise", override: "city" }),
+    ).toBe("city");
+    const sosCity = coarsenPoint(POINT, "city", { sos: true });
+    expect(sosCity.precision).toBe("precise");
+    expect(sosCity.latitude).toBe(POINT.latitude);
   });
 });

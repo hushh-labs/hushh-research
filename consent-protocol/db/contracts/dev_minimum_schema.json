@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 466,
+  "expected_migration_version": 467,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -2889,6 +2889,26 @@
     "one_location_circles": [
       "photo_url"
     ],
+    "one_location_geofence_rules": [
+      "created_at",
+      "expires_at",
+      "id",
+      "metadata",
+      "owner_user_id",
+      "place_kind",
+      "place_label",
+      "precision",
+      "public_lat",
+      "public_lng",
+      "public_place_id",
+      "radius_meters",
+      "recipient_user_ids",
+      "share_duration_hours",
+      "status",
+      "trigger_type",
+      "triggered_at",
+      "updated_at"
+    ],
     "one_location_nearby_check_in_preferences": [
       "allow_connection_requests",
       "created_at",
@@ -2982,6 +3002,12 @@
       "result_content_revision",
       "result_manifest_revision",
       "result_archived_revision_id"
+    ],
+    "one_location_request_blocks": [
+      "blocked_user_id",
+      "created_at",
+      "owner_user_id",
+      "reason"
     ],
     "one_location_sos_voice_preferences": [
       "created_at",
@@ -4488,5 +4514,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 466
+  "expected_schema_head": 467
 }

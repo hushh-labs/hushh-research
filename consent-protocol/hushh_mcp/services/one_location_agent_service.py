@@ -890,6 +890,7 @@ def _resolve_share_duration(
     duration_mode: str | None,
     share_kind: str,
     now: datetime,
+    max_hours: float | None = None,
 ) -> tuple[float | None, datetime | None, str]:
     try:
         mode = normalize_duration_mode(duration_mode)
@@ -907,14 +908,31 @@ def _resolve_share_duration(
                 status_code=422,
             )
         return None, None, mode
-    try:
-        duration = normalize_duration_hours(duration_hours)
-    except ValueError as exc:
-        raise OneLocationAgentError(
-            "LOCATION_DURATION_INVALID",
-            str(exc),
-            status_code=422,
-        ) from exc
+    if max_hours is not None and max_hours > 24.0:
+        try:
+            raw_hours = float(duration_hours)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                "Duration must be a number of hours.",
+                status_code=422,
+            ) from exc
+        if raw_hours < 0.25 or raw_hours > max_hours:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                f"Scheduled trip sharing duration must be between 15 minutes and {int(max_hours // 24)} days.",
+                status_code=422,
+            )
+        duration = round(raw_hours, 2)
+    else:
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
     return duration, now + timedelta(hours=duration), TIMED_LOCATION_SHARE_DURATION_MODE
 
 
@@ -1618,9 +1636,11 @@ class OneLocationAgentService:
         owner_user_id: str,
         envelope: dict[str, Any],
         share_kind: str | None,
+        reviewed_precision: str | None = None,
     ) -> None:
         """Reject an envelope whose plaintext ``metadata.precision`` tag disagrees
-        with the owner's stored preference (migration 221).
+        with the owner's stored preference (migration 221) or explicitly reviewed
+        per-grant precision (migration 467).
 
         The tag is the only thing the server can check: coordinates are
         ciphertext, so coarsening is the device's job before encryption. SOS
@@ -1631,20 +1651,35 @@ class OneLocationAgentService:
         if isinstance(metadata, dict):
             raw = metadata.get("precision")
             tag = str(raw).strip().lower() if raw is not None else None
-        if tag is not None and tag not in {"precise", "approximate"}:
+        if tag is not None and tag not in {"precise", "approximate", "city"}:
             raise OneLocationAgentError(
                 "LOCATION_PRECISION_INVALID",
-                "Envelope precision must be precise or approximate.",
+                "Envelope precision must be precise, approximate, or city.",
                 status_code=422,
             )
         if _is_sos_lane(share_kind):
+            return
+        if reviewed_precision == "city" and tag != "city":
+            raise OneLocationAgentError(
+                "LOCATION_PRECISION_MISMATCH",
+                "This share is limited to city-level precision. Coarsen to city before encrypting.",
+                status_code=409,
+            )
+        if reviewed_precision == "approximate" and tag not in {"approximate", "city"}:
+            raise OneLocationAgentError(
+                "LOCATION_PRECISION_MISMATCH",
+                "This share is limited to approximate precision. Coarsen the point before encrypting.",
+                status_code=409,
+            )
+        if reviewed_precision == "precise":
+            # Owner explicitly confirmed a per-grant exact override (US-040).
             return
         row = self._execute_one(
             "SELECT precision FROM one_location_account_settings WHERE user_id = :user_id",
             {"user_id": owner_user_id},
         )
         preference = str((row or {}).get("precision") or "precise")
-        if preference == "approximate" and tag != "approximate":
+        if preference == "approximate" and tag not in {"approximate", "city"}:
             raise OneLocationAgentError(
                 "LOCATION_PRECISION_MISMATCH",
                 "Your sharing precision is approximate. Coarsen the point before encrypting it.",
@@ -3043,7 +3078,41 @@ class OneLocationAgentService:
         )
         share_kind = stored_kind or _classify_share_kind(reason)
         share_message = _visible_share_message(reason)
-        return {
+        share_mode = str(
+            row.get("share_mode")
+            or (metadata.get("share_mode") if isinstance(metadata, dict) else "")
+            or ("static_pin" if share_kind == "pin" else "live")
+        )
+        precision = (
+            str(
+                row.get("precision")
+                or (metadata.get("precision") if isinstance(metadata, dict) else "")
+                or ""
+            )
+            or None
+        )
+        starts_at = _iso(row.get("starts_at")) or (
+            str(metadata.get("starts_at"))
+            if isinstance(metadata, dict) and metadata.get("starts_at")
+            else None
+        )
+        task_label = (
+            str(
+                row.get("task_label")
+                or (metadata.get("task_label") if isinstance(metadata, dict) else "")
+                or ""
+            )
+            or None
+        )
+        calendar_event_id = (
+            str(
+                row.get("calendar_event_id")
+                or (metadata.get("calendar_event_id") if isinstance(metadata, dict) else "")
+                or ""
+            )
+            or None
+        )
+        payload = {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
             "recipientUserId": str(row.get("recipient_user_id") or ""),
@@ -3078,6 +3147,17 @@ class OneLocationAgentService:
             "shareKind": share_kind,
             "shareMessage": share_message,
         }
+        if share_mode != "live":
+            payload["shareMode"] = share_mode
+        if precision:
+            payload["precision"] = precision
+        if starts_at:
+            payload["startsAt"] = starts_at
+        if task_label:
+            payload["taskLabel"] = task_label
+        if calendar_event_id:
+            payload["calendarEventId"] = calendar_event_id
+        return payload
 
     @staticmethod
     def _envelope_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -6454,6 +6534,11 @@ class OneLocationAgentService:
         enforce_connection: bool = False,
         require_owned_source_circle: bool = False,
         source: str | None = None,
+        share_mode: str | None = "live",
+        precision: str | None = None,
+        starts_at: datetime | str | None = None,
+        task_label: str | None = None,
+        calendar_event_id: str | None = None,
         _key_writer_guarded: bool = False,
         _auto_approve_until: datetime | None = None,
     ) -> dict[str, Any]:
@@ -6493,6 +6578,11 @@ class OneLocationAgentService:
                     enforce_connection=enforce_connection,
                     require_owned_source_circle=require_owned_source_circle,
                     source=source,
+                    share_mode=share_mode,
+                    precision=precision,
+                    starts_at=starts_at,
+                    task_label=task_label,
+                    calendar_event_id=calendar_event_id,
                     _key_writer_guarded=True,
                     **({"_auto_approve_until": _auto_approve_until} if _auto_approve_until else {}),
                 )
@@ -6531,11 +6621,17 @@ class OneLocationAgentService:
                 status_code=422,
             )
         resolved_kind = share_kind or _classify_share_kind(reason)
+        trip_max = (
+            720.0
+            if source_circle_id and (starts_at is not None or (duration_hours or 0) > 24.0)
+            else None
+        )
         duration, expires_at, resolved_duration_mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
             share_kind=resolved_kind,
             now=_utcnow(),
+            max_hours=trip_max,
         )
         if _auto_approve_until is not None:
             # The request duration was validated above. A rule ending in five
@@ -6585,6 +6681,18 @@ class OneLocationAgentService:
             "duration_mode": resolved_duration_mode,
             "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
         }
+        if share_mode and share_mode != "live":
+            metadata["share_mode"] = share_mode
+        if precision:
+            metadata["precision"] = precision
+        if starts_at is not None:
+            metadata["starts_at"] = (
+                starts_at.isoformat() if isinstance(starts_at, datetime) else str(starts_at)
+            )
+        if task_label:
+            metadata["task_label"] = str(task_label).strip()[:120]
+        if calendar_event_id:
+            metadata["calendar_event_id"] = str(calendar_event_id).strip()[:128]
         if capability is not None:
             metadata["capability_token"] = capability["token"]
         # Which of the two replacement lanes this grant lands in. Bound into
@@ -6749,6 +6857,11 @@ class OneLocationAgentService:
         source_circle_id: str | None = None,
         require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
+        share_mode: str | None = "live",
+        precision: str | None = None,
+        starts_at: datetime | str | None = None,
+        task_label: str | None = None,
+        calendar_event_id: str | None = None,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.
 
@@ -6787,11 +6900,17 @@ class OneLocationAgentService:
                 status_code=422,
             )
         resolved_kind = share_kind or _classify_share_kind(reason)
+        trip_max = (
+            720.0
+            if source_circle_id and (starts_at is not None or (duration_hours or 0) > 24.0)
+            else None
+        )
         duration, expires_at, resolved_duration_mode = _resolve_share_duration(
             duration_hours=duration_hours,
             duration_mode=duration_mode,
             share_kind=resolved_kind,
             now=_utcnow(),
+            max_hours=trip_max,
         )
         # Record which relationship authorized this share. When the caller names
         # a Circle it must be that Circle; otherwise a Circle-only peer still
@@ -6868,6 +6987,18 @@ class OneLocationAgentService:
             "client_operation_fingerprint": operation_fingerprint,
             "confirmed_at": confirmed_at_value.isoformat(),
         }
+        if share_mode and share_mode != "live":
+            metadata["share_mode"] = share_mode
+        if precision:
+            metadata["precision"] = precision
+        if starts_at is not None:
+            metadata["starts_at"] = (
+                starts_at.isoformat() if isinstance(starts_at, datetime) else str(starts_at)
+            )
+        if task_label:
+            metadata["task_label"] = str(task_label).strip()[:120]
+        if calendar_event_id:
+            metadata["calendar_event_id"] = str(calendar_event_id).strip()[:128]
         if capability is not None:
             metadata["capability_token"] = capability["token"]
         metadata_json = _json_param(metadata)
@@ -10840,6 +10971,15 @@ class OneLocationAgentService:
                 "This account is no longer available.",
                 status_code=409,
             )
+        if self._is_location_peer_blocked(
+            owner_user_id=owner_user_id,
+            requester_user_id=requester_user_id,
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_BLOCKED",
+                "This person is not accepting location requests from you right now.",
+                status_code=403,
+            )
         if require_requester_key_material:
             self._recipient_key_row(
                 recipient_user_id=requester_user_id,
@@ -12303,6 +12443,303 @@ class OneLocationAgentService:
         for notification in notifications:
             self._send_metadata_notification(**notification)
         return {"referral": referral_payload, "request": request}
+
+    def _is_location_peer_blocked(
+        self,
+        *,
+        owner_user_id: str,
+        requester_user_id: str,
+    ) -> bool:
+        """True when owner explicitly blocked location requests from requester (US-037)."""
+        try:
+            row = self._execute_one(
+                """
+                SELECT 1 AS blocked
+                FROM one_location_request_blocks
+                WHERE owner_user_id = :owner_user_id
+                  AND blocked_user_id = :requester_user_id
+                LIMIT 1
+                """,
+                {"owner_user_id": owner_user_id, "requester_user_id": requester_user_id},
+            )
+            return bool(row)
+        except Exception:  # noqa: BLE001 - fail open only if table absent in legacy unit doubles
+            return False
+
+    def block_location_peer(
+        self,
+        *,
+        owner_user_id: str,
+        blocked_user_id: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Block future location requests from a peer without disconnecting non-location Hussh access (US-037)."""
+        if owner_user_id == blocked_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_BLOCK_SELF",
+                "You cannot block your own account.",
+                status_code=422,
+            )
+        cleaned_reason = str(reason or "removed_from_trusted_location_circle").strip()[:160] or None
+        self._execute_one(
+            """
+            INSERT INTO one_location_request_blocks (owner_user_id, blocked_user_id, reason, created_at)
+            VALUES (:owner_user_id, :blocked_user_id, :reason, clock_timestamp())
+            ON CONFLICT (owner_user_id, blocked_user_id)
+            DO UPDATE SET reason = EXCLUDED.reason
+            RETURNING owner_user_id, blocked_user_id, reason, created_at
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "blocked_user_id": blocked_user_id,
+                "reason": cleaned_reason,
+            },
+        )
+        # Revoke any active outgoing share grant to the blocked peer and decline pending requests.
+        revoked = self._execute_many(
+            """
+            UPDATE one_location_share_grants
+            SET status = 'revoked', revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+            WHERE owner_user_id = :owner_user_id
+              AND recipient_user_id = :blocked_user_id
+              AND status = 'active'
+            RETURNING id
+            """,
+            {"owner_user_id": owner_user_id, "blocked_user_id": blocked_user_id},
+        )
+        self._execute_many(
+            """
+            UPDATE one_location_access_requests
+            SET status = 'denied', responded_at = clock_timestamp(), updated_at = clock_timestamp()
+            WHERE owner_user_id = :owner_user_id
+              AND requester_user_id = :blocked_user_id
+              AND status = 'pending'
+            RETURNING id
+            """,
+            {"owner_user_id": owner_user_id, "blocked_user_id": blocked_user_id},
+        )
+        try:
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                event_type="location_peer_blocked",
+                metadata={
+                    "blocked_user_id": blocked_user_id,
+                    "revoked_grant_count": len(revoked),
+                },
+                required=False,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("one_location.peer_block.audit_failed")
+        return {
+            "blockedUserId": blocked_user_id,
+            "blocked": True,
+            "revokedGrantCount": len(revoked),
+        }
+
+    def unblock_location_peer(
+        self,
+        *,
+        owner_user_id: str,
+        blocked_user_id: str,
+    ) -> dict[str, Any]:
+        removed = self._execute_many(
+            """
+            DELETE FROM one_location_request_blocks
+            WHERE owner_user_id = :owner_user_id
+              AND blocked_user_id = :blocked_user_id
+            RETURNING blocked_user_id
+            """,
+            {"owner_user_id": owner_user_id, "blocked_user_id": blocked_user_id},
+        )
+        if removed:
+            try:
+                self._insert_event(
+                    owner_user_id=owner_user_id,
+                    actor_user_id=owner_user_id,
+                    event_type="location_peer_unblocked",
+                    metadata={"blocked_user_id": blocked_user_id},
+                    required=False,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("one_location.peer_unblock.audit_failed")
+        return {"blockedUserId": blocked_user_id, "blocked": False, "changed": bool(removed)}
+
+    def list_blocked_location_peers(self, *, owner_user_id: str) -> list[dict[str, Any]]:
+        rows = self._execute_many(
+            """
+            SELECT blocked_user_id, reason, created_at
+            FROM one_location_request_blocks
+            WHERE owner_user_id = :owner_user_id
+            ORDER BY created_at DESC
+            LIMIT 100
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [
+            {
+                "blockedUserId": str(row.get("blocked_user_id") or ""),
+                "reason": str(row.get("reason") or "") or None,
+                "createdAt": _iso(row.get("created_at")),
+            }
+            for row in rows
+            if row.get("blocked_user_id")
+        ]
+
+    def revoke_all_owner_grants(
+        self,
+        *,
+        owner_user_id: str,
+        include_sos: bool = False,
+        include_public_links: bool = True,
+    ) -> dict[str, Any]:
+        """Immediately revoke all active outgoing shares (US-022 instant stop / US-034 Home arrival)."""
+        lane_filter = "" if include_sos else f"AND NOT ({_share_lane_match_sql('sos')})"
+        rows = self._execute_many(
+            f"""
+            UPDATE one_location_share_grants
+            SET status = 'revoked', revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              {lane_filter}
+            RETURNING id, recipient_user_id
+            """,  # nosec B608 - static lane filter fragment
+            {"owner_user_id": owner_user_id},
+        )
+        revoked_ids = [str(r["id"]) for r in rows if r.get("id")]
+        revoked_links: list[str] = []
+        if include_public_links:
+            link_rows = self._execute_many(
+                """
+                UPDATE one_location_public_invites
+                SET status = 'revoked', revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+                WHERE owner_user_id = :owner_user_id
+                  AND status = 'active'
+                RETURNING id
+                """,
+                {"owner_user_id": owner_user_id},
+            )
+            revoked_links = [str(r["id"]) for r in link_rows if r.get("id")]
+        if revoked_ids or revoked_links:
+            try:
+                self._insert_event(
+                    owner_user_id=owner_user_id,
+                    actor_user_id=owner_user_id,
+                    event_type="location_share_revoked",
+                    metadata={
+                        "reason": "stop_all_chat",
+                        "revoked_grant_count": len(revoked_ids),
+                        "revoked_link_count": len(revoked_links),
+                    },
+                    required=False,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("one_location.revoke_all.audit_failed")
+        return {
+            "revokedCount": len(revoked_ids),
+            "revokedGrantIds": revoked_ids,
+            "revokedLinkIds": revoked_links,
+        }
+
+    def start_emergency_override(
+        self,
+        *,
+        owner_user_id: str,
+        initial_envelopes: dict[str, dict[str, Any]] | None = None,
+        duration_hours: float = 2.0,
+    ) -> dict[str, Any]:
+        """Start an immediate 2h emergency location share to trusted contacts (US-031).
+
+        Audience priority: SMS emergency contacts first, then Trusted Circle / verified
+        connections (`canReceiveLocation`), capped at 25 recipients. Every override is
+        recorded in `one_location_events` as `location_emergency_override`.
+        """
+        from hushh_mcp.operons.location.policy import (
+            EMERGENCY_OVERRIDE_DURATION_HOURS,
+            EMERGENCY_OVERRIDE_MAX_RECIPIENTS,
+        )
+
+        hours = max(0.25, min(float(duration_hours or EMERGENCY_OVERRIDE_DURATION_HOURS), 2.0))
+        sms_ids = self.list_sms_contact_ids(owner_user_id=owner_user_id)
+        recipients = self.list_verified_recipients(owner_user_id=owner_user_id)
+        by_id = {
+            str(item["userId"]): item
+            for item in recipients
+            if item.get("userId") and item.get("keyId")
+        }
+
+        ordered_ids: list[str] = []
+        for uid in sms_ids:
+            if uid in by_id and uid not in ordered_ids:
+                ordered_ids.append(uid)
+        for item in recipients:
+            uid = str(item.get("userId") or "")
+            if (
+                uid
+                and uid in by_id
+                and uid not in ordered_ids
+                and item.get("canReceiveLocation", True) is not False
+            ):
+                ordered_ids.append(uid)
+            if len(ordered_ids) >= EMERGENCY_OVERRIDE_MAX_RECIPIENTS:
+                break
+
+        if not ordered_ids:
+            raise OneLocationAgentError(
+                "LOCATION_EMERGENCY_NO_CONTACTS",
+                "No emergency or trusted contacts with Location keys are available.",
+                status_code=409,
+            )
+
+        envelopes_map = initial_envelopes if isinstance(initial_envelopes, dict) else {}
+        grants: list[dict[str, Any]] = []
+        for recipient_uid in ordered_ids:
+            rec = by_id[recipient_uid]
+            grant = self.create_grant(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_uid,
+                recipient_key_id=str(rec.get("keyId") or ""),
+                duration_hours=hours,
+                duration_mode=TIMED_LOCATION_SHARE_DURATION_MODE,
+                reason="emergency_override",
+                share_kind="share",
+                precision="precise",
+                require_recipient_phone_verified=False,
+                enforce_connection=False,
+            )
+            env = envelopes_map.get(recipient_uid)
+            if isinstance(env, dict) and grant.get("id"):
+                try:
+                    self.store_encrypted_envelope(
+                        owner_user_id=owner_user_id,
+                        grant_id=str(grant["id"]),
+                        envelope=env,
+                    )
+                except Exception:  # noqa: BLE001 - publisher bridge sends next fix
+                    logger.warning("one_location.emergency_override.envelope_store_failed")
+            grants.append(grant)
+
+        try:
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                event_type="location_emergency_override",
+                metadata={
+                    "duration_hours": hours,
+                    "recipient_count": len(grants),
+                    "sms_contact_count": len(sms_ids),
+                },
+                required=False,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("one_location.emergency_override.audit_failed")
+
+        return {
+            "status": "active",
+            "durationHours": hours,
+            "recipientCount": len(grants),
+            "grants": grants,
+        }
 
 
 def location_error_detail(exc: OneLocationAgentError) -> dict[str, str]:
