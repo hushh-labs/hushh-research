@@ -132,6 +132,25 @@ def _owner():
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 
+async def test_location_conversation_requires_a_capable_owner_chat(monkeypatch):
+    from hushh_mcp.one_adk.location_chat_proposal import (
+        STATE_LOCATION_CHAT_CONVERSATION,
+        STATE_LOCATION_CHAT_REVIEW,
+    )
+
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
+    card = {"screenContext": {"route": {"pathname": "/"}}, "locationChatReview": True}
+    for props, review, conversation in (
+        (card, True, False),
+        ({**card, "locationChatConversation": True}, True, True),
+        ({**card, "locationChatConversation": "true"}, True, False),
+        ({"locationChatConversation": True}, False, False),
+    ):
+        state, _ = pod_agent_chat.trusted_state(_turn(**props), _owner())
+        assert state[STATE_LOCATION_CHAT_REVIEW] is review
+        assert state[STATE_LOCATION_CHAT_CONVERSATION] is conversation
+
+
 def _action_tool(action_id: str):
     from ag_ui.core import Tool
 

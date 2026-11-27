@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocationChatCircles } from "../location-chat-circles";
@@ -7,6 +7,7 @@ import { LocationChatCheckIn } from "../location-chat-check-in";
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { ROUTES } from "@/lib/navigation/routes";
+import type { LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
 
 const mock = vi.hoisted(() => ({
   listCircles: vi.fn(),
@@ -154,6 +155,27 @@ describe("inline Location workspace", () => {
     expect(OneLocationStateResource.readPresentation(owner)?.autoApprovePreference).toEqual(preference);
     expect(onChanged).toHaveBeenCalledOnce();
     expect(window.location.pathname).toBe(ROUTES.HOME);
+  });
+
+  it("saves standing approval only after the owner types the Circle and confirms its scope", async () => {
+    const scope = { kind: "circles", circleIds: ["family"] };
+    mock.getState.mockResolvedValue({ autoApprovePreference: { enabled: false, ruleVersion: 1 } });
+    mock.listCircles.mockResolvedValue([circle]);
+    mock.updateAutoApprovePreference.mockResolvedValue({ enabled: true, scope, ruleVersion: 2 });
+    const transcript = vi.fn();
+    const input: { handle?: LocationConversationReply | null } = {};
+    const reply = (answer: string) => input.handle?.(answer, transcript.mock.lastCall?.[0]);
+    render(<LocationChatSettings token="token" ownerId="owner" autoApprovalIntent="enable"
+      onConversationText={transcript} onConversationReply={(handler) => { input.handle = handler; }} />);
+    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("Whose location requests")));
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    act(() => { expect(reply("Family")).toBe(true); });
+    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("new requests from Family")));
+    expect(reply("yes, but use all contacts")).toBeFalsy();
+    expect(mock.updateAutoApprovePreference).not.toHaveBeenCalled();
+    await act(async () => { reply("yes"); });
+    expect(mock.updateAutoApprovePreference).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "token", enabled: true, scope });
+    expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("Automatic approval is on"));
   });
 
   it.each([[], ["Family", "Missing"], ["Family", "Team"]])("requires an explicit scope for unresolved or ambiguous audience hints %j", async (...names: string[]) => {

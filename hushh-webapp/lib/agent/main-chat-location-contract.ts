@@ -18,6 +18,7 @@ const actions = [
 export type MainLocationAction = typeof actions[number];
 export type MainLocationProposal = {
   id: string;
+  conversation?: true;
   attemptId?: string;
   action: MainLocationAction;
   people?: string[];
@@ -32,6 +33,7 @@ export type MainLocationContinuation = {
   people: string[];
   circles: string[];
   durationHours?: number;
+  durationMode?: "timed" | "until_stopped";
 };
 
 // Earlier private-pod images can still return the authored route action.
@@ -182,6 +184,7 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
       input.durationMode != null || input.direction != null)) return null;
   return {
     id: input.id, action, people, circles,
+    ...(input.conversation === true ? { conversation: true as const } : {}),
     ...(typeof input.durationHours === "number" && Number.isFinite(input.durationHours) && input.durationHours > 0
       ? { durationHours: input.durationHours } : {}),
     ...(input.durationMode === "timed" || input.durationMode === "until_stopped" ? { durationMode: input.durationMode } : {}),

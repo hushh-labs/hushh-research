@@ -1,6 +1,8 @@
 """Canonical Location transactions used by ONE main chat reviews."""
 
 import asyncio
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -47,12 +49,12 @@ def envelope(key="key"):
     }
 
 
-def offer(service, action="share_live", *, origin_id=None):
+def offer(service, *, origin_id=None):
     plan = LocationChatPlanService(service()).prepare(
         user_id="owner",
-        action=action,
+        action="share_live",
         person_user_id="other",
-        duration_hours=None if action == "share_pin" else 2,
+        duration_hours=2,
         origin_id=origin_id,
     )
     result = LocationChatPlanService(service()).execute(
@@ -63,11 +65,67 @@ def offer(service, action="share_live", *, origin_id=None):
     return result
 
 
-def test_pin_has_its_own_immutable_lane_and_pinned_view(location_plans):
+def test_chat_refuses_new_and_pending_pins_and_preserves_historical_receipts(location_plans):
     service, db = location_plans
     origin_id = str(uuid4())
     live = offer(service, origin_id=origin_id)
-    pin = offer(service, "share_pin", origin_id=origin_id)
+    plans = LocationChatPlanService(service())
+    with pytest.raises(location.OneLocationAgentError, match="one-time pin cannot be sent"):
+        plans.prepare(user_id="owner", action="share_pin", person_user_id="other")
+    # Seed a genuine historical grant and the receipt saved by the previous
+    # Chat plan format. The general Location API remains compatible.
+    historic = service().create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="other",
+        recipient_key_id="key",
+        duration_hours=1,
+        client_operation_id=str(uuid4()),
+        confirmed_at=datetime.now(UTC),
+        envelope=envelope(),
+        share_kind="pin",
+        enforce_connection=True,
+    )
+    historic_receipt = {
+        "grantId": historic["grant"]["id"],
+        "envelopeId": historic["envelope"]["id"],
+        "expiresAt": historic["grant"]["expiresAt"],
+    }
+    legacy_hash = hashlib.sha256(b'["share_pin","other",null,null,null,null,null]').hexdigest()
+    historical_plan_id = str(uuid4())
+    pending_id = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_chat_plans (
+            id, user_id, person_user_id, origin_id, intent_hash, action, terms,
+            expires_at, executed_at, receipt
+        ) SELECT CAST(:plan_id AS UUID), user_id, person_user_id, origin_id, :hash, 'share_pin',
+            terms || jsonb_build_object('durationHours', 1), expires_at, executed_at, CAST(:receipt AS JSONB)
+          FROM one_location_chat_plans WHERE id=CAST(:live AS UUID)""",
+        {
+            "plan_id": historical_plan_id,
+            "hash": legacy_hash,
+            "live": live["planId"],
+            "receipt": json.dumps(historic_receipt),
+        },
+    )
+    db.execute_raw(
+        """INSERT INTO one_location_chat_plans (
+            id, user_id, person_user_id, origin_id, intent_hash, action, terms, expires_at
+        ) SELECT CAST(:pending AS UUID), user_id, person_user_id, origin_id, repeat('a',64),
+            action, terms, expires_at FROM one_location_chat_plans WHERE id=CAST(:pin AS UUID)""",
+        {"pending": pending_id, "pin": historical_plan_id},
+    )
+    pin = plans.inspect(user_id="owner", plan_id=historical_plan_id)
+    assert plans.execute(user_id="owner", plan_id=historical_plan_id) == pin
+    assert (
+        plans.prepare(
+            user_id="owner", action="share_pin", person_user_id="other", origin_id=origin_id
+        )
+        == pin
+    )
+    with pytest.raises(location.OneLocationAgentError, match="one-time pin cannot be sent"):
+        plans.execute(user_id="owner", plan_id=pending_id, envelope=envelope())
+    with pytest.raises(location.OneLocationAgentError, match="one-time pin cannot be sent"):
+        plans.inspect(user_id="owner", plan_id=pending_id)
     assert pin["durationHours"] == 1
     live_id, pin_id = live["receipt"]["grantId"], pin["receipt"]["grantId"]
     assert live_id != pin_id
@@ -97,14 +155,7 @@ def test_pin_has_its_own_immutable_lane_and_pinned_view(location_plans):
         == pin["receipt"]["envelopeId"]
     )
 
-    # Stale pending key material cannot hide the existing receipts.
-    LocationChatPlanService(service()).prepare(
-        user_id="owner",
-        action="share_pin",
-        person_user_id="other",
-        origin_id=origin_id,
-        attempt_id=str(uuid4()),
-    )
+    # The retired pending review and rotated key cannot hide actual receipts.
     db.execute_raw("UPDATE one_location_recipient_keys SET status='rotated' WHERE user_id='other'")
     restored = LocationChatPlanService(service()).for_origin(user_id="owner", origin_id=origin_id)
     assert {row["planId"] for row in restored} == {live["planId"], pin["planId"]}
@@ -287,6 +338,49 @@ async def test_concurrent_replays_and_workspace_duration_changes_use_same_grant(
     ] == {"grantId": grant_id}
 
 
+@pytest.mark.parametrize("directory_offline", [False, True])
+def test_owner_can_stop_the_selected_grant_when_peer_is_unavailable(
+    location_plans, monkeypatch, directory_offline
+):
+    service, db = location_plans
+    plans = LocationChatPlanService(service())
+    grant_id = offer(service)["receipt"]["grantId"]
+    circle_id = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_circles(id, owner_user_id, name)
+           VALUES (CAST(:circle AS UUID), 'owner', 'Family');
+           UPDATE one_location_share_grants SET source_circle_id = CAST(:circle AS UUID)
+           WHERE id = CAST(:grant AS UUID)""",
+        {"circle": circle_id, "grant": grant_id},
+    )
+
+    def unavailable(user_ids, **_):
+        if directory_offline:
+            raise location.DirectoryIdentityUnavailableError()
+        return set(user_ids) - {"other"}
+
+    monkeypatch.setattr(location, "active_directory_user_ids", unavailable)
+    with pytest.raises(location.OneLocationAgentError) as wrong_actor:
+        plans.prepare(user_id="other", action="stop", grant_id=grant_id)
+    assert wrong_actor.value.status_code == 404
+    with pytest.raises(location.OneLocationAgentError) as wrong_circle:
+        plans.prepare(user_id="owner", action="stop", grant_id=grant_id, circle_id=str(uuid4()))
+    assert wrong_circle.value.status_code == 409
+    with pytest.raises(location.OneLocationAgentError) as extension:
+        plans.prepare(user_id="owner", action="extend", grant_id=grant_id, duration_hours=0.5)
+    assert extension.value.code == (
+        "DIRECTORY_IDENTITY_UNAVAILABLE" if directory_offline else "LOCATION_PEER_UNAVAILABLE"
+    )
+
+    review = plans.prepare(user_id="owner", action="stop", grant_id=grant_id, circle_id=circle_id)
+    receipt = plans.execute(user_id="owner", plan_id=review["planId"])
+    assert receipt["receipt"] == {"grantId": grant_id}
+    assert plans.execute(user_id="owner", plan_id=review["planId"]) == receipt
+    assert db.execute_raw("SELECT status FROM one_location_share_grants").data == [
+        {"status": "revoked"}
+    ]
+
+
 def test_chat_extension_requests_settle_in_place_in_either_surface(location_plans):
     service, db = location_plans
     initial = offer(service)
@@ -375,6 +469,7 @@ def test_circle_review_rechecks_each_member_at_confirmation(location_plans):
         )
         for person in ("other", "third")
     }
+    assert db.execute_raw("SELECT id FROM one_location_share_grants").data == []
     db.execute_raw(
         """UPDATE one_location_circle_memberships SET status='removed'
            WHERE circle_id=CAST(:circle AS UUID) AND user_id='other'""",
@@ -388,6 +483,15 @@ def test_circle_review_rechecks_each_member_at_confirmation(location_plans):
         envelope=envelope("key-3"),
     )
     assert outcome["circleId"] == circle_id
+    # A lost confirmation response can be retried against the same reviewed
+    # recipient without publishing a second envelope or extending the grant.
+    retry = plans.execute(
+        user_id="owner",
+        plan_id=reviews["third"]["planId"],
+        envelope=envelope("key-3"),
+    )
+    assert retry == outcome
+    assert len(db.execute_raw("SELECT id FROM one_location_envelopes").data) == 1
     assert db.execute_raw(
         "SELECT recipient_user_id, source_circle_id::text FROM one_location_share_grants"
     ).data == [{"recipient_user_id": "third", "source_circle_id": circle_id}]

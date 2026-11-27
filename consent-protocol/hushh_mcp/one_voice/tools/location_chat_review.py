@@ -9,6 +9,7 @@ from hushh_mcp.one_adk.location_chat_proposal import (
     VOICE_LOCATION_CHAT_FEATURE,
     LocationChatIntent,
     LocationChatProposal,
+    OfferedLocationChatAction,
     make_location_chat_proposal,
 )
 from hushh_mcp.one_voice.tools.base import (
@@ -65,7 +66,7 @@ REPLACED_TOOLS = frozenset(
 
 
 class ReviewLocationInput(LocationChatIntent, ToolInput):
-    pass
+    action: OfferedLocationChatAction
 
 
 class ReviewLocationResult(ToolResult):

@@ -119,15 +119,25 @@ async function openDb(): Promise<IDBDatabase | null> {
   }).catch(() => null);
 }
 
-async function getStoredRecord(recordKey: string): Promise<StoredEncryptedUiRecord | null> {
+async function getStoredRecord(recordKey: string, consume = false): Promise<StoredEncryptedUiRecord | null> {
   const db = await openDb();
+  const cached = memoryRecords.get(recordKey) ?? null;
+  if (consume) memoryRecords.delete(recordKey);
   if (!db) {
-    return memoryRecords.get(recordKey) ?? null;
+    return cached;
   }
   try {
     return await new Promise<StoredEncryptedUiRecord | null>((resolve, reject) => {
-      const req = db.transaction(RECORD_STORE, "readonly").objectStore(RECORD_STORE).get(recordKey);
-      req.onsuccess = () => resolve((req.result as StoredEncryptedUiRecord | undefined) ?? null);
+      const tx = db.transaction(RECORD_STORE, consume ? "readwrite" : "readonly");
+      const store = tx.objectStore(RECORD_STORE);
+      const req = store.get(recordKey);
+      if (consume) {
+        req.onsuccess = () => { if (req.result) store.delete(recordKey); };
+        tx.oncomplete = () => resolve((req.result as StoredEncryptedUiRecord | undefined) ?? null);
+        tx.onabort = () => reject(tx.error ?? new Error("UI_CACHE_CONSUME_FAILED"));
+      } else {
+        req.onsuccess = () => resolve((req.result as StoredEncryptedUiRecord | undefined) ?? null);
+      }
       req.onerror = () => reject(req.error ?? new Error("UI_CACHE_READ_FAILED"));
     });
   } catch {
@@ -222,6 +232,8 @@ export async function readEncryptedOwnerUiRecord<T>(input: {
   ownerId: string;
   vaultKey: string | null | undefined;
   namespace: string;
+  /** Remove a single-use handoff atomically with its read, including across tabs. */
+  consume?: boolean;
 }): Promise<{ value: T; updatedAt: number } | null> {
   const ownerId = String(input.ownerId || "").trim();
   const namespace = String(input.namespace || "").trim();
@@ -229,7 +241,7 @@ export async function readEncryptedOwnerUiRecord<T>(input: {
   if (!ownerId || !namespace || !canSealOwnerUiCache(vaultKey)) return null;
 
   const recordKey = makeRecordKey(ownerId, namespace);
-  const stored = await getStoredRecord(recordKey);
+  const stored = await getStoredRecord(recordKey, input.consume);
   if (
     !stored ||
     stored.ownerId !== ownerId ||

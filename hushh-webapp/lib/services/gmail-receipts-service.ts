@@ -1311,12 +1311,14 @@ export class GmailReceiptsService {
         Math.trunc(params.perPage ?? MAX_LIVE_RECEIPTS_PER_PAGE),
       ),
     );
-    if (params.privateMailbox) {
-      const data = await privateReceiptRead(params.privateMailbox, params.userId, "scan",
-        { page, per_page: perPage, incremental: params.incremental ?? false, cursor: params.cursor, checkpoint: params.checkpoint }, params.signal);
-      return parseLiveReceiptScanResponse(data, { page, perPage });
-    }
     try {
+      if (params.privateMailbox) {
+        const data = await privateReceiptRead(params.privateMailbox, params.userId, "scan",
+          { page, per_page: perPage, incremental: params.incremental ?? false, cursor: params.cursor, checkpoint: params.checkpoint }, params.signal);
+        const parsed = parseLiveReceiptScanResponse(data, { page, perPage });
+        trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", { result: "success" });
+        return parsed;
+      }
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.receiptsScan,
         {

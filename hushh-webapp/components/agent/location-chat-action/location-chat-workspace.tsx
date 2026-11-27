@@ -11,12 +11,14 @@ import { Button } from "@/components/ui/button";
 import { LocationChatCircles } from "./location-chat-circles";
 import { LocationChatSettings } from "./location-chat-settings";
 import { LocationChatContacts } from "./location-chat-contacts";
+import type { LocationConversationProps } from "./use-location-conversation-turn";
 
 type Mode = "circles" | "saved_places" | "ratings" | "contacts" | "settings";
 const TITLES: Record<Mode, string> = { circles: "Circles", saved_places: "Saved places", ratings: "Place ratings", contacts: "Find contacts", settings: "Location settings" };
 
 export function LocationChatWorkspace({
   mode, token, ownerId, vaultKey, suggestedCircleName, suggestedPersonName, autoApprovalIntent, suggestedAutoApprovalCircles, onBack, onChanged,
+  onConversationReply, onConversationText,
 }: {
   mode: Mode;
   token: string;
@@ -28,7 +30,7 @@ export function LocationChatWorkspace({
   suggestedAutoApprovalCircles?: readonly string[];
   onBack: () => void;
   onChanged?: () => void;
-}) {
+} & LocationConversationProps) {
   const titleId = useId();
   useEffect(() => {
     if (mode !== "saved_places" || !vaultKey || !onChanged) return;
@@ -37,6 +39,11 @@ export function LocationChatWorkspace({
     });
   }, [mode, onChanged, ownerId, vaultKey]);
   if (mode === "contacts") return <LocationChatContacts ownerId={ownerId} onBack={onBack} onChanged={onChanged} />;
+  if (mode === "settings" && autoApprovalIntent && onConversationText) {
+    return <LocationChatSettings token={token} ownerId={ownerId} onChanged={onChanged}
+      autoApprovalIntent={autoApprovalIntent} suggestedCircles={suggestedAutoApprovalCircles}
+      onConversationReply={onConversationReply} onConversationText={onConversationText} />;
+  }
   return (
     <SurfaceCard role="region" aria-labelledby={titleId} className="w-full min-w-0">
       <SurfaceCardHeader className="flex items-center justify-between gap-3 space-y-0">

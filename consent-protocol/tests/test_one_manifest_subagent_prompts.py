@@ -9,6 +9,7 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
 from hushh_mcp.one_adk.location_chat_proposal import (
+    STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
     admit_location_chat_continuation,
     admit_location_chat_review,
@@ -96,14 +97,21 @@ def test_location_proposal_restores_intent_without_execution_authority():
 
     from hushh_mcp.one_adk.history_projection import project_conversation_history
 
-    proposal = propose_location_action("share_live", [" Maya ", "MAYA"], ["Family"], 2)
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+    proposal = propose_location_action(
+        "share_live", [" Maya ", "MAYA"], ["Family"], 2, tool_context=context
+    )
+    assert proposal["conversation"] is True
+    assert "conversation" not in propose_location_action("share_live", ["Maya"], ["Family"], 2)
     assert proposal["people"] == ["Maya"]
     assert proposal["circles"] == ["Family"]
     assert proposal["durationHours"] == 2
     assert location_chat_proposal_from_result({**proposal, "grantId": proposal["id"]}) is None
-    assert propose_location_action("share_pin", ["Maya"], duration_hours=2)["status"] == (
-        "invalid_proposal"
-    )
+    retired = propose_location_action("share_pin", ["Maya"])
+    assert retired["status"] == "invalid_proposal" and "id" not in retired
+    historic_pin = {**proposal, "action": "share_pin"}
+    historic_pin.pop("durationHours")
+    assert location_chat_proposal_from_result(historic_pin) == historic_pin
     assert propose_location_action("ask", [proposal["id"]])["status"] == "invalid_proposal"
     assert propose_location_action("enable_auto_approve", circles=["Trusted"])["circles"] == [
         "Trusted"
