@@ -74,6 +74,7 @@ from api.routes.one.pod_maintenance import (
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_pkm_preparation import router as pod_pkm_preparation_router
+from api.routes.one.pod_plaid_vault import router as pod_plaid_vault_router
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
 from api.routes.one.pod_scheduled_tasks import router as pod_scheduled_tasks_router
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
@@ -171,6 +172,7 @@ _POD_ROUTERS = (
     pod_scheduled_tasks_router,
     pod_commands_router,
     pod_pkm_preparation_router,
+    pod_plaid_vault_router,
     pod_answer_composition_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and

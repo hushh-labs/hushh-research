@@ -1,6 +1,6 @@
-# Hussh Private Agent One
+# hussh Private Agent One
 
-> Consent-first personal agent platform and zero-knowledge Personal Knowledge Model (PKM) infrastructure across Web, iOS, Android, Shared Runtime, Owner Cloud BYOC (Google Cloud and Microsoft Azure), and Personal Sandboxes.
+> Consent-first personal agent platform (`hussh.si`), combining a Zero-Knowledge Central Encrypted PKM Mirror (`<50ms` cross-device sync, Scope Paid Sharing, and MCP at `$0` wake cost), single-container sovereign `One` compute across `hussh` Confidential Sandboxes, Owner Cloud BYOC (Google Cloud and Microsoft Azure), and Local Puppy, and out-of-sandbox Sentinel company-key mediation.
 
 ## Coding-Agent Entrypoints
 

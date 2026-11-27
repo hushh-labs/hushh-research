@@ -347,3 +347,78 @@ def test_every_refusal_code_is_exercised_here():
     source = Path(__file__).read_text()
     for code in seal.REFUSAL_CODES:
         assert code in source or f"seal.{code}" in source, code
+
+
+@pytest.mark.parametrize(
+    "connector_id,scope,env_name,origin",
+    [
+        (
+            "gmail",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "production",
+            "https://one.hussh.si",
+        ),
+        (
+            "calendar",
+            "https://www.googleapis.com/auth/calendar.events",
+            "uat",
+            "https://uat.one.hussh.si",
+        ),
+        ("drive", "https://www.googleapis.com/auth/drive", "dev", "https://dev.one.hussh.si"),
+    ],
+)
+def test_hussh_web_profile_admits_canonical_si_connectors_and_refuses_contacts(
+    monkeypatch, connector_id, scope, env_name, origin
+):
+    client_id = "1234567890-abcdef123456.apps.googleusercontent.com"
+    monkeypatch.setenv("GOOGLE_WEB_OAUTH_CLIENT_ID", client_id)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", env_name)
+    scopes = ["openid", "email", scope]
+    if connector_id == "calendar":
+        scopes.append("https://www.googleapis.com/auth/calendar.freebusy")
+    envelope = _sealed(
+        connectorId=connector_id,
+        plaintext={
+            "kind": "authorization_code",
+            "clientProfile": "hussh_web",
+            "clientId": client_id,
+            "code": "4/0AeanS0webcode",
+            "codeVerifier": None,
+            "redirectUri": origin,
+            "scopes": scopes,
+        },
+    )
+    opened = _open(envelope, connector_id=connector_id)
+    assert opened.client_profile == "hussh_web"
+    assert opened.code_verifier is None
+    assert opened.redirect_uri == origin
+
+    # Negative control 1: contacts is strictly device/BYOC-only and refused on hussh_web
+    bad_contacts = _sealed(
+        connectorId="contacts",
+        plaintext={
+            "kind": "authorization_code",
+            "clientProfile": "hussh_web",
+            "clientId": client_id,
+            "code": "4/0AeanS0webcode",
+            "codeVerifier": None,
+            "redirectUri": origin,
+            "scopes": ["openid", "email", "https://www.googleapis.com/auth/contacts.readonly"],
+        },
+    )
+    _refused(bad_contacts, seal.BAD_ENVELOPE, connector_id="contacts")
+
+    # Negative control 2: cross-environment or untrusted origin refused
+    bad_origin = _sealed(
+        connectorId=connector_id,
+        plaintext={
+            "kind": "authorization_code",
+            "clientProfile": "hussh_web",
+            "clientId": client_id,
+            "code": "4/0AeanS0webcode",
+            "codeVerifier": None,
+            "redirectUri": "https://evil.hussh.si",
+            "scopes": scopes,
+        },
+    )
+    _refused(bad_origin, seal.CLIENT_PROFILE_UNSUPPORTED, connector_id=connector_id)

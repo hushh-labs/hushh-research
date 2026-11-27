@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -83,10 +84,18 @@ def has_credential(row: dict) -> bool:
     return bool(row.get("refresh_token_ciphertext") or row.get("access_token_ciphertext"))
 
 
-def _private(row: dict | None) -> dict:
+def _transition_target(target: str, profile: str) -> bool:
+    if profile == "hussh_uat_mail_web":
+        return target == "ace" and os.getenv("HUSHH_DEPLOY_ENV") == "uat"
+    if profile == "hussh_web":
+        return target == "ace" or is_owner_cloud_target(target)
+    return is_owner_cloud_target(target)
+
+
+def _private(row: dict | None, profile: str = "") -> dict:
     if (
         not row
-        or not is_owner_cloud_target(str(row.get("deployment_target") or ""))
+        or not _transition_target(str(row.get("deployment_target") or ""), profile)
         or not row.get("pod_key_id")
         or not row.get("pod_signing_key_id")
         or row.get("status") not in {"provisioned", "active"}
@@ -95,7 +104,7 @@ def _private(row: dict | None) -> dict:
     return dict(row)
 
 
-def _registry(connection: Any, owner: str) -> dict:
+def _registry(connection: Any, owner: str, profile: str = "") -> dict:
     from hushh_mcp.services.google_connection_service import (
         GoogleConnectionService,  # noqa: PLC0415
     )
@@ -109,7 +118,7 @@ def _registry(connection: Any, owner: str) -> dict:
         .mappings()
         .first()
     )
-    return _private(dict(row) if row else None)
+    return _private(dict(row) if row else None, profile)
 
 
 def _write_state(connection: Any, owner: str, state: dict) -> None:
@@ -183,7 +192,13 @@ def require_legacy_publication(connection: Any, owner: str, *, revocation: bool 
         .mappings()
         .first()
     )
-    if row and is_owner_cloud_target(str(row.get("deployment_target") or "")) and _state(dict(row)):
+    if (
+        row
+        and (state := _state(dict(row)))
+        and _transition_target(
+            str(row.get("deployment_target") or ""), str(state.get("profile") or "")
+        )
+    ):
         raise GoogleConnectionError("Use your private agent to connect Google.", status_code=409)
     if not revocation and (
         (row and pending_revocations(dict(row)))
