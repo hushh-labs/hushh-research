@@ -2573,13 +2573,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     displayName: formatAgentDisplayName(user?.displayName, user?.email),
     vaultKey,
     vaultOwnerToken,
-    isVaultUnlocked:
-      isVaultUnlocked &&
-      (historyReadyForSlot ||
-        Boolean(initialHistorySnapshot) ||
-        skipInitialHistoryLoadRef.current ||
-        Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) ||
-        Boolean(postSetupWelcomeContext)),
+    isVaultUnlocked,
     startSignal: Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) || Boolean(postSetupWelcomeContext),
     messages,
     conversationId,
