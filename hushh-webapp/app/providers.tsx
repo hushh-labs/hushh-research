@@ -17,6 +17,7 @@ import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 import {
   CSSProperties,
+  Fragment,
   ReactNode,
   Suspense,
   useCallback,
@@ -698,13 +699,15 @@ function AppShellFrame({ children }: ProvidersProps) {
                   {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
                   {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
-                  <AppBottomShell key={interfaceRevision} model={bottomShellModel} />
-                  <ProfilePane key={interfaceRevision}
-                    owner={userId}
-                    open={profilePaneOpen}
-                    onOpenChange={handleProfilePaneOpenChange}
-                    returnFocusRef={profileReturnFocus}
-                  />
+                  <Fragment key={interfaceRevision}>
+                    <AppBottomShell model={bottomShellModel} />
+                    <ProfilePane
+                      owner={userId}
+                      open={profilePaneOpen}
+                      onOpenChange={handleProfilePaneOpenChange}
+                      returnFocusRef={profileReturnFocus}
+                    />
+                  </Fragment>
                   <PersonProfilePreview />
                   {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
