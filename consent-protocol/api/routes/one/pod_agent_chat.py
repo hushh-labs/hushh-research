@@ -50,6 +50,7 @@ from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONTINUATION,
     STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
+    STATE_LOCATION_CHAT_TIMED_APPROVAL,
     admit_location_chat_continuation,
     admit_location_chat_review,
     pod_location_chat_enabled,
@@ -345,6 +346,9 @@ def _trusted_turn_state(
         STATE_LOCATION_CHAT_REVIEW: location_review,
         STATE_LOCATION_CHAT_CONVERSATION: location_review
         and forwarded.get("locationChatConversation") is True,
+        STATE_LOCATION_CHAT_TIMED_APPROVAL: location_review
+        and forwarded.get("locationChatConversation") is True
+        and forwarded.get("locationChatTimedApproval") is True,
         STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
             forwarded, owner_admitted=True, pod_environment=owner.authority.environment
         ),

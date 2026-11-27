@@ -32,6 +32,8 @@ from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.operons.location.policy import (
     LOCATION_PEER_UNAVAILABLE,
     LOCATION_PEER_UNAVAILABLE_MESSAGE,
+    MAX_LOCATION_SHARE_HOURS,
+    MIN_LOCATION_SHARE_HOURS,
 )
 from hushh_mcp.services.account_deletion_lifecycle_service import is_account_deletion_write_guard
 from hushh_mcp.services.capability_run_service import (
@@ -190,6 +192,14 @@ class UpdateMapPreferencesRequest(_CamelModel):
 
 class UpdateAutoApprovePreferenceRequest(_CamelModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    duration_hours: float | None = Field(
+        default=None,
+        alias="durationHours",
+        ge=MIN_LOCATION_SHARE_HOURS,
+        le=MAX_LOCATION_SHARE_HOURS,
+        allow_inf_nan=False,
+    )
 
     enabled: bool
     scope_kind: Literal["all_contacts", "circle", "circles"] | None = Field(
@@ -964,6 +974,11 @@ def update_location_auto_approve_preference(
                 user_id=_user_id(token_data),
                 enabled=payload.enabled,
                 scope_kind=payload.scope_kind,
+                **(
+                    {"duration_hours": payload.duration_hours}
+                    if payload.duration_hours is not None
+                    else {}
+                ),
                 circle_id=(str(payload.circle_id) if payload.circle_id is not None else None),
                 circle_ids=(
                     [str(value) for value in payload.circle_ids]

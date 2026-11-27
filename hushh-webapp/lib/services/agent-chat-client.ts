@@ -1463,7 +1463,7 @@ async function streamAgentChatAttempt(input: {
   const handlers = input.handlers ?? {};
   const locationReviewProps = input.locationChatReview ? {
     locationChatReview: true,
-    ...(input.locationChatConversation ? { locationChatConversation: true } : {}),
+    ...(input.locationChatConversation ? { locationChatConversation: true, locationChatTimedApproval: true } : {}),
     ...(input.locationChatContinuation ? { locationChatContinuation: input.locationChatContinuation } : {}),
   } : {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();

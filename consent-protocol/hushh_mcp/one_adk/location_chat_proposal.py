@@ -17,6 +17,7 @@ PROPOSAL_TYPE: Final = "location.chat_action"
 PROPOSAL_READY: Final = "proposal_ready"
 STATE_LOCATION_CHAT_REVIEW = "temp:hussh:location_chat_review"
 STATE_LOCATION_CHAT_CONVERSATION = "temp:hussh:location_chat_conversation"
+STATE_LOCATION_CHAT_TIMED_APPROVAL = "temp:hussh:location_chat_timed_approval"
 STATE_LOCATION_CHAT_CONTINUATION = "temp:hussh:location_chat_continuation"
 VOICE_LOCATION_CHAT_FEATURE = "location_chat_review"
 
@@ -75,7 +76,7 @@ _RESTRICTION_MESSAGES = {
     "place_only": "Live sharing includes map coordinates. City-only or map-free sharing is unavailable.",
     "conditional": "Location cannot start or stop this action automatically on an event or arrival.",
     "fixed_end": "Chat needs a relative duration for this action. It cannot guarantee that exact cutoff.",
-    "temporary_rule": "Automatic approval is a standing setting. It cannot expire automatically.",
+    "temporary_rule": "I need an available timed approval rule and a duration between 15 minutes and 24 hours to set that deadline.",
     "timed_pause": "A pause cannot resume automatically after a duration.",
     "history_window": "The in-chat list shows active shares. It cannot return a sharing history for a date range.",
     "combined_eta": "This Location action only shares a live map. It cannot send a trip ETA with the share.",
@@ -120,6 +121,7 @@ _UNTARGETED_ACTIONS = frozenset(
 )
 _TIME_ACTIONS = frozenset(
     {
+        "enable_auto_approve",
         "share_options",
         "share_private",
         "share_public",
@@ -271,7 +273,7 @@ LOCATION_CHAT_TYPED_INSTRUCTION = (
     + "For every proposal classify terms_check against the whole request, including earlier "
     "restrictions. A city or area name only, hiding the map, or withholding coordinates is "
     "place_only. Approximate sharing still reveals map coordinates. A clock cutoff is fixed_end. "
-    "A start or stop on arrival is conditional. A time limit on automatic approval is temporary_rule. "
+    "A start or stop on arrival is conditional. For an approval window use temporary_rule with its explicit relative duration_hours. "
     "For a pause with automatic resumption use timed_pause, for historical activity over a period "
     "use history_window, and for combined trip ETA sharing use combined_eta. For an unspecified "
     "trip window ask for its actual dates or a relative duration. For an explicit request to "
@@ -566,23 +568,39 @@ def propose_location_action(
         hold_key = f"location_chat:restricted_terms:{family}"
         held = tool_context.state.get(hold_key)
         restriction = terms_check
-        if action == "enable_auto_approve" and duration_hours is not None:
-            restriction = "temporary_rule"
+        timed_approval = (
+            action == "enable_auto_approve"
+            and duration_hours is not None
+            and tool_context.state.get(STATE_LOCATION_CHAT_TIMED_APPROVAL) is True
+            and terms_check in {"as_requested", "temporary_rule", "explicit_replacement"}
+        )
+        if action == "enable_auto_approve" and duration_hours is not None and not timed_approval:
+            # Preserve stricter conditions (for example, an absolute cutoff).
+            if restriction in {"as_requested", "explicit_replacement", None}:
+                restriction = "temporary_rule"
+        if timed_approval and restriction == "temporary_rule":
+            restriction = "as_requested"
         if action == "manage_settings" and duration_hours is not None:
             restriction = "timed_pause"
         if action == "share_pin":
             restriction = "one_time"
         if restriction in _RESTRICTION_MESSAGES:
             tool_context.state[hold_key] = restriction
-        elif held in _RESTRICTION_MESSAGES and terms_check != "explicit_replacement":
+        elif (
+            held in _RESTRICTION_MESSAGES
+            and terms_check != "explicit_replacement"
+            and not (held == "temporary_rule" and timed_approval)
+        ):
             restriction = held
         if restriction in _RESTRICTION_MESSAGES:
             return {"status": "unsupported_terms", "message": _RESTRICTION_MESSAGES[restriction]}
-        if terms_check not in {"as_requested", "explicit_replacement"}:
+        if terms_check not in {"as_requested", "explicit_replacement"} and not timed_approval:
             return {
                 "status": "terms_required",
                 "message": "Classify all user restrictions before preparing a review.",
             }
+    if action == "enable_auto_approve" and duration_hours is not None and not conversational:
+        return {"status": "unsupported_terms", "message": _RESTRICTION_MESSAGES["temporary_rule"]}
     if action == "share_pin":
         return {
             "status": "invalid_proposal",
@@ -598,7 +616,9 @@ def propose_location_action(
                 # A location request already has timed semantics. Gemini sometimes
                 # supplies that redundant word alongside the correct numeric duration.
                 "duration_mode": None
-                if action == "ask" and duration_mode == "timed"
+                if action in {"ask", "enable_auto_approve"}
+                and duration_mode == "timed"
+                and duration_hours is not None
                 else duration_mode,
                 "direction": direction,
             }
@@ -608,7 +628,9 @@ def propose_location_action(
     proposal = make_location_chat_proposal(intent)
     if conversational:
         proposal.conversation = True
-        if action in _REVIEWED_TERMS and terms_check == "explicit_replacement":
+        if action in _REVIEWED_TERMS and (
+            terms_check == "explicit_replacement" or (timed_approval and held == "temporary_rule")
+        ):
             tool_context.state[hold_key] = None
         if complete_turn:
             from hushh_mcp.one_adk.search_answer import _sole_search

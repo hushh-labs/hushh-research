@@ -11,6 +11,7 @@ from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
 from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
+    STATE_LOCATION_CHAT_TIMED_APPROVAL,
     admit_location_chat_continuation,
     admit_location_chat_review,
     legacy_location_chat_action,
@@ -551,8 +552,20 @@ def test_chat_keeps_unavailable_privacy_terms_until_explicitly_replaced():
             == "proposal_ready"
         )
     temporary = propose("enable_auto_approve", duration_hours=3, terms_check="as_requested")
-    assert temporary["status"] == "unsupported_terms" and "standing" in temporary["message"]
+    assert temporary["status"] == "unsupported_terms" and "id" not in temporary
     assert propose("enable_auto_approve", terms_check="as_requested") == temporary
+    context.state[STATE_LOCATION_CHAT_TIMED_APPROVAL] = True
+    assert propose("enable_auto_approve", terms_check="temporary_rule") == temporary
+    proposal = propose("enable_auto_approve", duration_hours=3, terms_check="temporary_rule")
+    assert proposal["status"] == "proposal_ready" and proposal["durationHours"] == 3
+    assert (
+        propose("enable_auto_approve", duration_hours=3, terms_check="fixed_end")["status"]
+        == "unsupported_terms"
+    )
+    assert (
+        propose("enable_auto_approve", duration_hours=3, terms_check="as_requested")["status"]
+        == "unsupported_terms"
+    )
 
 
 def test_stop_scope_and_unsupported_management_conditions_stay_distinct():

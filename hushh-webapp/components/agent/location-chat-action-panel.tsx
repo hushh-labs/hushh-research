@@ -1054,6 +1054,7 @@ function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKe
       : proposal.action === "manage_ratings" ? "ratings" : proposal.action === "manage_contacts" ? "contacts" : "settings"}
     ownerId={ownerId} token={token} vaultKey={vaultKey} onBack={dismiss} onChanged={announce}
     autoApprovalIntent={proposal.action === "enable_auto_approve" ? "enable" : proposal.action === "disable_auto_approve" ? "disable" : undefined}
+    autoApprovalHours={proposal.action === "enable_auto_approve" ? proposal.durationHours : undefined}
     suggestedAutoApprovalCircles={proposal.action === "enable_auto_approve" ? proposal.circles : undefined}
     suggestedCircleName={proposal.circles?.[0]} suggestedPersonName={proposal.people?.[0]} /> :
     <UnlockLocationCard onUnlock={onUnlock} />;

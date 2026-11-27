@@ -132,6 +132,7 @@ export function locationReviewForLegacyAction(actionId: string, path: string, sl
     const circle = locationNameHint(actionId === "location.create_circle" ? slots.name : slots.circle);
     if (circle) draft.circles = [circle];
   }
+  if (action === "enable_auto_approve" && slots.duration_hours != null) return null;
   if (action === "share_live" || action === "share_public" || action === "ask" || action === "set_duration") {
     const raw = slots.duration_hours;
     const hours = typeof raw === "number" || (typeof raw === "string" && /^\d+(\.\d+)?$/.test(raw.trim())) ? Number(raw) : 0;
@@ -179,7 +180,9 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
   const action = input.action as MainLocationAction;
   if (action === "stop" && input.direction != null &&
       (input.direction !== "all" || people?.length || circles?.length)) return null;
-  if (action === "enable_auto_approve" && (people?.length || input.durationHours != null ||
+  if (action === "enable_auto_approve" && (people?.length ||
+      (input.durationHours != null && (typeof input.durationHours !== "number" || !Number.isFinite(input.durationHours) ||
+        input.durationHours < 0.25 || input.durationHours > 24)) ||
       input.durationMode != null || input.direction != null)) return null;
   const dedicatedReview = [...locationRecoveryActions, ...locationSafetyActions, "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "disable_auto_approve", "manage_links", "nearby_check_in", "view_self"]
     .some((entry) => entry === action);
