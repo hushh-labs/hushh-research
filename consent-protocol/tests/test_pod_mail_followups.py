@@ -332,3 +332,96 @@ async def test_professor_promise_preserves_source_due_day_and_no_time(monkeypatc
         "2026-11-29",
         None,
     )
+
+
+@pytest.mark.asyncio
+async def test_overview_thread_retains_selected_source_after_thread_truncation():
+    selected = row("mail:1", "The selected message.", "2026-11-19T11:00:00Z")
+    selection = mail.Source(**{key: REQUEST[key] for key in ("account", "connection", "source")})
+    bounded = SimpleNamespace(
+        read_threads=AsyncMock(
+            return_value={"untrusted_external_content": [selected], "truncated": True}
+        ),
+        offered_message_ids=lambda: ("not-selected",),
+    )
+    exact = SimpleNamespace(
+        read_threads=AsyncMock(
+            return_value={"untrusted_external_content": [selected], "truncated": False}
+        ),
+        offered_message_ids=lambda: ("abcd",),
+        require_current=AsyncMock(),
+    )
+    readers = iter((bounded, exact))
+    result = await mail.assess_mail(
+        "thread",
+        selection,
+        owner="owner",
+        new_reader=lambda: next(readers),
+        credential_id=selection.connection,
+        key_resolver=lambda: KEY,
+        owner_address=None,
+        consent_token=None,
+        model_factory=None,
+    )
+    assert result["truncated"] is True
+    assert result["items"][0]["body"] == "The selected message."
+    exact.read_threads.assert_awaited_once_with(message_ids=["abcd"], whole_thread=False)
+
+
+@pytest.mark.parametrize(
+    ("reference", "expected"),
+    [("AB12CD", True), ("2026-11-28", False), ("booking", False), ("OTHER9", False)],
+)
+def test_overview_cross_thread_change_requires_matching_bookings(reference, expected):
+    from datetime import UTC, datetime
+
+    from hushh_mcp.services.mail_overview_brief import build_packet, verify_brief
+
+    before = "Your booking AB12CD departs at 9:00 on 2026-11-28."
+    after = "Your booking AB12CD departs at 10:30 on 2026-11-28."
+    packet = build_packet(
+        [
+            {
+                "message_id": "abcd",
+                "thread_id": "t01",
+                "direction": "received",
+                "text": before,
+                "received_at": "2026-11-24T09:00:00+00:00",
+            },
+            {
+                "message_id": "cafe",
+                "thread_id": "t02",
+                "direction": "received",
+                "text": after,
+                "received_at": "2026-11-25T09:00:00+00:00",
+            },
+        ],
+        now=datetime(2026, 11, 26, tzinfo=UTC),
+    )
+    original = next(row for row in packet.messages if row.message_id == "abcd")
+    update = next(row for row in packet.messages if row.message_id == "cafe")
+    result = verify_brief(
+        {
+            "updates": [
+                {
+                    "kind": "change",
+                    "thread": update.thread,
+                    "shared_reference": reference,
+                    "title": "Booking time changed",
+                    "line": "Moved from 9:00 to 10:30",
+                    "before": {"ref": original.ref, "quote": before},
+                    "after": {"ref": update.ref, "quote": after},
+                }
+            ]
+        },
+        packet,
+        owner_user_id="owner",
+        account="grant",
+        seal=lambda **terms: terms["message_id"],
+    )
+    assert bool(result["updates"]) is expected
+    if expected:
+        assert [entry["source_id"] for entry in result["updates"][0]["evidence"]] == [
+            "abcd",
+            "cafe",
+        ]

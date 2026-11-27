@@ -3,9 +3,11 @@
  *
  * Tracking records what the owner decided about their own receipts. It never
  * moves money and never talks to a bank. It is encrypted with the vault key,
- * stored on the device next to the saved receipts, and bound to the owner and
+ * stored through the private agent when connected, and bound to the owner and
  * the connected mailbox, so another account's choices can never show here.
  */
+import { PrivateMailStateService } from "@/lib/services/private-mail-state-service";
+import type { PrivateReceiptMailbox } from "@/lib/services/gmail-receipts-service";
 import { DurableResourceError } from "@/lib/services/durable-resource-error";
 import { SecureDurableResourceService, type DurableVersion } from "@/lib/services/secure-durable-resource-service";
 
@@ -301,10 +303,36 @@ async function resourceKey(account: string): Promise<{ key: string; binding: str
   return { key: TRACKING_PREFIX + binding, binding };
 }
 
-export async function loadTracking(session: ReceiptStoreSession, account: string): Promise<LoadedTracking> {
+export async function loadTracking(session: ReceiptStoreSession, account: string, privateMailbox?: PrivateReceiptMailbox): Promise<LoadedTracking> {
   const isCurrent = receiptStoreGuard(session);
   if (!isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Unlock your vault to see tracked bills.");
   const { key, binding } = await resourceKey(account);
+  if (privateMailbox) {
+    const remote = await PrivateMailStateService.read(session, privateMailbox, "tracking");
+    if (remote) {
+      const doc = validateTrackingDoc(remote.value);
+      if (doc.account_binding !== binding) throw new DurableResourceError("binding_invalid", "readback", "Saved tracking choices belong to another mailbox.");
+      return { doc, version: { generation: 0, revision: remote.revision } };
+    }
+    const legacy = await SecureDurableResourceService.read<unknown>(session.userId, key, session.vaultKey, isCurrent).catch((failure: unknown) => {
+      if (failure instanceof DurableResourceError && failure.code === "storage_unavailable") return null;
+      throw failure;
+    });
+    if (!legacy) return { doc: emptyTrackingDoc(binding), version: { generation: 0, revision: 0 } };
+    const doc = validateTrackingDoc(legacy.value);
+    if (doc.account_binding !== binding) throw new DurableResourceError("binding_invalid", "readback", "Saved tracking choices belong to another mailbox.");
+    try {
+      const revision = await PrivateMailStateService.write(session, privateMailbox, "tracking", doc, 0);
+      return { doc, version: { generation: 0, revision } };
+    } catch (failure) {
+      if (!(failure instanceof DurableResourceError) || failure.code !== "stale_version") throw failure;
+      const committed = await PrivateMailStateService.read(session, privateMailbox, "tracking");
+      if (!committed) throw failure;
+      const current = validateTrackingDoc(committed.value);
+      if (current.account_binding !== binding) throw new DurableResourceError("binding_invalid", "readback", "Saved tracking choices belong to another mailbox.");
+      return { doc: current, version: { generation: 0, revision: committed.revision } };
+    }
+  }
   const stored = await SecureDurableResourceService.read<unknown>(session.userId, key, session.vaultKey, isCurrent);
   if (!stored) return { doc: emptyTrackingDoc(binding), version: await SecureDurableResourceService.version(session.userId, key) };
   const doc = validateTrackingDoc(stored.value);
@@ -313,11 +341,15 @@ export async function loadTracking(session: ReceiptStoreSession, account: string
   return { doc, version: { generation: stored.generation, revision: stored.revision } };
 }
 
-export async function saveTracking(session: ReceiptStoreSession, account: string, doc: ReceiptTrackingDoc, expected: DurableVersion): Promise<DurableVersion> {
+export async function saveTracking(session: ReceiptStoreSession, account: string, doc: ReceiptTrackingDoc, expected: DurableVersion, privateMailbox?: PrivateReceiptMailbox): Promise<DurableVersion> {
   const isCurrent = receiptStoreGuard(session);
   if (!isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Unlock your vault to save your choices.");
   const { key, binding } = await resourceKey(account);
   if (doc.account_binding !== binding) throw new DurableResourceError("binding_invalid", "schema", "Tracking choices belong to another mailbox.");
   const value = validateTrackingDoc(doc);
+  if (privateMailbox) {
+    const revision = await PrivateMailStateService.write(session, privateMailbox, "tracking", value, expected.revision);
+    return { generation: 0, revision };
+  }
   return SecureDurableResourceService.write({ ...session, resourceKey: key, value, expected, isCurrent, validateReadback: validateTrackingDoc });
 }

@@ -1146,3 +1146,87 @@ async def test_calendar_mutation_keeps_the_owner_cloud_source_grant(agent, actio
     assert response.status_code == 200, response.json()
     method = "PATCH" if action == "reschedule" else "DELETE"
     assert len(google.calls(method, f"{EVENTS}/evt1")) == 1
+
+
+@pytest.mark.parametrize("drift", ["none", "source", "grant", "runtime"])
+async def test_scoped_mail_reply_claims_once_and_rechecks_exact_mailbox(monkeypatch, drift):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.gmail_delivery_service import GmailReplyContext
+    from hushh_mcp.services.gmail_receipts_service import GmailApiError
+    from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
+    from hushh_mcp.services.pod_mail_followups import Source
+
+    source = Source(account="mailbox-c", connection="credential-c", source="ms1.synthetic-source")
+    held = SimpleNamespace(
+        credential_id=source.connection,
+        status=credentials.STATUS_CONNECTED,
+        account_subject="google-c",
+    )
+    reply = SimpleNamespace(
+        recipient_email="lab@example.test",
+        subject="Re: Agreement",
+        fingerprint="source-fingerprint",
+        reply_context=GmailReplyContext(
+            thread_id="thread-c", in_reply_to="<original@example.test>"
+        ),
+    )
+    connection = SimpleNamespace(get_modify_access_token=AsyncMock(return_value="fixture-token"))
+    store = SimpleNamespace(
+        issue=AsyncMock(
+            return_value={"proposal_id": "gmod_fixture_", "expires_at_ms": 1800000000000}
+        ),
+        claim=AsyncMock(),
+        settle=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        credentials, "connector_permissions", lambda _held: {"capabilities": {"manage": True}}
+    )
+    monkeypatch.setattr(
+        credentials,
+        "active_mail_account",
+        lambda account: held if account == source.account and drift != "grant" else None,
+    )
+    service = PodGmailMailboxActions("owner", connection=connection, store=store)
+    envelope = AsyncMock(return_value=(reply, connection, held))
+    monkeypatch.setattr(service, "_reply_envelope", envelope)
+    dispatch = AsyncMock(return_value={"status": "sent", "message_id": "sent-fixture"})
+    monkeypatch.setattr(service, "deliver_thread_reply", dispatch)
+    require = AsyncMock()
+
+    review = await service.propose_thread_reply(
+        selection=source, body="Thanks for the signed copy.", require_access=require
+    )
+    assert review["preview"]["to"] == ["lab@example.test"]
+    assert dispatch.await_count == 0
+    issued = store.issue.await_args.kwargs["payload"]
+    assert issued["source"] == source.model_dump()
+    assert issued["credential_id"] == source.connection
+    store.claim.side_effect = [issued, None]
+    if drift == "source":
+        reply.fingerprint = "changed-envelope"
+    if drift == "runtime":
+        require.side_effect = HTTPException(status_code=409)
+
+    if drift == "none":
+        assert (
+            await service.execute(
+                user_id="owner", proposal_id=review["proposal_id"], require_access=require
+            )
+        )["status"] == "sent"
+        dispatch.assert_awaited_once()
+        assert dispatch.await_args.args[2]["thread_id"] == "thread-c"
+        connection.get_modify_access_token.assert_awaited_once_with(
+            user_id="owner", expected_google_sub="google-c"
+        )
+    else:
+        with pytest.raises((GmailApiError, HTTPException)):
+            await service.execute(
+                user_id="owner", proposal_id=review["proposal_id"], require_access=require
+            )
+        dispatch.assert_not_awaited()
+    with pytest.raises(GmailApiError):
+        await service.execute(
+            user_id="owner", proposal_id=review["proposal_id"], require_access=require
+        )
+    assert dispatch.await_count == (1 if drift == "none" else 0)

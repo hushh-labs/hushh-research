@@ -15,8 +15,9 @@ import base64
 import json
 import logging
 from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import httpx
 
@@ -36,6 +37,9 @@ from hushh_mcp.services.gmail_mailbox_actions import (
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader, RequireAccess
 from hushh_mcp.services.pod_action_proposals import PodActionProposalStore, pod_action_proposals
 from hushh_mcp.services.pod_gmail_local import HubTableRefused, PodGmailConnection
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.gmail_reply_source_service import GmailReplySource
 
 logger = logging.getLogger(__name__)
 KIND = "gmail_mailbox"
@@ -202,7 +206,100 @@ class PodGmailMailboxActions(GmailMailboxActions):
             "expires_at": datetime.fromtimestamp(issued["expires_at_ms"] / 1000, UTC).isoformat(),
         }
 
-    async def execute(self, *, user_id: str, proposal_id: str) -> dict[str, Any]:
+    async def _reply_envelope(
+        self, selection: Any, require_access: RequireAccess
+    ) -> tuple[GmailReplySource, PodGmailConnection, credentials.ConnectorCredential]:
+        from hushh_mcp.services.pod_mail_followups import run_mail
+
+        result = await run_mail(
+            "envelope",
+            selection,
+            owner=self._owner,
+            check=require_access,
+            consent_token=None,
+            model_factory=None,
+        )
+        return cast(
+            "tuple[GmailReplySource, PodGmailConnection, credentials.ConnectorCredential]",
+            result,
+        )
+
+    async def propose_thread_reply(
+        self, *, selection: Any, body: str, require_access: RequireAccess
+    ) -> dict[str, Any]:
+        source, _, held = await self._reply_envelope(selection, require_access)
+        if not credentials.connector_permissions(held)["capabilities"]["manage"]:
+            raise _error(
+                "GMAIL_MODIFY_PERMISSION_REQUIRED", "Reconnect this mailbox with send access.", 403
+            )
+        draft = normalize_draft(
+            {"to": source.recipient_email, "subject": source.subject, "body": body}
+        )
+        exact = json.loads(draft.canonical_json())
+        issued = await self._proposals().issue(
+            kind=KIND,
+            owner_id=self._owner,
+            payload={
+                "action": "send_email",
+                "draft": exact,
+                "source": selection.model_dump(),
+                "reply_fingerprint": source.fingerprint,
+                "credential_id": held.credential_id,
+            },
+        )
+        await require_access()
+        return {
+            "status": "confirmation_required",
+            "proposal_id": issued["proposal_id"],
+            "action": "send_email",
+            "preview": exact,
+            "expires_at": datetime.fromtimestamp(issued["expires_at_ms"] / 1000, UTC).isoformat(),
+        }
+
+    async def _send_scoped_reply(
+        self, proposal: dict[str, Any], require_access: RequireAccess | None
+    ) -> dict[str, Any]:
+        from hushh_mcp.services.pod_mail_followups import Source
+
+        if require_access is None:
+            raise _error("GMAIL_DELIVERY_INVALID", "Open Mail and review this reply again.", 403)
+        selection = Source.model_validate(proposal["source"])
+        source, connection, held = await self._reply_envelope(selection, require_access)
+        draft = normalize_draft(proposal["draft"])
+        if (
+            source.fingerprint != proposal["reply_fingerprint"]
+            or held.credential_id != proposal["credential_id"]
+            or draft.to != (source.recipient_email,)
+            or draft.cc
+            or draft.bcc
+            or draft.subject != source.subject
+        ):
+            raise _error("GMAIL_MAILBOX_CONNECTION_CHANGED", "Review this reply again.")
+        token = await connection.get_modify_access_token(
+            user_id=self._owner,
+            expected_google_sub=held.account_subject,
+        )
+        await require_access()
+        current = credentials.active_mail_account(selection.account)
+        if (
+            not current
+            or current.status != credentials.STATUS_CONNECTED
+            or current.credential_id != held.credential_id
+        ):
+            raise _error("GMAIL_MAILBOX_CONNECTION_CHANGED", "Review this reply again.")
+        return await self.deliver_thread_reply(
+            token,
+            proposal["draft"],
+            asdict(source.reply_context),
+        )
+
+    async def execute(
+        self,
+        *,
+        user_id: str,
+        proposal_id: str,
+        require_access: RequireAccess | None = None,
+    ) -> dict[str, Any]:
         proposal = (
             await self._proposals().claim(proposal_id=proposal_id, owner_id=user_id, kind=KIND)
             if user_id == self._owner
@@ -213,6 +310,17 @@ class PodGmailMailboxActions(GmailMailboxActions):
                 "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE",
                 "That mailbox change is no longer available. Check Gmail before preparing another change.",
             )
+        if "reply_fingerprint" in proposal:
+            try:
+                result = await self._send_scoped_reply(proposal, require_access)
+            except httpx.TransportError:
+                await self._proposals().settle(proposal_id=proposal_id, status="failed")
+                raise _unknown_outcome() from None
+            except Exception:
+                await self._proposals().settle(proposal_id=proposal_id, status="failed")
+                raise
+            await self._proposals().settle(proposal_id=proposal_id, status="executed")
+            return result
         message_ids = [str(item) for item in proposal.get("message_ids") or []]
         try:
             # Old proposals without a custody binding fail closed too.
@@ -261,7 +369,9 @@ class PodGmailMailboxActions(GmailMailboxActions):
         token = await self.linked_calendar_token(credential_id=credential_id, account=account)
         return await self.deliver_thread_reply(token, envelope["draft"], envelope["reply"])
 
-    async def deliver_thread_reply(self, token, draft, reply):
+    async def deliver_thread_reply(
+        self, token: str, draft: dict[str, Any], reply: dict[str, Any]
+    ) -> dict[str, Any]:
         return await self._deliver(
             token,
             {"action": "send_email", "draft": draft},

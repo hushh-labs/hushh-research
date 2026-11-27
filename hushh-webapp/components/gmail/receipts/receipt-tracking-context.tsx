@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   type Ctx, type LoadedTracking, type ReceiptTrackingDoc, loadTracking, saveTracking,
 } from "@/lib/mail/receipt-tracking";
+import type { PrivateReceiptMailbox } from "@/lib/services/gmail-receipts-service";
 import { DurableResourceError } from "@/lib/services/durable-resource-error";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 
@@ -31,16 +32,17 @@ export function useReceiptTracking(): ReceiptTrackingValue | null {
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "").slice(0, 14) : Math.random().toString(36).slice(2, 16));
 
 /**
- * Tracked bills and insight choices for the connected mailbox. Stored encrypted on this device, so it works
- * with no network, no bank and no payment service; a failure here never blocks the receipts themselves.
+ * Tracked bills and insight choices for the connected mailbox. The private agent
+ * only receives encrypted information, and a failure leaves receipts usable.
  */
 export function ReceiptTrackingProvider({
-  userId, vaultKey, vaultOwnerToken, accountKey, enabled, children,
+  userId, vaultKey, vaultOwnerToken, accountKey, privateMailbox, enabled, children,
 }: {
   userId: string | null;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   accountKey: string | null;
+  privateMailbox?: PrivateReceiptMailbox;
   enabled: boolean;
   children: ReactNode;
 }) {
@@ -66,7 +68,7 @@ export function ReceiptTrackingProvider({
     if (!ready) { setStatus("idle"); setError(null); return; }
     setStatus("loading");
     setError(null);
-    void loadTracking(session(mine), accountKey!)
+    void loadTracking(session(mine), accountKey!, privateMailbox)
       .then((result) => {
         if (generation.current !== mine) return;
         loaded.current = result;
@@ -81,8 +83,8 @@ export function ReceiptTrackingProvider({
         setStatus("error");
       });
     const stopListening = subscribeDurableOwnerReset((owner) => { if (owner === userId) setAttempt((value) => value + 1); });
-    return () => { stopListening(); };
-  }, [ready, userId, vaultKey, vaultOwnerToken, accountKey, attempt, session]);
+    return () => { generation.current = mine + 1; stopListening(); };
+  }, [ready, userId, vaultKey, vaultOwnerToken, accountKey, privateMailbox, attempt, session]);
 
   const apply = useCallback<ReceiptTrackingValue["apply"]>((change) => {
     const run = async (): Promise<boolean> => {
@@ -93,7 +95,7 @@ export function ReceiptTrackingProvider({
       const attemptSave = async (base: LoadedTracking): Promise<LoadedTracking | null> => {
         const next = change(base.doc, ctx);
         if (next === base.doc) return base;
-        const version = await saveTracking(session(mine), accountKey!, next, base.version);
+        const version = await saveTracking(session(mine), accountKey!, next, base.version, privateMailbox);
         return { doc: next, version };
       };
       try {
@@ -103,7 +105,7 @@ export function ReceiptTrackingProvider({
         } catch (failure) {
           // Another tab saved first: reread once and apply the same change on top of it.
           if (!(failure instanceof DurableResourceError) || failure.code !== "stale_version") throw failure;
-          result = await attemptSave(await loadTracking(session(mine), accountKey!));
+          result = await attemptSave(await loadTracking(session(mine), accountKey!, privateMailbox));
         }
         if (generation.current !== mine || !result) return false;
         loaded.current = result;
@@ -118,7 +120,7 @@ export function ReceiptTrackingProvider({
     const next = queue.current.then(run, run);
     queue.current = next;
     return next;
-  }, [accountKey, ready, session]);
+  }, [accountKey, privateMailbox, ready, session]);
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   const value = useMemo<ReceiptTrackingValue>(

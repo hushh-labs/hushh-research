@@ -34,6 +34,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.routes.one.pod_mail_accounts import router as mail_accounts_router
+from api.routes.one.pod_mail_receipts import router as mail_receipts_router
 from api.routes.one.pod_owner_door import admit_owner_local, owner_local_door
 from hushh_mcp.services.pod_commit_log import PodLogConflict, PodLogFenced
 
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
 router.include_router(mail_accounts_router)
+router.include_router(mail_receipts_router)
 
 #: A sealed login is a few kilobytes at most; anything far larger is not one.
 _MAX_BODY_BYTES = 32 * 1024

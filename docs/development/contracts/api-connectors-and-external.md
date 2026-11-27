@@ -6,6 +6,23 @@
 
 Lifecycle contracts for owner-authorized personal Mail and Drive connectors, owner-local tasks, and external developer clients. See [API Contracts](api-contracts.md) for the shared token hierarchy and error envelopes.
 
+## Dev private Mail workspace
+
+The private agent checks the held owner session and the exact current Gmail
+credential before reading. Mail source references bind to that credential.
+All Mail calls the selected-mailbox service for each admitted mailbox and
+keeps each result tied to its source.
+
+| Owner-pod route | Request and effect |
+| --- | --- |
+| `POST /api/one/pod/gmail/followups/{brief,recent,overview-search,thread}` | `account` and `connection`, plus `query` or sealed `source` where required. Read-only owner-pod evidence and bounded results. |
+| `POST /api/one/pod/connectors/gmail/accounts/{account}/receipts/{scan,detail,notice,notice-source}` | Current `credential_id`, with bounded scan or evidence terms. Reads and verifies sources under the selected provider grant. |
+| `POST /api/one/pod/connectors/gmail/accounts/{account}/state/{tracking,topics}/{read,write}` | Read uses `pkm.read`. Write uses `pod.act`, a client-encrypted envelope, and the expected revision. Separate owner, mailbox and credential bindings fence replays. |
+| `POST /api/one/pod/actions/gmail/proposals` | Optional `reply` includes the selected mailbox, credential and source. The private agent derives the recipient and thread, seals the edited body and returns the exact review. |
+| `POST /api/one/pod/actions/{proposal}/confirm` | Claims the sealed reply once. Rechecks the held owner session, credential, source and reviewed envelope before dispatch. |
+| `GET /api/one/pod/actions/{proposal}/status` | Reads the sealed send outcome without dispatching. |
+
+
 ## Visual Map
 
 ```mermaid

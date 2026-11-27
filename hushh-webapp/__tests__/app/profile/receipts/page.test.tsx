@@ -661,6 +661,13 @@ async function startReceiptSync() {
 const originalIndexedDB = Object.getOwnPropertyDescriptor(window, "indexedDB");
 const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
 
+function openPinnedMailView(name: "Receipts" | "Info Requests") {
+  fireEvent.click(screen.getByRole("tab", { name: "Views" }));
+  const current = screen.queryByRole("button", { name: "Back to Views" });
+  if (current) fireEvent.click(current);
+  fireEvent.click(within(screen.getByRole("region", { name: "Pinned Mail views" })).getByRole("button", { name }));
+}
+
 describe("ProfileReceiptsPage", () => {
   beforeEach(() => {
     receiptEntries = 0; vi.useRealTimers();
@@ -1435,7 +1442,7 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "false"));
     for (let visit = 0; visit < 2; visit += 1) {
       fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-      fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+      openPinnedMailView("Receipts");
       expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
     }
 
@@ -1818,12 +1825,14 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    for (const name of ["Receipts", "KYC", "Overview"]) {
-      const tab = screen.getByRole("tab", { name, exact: true });
+    for (const name of ["Receipts", "Info Requests", "Overview"] as const) {
+      const tabName = name === "Overview" ? "Overview" : "Views";
+      const tab = screen.getByRole("tab", { name: tabName, exact: true });
       expect(tab).toBeEnabled();
-      fireEvent.click(tab);
+      if (name === "Overview") fireEvent.click(tab);
+      else openPinnedMailView(name);
       expect(tab).toHaveAttribute("aria-selected", "true");
-      const panel = within(screen.getByRole("tabpanel", { name, exact: true }));
+      const panel = within(screen.getByRole("tabpanel", { name: tabName, exact: true }));
       expect(panel.getByLabelText("Checking your Gmail status")).toHaveAttribute(
         "aria-busy", "true",
       );
@@ -1910,7 +1919,7 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /mail not connected/i }),
     ).toBeTruthy();
     expect(
-      within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
+      within(screen.getByRole("tabpanel", { name: "Views" })).getByText(
         /syncs receipts into a private shopping summary/i,
       ),
     ).toBeTruthy();
@@ -2137,13 +2146,13 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+    openPinnedMailView("Receipts");
     expect(
       await screen.findByRole("button", { name: /connect mail/i }),
     ).toBeVisible();
 
-    // KYC uses the same connection recovery as the other Mail tabs.
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    // KYC uses the same connection recovery as the other Mail views.
+    openPinnedMailView("Info Requests");
     expect(
       screen.getByRole("button", { name: /^connect mail$/i }),
     ).toBeVisible();
@@ -2172,9 +2181,9 @@ describe("ProfileReceiptsPage", () => {
       },
     });
 
-  it("lands a KYC deep link on the KYC tab when Gmail is connected", async () => {
+  it("lands a KYC deep link on Info Requests under Views when Gmail is connected", async () => {
     render(<ProfileReceiptsPage forceWorkspace="kyc" />);
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("KYC requests")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Mail not connected" })).toBeNull();
   });
@@ -2183,8 +2192,8 @@ describe("ProfileReceiptsPage", () => {
     mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
     render(<ProfileReceiptsPage forceWorkspace="kyc" />);
 
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
-    const panel = screen.getByRole("tabpanel", { name: "KYC" });
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute("aria-selected", "true");
+    const panel = screen.getByRole("tabpanel", { name: "Views" });
     expect(within(panel).getByRole("heading", { name: "Mail not connected" })).toBeVisible();
     // One accessible connection action, despite the retained inactive panes.
     expect(screen.queryByText("KYC requests")).toBeNull();
@@ -2210,7 +2219,7 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByRole("button", { name: "Connect Mail" })).toBeNull();
   });
 
-  it("keeps the status card and its retry on the KYC tab when Gmail status fails", () => {
+  it("keeps the status card and its retry on Info Requests under Views when Gmail status fails", () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({ ...disconnectedKycView(), statusError: "Mail status is unavailable." }),
     );
@@ -2242,21 +2251,20 @@ describe("ProfileReceiptsPage", () => {
 
   it("retains the KYC panel while switching between Mail tabs", async () => {
     render(<ProfileReceiptsPage />);
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    openPinnedMailView("Info Requests");
     const panel = await screen.findByText("KYC requests");
-    const workspacePanel = screen.getByRole("tabpanel", { name: "KYC" });
+    const workspacePanel = screen.getByRole("tabpanel", { name: "Views" });
     expect(workspacePanel).toContainElement(panel);
     expect(panel).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(workspacePanel).toHaveAttribute("aria-hidden", "true");
     expect(workspacePanel).toHaveAttribute("inert");
-    expect(screen.queryByRole("tabpanel", { name: "KYC" })).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
-    expect(workspacePanel).toHaveAttribute("aria-hidden", "true");
-    expect(workspacePanel).toHaveAttribute("inert");
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    expect(screen.queryByRole("tabpanel", { name: "Views" })).toBeNull();
+    openPinnedMailView("Receipts");
+    expect(panel).not.toBeVisible();
+    openPinnedMailView("Info Requests");
     expect(screen.getByText("KYC requests")).toBe(panel);
-    expect(screen.getByRole("tabpanel", { name: "KYC" })).toBe(workspacePanel);
+    expect(screen.getByRole("tabpanel", { name: "Views" })).toBe(workspacePanel);
     expect(workspacePanel).toHaveAttribute("aria-hidden", "false");
     expect(workspacePanel).not.toHaveAttribute("inert");
     expect(panel).toBeVisible();
@@ -2265,8 +2273,8 @@ describe("ProfileReceiptsPage", () => {
   it("restores the KYC workspace after a secure-session remount", async () => {
     const firstMount = render(<ProfileReceiptsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+    openPinnedMailView("Info Requests");
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -2276,7 +2284,7 @@ describe("ProfileReceiptsPage", () => {
     firstMount.unmount();
     render(<ProfileReceiptsPage />);
 
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -2285,22 +2293,22 @@ describe("ProfileReceiptsPage", () => {
 
   it("opens a Feed-requested workspace over the saved session tab", async () => {
     const firstMount = render(<ProfileReceiptsPage />);
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+    openPinnedMailView("Info Requests");
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
     firstMount.unmount();
 
     const feedMount = render(<ProfileReceiptsPage forceWorkspace="receipts" />);
-    expect(screen.getByRole("tab", { name: "Receipts" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
     feedMount.unmount();
 
     render(<ProfileReceiptsPage />);
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -2658,7 +2666,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
     expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
     expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+    openPinnedMailView("Receipts");
     await startReceiptSync();
     expect(GmailReceiptsService.listReceipts).toHaveBeenCalledTimes(1);
     await screen.findByText(/No saved receipts yet/i);

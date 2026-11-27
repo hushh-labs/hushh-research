@@ -41,6 +41,7 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         const title = await header.locator("span").last().evaluate(element => { const style = getComputedStyle(element); return [style.fontSize, style.lineHeight, style.fontWeight]; });
         expect(title).toEqual(["17px", "22px", "600"]);
         const tabs = page.getByRole("tablist", { name: "Gmail workspace" });
+        await expect(tabs.getByRole("tab")).toHaveText(["Overview", "Views"]);
         expect((await tabs.boundingBox())!.height).toBe(36);
         const tabType = await tabs.locator("[data-ui-contract=required-title]").first().evaluate(element => { const style = getComputedStyle(element); return [style.fontSize, style.lineHeight, style.fontWeight]; });
         expect(tabType).toEqual(["15px", "20px", "550"]);
@@ -519,7 +520,7 @@ for (const width of [393, 1024, 1440]) {
     await page.route("http://localhost/layout/*", route => {
       const state = new URL(route.request().url()).pathname.split("/").pop();
       return route.fulfill({ contentType: "text/html; charset=utf-8", body:
-        `<!doctype html><html class="light" data-workspace="overview" data-layout-proof="1" data-journey="board" data-reference="${state}" data-connection="${state}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` });
+        `<!doctype html><html class="light" data-workspace="overview" data-layout-proof="1" data-journey="${state === "connected" ? "board" : ""}" data-reference="${state}" data-connection="${state}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` });
     });
     const edges = (locator: ReturnType<typeof page.locator>) => locator.evaluate(el => {
       const { left, right } = el.getBoundingClientRect();
@@ -532,6 +533,8 @@ for (const width of [393, 1024, 1440]) {
     await expect(status).toBeVisible();
     await awaitProductFont(page);
     const expected = await edges(tabs);
+    const mailTabs = await tabs.boundingBox();
+    expect(mailTabs).not.toBeNull();
     expect(await edges(status)).toEqual(expected);
     await info.attach("reading-edges", {body: JSON.stringify({width, left:expected[0], right:expected[1]}), contentType:"application/json"});
     await page.screenshot({path: info.outputPath("mail.png")});
@@ -539,15 +542,17 @@ for (const width of [393, 1024, 1440]) {
     const locationCard = page.getByTestId("one-location-share-row");
     await expect(locationCard).toBeVisible();
     await awaitProductFont(page);
-    expect(await edges(locationCard)).toEqual(expected);
-    expect(await edges(page.getByRole("tablist"))).toEqual(expected);
+    expect((await locationCard.boundingBox())!.width).toBeGreaterThanOrEqual(expected[1]! - expected[0]!);
+    const locationTabs = await page.getByRole("tablist").boundingBox();
+    expect(locationTabs).not.toBeNull();
+    expect(mailTabs!.width).toBeLessThanOrEqual(locationTabs!.width);
+    expect(mailTabs!.height).toBeLessThanOrEqual(locationTabs!.height);
     await page.screenshot({path: info.outputPath("location.png")});
     await page.goto("http://localhost/layout/connected");
     await expect(panel.getByRole("button", {name:"Open Follow-ups"})).toBeVisible();
     expect(await edges(tabs)).toEqual(expected);
     await page.locator("[data-app-scroll-root]").evaluate(el => el.scrollTop = el.scrollHeight);
     await panel.getByRole("button", {name:"Open Follow-ups"}).click();
-    await panel.getByRole("combobox", {name:"Choose mailbox"}).selectOption({label:"All Mail"});
     await expect(panel.getByText("7 conversations", {exact:true})).toBeVisible();
     expect(await edges(tabs)).toEqual(expected);
     expect(await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.querySelector("[data-app-scroll-root]")!.scrollWidth))).toBeLessThanOrEqual(width);
@@ -560,8 +565,9 @@ for (const width of [393, 1024, 1440]) {
       return last!.y + last!.height - talk!.y;
     }).toBeLessThanOrEqual(0);
     await lastAction.click({trial:true});
-    await page.getByRole("tab", {name:"Receipts"}).click();
-    await expect(panel.getByTestId("receipt-controls")).toBeVisible();
+    await panel.getByRole("button", { name: "Back to Mail" }).click();
+    await panel.getByRole("button", { name: "Receipts", exact: true }).click();
+    await expect(panel.getByRole("region", { name: "Receipts by mailbox" })).toBeVisible();
     expect(await edges(tabs)).toEqual(expected);
   });
 }

@@ -6,7 +6,7 @@ import asyncio
 import base64
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import getaddresses
 from typing import Annotated, Literal
 
@@ -18,6 +18,11 @@ from hushh_mcp.services import pod_connector_credentials as credentials
 from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
 from hushh_mcp.services.calendar_email_followup_relevance import quoted_or_signature_regions
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader
+from hushh_mcp.services.mail_overview import (
+    BRIEF_MAX_MESSAGES,
+    BRIEF_WINDOW_DAYS,
+    OverviewMailReader,
+)
 from hushh_mcp.services.mail_promise_date import promise_deadline
 from hushh_mcp.services.mail_source_identity import open_source_id, seal_source_id
 from hushh_mcp.services.pod_gmail_local import PodGmailConnection
@@ -234,7 +239,8 @@ async def run_mail(operation, selection, *, owner, check, consent_token, model_f
     connection = PodGmailConnection(owner, account_id=held.account_id)
 
     def new_reader():
-        return GmailMetadataReader(
+        reader_type = OverviewMailReader if operation == "brief" else GmailMetadataReader
+        return reader_type(
             gmail=connection,
             user_id=owner,
             require_access=current,
@@ -285,7 +291,61 @@ async def assess_mail(
             key=key, owner_user_id=owner, account=credential_id, message_id=identity
         )
 
-    if operation == "search":
+    if operation == "brief":
+        from hushh_mcp.services import mail_overview_brief as brief
+        from hushh_mcp.services.pod_ai_selection import ai_selection_revision
+
+        if not brief.brief_enabled():
+            raise _refuse(503, "MAIL_BRIEF_UNAVAILABLE")
+        revision = ai_selection_revision()
+        now = datetime.now(timezone.utc)
+        rows = await reader.brief_window(days=BRIEF_WINDOW_DAYS, limit=BRIEF_MAX_MESSAGES)
+        packet = brief.build_packet(rows, now=now)
+        verified = {"attention": [], "updates": []}
+        topics = []
+        if packet.messages:
+            model = model_factory()
+            if model is None:
+                raise _refuse(503, "MAIL_BRIEF_UNAVAILABLE")
+            raw = await brief.analyze_brief(
+                brief.model_prompt(packet), owner, consent_token, model=model
+            )
+            verified = brief.verify_brief(
+                raw,
+                packet,
+                owner_user_id=owner,
+                account=credential_id,
+                seal=lambda **terms: seal_source_id(key=key, **terms),
+            )
+            topics = brief.verify_topics(
+                raw,
+                packet,
+                owner=owner,
+                account=credential_id,
+                seal=lambda **terms: seal_source_id(key=key, **terms),
+            )
+        await reader.require_current()
+        if ai_selection_revision() != revision:
+            raise _refuse(409, "OWNER_AI_SELECTION_CHANGED")
+        return {
+            "attention": verified["attention"],
+            "updates": verified["updates"],
+            "topics": topics,
+        }
+
+    if operation == "recent":
+        page = await reader.read("list_recent", {"mailbox": "inbox", "limit": 12})
+    elif operation == "overview-search":
+        from hushh_mcp.agents.email.chat_tools import _loaded_embedding_client
+
+        page = await reader.search_hybrid(
+            intent=selection.query,
+            queries=[selection.query],
+            limit=12,
+            read_top_bodies=0,
+            embedding_client=_loaded_embedding_client(),
+        )
+    elif operation == "search":
         page = await reader.read(
             "search_inbox", {"query": selection.query, "mailbox": "anywhere", "limit": 12}
         )
@@ -306,18 +366,57 @@ async def assess_mail(
             await reader.require_current()
             return {"content": base64.b64encode(result["content"]).decode("ascii")}
         page = await reader.read_threads(
-            message_ids=[source.message_id], whole_thread=operation == "check", include_headers=True
+            message_ids=[source.message_id],
+            whole_thread=operation in {"check", "thread"},
+            include_headers=True,
         )
     rows = page["untrusted_external_content"]
     ids = reader.offered_message_ids()
     if len(rows) != len(ids):
         raise _refuse(502, "MAIL_SOURCE_UNAVAILABLE")
-    if operation == "search":
+    if operation in {"search", "recent", "overview-search"}:
+        await reader.require_current()
         return {
             "items": [
-                {"source": source_ref(identity), "subject": row["subject"], "sender": row["sender"]}
+                {
+                    "source": source_ref(identity),
+                    "subject": row["subject"],
+                    "sender": row["sender"],
+                    **({"received_at": row.get("received_at")} if operation != "search" else {}),
+                }
                 for row, identity in zip(rows, ids, strict=True)
             ]
+        }
+    if operation == "thread":
+        truncated = bool(page.get("truncated"))
+        if source.message_id not in ids:
+            if not truncated:
+                raise _refuse(409, "MAIL_SOURCE_CHANGED")
+            reader = new_reader()
+            page = await reader.read_threads(message_ids=[source.message_id], whole_thread=False)
+            rows = page["untrusted_external_content"]
+            ids = reader.offered_message_ids()
+            if ids != (source.message_id,) or len(rows) != 1:
+                raise _refuse(409, "MAIL_SOURCE_CHANGED")
+        await reader.require_current()
+        return {
+            "truncated": truncated,
+            "items": [
+                {
+                    "source": source_ref(identity),
+                    **{
+                        field: row.get(field)
+                        for field in (
+                            "subject",
+                            "sender",
+                            "received_at",
+                            "body",
+                            "body_truncated",
+                        )
+                    },
+                }
+                for row, identity in zip(rows, ids, strict=True)
+            ],
         }
     if operation == "check":
         if page.get("truncated"):
@@ -397,10 +496,15 @@ async def assess_mail(
         if operation == "envelope":
             await reader.require_current()
             return envelope, *delivery_context
+        from hushh_mcp.services.gmail_sensitive_content import redact_sensitive_mail_items
+
+        sanitized, _, _ = redact_sensitive_mail_items(
+            [{"body": row["body"]}], owner_user_id="", conversation_id=""
+        )
         answer = await run_email_gene(
             gene_id="agent_email_draft",
             prompt=json.dumps(
-                {"instruction": selection.expectation, "untrusted_source": row["body"]}
+                {"instruction": selection.expectation, "untrusted_source": sanitized[0]["body"]}
             ),
             user_id=owner,
             consent_token=consent_token,

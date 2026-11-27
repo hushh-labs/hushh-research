@@ -8,7 +8,7 @@ import { useGoogleConnectorTransitionReview } from '@/components/connections/goo
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
 import { usePathname } from "next/navigation";
-import { Loader2, Lock, RefreshCw } from "@/components/icons";
+import { ChevronLeft, ChevronRight, Loader2, Lock, RefreshCw } from "@/components/icons";
 import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
@@ -18,6 +18,15 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { TopBarRouteAccessory } from "@/components/app-ui/top-bar-route-accessory";
+import { MailboxSwitcher } from "./mailbox-switcher";
+import { PrivateMailOverview, PrivateMailTopics } from "./private-mail-overview";
+import { useMailboxScope } from "@/lib/mail/use-mailbox-scope";
+import {
+  disconnectPrivateMailAccount,
+  type PrivateMailAccount,
+} from "@/lib/services/private-google-connections";
+import type { MailAccountIntent } from "@/lib/one/connector-credential-seal";
 import GmailInformationRequestsSection from "@/components/gmail/gmail-information-requests-section";
 import { ReceiptHistory } from "@/components/gmail/receipt-history";
 import { ReceiptSyncToolbar, receiptSyncStatus } from "@/components/gmail/receipt-sync-toolbar";
@@ -38,6 +47,7 @@ import { GmailVerificationOnboarding } from "@/components/gmail/gmail-verificati
 import {
   GmailWorkspaceNavigation,
   GmailWorkspacePanels,
+  MAIL_PINNED_VIEWS,
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
 import { MailConnectionStatus } from "@/components/gmail/mail-kyc-connect-entry";
@@ -208,7 +218,6 @@ export default function GmailReceiptsPage({
   const pathname = usePathname();
   const nativeFrame = useRef<HTMLDivElement>(null);
   const { user, loading, userId } = useAuth();
-  const [followupsOpen, setFollowupsOpen] = useState(false);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
@@ -272,6 +281,26 @@ export default function GmailReceiptsPage({
   const displayedReceiptScopeRef = useRef<string | null>(null);
   const settledGmailPopupAttemptRef = useRef<string | null>(null);
   const gmailPopupRef = useRef<Window | null>(null);
+  const mailboxScope = useMailboxScope(userId, journeyVariant === "workspace" && isVaultUnlocked && Boolean(vaultOwnerToken));
+  const [mailboxOperation, setMailboxOperation] = useState<{ owner: string; epoch: number }>();
+  const [disconnectRequest, setDisconnectRequest] = useState<{ owner: string; epoch: number; account: PrivateMailAccount }>();
+  const privateMailboxPending = mailboxOperation?.owner === userId && mailboxOperation?.epoch === mailboxScope.epoch;
+  const pendingDisconnect = disconnectRequest?.owner === userId && disconnectRequest?.epoch === mailboxScope.epoch
+    ? disconnectRequest.account : undefined;
+  const privateMailboxDisconnect = pendingDisconnect && mailboxScope.accounts.find((account) =>
+    account.accountId === pendingDisconnect.accountId && account.credentialId === pendingDisconnect.credentialId
+  );
+  function setPrivateMailboxDisconnect(account?: PrivateMailAccount) {
+    setDisconnectRequest(account && userId ? { account, owner: userId, epoch: mailboxScope.epoch } : undefined);
+  }
+  const privateMail = mailboxScope.status === "private";
+  const privateMailbox = privateMail && mailboxScope.selected?.capabilities.read ? mailboxScope.selected : undefined;
+  const overviewMailboxes = useMemo(() => mailboxScope.accounts.filter((account) =>
+    account.capabilities.read && (mailboxScope.selectedId === "all" || mailboxScope.selectedId === account.accountId)
+  ), [mailboxScope.accounts, mailboxScope.selectedId]);
+  const overviewScope = overviewMailboxes.map((account) => account.credentialId).join(":");
+  const privateMailboxRef = useRef(privateMailbox);
+  privateMailboxRef.current = privateMailbox;
   const gmailOwnerIdRef = useRef<string | null>(userId);
   const sealedReceiptAccessRef = useRef({
     isUnlocked: isVaultUnlocked,
@@ -340,6 +369,12 @@ export default function GmailReceiptsPage({
           getGmailWorkspaceSession(userId, pathname, initialWorkspace),
     );
   }, [forceWorkspace, initialWorkspace, journeyVariant, pathname, userId]);
+  const pinnedView = MAIL_PINNED_VIEWS.find(({ value }) => value === workspace);
+  const openViews = () => setWorkspace("views");
+  useBackLayer(normalizeStaticExportPathname(pathname), journeyVariant === "workspace" && pinnedView ? 1 : 0, () => {
+    openViews();
+    return true;
+  });
   // This is intentionally memory-only. A KYC summary can be
   // sensitive, so workspace navigation must not write unfinished text to
   // browser storage just to preserve it.
@@ -368,10 +403,12 @@ export default function GmailReceiptsPage({
 
   const runReceiptScan = useCallback(async (_nextPage: number, manual = false): Promise<boolean | null> => {
     const owner = userId; const account = receiptAccountKeyRef.current;
+    const mailbox = privateMailboxRef.current;
     if (!user || !owner || !account || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || receiptReadsClosedRef.current || !receiptSyncAllowedRef.current) return null;
     const controller = new AbortController(); receiptScanAbortRef.current = controller;
     const sequence = ++receiptLoadSequenceRef.current;
     const isCurrent = () => !controller.signal.aborted && gmailOwnerIdRef.current === owner &&
+      privateMailboxRef.current?.credentialId === mailbox?.credentialId &&
       receiptAccountKeyRef.current === account && receiptLoadSequenceRef.current === sequence &&
       sealedReceiptAccessRef.current.isUnlocked && !receiptReadsClosedRef.current;
     // Automatic entry/focus scans are not new owner attempts. Retain the
@@ -383,8 +420,9 @@ export default function GmailReceiptsPage({
       const result = await MailReceiptResourceService.refresh({ userId: owner, vaultKey, vaultOwnerToken,
         isCurrent: () => gmailOwnerIdRef.current === owner && receiptAccountKeyRef.current === account &&
           sealedReceiptAccessRef.current.key === vaultKey && sealedReceiptAccessRef.current.ownerToken === vaultOwnerToken &&
-          sealedReceiptAccessRef.current.isUnlocked && !receiptReadsClosedRef.current && receiptSyncAllowedRef.current }, account,
-        () => user.getIdToken(), { onPage: (_items, page) => {
+          sealedReceiptAccessRef.current.isUnlocked && !receiptReadsClosedRef.current && receiptSyncAllowedRef.current &&
+          privateMailboxRef.current?.credentialId === mailbox?.credentialId }, account,
+        () => user.getIdToken(), { privateMailbox: mailbox, onPage: (_items, page) => {
           if (isCurrent()) {
             receiptsRef.current = _items; receiptEvidenceRef.current = _items;
             setReceiptSourceAliases(previous => ({ ...previous, ...Object.fromEntries(_items.flatMap(item => item.event_id && item.source_id ? [[item.event_id, item.source_id]] : [])) }));
@@ -393,10 +431,11 @@ export default function GmailReceiptsPage({
         } });
       if (!isCurrent()) return null;
       setReceipts([]);
-      setSavedReceiptSnapshot({ scope: `${owner}\u0000${account}`, value: result.snapshot });
+      const scope = JSON.stringify([owner, account, mailbox?.credentialId ?? null]);
+      setSavedReceiptSnapshot({ scope, value: result.snapshot });
       setReceiptListReady(true); setReceiptListError(null); setHasMore(false);
       setTotal(result.snapshot.coverage.source_count); setReceiptScanReachedLimit(!result.complete);
-      if (result.complete) setReceiptCompletion(previous => ({ scope: `${owner}\u0000${account}`, count: (previous?.count ?? 0) + 1,
+      if (result.complete) setReceiptCompletion(previous => ({ scope, count: (previous?.count ?? 0) + 1,
         generation: result.generation, revision: result.revision }));
       if (result.complete) attempt?.settled("returned");
       return result.complete;
@@ -452,7 +491,7 @@ export default function GmailReceiptsPage({
     [user],
   );
 
-  const gmail = useGmailConnectorStatus({
+  const primaryGmail = useGmailConnectorStatus({
     userId,
     enabled: Boolean(userId) && !loading,
     idTokenProvider: user?.getIdToken ? idTokenProvider : null,
@@ -460,6 +499,22 @@ export default function GmailReceiptsPage({
       journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_GMAIL : ROUTES.GMAIL,
     refreshKey: userId || "",
   });
+  const privateReceipts = privateMail && workspace !== "kyc";
+  const gmail = useMemo(() => privateReceipts ? {
+    ...primaryGmail,
+    presentation: { ...primaryGmail.presentation, isConnected: Boolean(privateMailbox) },
+    loadingStatus: false,
+    status: {
+      configured: true,
+      connected: Boolean(privateMailbox),
+      google_sub: privateMailbox?.accountId,
+      google_email: privateMailbox?.email,
+      receipt_sync_available: privateMailbox?.receiptSyncAvailable === true,
+      revoked: false,
+      auto_sync_enabled: false,
+      last_sync_status: "idle",
+    } as NonNullable<typeof primaryGmail.status>,
+  } : primaryGmail, [primaryGmail, privateMailbox, privateReceipts]);
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   receiptSyncAllowedRef.current = gmail.status?.receipt_sync_available !== false;
@@ -473,7 +528,7 @@ export default function GmailReceiptsPage({
       sealedReceiptAccessRef.current.key === vaultKey && sealedReceiptAccessRef.current.ownerToken === vaultOwnerToken,
   } : null, [userId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
   const receiptDisplayScope = userId
-    ? `${userId}\u0000${String(receiptAccountKey || "")}`
+    ? JSON.stringify([userId, receiptAccountKey, privateReceipts ? privateMailbox?.credentialId ?? null : null])
     : null;
   const receiptResource = useSyncExternalStore(MailReceiptResourceService.subscribe,
     () => MailReceiptResourceService.peek(userId ?? "", receiptAccountKey ?? ""),
@@ -565,6 +620,7 @@ export default function GmailReceiptsPage({
           signal.aborted ||
           gmailOwnerIdRef.current !== detailOwnerId ||
           receiptAccountKeyRef.current !== detailAccountKey ||
+          privateMailboxRef.current?.credentialId !== privateMailbox?.credentialId ||
           !access.isUnlocked ||
           access.ownerToken !== detailOwnerToken ||
           !isVaultSessionEpochCurrent(detailVaultEpoch)
@@ -578,7 +634,7 @@ export default function GmailReceiptsPage({
       // A scanned row already carries this owner/account's validated
       // extraction and its source passages, so opening it reuses that answer
       // instead of re-reading and re-classifying the message.
-      const scanned = receiptEvidenceRef.current.find(
+      const scanned = (receiptDisplayScopeCurrent ? receiptEvidenceRef.current : []).find(
         (receipt) => (String(receipt.source_id || "").trim() === sourceId || receipt.event_id === sourceId),
       );
       if (scanned && Array.isArray(scanned.source_evidence)) {
@@ -589,7 +645,12 @@ export default function GmailReceiptsPage({
           source_evidence: scanned.source_evidence,
         };
       }
-      const detailSnapshot = receiptAccountKey ? MailReceiptResourceService.peek(detailOwnerId, receiptAccountKey).snapshot ?? savedReceiptSnapshotRef.current?.value : savedReceiptSnapshotRef.current?.value;
+      const savedSnapshot = savedReceiptSnapshotRef.current?.scope === receiptDisplayScope
+        ? savedReceiptSnapshotRef.current?.value
+        : undefined;
+      const detailSnapshot = receiptAccountKey
+        ? MailReceiptResourceService.peek(detailOwnerId, receiptAccountKey).snapshot ?? savedSnapshot
+        : savedSnapshot;
       const saved = detailSnapshot?.rows.find(r => r.events.some(e => e.ref === sourceId));
       const event = saved?.events.find(e => e.ref === sourceId);
       const locator = event?.locator;
@@ -611,6 +672,7 @@ export default function GmailReceiptsPage({
         idToken,
         vaultOwnerToken: detailOwnerToken,
         userId: detailOwnerId,
+        privateMailbox,
         sourceId: locator ?? sourceId,
         signal,
       }).catch(error => { ensureCurrent(); if (saved && !signal?.aborted) return savedDetail(); throw error; });
@@ -621,7 +683,7 @@ export default function GmailReceiptsPage({
       }
       return detail;
     },
-    [isVaultUnlocked, receiptAccountKey, user, userId, vaultOwnerToken, gmail.presentation.isConnected],
+    [isVaultUnlocked, privateMailbox, receiptAccountKey, receiptDisplayScope, receiptDisplayScopeCurrent, user, userId, vaultOwnerToken, gmail.presentation.isConnected],
   );
 
   const handleReceiptDetailLoaded = useCallback(
@@ -658,6 +720,7 @@ export default function GmailReceiptsPage({
     let active = true;
     const restore = async () => {
       if (!receiptAccountKey) {
+        if (privateReceipts) return;
         if (!gmail.loadingStatus && (!gmail.presentation.isConnected || gmail.status?.receipt_sync_available === false)) {
           const saved = await loadReceiptSnapshot({ userId: owner, vaultKey, vaultOwnerToken,
             isCurrent: () => active }, null);
@@ -684,7 +747,7 @@ export default function GmailReceiptsPage({
     window.addEventListener("online", wake); document.addEventListener("visibilitychange", wake);
     return () => { active = false; unsubscribeLifecycle(); window.removeEventListener("online", wake); document.removeEventListener("visibilitychange", wake); };
   }, [loading, userId, vaultKey, vaultOwnerToken, hasSealedReceiptAccess, receiptsWorkspaceActive,
-    receiptAccountKey, receiptDisplayScope, gmail.loadingStatus, gmail.presentation.isConnected, gmail.status?.receipt_sync_available, journeyVariant, loadReceipts]);
+    receiptAccountKey, receiptDisplayScope, gmail.loadingStatus, gmail.presentation.isConnected, gmail.status?.receipt_sync_available, journeyVariant, loadReceipts, privateReceipts]);
 
   const retryReceiptRestore = useCallback(async () => {
     if (!historySession || !receiptAccountKey) return;
@@ -993,28 +1056,40 @@ export default function GmailReceiptsPage({
   }, [isConnected, onConnectionStateChange]);
 
   const preserveGmailModify = gmail.status?.modify_permission_granted === true;
+  const receiptReconnectMailbox = privateReceipts ? mailboxScope.selected : undefined;
   const handleConnectGmail = useCallback((purpose: "read" | "send" | "full" = "full"): Promise<boolean> => {
     const operationDeadline = Date.now() + GMAIL_OAUTH_POPUP_TIMEOUT_MS;
     if (!user || !userId || gmailActionBusy !== null) return Promise.resolve(false);
     const operationOwner = userId;
+    const operationEpoch = snapshotVaultSessionEpoch();
+    const isCurrent = () => gmailOwnerIdRef.current === operationOwner && isVaultSessionEpochCurrent(operationEpoch);
     const privateConnect = async (): Promise<boolean | null> => {
       const privateAgent = await ownerRequiresByocIsolation();
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!isCurrent()) return false;
       if (!privateAgent) return null;
       if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) { toast.error('Unlock your vault to connect Google.'); return false; }
       const outcome = await connectGoogleConnector('gmail', {
+        ...(receiptReconnectMailbox && { mailAccount: {
+          mode: "reconnect",
+          accountId: receiptReconnectMailbox.accountId,
+          credentialId: receiptReconnectMailbox.credentialId,
+        } }),
         vaultOwnerCapability: vaultOwnerToken,
         confirmLegacyTransition: confirmTransition,
-        isCurrent: () => gmailOwnerIdRef.current === operationOwner,
+        isCurrent,
       });
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!isCurrent()) return false;
       if (!outcome.ok) {
-        if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('gmail');
+        if (outcome.code === 'PHONE_HANDOFF_REQUIRED' && !receiptReconnectMailbox) requestGoogleConnectorPhoneHandoff('gmail');
         else toast.error(connectRefusalMessage(outcome.code, 'Gmail'));
         return false;
       }
+      if (receiptReconnectMailbox) {
+        toast.success('Mail reconnected.');
+        return true;
+      }
       const current = await refreshGmailStatus({ force: true });
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!isCurrent()) return false;
       if (current?.connected) toast.success('Gmail connected to Agent One.');
       return current?.connected === true;
     };
@@ -1219,7 +1294,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user, userId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
+  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, receiptReconnectMailbox, refreshGmailStatus, user, userId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
 
   const handleEnableGmailSend = useCallback(() => {
     return handleConnectGmail("send");
@@ -1834,6 +1909,7 @@ export default function GmailReceiptsPage({
 
   const receiptsPanel = (
     <ReceiptTrackingProvider
+      privateMailbox={privateMailbox}
       userId={userId}
       vaultKey={vaultKey ?? null}
       vaultOwnerToken={vaultOwnerToken ?? null}
@@ -1841,6 +1917,7 @@ export default function GmailReceiptsPage({
       enabled={Boolean(isConnected && hasSealedReceiptAccess && receiptsWorkspaceActive)}
     >
     <ReceiptNoticeProvider
+      privateMailbox={privateMailbox}
       userId={userId}
       vaultOwnerToken={vaultOwnerToken ?? null}
       accountKey={receiptAccountKey}
@@ -2014,8 +2091,58 @@ export default function GmailReceiptsPage({
     </ReceiptTrackingProvider>
   );
 
+  async function connectPrivateMailbox(intent: MailAccountIntent) {
+    if (!userId || !vaultOwnerToken || privateMailboxPending) return;
+    const owner = userId;
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => gmailOwnerIdRef.current === owner && isVaultSessionEpochCurrent(epoch);
+    const operation = { owner, epoch };
+    setMailboxOperation(operation);
+    try {
+      const result = await connectGoogleConnector("gmail", {
+        mailAccount: intent,
+        vaultOwnerCapability: vaultOwnerToken,
+        confirmLegacyTransition: confirmTransition,
+        isCurrent: current,
+      });
+      if (!current()) return;
+      if (result.ok) mailboxScope.refresh();
+      else if (result.code === "PHONE_HANDOFF_REQUIRED" && intent.mode === "add") {
+        requestGoogleConnectorPhoneHandoff("gmail", undefined, false, true);
+      } else {
+        toast.error(connectRefusalMessage(result.code, "Mail"));
+      }
+    } catch {
+      if (current()) toast.error("Mail could not connect this mailbox.");
+    } finally {
+      setMailboxOperation((pending) => pending === operation ? undefined : pending);
+    }
+  }
+
+  async function disconnectSelectedMailbox(account: PrivateMailAccount) {
+    if (!userId || privateMailboxPending) return;
+    const owner = userId;
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => gmailOwnerIdRef.current === owner && isVaultSessionEpochCurrent(epoch);
+    const operation = { owner, epoch };
+    setMailboxOperation(operation);
+    try {
+      const result = await disconnectPrivateMailAccount(account.accountId, account.credentialId);
+      if (!current()) return;
+      if (!result.disconnected) throw new Error("Disconnect was not confirmed.");
+      if (mailboxScope.selectedId === account.accountId) mailboxScope.choose("all");
+      setPrivateMailboxDisconnect(undefined);
+      mailboxScope.refresh();
+      void refreshGmailStatus({ force: true });
+    } catch {
+      if (current()) toast.error("Mail could not confirm the disconnect.");
+    } finally {
+      setMailboxOperation((pending) => pending === operation ? undefined : pending);
+    }
+  }
+
   const openFollowups = () => {
-    setFollowupsOpen(true);
+    setWorkspace("followups");
     if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) requestVaultUnlock();
   };
   const nativeRoot: MailNativeSection[] = [];
@@ -2038,6 +2165,20 @@ export default function GmailReceiptsPage({
       { key: "chat", label: "Chat with One", run: handleOpenOneChat },
       { key: "followups", label: "Open Follow-ups", web: true, run: openFollowups },
     ] });
+  }
+  if (workspace === "views") {
+    nativeRoot.push({
+      key: "mail-views",
+      rows: MAIL_PINNED_VIEWS.map(({ value, label }) => ({
+        key: value,
+        label,
+        web: value === "followups",
+        run: value === "followups" ? openFollowups : () => setWorkspace(value),
+      })),
+    });
+  }
+  if (pinnedView) {
+    nativeRoot.push({ key: "mail-views-back", rows: [{ key: "back-to-views", label: "Back to Views", run: openViews }] });
   }
   if (workspace === "receipts") {
     if (isConnected) nativeRoot.push({ key: "receipt-operations", rows: [
@@ -2110,6 +2251,23 @@ export default function GmailReceiptsPage({
       }}
     >
       {transitionDialog}
+      {privateMail ? (
+        <TopBarRouteAccessory>
+          <MailboxSwitcher
+            scope={mailboxScope}
+            busy={privateMailboxPending}
+            onAdd={() => void connectPrivateMailbox({ mode: "add" })}
+            onReconnect={({ accountId, credentialId }) => void connectPrivateMailbox({ mode: "reconnect", accountId, credentialId })}
+            onDisconnect={setPrivateMailboxDisconnect}
+          />
+        </TopBarRouteAccessory>
+      ) : null}
+      {mailboxScope.status === "error" && journeyVariant === "workspace" ? (
+        <div role="status" className="flex items-center justify-between gap-2">
+          <p>Couldn’t verify your mailboxes.</p>
+          <Button type="button" variant="ghost" onClick={mailboxScope.refresh}>Retry mailboxes</Button>
+        </div>
+      ) : null}
       {nativeHistory ? <Button variant="ghost" onClick={() => setNativeHistory(false)}>Back to receipts</Button> : null}
       <AppPageHeaderRegion
         className={
@@ -2147,7 +2305,7 @@ export default function GmailReceiptsPage({
                 <Button
                   variant="destructive"
                   effect="fade"
-                  onClick={() => setShowDisconnectConfirm(true)}
+                  onClick={() => privateMailbox ? setPrivateMailboxDisconnect(privateMailbox) : setShowDisconnectConfirm(true)}
                   disabled={receiptSyncInProgress || gmailActionBusy !== null}
                   className="w-full sm:w-auto sm:min-w-[150px]"
                   data-voice-control-id="disconnect_gmail"
@@ -2207,10 +2365,24 @@ export default function GmailReceiptsPage({
               value={workspace}
               onValueChange={setWorkspace}
               panels={{
-                overview: (
+                overview: privateMail ? (
+                  overviewMailboxes.length && userId && vaultKey && vaultOwnerToken ? (
+                    <PrivateMailOverview
+                      key={`${userId}:${overviewScope}`}
+                      accounts={overviewMailboxes}
+                      session={{ userId, vaultKey, vaultOwnerToken }}
+                      onFollowups={openFollowups}
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      <p role="status">{mailboxScope.selectedId === "all" ? "Connect a mailbox to see your mail." : "This mailbox is unavailable. Choose a connected mailbox."}</p>
+                      <Button type="button" onClick={() => void connectPrivateMailbox({ mode: "add" })}>Add mailbox</Button>
+                    </div>
+                  )
+                ) : (
                   <>
-                    {!isConnected ? mailStatusPanel : null}
-                    {isConnected ? (
+                    {!isConnected && !privateMail ? mailStatusPanel : null}
+                    {isConnected && !privateMail ? (
                       <MailConnectedAccount
                         busy={gmailActionBusy !== null || loadingStatus}
                         onReconnect={() => void handleConnectGmail()}
@@ -2218,9 +2390,6 @@ export default function GmailReceiptsPage({
                       />
                     ) : null}
                     {isConnected ? (
-                      followupsOpen && userId && vaultOwnerToken && vaultKey && isVaultUnlocked ?
-                        <MailFollowupsEntry key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
-                          confirmTransition={confirmTransition} session={{ userId, vaultKey, vaultOwnerToken }} onBack={() => setFollowupsOpen(false)} /> :
                       <><MailOverview
                         fetching={overviewReceiptsFetching}
                         receiptIssue={overviewReceiptIssue}
@@ -2240,11 +2409,56 @@ export default function GmailReceiptsPage({
                     ) : null}
                   </>
                 ),
-                kyc: (
+                views: (
                   <>
-                    {!isConnected ? mailStatusPanel : null}
+                    {workspace === "views" ? (
+                      <section aria-label="Pinned Mail views" className="overflow-hidden rounded-xl border border-border">
+                        {MAIL_PINNED_VIEWS.map(({ value, label }) => (
+                          <Button
+                            key={value}
+                            type="button"
+                            className="flex min-h-11 w-full justify-between rounded-none bg-transparent px-4 text-foreground [&+button]:border-t [&+button]:border-border"
+                            onClick={value === "followups" ? openFollowups : () => setWorkspace(value)}
+                          >
+                            {label}
+                            <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                          </Button>
+                        ))}
+                      </section>
+                    ) : null}
+                    {workspace === "views" && privateMail && userId && vaultKey && vaultOwnerToken ? (
+                      <PrivateMailTopics
+                        key={`${userId}:${overviewScope}`}
+                        accounts={overviewMailboxes}
+                        session={{ userId, vaultKey, vaultOwnerToken }}
+                      />
+                    ) : null}
+                    {pinnedView && workspace !== "followups" ? (
+                      <Button type="button" className="min-h-11 gap-1.5 bg-transparent px-2" onClick={openViews}>
+                        <ChevronLeft className="size-4" aria-hidden="true" />
+                        Back to Views
+                      </Button>
+                    ) : null}
+                    {workspace === "followups" ? (
+                      userId && vaultOwnerToken && vaultKey && isVaultUnlocked ? (
+                        <MailFollowupsEntry
+                          key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
+                          confirmTransition={confirmTransition}
+                          scope={mailboxScope}
+                          session={{ userId, vaultKey, vaultOwnerToken }}
+                          onBack={openViews}
+                        />
+                      ) : (
+                        <Button onClick={requestVaultUnlock}>Open vault to view Follow-ups</Button>
+                      )
+                    ) : null}
+                    <div hidden={workspace !== "kyc"} inert={workspace !== "kyc" || undefined}>
+                    {workspace === "kyc" && privateMail && mailboxScope.selectedId !== "all" && !mailboxScope.selected?.isDefault ? (
+                      <p role="status">Info Requests are available for the primary mailbox.</p>
+                    ) : workspace === "kyc" && !isConnected ? mailStatusPanel : null}
 
                     {isConnected &&
+                    (!privateMail || mailboxScope.selectedId === "all" || mailboxScope.selected?.isDefault) &&
                     ((userId !== null && kycVisitedOwner === userId) || workspace === "kyc") ? (
                       <div
                         key={`${userId ?? "guest"}:${Boolean(vaultKey && vaultOwnerToken)}`}
@@ -2275,18 +2489,27 @@ export default function GmailReceiptsPage({
                         </GmailVerificationOnboarding>
                       </div>
                     ) : null}
-
-                    {isConnected &&
-                    (userId === null || kycVisitedOwner !== userId) &&
-                    workspace !== "kyc" ? (
-                      <Skeleton
-                        aria-label="Loading KYC"
-                        className="h-32 w-full"
-                      />
+                    </div>
+                    {workspace === "receipts" ? (
+                      privateMail && !privateMailbox ? (
+                        <section aria-label="Receipts by mailbox" className="space-y-2">
+                          <h2 className={mailStyles.sectionTitle}>Receipts</h2>
+                          {mailboxScope.accounts.filter((account) => account.capabilities.read).map((account) => (
+                            <Button key={account.accountId} type="button" variant="ghost"
+                              className="flex min-h-11 w-full justify-between px-3"
+                              onClick={() => mailboxScope.choose(account.accountId)}>
+                              <span className="truncate">{account.email || "Connected mailbox"}</span>
+                              <ChevronRight className="size-4" aria-hidden="true" />
+                            </Button>
+                          ))}
+                          {!mailboxScope.accounts.some((account) => account.capabilities.read)
+                            ? <p role="status">Connect a mailbox to view its receipts.</p>
+                            : null}
+                        </section>
+                      ) : receiptsPanel
                     ) : null}
                   </>
                 ),
-                receipts: receiptsPanel,
               }}
             />
           ) : (
@@ -2307,6 +2530,28 @@ export default function GmailReceiptsPage({
             toast.success("Private vault is ready.");
           }}
         />
+      ) : null}
+      {privateMail && privateMailboxDisconnect ? (
+        <AlertDialog open onOpenChange={(open) => { if (!open && !privateMailboxPending) setPrivateMailboxDisconnect(undefined); }}>
+          <AlertDialogContent className={mailStyles.portal}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Disconnect mailbox?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Stop Mail access for {privateMailboxDisconnect.email || "this mailbox"}.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={privateMailboxPending}>Keep connected</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={privateMailboxPending}
+                onClick={(event) => { event.preventDefault(); void disconnectSelectedMailbox(privateMailboxDisconnect); }}
+              >
+                {privateMailboxPending ? "Disconnecting…" : "Disconnect"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
       <NativeMailReactOnly><AlertDialog
         open={showDisconnectConfirm}
@@ -2343,7 +2588,7 @@ export default function GmailReceiptsPage({
       </AlertDialog></NativeMailReactOnly>
       {/* No control: a finished sync saves itself to private memory, so Chat
           with One can answer from it. */}
-      {isConnected && hasSealedReceiptAccess ? (
+      {!privateMail && isConnected && hasSealedReceiptAccess ? (
         <GmailReceiptMemorySave
           accountKey={
             gmail.status?.google_sub || gmail.status?.google_email || null
@@ -2359,8 +2604,8 @@ export default function GmailReceiptsPage({
       ) : null}
     </AppPageShell>
   );
-  return <NativeMailRoute frame={nativeFrame} model={{ owner: userId, onboarding: journeyVariant === "onboarding", view: workspace,
-    selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: (followupsOpen && workspace === "overview") || showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
+  return <NativeMailRoute frame={nativeFrame} model={{ owner: privateMail ? null : userId, onboarding: journeyVariant === "onboarding", view: workspace,
+    selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "views" || workspace === "followups" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: workspace === "followups" || showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
     confirmation: showDisconnectConfirm ? { title: "Disconnect Mail?", description: "Stops Mail access and receipt sync, and deletes Mail receipts and summaries from Hussh. Information saved to private memory stays.",
       confirm: { key: "disconnect-confirm", label: "Disconnect", destructive: true, enabled: gmailActionBusy !== "disconnect", pending: gmailActionBusy === "disconnect", run: handleDisconnectGmail },
       cancelLabel: "Keep connected", cancel: () => setShowDisconnectConfirm(false) } : undefined }}>{content}</NativeMailRoute>;

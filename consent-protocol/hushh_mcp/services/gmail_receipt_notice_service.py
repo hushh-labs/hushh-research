@@ -95,7 +95,9 @@ def _prior(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     return clean
 
 
-async def _run_notice_gene(prompt: str, user_id: str, consent_token: str) -> dict[str, Any]:
+async def _run_notice_gene(
+    prompt: str, user_id: str, consent_token: str, *, model: Any | None = None
+) -> dict[str, Any]:
     try:
         return await run_email_gene(
             gene_id="agent_email_receipt_notice",
@@ -103,6 +105,7 @@ async def _run_notice_gene(prompt: str, user_id: str, consent_token: str) -> dic
             user_id=user_id,
             consent_token=consent_token,
             output_schema=EMAIL_RECEIPT_NOTICE_SCHEMA,
+            **({"model": model} if model is not None else {}),
             timeout_seconds=_MODEL_TIMEOUT_SECONDS,
         )
     except TimeoutError:

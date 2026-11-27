@@ -33,15 +33,16 @@ function projection(): NativeWorkspaceProjection {
 }
 beforeEach(() => { vi.clearAllMocks(); state.enabled = true; state.covered = false; state.held = true; state.mounted = 0; state.unmounted = 0; state.content = null; });
 describe("Mail presentation contract", () => {
-  it("keeps the existing effect-only saver mounted and binds the three authored workspaces", async () => {
+  it("keeps the existing effect-only saver mounted and binds the two authored tabs", async () => {
     const view = render(<NativeMailRoute model={model()} frame={{ current: null }}><Saver /><p>Complete React Mail</p></NativeMailRoute>);
     const content = projection();
     expect(state.active).toBe(true);
     expect(validNativeWorkspace(content)).toBe(true);
     expect(screen.getByText("Complete React Mail")).not.toBeVisible();
-    const kyc = content.tabs!.options.find(option => option.label === "KYC")!;
-    await act(async () => { await state.actions.get(kyc.id)!(); });
-    expect(state.select).toHaveBeenCalledWith("kyc");
+    expect(content.tabs!.options.map(option => option.label)).toEqual(["Overview", "Views"]);
+    const views = content.tabs!.options.find(option => option.label === "Views")!;
+    await act(async () => { await state.actions.get(views.id)!(); });
+    expect(state.select).toHaveBeenCalledWith("views");
     expect(state.mounted).toBe(1);
     expect(state.unmounted).toBe(0);
     view.unmount();

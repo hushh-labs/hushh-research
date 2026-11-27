@@ -50,6 +50,7 @@ export const sourceListSchema = z.object({
         source,
         subject: z.string(),
         sender: z.string(),
+        received_at: z.string().nullish(),
       }),
     )
     .max(12),

@@ -789,6 +789,23 @@ function buildSealedHeaders(
   };
 }
 
+export type PrivateReceiptMailbox = { accountId: string; credentialId: string };
+
+async function privateReceiptRead(mailbox: PrivateReceiptMailbox, owner: string, operation: "scan" | "detail" | "notice" | "notice-source",
+  body: object, signal?: AbortSignal) {
+  const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+  const current = () => snapshotValidatedAuthSessionPrincipal()?.ownerId === owner && !signal?.aborted;
+  if (!current()) throw new Error("Mail session changed.");
+  const response = await ApiService.ownerPodRequest(`connectors/gmail/accounts/${mailbox.accountId}/receipts/${operation}`, {
+    method: "POST", cache: "no-store", signal, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, credential_id: mailbox.credentialId }),
+  }, false, undefined, undefined, current);
+  if (!response.ok) throw await extractLiveReceiptError(response, "Your private agent could not read the selected mailbox.");
+  const result: unknown = await response.json();
+  if (!current()) throw new Error("Mail session changed.");
+  return result;
+}
+
 export class GmailReceiptsService {
   /**
    * Ask One what the saved receipts and the providers' other mail call for. Read-only: the answer is findings
@@ -798,11 +815,13 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    privateMailbox?: PrivateReceiptMailbox;
     accountKey: string;
     receiptKeys: string[];
     prior: Array<{ id: string; kind: string; provider: string; headline: string }>;
     signal?: AbortSignal;
   }): Promise<NoticeCheck> {
+    if (params.privateMailbox) return parseNoticeResponse(await privateReceiptRead(params.privateMailbox, params.userId, "notice", { receipt_keys: params.receiptKeys.slice(0, 40), prior: params.prior.slice(0, 12) }, params.signal), params.accountKey);
     if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNotice, {
       method: "POST",
@@ -830,10 +849,12 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    privateMailbox?: PrivateReceiptMailbox;
     accountKey: string;
     openKey: string;
     signal?: AbortSignal;
   }): Promise<NoticeSource> {
+    if (params.privateMailbox) return parseNoticeSource(await privateReceiptRead(params.privateMailbox, params.userId, "notice-source", { source_id: params.openKey }, params.signal));
     if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNoticeSource, {
       method: "POST",
@@ -1259,6 +1280,7 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    privateMailbox?: PrivateReceiptMailbox;
     page?: number;
     cursor?: string | null;
     checkpoint?: string | null;
@@ -1267,7 +1289,7 @@ export class GmailReceiptsService {
     perPage?: number;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptScanResponse> {
-    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (!params.privateMailbox && await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const page = Math.max(1, Math.min(50, Math.trunc(params.page ?? 1)));
     const perPage = Math.max(
       1,
@@ -1276,6 +1298,12 @@ export class GmailReceiptsService {
         Math.trunc(params.perPage ?? MAX_LIVE_RECEIPTS_PER_PAGE),
       ),
     );
+    if (params.privateMailbox) {
+      const result = await privateReceiptRead(params.privateMailbox, params.userId, "scan", {
+        page, per_page: perPage, incremental: params.incremental ?? false, cursor: params.cursor, checkpoint: params.checkpoint,
+      }, params.signal);
+      return parseLiveReceiptScanResponse(result, { page, perPage });
+    }
     try {
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.receiptsScan,
@@ -1324,13 +1352,19 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    privateMailbox?: PrivateReceiptMailbox;
     sourceId: string;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptDetailResponse> {
-    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt details');
+    if (!params.privateMailbox && await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt details');
     const sourceId = params.sourceId.trim();
     if (!sourceId || sourceId.length > 340) {
       throw new Error("The selected Mail receipt is not available.");
+    }
+    if (params.privateMailbox) {
+      return parseLiveReceiptDetailResponse(await privateReceiptRead(
+        params.privateMailbox, params.userId, "detail", { source_id: sourceId }, params.signal,
+      ), sourceId);
     }
     const response = await ApiService.apiFetch(
       GMAIL_RECEIPTS_API_TEMPLATES.receiptDetail,

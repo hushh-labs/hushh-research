@@ -36,11 +36,22 @@ router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
 _PROPOSAL_ID = re.compile(r"^(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}$")
 
 
+class GmailReplySelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    account: str = Field(pattern=r"^[a-f0-9]{32}$")
+    connection: str = Field(
+        pattern=r"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    )
+    source: str = Field(pattern=r"^ms1\.[A-Za-z0-9_-]{16,2044}$")
+
+
 class GmailProposalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["save_draft", "send_email"]
     draft: dict[str, Any]
+    reply: GmailReplySelection | None = None
 
 
 class ActionConfirmation(BaseModel):
@@ -58,6 +69,18 @@ class _GmailProposalPort(Protocol):
         draft_payload: dict[str, Any],
         require_access: Callable[[], Awaitable[dict[str, Any]]],
     ) -> dict[str, Any]: ...
+
+
+async def _require_reply_runtime() -> None:
+    from hushh_mcp.services.pod_session_authority import PodSessionRefused, active_session_authority
+
+    authority = active_session_authority()
+    if authority is None:
+        raise _refused(503, "PRIVATE_MAIL_RUNTIME_UNAVAILABLE")
+    try:
+        await authority.require_held()
+    except PodSessionRefused as exc:
+        raise _refused(exc.status, exc.code) from None
 
 
 async def run_gmail_proposal(
@@ -89,6 +112,26 @@ async def run_gmail_proposal(
     owner = str((await require_access())["user_id"])
     service: _GmailProposalPort = mailbox if mailbox is not None else PodGmailMailboxActions(owner)
     try:
+        if payload.reply is not None:
+            if (
+                mailbox is not None
+                or payload.action != "send_email"
+                or set(payload.draft) != {"body"}
+            ):
+                raise _refused(422, "GMAIL_DELIVERY_INVALID")
+            body = payload.draft["body"]
+            if not isinstance(body, str) or not body.strip() or len(body) > 12000:
+                raise _refused(422, "GMAIL_DELIVERY_INVALID")
+
+            async def require_reply_access() -> None:
+                await _require_reply_runtime()
+                await require_access()
+
+            return await PodGmailMailboxActions(owner).propose_thread_reply(
+                selection=payload.reply,
+                body=body,
+                require_access=require_reply_access,
+            )
         return await service.propose_email(
             user_id=owner,
             action=payload.action,
@@ -136,6 +179,7 @@ async def _run(
     proposal_id: str,
     ports: dict[str, Any],
     client_review_contract: int | None = None,
+    require_access: Callable[[], Awaitable[None]] | None = None,
 ) -> Any:
     if kind == "calendar":
         from hushh_mcp.services.pod_google_connections import pod_calendar_service
@@ -153,8 +197,13 @@ async def _run(
     if kind == "gmail_mailbox":
         from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
 
-        mailbox = ports.get("mailbox") or PodGmailMailboxActions(owner)
-        return await mailbox.execute(user_id=owner, proposal_id=proposal_id)
+        if mailbox := ports.get("mailbox"):
+            return await mailbox.execute(user_id=owner, proposal_id=proposal_id)
+        return await PodGmailMailboxActions(owner).execute(
+            user_id=owner,
+            proposal_id=proposal_id,
+            require_access=require_access,
+        )
     from hushh_mcp.services.pod_drive import execute_drive_review
 
     return await execute_drive_review(
@@ -165,6 +214,7 @@ async def _run(
 def _explain(exc: Exception) -> HTTPException:
     """One authored status and code per failure. Nothing from a provider rides along."""
     from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+    from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError
     from hushh_mcp.services.gmail_receipts_service import GmailApiError
     from hushh_mcp.services.google_connection_service import GoogleConnectionError
     from hushh_mcp.services.google_drive_write_adapter import DriveWriteError
@@ -175,6 +225,8 @@ def _explain(exc: Exception) -> HTTPException:
     if isinstance(exc, GoogleConnectionError):
         status = exc.status_code if exc.status_code in {401, 403, 404, 409, 422} else 502
         return _refused(status, "CALENDAR_ACTION_REFUSED" if status != 502 else "PROVIDER_FAILED")
+    if isinstance(exc, GmailDeliveryError):
+        return _refused(422, str(exc.code))
     if isinstance(exc, GmailApiError):
         status = exc.status_code if exc.status_code in {401, 403, 409, 422} else 502
         return _refused(status, str(exc.code or "GMAIL_ACTION_REFUSED"))
@@ -217,8 +269,22 @@ async def run_action_confirm(
     kind = kind_of(proposal_id) if _PROPOSAL_ID.fullmatch(proposal_id or "") else None
     if kind is None:
         raise _refused(404, "ACTION_UNKNOWN")
+
+    async def require_access() -> None:
+        await _require_reply_runtime()
+        current = await admit_owner_local(
+            consent_token,
+            verifier=verifier,
+            session=session,
+            scope=SCOPE_POD_ACT,
+        )
+        if current.get("user_id") != owner:
+            raise _refused(403, "OWNER_MISMATCH")
+
     try:
-        result = await _run(kind, owner, proposal_id, ports or {}, client_review_contract)
+        result = await _run(
+            kind, owner, proposal_id, ports or {}, client_review_contract, require_access
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 - every failure becomes one authored answer

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { GmailWorkspaceNavigation, GmailWorkspacePanels, type GmailWorkspace } from "@/components/gmail/gmail-workspace-navigation";
 
 describe("Gmail workspace navigation", () => {
-  it("keeps Gmail focused on overview, KYC, and receipts", () => {
+  it("keeps Mail focused on Overview and Views", () => {
     const onValueChange = vi.fn();
 
     render(
@@ -22,12 +22,10 @@ describe("Gmail workspace navigation", () => {
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "KYC" })).toBeVisible();
-    expect(screen.getByRole("tab", { name: "Receipts" })).toBeVisible();
-    expect(screen.queryByRole("tab", { name: /Inbox assistant/i })).toBeNull();
-
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
-    expect(onValueChange).toHaveBeenCalledWith("kyc");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: "Views" })).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Views" }));
+    expect(onValueChange).toHaveBeenCalledWith("views");
   });
 
   it("links Mail tabs to retained panes without exposing inactive KYC controls", () => {
@@ -37,23 +35,22 @@ describe("Gmail workspace navigation", () => {
         <GmailWorkspaceNavigation value={value} onValueChange={setValue} />
         <GmailWorkspacePanels value={value} onValueChange={setValue} panels={{
           overview: <p>Mail overview</p>,
-          kyc: <input aria-label="Synthetic KYC draft" defaultValue="Draft retained" />,
-          receipts: <p>Saved receipts</p>,
+          views: <input aria-label="Synthetic KYC draft" defaultValue="Draft retained" />,
         }} />
       </>;
     }
     const view = render(<Workspace />);
     const draft = screen.getByRole("textbox", { name: "Synthetic KYC draft" });
     fireEvent.change(draft, { target: { value: "Edited draft" } });
-    const kyc = screen.getByRole("tabpanel", { name: "KYC" });
+    const views = screen.getByRole("tabpanel", { name: "Views" });
     expect(screen.getByRole("tablist", { name: "Gmail workspace" })).toHaveAttribute("data-top-shell-tab-set", "gmail-workspace");
-    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-controls", kyc.id);
-    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
-    expect(screen.getByRole("tabpanel", { name: "Receipts" })).toBeVisible();
-    expect(kyc).toHaveAttribute("inert", "");
+    expect(screen.getByRole("tab", { name: "Views" })).toHaveAttribute("aria-controls", views.id);
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(screen.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
+    expect(views).toHaveAttribute("inert", "");
     expect(screen.queryByRole("textbox", { name: "Synthetic KYC draft" })).toBeNull();
-    expect(view.container.querySelectorAll('[role="tabpanel"]')).toHaveLength(3);
-    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    expect(view.container.querySelectorAll('[role="tabpanel"]')).toHaveLength(2);
+    fireEvent.click(screen.getByRole("tab", { name: "Views" }));
     expect(screen.getByRole("textbox", { name: "Synthetic KYC draft" })).toBe(draft);
     expect(draft).toHaveValue("Edited draft");
   });

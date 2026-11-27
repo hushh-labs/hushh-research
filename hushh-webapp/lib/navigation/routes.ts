@@ -281,22 +281,23 @@ export const ROUTES = {
 } as const;
 
 /**
- * Mail tabs a link may open directly (`/one/gmail?workspace=kyc`). Overview is
- * the page's own default, so it never needs a link.
+ * Views and pinned Mail destinations a link may open directly.
+ * Keep the existing `kyc` URL for the Info Requests queue.
  */
-export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "receipts"] as const;
+export const GMAIL_DEEP_LINK_WORKSPACES = ["views", "followups", "kyc", "receipts"] as const;
 export type GmailDeepLinkWorkspace = (typeof GMAIL_DEEP_LINK_WORKSPACES)[number];
 
-/** The Mail tab a `workspace` query names, or undefined for anything else. */
+/** The destination a Mail `workspace` query names. */
 export function gmailDeepLinkWorkspace(
   value: string | null | undefined,
 ): GmailDeepLinkWorkspace | undefined {
+  if (value === "info_requests") return "kyc";
   return (GMAIL_DEEP_LINK_WORKSPACES as readonly string[]).includes(String(value ?? ""))
     ? (value as GmailDeepLinkWorkspace)
     : undefined;
 }
 
-/** The link that opens Mail on one tab; the tab name is the only query. */
+/** Open a Mail destination without carrying its source information in the URL. */
 export function buildGmailWorkspaceRoute(workspace: GmailDeepLinkWorkspace): string {
   return withQuery(ROUTES.GMAIL, { workspace });
 }

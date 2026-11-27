@@ -19,9 +19,8 @@ export default function OneGmailPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const enabled = isOneCapabilityEnabled("gmail");
-  // A Feed item or a Memory/chat offer opens one tab directly
-  // (`/one/gmail?workspace=kyc`). Only the tab name rides in the URL; any
-  // prefill for it is handed over in memory.
+  // Legacy Feed, Memory and Chat URLs open a pinned view. Any request
+  // context is passed separately in memory.
   const feedWorkspace = gmailDeepLinkWorkspace(searchParams.get("workspace"));
 
   useEffect(() => {

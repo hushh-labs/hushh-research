@@ -404,6 +404,109 @@ EMAIL_RECEIPT_NOTICE_SCHEMA: dict[str, Any] = {
 }
 
 
+_BRIEF_QUOTE: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {"ref": _S, "quote": _S},
+    "required": ["ref", "quote"],
+}
+
+EMAIL_OVERVIEW_BRIEF_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "attention": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "kind": {"type": "STRING", "enum": ["reply", "follow_up"]},
+                    "thread": _S,
+                    "title": _S,
+                    "reason": _S,
+                    "context": _NS,
+                    "evidence": {"type": "ARRAY", "items": _BRIEF_QUOTE},
+                    "due": {
+                        "type": "OBJECT",
+                        "nullable": True,
+                        "properties": {
+                            "date": _S,
+                            "date_text": _S,
+                            "role": {
+                                "type": "STRING",
+                                "enum": ["promised", "needed_by", "due"],
+                            },
+                        },
+                        "required": ["date", "date_text", "role"],
+                    },
+                    "term": _NS,
+                    "draft": _NS,
+                },
+                "required": [
+                    "kind",
+                    "thread",
+                    "title",
+                    "reason",
+                    "context",
+                    "evidence",
+                    "due",
+                    "term",
+                    "draft",
+                ],
+            },
+        },
+        "updates": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "kind": {
+                        "type": "STRING",
+                        "enum": ["approval", "confirmation", "change", "received"],
+                    },
+                    "thread": _S,
+                    "title": _S,
+                    "line": _S,
+                    "before": {
+                        "type": "OBJECT",
+                        "nullable": True,
+                        "properties": {"ref": _S, "quote": _S},
+                        "required": ["ref", "quote"],
+                    },
+                    "after": _BRIEF_QUOTE,
+                    "shared_reference": _NS,
+                    "action": {"type": "STRING", "enum": ["thank", "none"]},
+                    "draft": _NS,
+                },
+                "required": [
+                    "kind",
+                    "thread",
+                    "title",
+                    "line",
+                    "before",
+                    "after",
+                    "shared_reference",
+                    "action",
+                    "draft",
+                ],
+            },
+        },
+        "topics": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": _S,
+                    "reason": _S,
+                    "evidence": {"type": "ARRAY", "items": _BRIEF_QUOTE},
+                },
+                "required": ["name", "reason", "evidence"],
+            },
+        },
+        "none_reason": _S,
+    },
+    "required": ["attention", "updates", "topics", "none_reason"],
+}
+
+
 @lru_cache(maxsize=8)
 def load_email_gene(gene_id: str) -> AgentSubagentConfig:
     """Load one bounded Email child from the authored manifest."""
@@ -474,6 +577,7 @@ async def run_email_gene(
 
 __all__ = [
     "EMAIL_DRAFT_SCHEMA",
+    "EMAIL_OVERVIEW_BRIEF_SCHEMA",
     "EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA",
     "EMAIL_REQUEST_CLASSIFIER_SCHEMA",
     "EMAIL_RECEIPT_EXTRACTOR_SCHEMA",

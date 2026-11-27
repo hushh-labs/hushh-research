@@ -11,6 +11,8 @@ let accounts = ["a", "b", "c"].map((id) => ({
   credentialId: "slot-" + id,
   email: id + "@example.test",
   isDefault: id === "a",
+  provider: "google",
+  status: "connected",
   capabilities: { read: true },
 }));
 export const PRIVATE_MAIL_GRANTS_CHANGED = "one:private-mail-grants-changed";
@@ -163,6 +165,10 @@ export const MailFollowupsService = {
     }
     return { account, connection, address: account + "@example.test" };
   },
+  brief: async () => ({ attention: [], updates: [], topics: [] }),
+  recent: async () => ({ items: [] }),
+  searchOverview: async () => ({ items: [] }),
+  thread: async () => ({ truncated: false, items: [] }),
   search: async (box: FollowupMailbox) => ({
     items: [
       {
@@ -205,4 +211,14 @@ export const MailFollowupsService = {
       body: "Draft for " + box.address,
     };
   },
+};
+
+
+export const privateTopicsSchema = { parse: (value: unknown[]) => value };
+
+// Tests of the Follow-ups board must not dispatch Mail replies.
+export const PrivateMailReplyService = {
+  prepare: async () => { throw new Error("No reply in this fixture."); },
+  send: async () => { throw new Error("No reply in this fixture."); },
+  status: async () => { throw new Error("No reply in this fixture."); },
 };

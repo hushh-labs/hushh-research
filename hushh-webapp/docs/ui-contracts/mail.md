@@ -15,6 +15,29 @@ The [web app visual map](../../README.md#visual-map) owns shared shell context.
 The current Mail journey is diagrammed below; the state and action ledger carries
 the exact copy and behavior.
 
+## Dev command center
+
+The Dev command center has two top-level tabs, **Overview** and **Views**. The
+segmented bar uses the Location track height and stays within the Location
+width. **Views** opens the pinned Follow-ups, Receipts and Info Requests views.
+The existing `/one/gmail?workspace=kyc` and `?workspace=receipts` links open
+the corresponding pinned view. `?workspace=followups` opens the shared Tasks
+board. Request details still travel through the existing in-memory handoff.
+
+For mailboxes held by a private agent, the shared header selects **All Mail**
+or one mailbox. Overview combines authorized mailbox briefs and recent mail,
+and each source opens in the mailbox that supplied it. **Decisions**,
+**Meaningful changes** and **Recently completed** appear above mail search.
+A reply from a conversation is drafted, reviewed, and approved in separate
+steps. Confirmation rechecks the exact connection and original conversation.
+A status check reads the existing send outcome.
+
+**Receipts** offers mailbox selection in All Mail. For a selected mailbox,
+the existing All receipts, Recurring and One noticed experiences use private
+receipt reads. Recurring tracking and derived topics use client-encrypted
+Personal Storage. Follow-ups continue to use shared Tasks. The current
+Info Requests queue is bound to the primary Gmail mailbox.
+
 ## Connect alignment and mounted presentation audit — 24 October 2026
 
 This pass refreshed the earlier 21 October comparison against the current
@@ -104,7 +127,7 @@ destination mounts and performs its own read.
 | Disconnected setup | Status card gives source-owned title/detail/helper and **Connect Mail** or **Reconnect Mail**; optional **Retry Mail status** rechecks status. Footer **Skip Mail setup** and its explanatory copy are separate from a verified connection. | Status GET/reconcile as selected by caller; Connect starts consent, Retry only rechecks, Skip settles setup without claiming a grant. |
 | Connected setup | Status/header **Sync receipts**, **Syncing receipts…** or **Sync unavailable**, shared **Disconnect** confirmation, footer **Finish Mail setup**. Busy/disabled states retain caller guards. | Existing receipt resource and connector service; Finish verifies readiness then writes setup completion, Disconnect alone calls connector disconnect. |
 | Google popup/native/callback | Waiting, cancellation, blocked popup, timeout, verified/unverified success and failed return keep their exact [OAuth outcome table](#oauth-each-affirmative-negative-and-uncertain-outcome). The return route owns its genuine full-page title and loader; provider/OS captions belong to Google/OS. | Attempt/source/origin/owner correlation, native server code and status verification. Opening a provider window is not completion. |
-| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / KYC / Receipts**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
+| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / Views**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
 | Manage menu | **Reconnect** opens a deliberate new authorization. **Disconnect** opens **Disconnect Mail?**; **Keep connected** cancels; confirm disconnect closes reads, aborts scan and calls the service. Escape/outside restores Manage focus; nested confirmation takes focus when selected. | Reconnect OAuth or connector disconnect only after the explicit action. Existing success/failure copy and retained encrypted snapshot distinctions are in [Overview](#overview-and-connection-management). |
 | Overview | **Draft with One.**, **Instant drafts & replies**, **Ready for your 1-tap review**, decorative Reply/Follow up/Write stack, **Chat with One**. No receipt metric card is currently mounted here. | Chat navigation only; no model call or email send from opening chat. |
 | KYC intake check/vault | **KYC requests / Getting your KYC workspace ready.** skeleton; locked state **Set up KYC**, vault explanation and **Open private vault**. | Existing intake display read and vault unlock; no disclosed profile in skeleton. |
@@ -124,7 +147,7 @@ destination mounts and performs its own read.
 
 | Surface/control | Classification | Verified presentation boundary |
 | --- | --- | --- |
-| Shared header, Back, avatar, three tabs, Overview Chat, Manage menu | Already aligned | Header 17/22/600, tabs 15/20/550, existing 44px MailActionButton and focus/keyboard/swipe owners are reused. No duplicate shell or button primitive. |
+| Shared header, Back, avatar, two tabs, Overview Chat, Manage menu | Already aligned | Header 17/22/600, tabs 15/20/550, existing 44px MailActionButton and focus/keyboard/swipe owners are reused. No duplicate shell or button primitive. |
 | Mail root/skeleton/return | Changed | Mail role variables now reach skeleton/return mounts; callback title uses the full-flow rung. The shared setup intro/footer retain their own full-primary owner. |
 | Disconnected connection status | Changed | Narrow Gmail source eyebrow, support copy and full-width inner pill now match the scoped roles while status/badge/scope logic stays in the connector owner. |
 | Paste/monitor/review | Changed | Paste title, form label/input, Copy/Skip utilities, KYC row/status text, selected scope contrast, quiet Open mail, full-width actions and Task portal description inherit the intended role. The ref-forwarding MailActionButton remains the trigger, and paste close returns focus. |
