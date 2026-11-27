@@ -172,6 +172,26 @@
       "properties": { "ticker": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9.-]{0,15}$" } },
       "required": ["ticker"]
     },
+    "MarketSnapshot": {
+      "type": "object",
+      "description": "Show the app's current U.S. market movers with in-chat quote details.",
+      "allowedParents": [
+        "Surface"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "view": {
+          "enum": [
+            "gainers",
+            "losers",
+            "movers"
+          ]
+        }
+      },
+      "required": [
+        "view"
+      ]
+    },
     "FinanceTopGainers": {
       "type": "object",
       "description": "Ask the app to show its public U.S. market gainers card.",

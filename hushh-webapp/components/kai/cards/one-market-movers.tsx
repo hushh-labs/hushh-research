@@ -31,7 +31,7 @@ export function balancedMoverCount(groups: Record<OneMarketMoverTab, readonly un
   return Math.min(3, groups.gain.length, groups.lose.length);
 }
 
-export function OneMarketMovers({ groups, linkable = true, note, onSelect, balanced = false, gainersOnly = false }: {
+export function OneMarketMovers({ groups, linkable = true, note, onSelect, balanced = false, gainersOnly = false, direction }: {
   groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]>;
   /** False for markets whose stocks have no analysis screen (India). */
   linkable?: boolean;
@@ -40,24 +40,27 @@ export function OneMarketMovers({ groups, linkable = true, note, onSelect, balan
   /** Show 1x1, 2x2 or 3x3 and never a placeholder row: both columns always match. */
   balanced?: boolean;
   gainersOnly?: boolean;
+  direction?: "gain" | "lose";
 }) {
   const id = useId();
-  const slots = gainersOnly ? Math.min(3, groups.gain.length) : balanced ? balancedMoverCount(groups) : 3;
+  const singleDirection = gainersOnly ? "gain" : direction;
+  const slots = singleDirection ? Math.min(3, groups[singleDirection].length)
+    : balanced ? balancedMoverCount(groups) : 3;
   const moverColumns = [
     { key: "gain", title: "Gainers", rows: groups.gain.slice(0, slots) },
     { key: "lose", title: "Losers", rows: groups.lose.slice(0, slots) },
   ] as const;
-  const columns = gainersOnly ? moverColumns.slice(0, 1) : moverColumns;
+  const columns = singleDirection ? moverColumns.filter(column => column.key === singleDirection) : moverColumns;
   const shown = columns.flatMap((column) => column.rows);
   const commonAsOf = shown[0]?.asOf ?? null;
   const sharedTime = commonAsOf && Number.isFinite(Date.parse(commonAsOf))
     && shown.every((row) => row.asOf === commonAsOf);
-  if ((balanced || gainersOnly) && slots === 0) {
-    return <p data-market-mover-none className="ui-text-row-description px-2 py-3 text-muted-foreground">{gainersOnly ? "Gainers are not available right now." : "Movers are not available right now."}</p>;
+  if ((balanced || singleDirection) && slots === 0) {
+    return <p data-market-mover-none className="ui-text-row-description px-2 py-3 text-muted-foreground">{columns[0]?.title && singleDirection ? columns[0].title : "Movers"} are not available right now.</p>;
   }
   return (
     <div>
-      <div className={gainersOnly ? undefined : marketBriefingStyles.moverGroups}>
+      <div className={singleDirection ? undefined : marketBriefingStyles.moverGroups}>
         {columns.map(({ key, title, rows }) => {
           const Direction = key === "gain" ? TrendingUp : TrendingDown;
           return (
@@ -85,7 +88,7 @@ export function OneMarketMovers({ groups, linkable = true, note, onSelect, balan
                       <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" logo={linkable} className="size-4 shrink-0 rounded-full [&_img]:size-4" />
                       <span className="truncate" title={row.companyName}>{row.companyName}</span>
                     </span>
-                    {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="ui-text-row-description text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{gainersOnly ? formatOverviewAsOf(row.asOf) : formatMarketQuoteTime(row.asOf)}</time> : null}
+                    {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="ui-text-row-description text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{singleDirection ? formatOverviewAsOf(row.asOf) : formatMarketQuoteTime(row.asOf)}</time> : null}
                   </>
                 );
                 return linkable || onSelect ? (

@@ -33,6 +33,19 @@ describe("One read-only A2UI catalog", () => {
     },
   );
 
+  it.each(["gainers", "losers", "movers"])("accepts the requested market view %s", (view) => {
+    const components = [{ id: "root", component: "MarketSnapshot", view }];
+    const payload = { ...create, createSurface: { ...create.createSurface, components } };
+
+    const surface = applyA2uiMessage(new Map(), payload).get("holdings");
+    expect(surface?.components.get("root")).toEqual(components[0]);
+
+    const unsupported = { ...payload, createSurface: {
+      ...payload.createSurface, components: [{ ...components[0], view: "news" }],
+    } };
+    expect(applyA2uiMessage(new Map(), unsupported).size).toBe(0);
+  });
+
   it("uses v1.0 pointer binding and leaves the earlier snapshot intact", () => {
     const initial = applyA2uiMessage(new Map(), create);
     const previous = initial.get("holdings")!;

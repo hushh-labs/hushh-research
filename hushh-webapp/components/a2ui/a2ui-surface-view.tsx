@@ -22,8 +22,8 @@ const FinancePortfolioUploadCard = dynamic(() =>
 const FinanceStockPreviewCard = dynamic(() =>
   import("@/components/agent/finance-stock-preview-card").then(module => module.FinanceStockPreviewCard),
 );
-const FinanceTopGainersCard = dynamic(() =>
-  import("@/components/agent/finance-top-gainers-card").then(module => module.FinanceTopGainersCard),
+const FinanceMarketMoversCard = dynamic(() =>
+  import("@/components/agent/finance-top-gainers-card").then(module => module.FinanceMarketMoversCard),
 );
 const FinancePortfolioSwitchCard = dynamic(() =>
   import("@/components/agent/finance-portfolio-switch-card").then(module => module.FinancePortfolioSwitchCard),
@@ -115,8 +115,10 @@ function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId, 
     case "FinanceStockPreview":
       return <FinanceStockPreviewCard ticker={node.ticker} allowStart={Boolean(onConfirmFinanceAnalysis)}
         onConfirm={onConfirmFinanceAnalysis} />;
+    case "MarketSnapshot":
+      return <FinanceMarketMoversCard view={node.view} historical={!portfolioConversationId} />;
     case "FinanceTopGainers":
-      return <FinanceTopGainersCard historical={!portfolioConversationId} />;
+      return <FinanceMarketMoversCard view="gainers" historical={!portfolioConversationId} />;
     case "FinancePortfolioPicker":
       return <FinancePortfolioSwitchCard mode={node.mode} allowSwitch={Boolean(financeActionOfferId)} />;
     case "FinancePlaidConnection":

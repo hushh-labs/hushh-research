@@ -14,6 +14,7 @@ type Component =
   | { id: string; component: "SavedPortfolio"; section: "holdings" | "allocation" | "performance" | "sources" }
   | { id: string; component: "FinancePortfolioUpload" }
   | { id: string; component: "FinanceStockPreview"; ticker: string }
+  | { id: string; component: "MarketSnapshot"; view: "gainers" | "losers" | "movers" }
   | { id: string; component: "FinanceTopGainers" }
   | { id: string; component: "FinancePlaidConnection" }
   | { id: string; component: "FinancePortfolioPicker"; mode: "switch" | "delete" }
@@ -125,6 +126,13 @@ function parseComponent(value: unknown): Component | null {
         (value.audience === "connection" || value.audience === "verified_advisor")
         ? { id, component, audience: value.audience }
         : null;
+    case "MarketSnapshot": {
+      const { view } = value;
+      return id === "root" && keys(value, ["id", "component", "view"]) &&
+        (view === "gainers" || view === "losers" || view === "movers")
+        ? { id, component, view }
+        : null;
+    }
     case "FinancePortfolioUpload":
     case "FinanceTopGainers":
     case "FinancePlaidConnection":
