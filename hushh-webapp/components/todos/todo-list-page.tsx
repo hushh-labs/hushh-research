@@ -498,25 +498,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           <HelperText as="p" role="status">Some Calendar events aren’t shown. <Link href="/one/calendar">Open Calendar</Link></HelperText>
         ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
-          <div className="mt-5 flex items-center gap-4" aria-live="polite">
-            <CaptionText data-profile-role="description" className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
-              {doneToday} of {totalToday} done today
-            </CaptionText>
-            <div
-              role="progressbar"
-              aria-label="Today's completion"
-              aria-valuemin={0}
-              aria-valuemax={totalToday}
-              aria-valuenow={doneToday}
-              aria-valuetext={`${doneToday} of ${totalToday} tasks completed`}
-              className="h-1.5 flex-1 overflow-hidden rounded-full bg-[color:var(--app-accent-surface)]"
-            >
-              <div
-                className="h-full origin-left rounded-full bg-[color:var(--app-accent)] transition-transform duration-150 motion-reduce:transition-none"
-                style={{ transform: `scaleX(${doneToday / totalToday})` }}
-              />
-            </div>
-          </div>
+          <CaptionText as="p" aria-live="polite" data-profile-role="description" className="mt-5 tabular-nums !text-[color:var(--app-secondary-label)]">
+            {doneToday} of {totalToday} done today
+          </CaptionText>
         ) : null}
       </AppPageHeaderRegion>
 
