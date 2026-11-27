@@ -3343,7 +3343,7 @@ def _feature_request(binding, now, days=7):
 
 
 def _feature_sql_result():
-    return {
+    result = {
         "sourceRows": 9,
         "unmappedObservations": 1,
         "dailyCappedAccounts": 0,
@@ -3410,6 +3410,12 @@ def _feature_sql_result():
         ],
     }
 
+    for row in result["features"]:
+        row["results"] = {
+            "unclassified": {"accounts": row["accounts"], "observations": row["observations"]}
+        }
+    return result
+
 
 @pytest.fixture
 def feature_aggregate_database(metrics_aggregate_setup, metrics_aggregate_database, monkeypatch):
@@ -3447,6 +3453,8 @@ def feature_aggregate_database(metrics_aggregate_setup, metrics_aggregate_databa
         _feature_source.product_activity, "enabled_for", lambda owner: owner != "staff"
     )
     db.raw = _feature_sql_result()
+    db.result_column = None
+    db.observation_query = None
     calls = []
 
     async def fetch(conn, query, *args, **options):
@@ -3459,7 +3467,13 @@ def feature_aggregate_database(metrics_aggregate_setup, metrics_aggregate_databa
             return conn.restricted
         if query == "SELECT transaction_timestamp()":
             return _METRICS_NOW
-        assert query == _feature_source.FEATURE_OBSERVATIONS_SQL
+        if query == _feature_source.FEATURE_RESULT_COLUMN_SQL:
+            return db.result_column
+        assert query in {
+            _feature_source.FEATURE_OBSERVATIONS_SQL,
+            _feature_source.FEATURE_OBSERVATIONS_WITH_RESULTS_SQL,
+        }
+        db.observation_query = query
         assert args[0] == ["customer", "second"]
         calls.append(args)
         return json.dumps(db.raw)
@@ -3558,6 +3572,9 @@ async def test_feature_aggregate_distinct_all_accounts_and_retention_separate_fr
     assert fixture.db.data.transactions == [{"isolation": "repeatable_read", "readonly": True}]
     assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)
     assert "success" not in result["features"][0]["attempts"]
+    assert result["features"][0]["results"]["unclassified"]["observations"] == 5
+    assert result["features"][0]["results"]["success"]["observations"] == 0
+    assert result["features"][0]["results"]["error"]["observations"] == 0
 
 
 @pytest.mark.parametrize(
@@ -3678,3 +3695,40 @@ async def test_feature_aggregate_never_publishes_partial_or_changed_authority(
     )
     with pytest.raises(_metrics_source.AggregateUnavailable):
         await _feature_source.aggregate(request, f.binding, pool=f.db.pool, now=_METRICS_NOW)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("column", [None, "text", "integer"])
+async def test_feature_explicit_result_column_is_optional_and_never_inferred(
+    feature_aggregate_database, column
+):
+    f = feature_aggregate_database
+    f.db.result_column = column
+    if column == "text":
+        f.db.raw["features"][1]["results"] = {
+            "success": {"accounts": 1, "observations": 1},
+            "error": {"accounts": 1, "observations": 1},
+        }
+    request = _feature_source.FeatureObservationRequest.model_validate(
+        _feature_request(f.binding, _METRICS_NOW)
+    )
+    if column == "integer":
+        with pytest.raises(_metrics_source.AggregateUnavailable, match="result schema"):
+            await _feature_source.aggregate(request, f.binding, pool=f.db.pool, now=_METRICS_NOW)
+        assert not f.calls
+        return
+    result = await _feature_source.aggregate(request, f.binding, pool=f.db.pool, now=_METRICS_NOW)
+    feature = result["features"][1]
+    if column == "text":
+        assert f.db.observation_query == _feature_source.FEATURE_OBSERVATIONS_WITH_RESULTS_SQL
+        assert (
+            feature["results"]["success"]
+            == feature["results"]["error"]
+            == {"accounts": 1, "observations": 1}
+        )
+    else:
+        assert f.db.observation_query == _feature_source.FEATURE_OBSERVATIONS_SQL
+        assert feature["results"]["unclassified"] == {"accounts": 2, "observations": 2}
+    # Legacy failed can mean a block; it never manufactures explicit error.
+    assert result["features"][0]["phases"]["failed"]["observations"] == 1
+    assert result["features"][0]["results"]["error"]["observations"] == 0

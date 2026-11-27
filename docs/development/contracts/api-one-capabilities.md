@@ -64,7 +64,15 @@ and `correlatedAttempts`. Each `features` row contains reviewed `actionId`,
 `agentId`, `source`, `label`, `kind`, distinct `observedAccounts` across phases,
 `allSourceObservedAccounts` independently deduplicated across reviewed sources,
 `observations`, `uncorrelatedObservations`, and five `phases` with integer
-`accounts/observations`. `attempts` contains `started`, `returned`, `failed`,
+`accounts/observations`. Each row also contains four `results` groups with the
+same count shape: `success`, `error`, `expected_error`, `unclassified`. Only the
+explicit optional `event_result` metadata supplies those groups. A bounded schema
+read selects one of two fixed query variants: absent column means all
+unclassified; an exact text column allows its finite explicit values. A wrong
+column type refuses the read. There is no startup dependency, migration,
+backfill, or inference from legacy phases. Result-user groups overlap and are
+never summed to derive feature users. These are reported results, separate from
+domain-confirmed effects. `attempts` contains `started`, `returned`, `failed`,
 `cancelled`, `blocked`, `possibleIncomplete` and `inProgress`. Only non-null
 operation keys correlate attempts; generic observations remain uncorrelated.
 `byAgent` independently groups reviewed agent IDs with distinct `observedAccounts`,

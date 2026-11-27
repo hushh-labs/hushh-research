@@ -79,7 +79,7 @@ FROM candidates ORDER BY user_id LIMIT 5001
 # grouping. No raw observation, owner or operation identifier leaves One.
 FEATURE_OBSERVATIONS_SQL = """
 WITH retained AS MATERIALIZED (
- SELECT o.user_id,o.action_id,o.agent_id,o.source,o.phase,o.operation_key,o.observed_at
+ SELECT o.user_id,o.action_id,o.agent_id,o.source,o.phase,o.operation_key,o.observed_at,NULL::text AS event_result
  FROM one_product_activity_observations o
  JOIN one_product_activity_epochs e ON e.user_id=o.user_id AND e.generation=o.generation
  WHERE o.user_id=ANY($1::text[]) AND o.observed_at >= $2 AND o.observed_at < $3
@@ -98,6 +98,16 @@ WITH retained AS MATERIALIZED (
  SELECT action_id,agent_id,source,jsonb_object_agg(phase,
    jsonb_build_object('accounts',accounts,'observations',observations)) AS phases
  FROM phases GROUP BY action_id,agent_id,source
+), result_counts AS (
+ SELECT action_id,agent_id,source,
+   CASE WHEN event_result IN ('success','error','expected_error') THEN event_result
+        ELSE 'unclassified' END AS result,
+   COUNT(DISTINCT user_id)::int AS accounts,COUNT(*)::int AS observations
+ FROM valid GROUP BY action_id,agent_id,source,result
+), result_objects AS (
+ SELECT action_id,agent_id,source,jsonb_object_agg(result,
+   jsonb_build_object('accounts',accounts,'observations',observations)) AS results
+ FROM result_counts GROUP BY action_id,agent_id,source
 ), operations AS (
  SELECT user_id,action_id,agent_id,source,operation_key,
    MIN(observed_at) FILTER(WHERE phase='started') AS started_at,
@@ -146,11 +156,24 @@ SELECT jsonb_build_object(
    'correlatedAttempts',COALESCE(a.correlated,0)))
    FROM agent_counts g LEFT JOIN agent_attempts a USING(agent_id)),'{}'::jsonb),
  'features',COALESCE((SELECT jsonb_agg(to_jsonb(f)) FROM (
-   SELECT f.*,p.phases,u.all_source_accounts,COALESCE(a.correlated,0) AS correlated,
+   SELECT f.*,p.phases,r.results,u.all_source_accounts,COALESCE(a.correlated,0) AS correlated,
      COALESCE(a.attempts,'{}'::jsonb) AS attempts
    FROM features f JOIN phase_objects p USING(action_id,agent_id,source)
+   JOIN result_objects r USING(action_id,agent_id,source)
    JOIN all_source_accounts u USING(action_id,agent_id)
    LEFT JOIN attempts a USING(action_id,agent_id,source)
    ORDER BY action_id,agent_id,source LIMIT 257
  ) f),'[]'::jsonb))
+"""
+
+
+# Both variants are fixed reviewed SQL. Optional source migration465 is not a
+# startup requirement: an absent column means unknown, never phase inference.
+FEATURE_OBSERVATIONS_WITH_RESULTS_SQL = FEATURE_OBSERVATIONS_SQL.replace(
+    "NULL::text AS event_result", "o.event_result AS event_result", 1
+)
+FEATURE_RESULT_COLUMN_SQL = """
+SELECT format_type(atttypid,atttypmod) FROM pg_attribute
+WHERE attrelid='public.one_product_activity_observations'::regclass
+ AND attname='event_result' AND attnum>0 AND NOT attisdropped
 """

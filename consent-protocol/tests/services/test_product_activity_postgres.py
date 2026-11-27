@@ -1441,6 +1441,61 @@ async def _assert_all_account_feature_aggregate(url):
         assert (
             next(row for row in rows if row["actionId"] == generic)["uncorrelatedObservations"] == 2
         )
+        assert await conn.fetchval(features.FEATURE_RESULT_COLUMN_SQL) is None
+        assert row["results"]["unclassified"] == {"accounts": 2, "observations": 5}
+        assert row["results"]["error"] == {"accounts": 0, "observations": 0}
+        result_tx = conn.transaction()
+        await result_tx.start()
+        try:
+            await conn.execute("""ALTER TABLE public.one_product_activity_observations
+              ADD COLUMN event_result TEXT CHECK(event_result IN ('success','error','expected_error'))""")
+            assert await conn.fetchval(features.FEATURE_RESULT_COLUMN_SQL) == "text"
+            await conn.execute(
+                "UPDATE one_product_activity_observations SET event_result='success' WHERE user_id=ANY($1::text[]) AND action_id=$2",
+                owners[:2],
+                generic,
+            )
+            await emit(owners[0], generic, "agent_personal_information", "returned", None)
+            await conn.execute(
+                "UPDATE one_product_activity_observations SET event_result='error' WHERE event_id=$1",
+                f"{sequence:064x}",
+            )
+            await emit(owners[1], generic, "agent_personal_information", "blocked", None)
+            await conn.execute(
+                "UPDATE one_product_activity_observations SET event_result='expected_error' WHERE event_id=$1",
+                f"{sequence:064x}",
+            )
+            await emit(owners[0], generic, "agent_personal_information", "returned", None)
+            explicit = json.loads(
+                await conn.fetchval(
+                    features.FEATURE_OBSERVATIONS_WITH_RESULTS_SQL,
+                    owners[:2],
+                    since,
+                    cutoff,
+                    at,
+                    reviewed,
+                )
+            )
+            explicit_rows, _, _ = features._observations(explicit, descriptors, owners[:2])
+            explicit_row = next(value for value in explicit_rows if value["actionId"] == generic)
+            assert explicit_row["observedAccounts"] == 2
+            assert explicit_row["results"]["success"] == {"accounts": 2, "observations": 2}
+            assert sum(v["accounts"] for v in explicit_row["results"].values()) == 5
+            assert (
+                explicit_row["results"]["error"]
+                == explicit_row["results"]["expected_error"]
+                == explicit_row["results"]["unclassified"]
+                == {"accounts": 1, "observations": 1}
+            )
+            assert (
+                next(value for value in explicit_rows if value["actionId"] == action)["results"][
+                    "unclassified"
+                ]["observations"]
+                == 5
+            )
+        finally:
+            await result_tx.rollback()
+        assert await conn.fetchval(features.FEATURE_RESULT_COLUMN_SQL) is None
         # Empty private fixture tables isolate the unchanged native candidate
         # branch, while observations exercise its real expiry-indexed branch.
         for table, column in [

@@ -16,6 +16,8 @@ from hushh_mcp.services import metrics_uat_authority, plg_outcomes, plg_reportin
 from hushh_mcp.services.metrics_adoption_sql import (
     FEATURE_CANDIDATES_SQL,
     FEATURE_OBSERVATIONS_SQL,
+    FEATURE_OBSERVATIONS_WITH_RESULTS_SQL,
+    FEATURE_RESULT_COLUMN_SQL,
     MAX_ADOPTION_CANDIDATES,
 )
 from hushh_mcp.services.plg_catalog import activity_catalog
@@ -26,6 +28,7 @@ MAX_AGENTS = 128
 MAX_CATALOG_ACTIONS = 4096
 MAX_RESPONSE_BYTES = 262_144
 PHASES = ("started", "returned", "failed", "cancelled", "blocked")
+RESULTS = ("success", "error", "expected_error", "unclassified")
 ATTEMPTS = (*PHASES, "possibleIncomplete", "inProgress")
 
 
@@ -161,6 +164,22 @@ def _count(value):
     return value
 
 
+def _groups(groups, keys, users):
+    """The same distinct-account bound applies to phase and explicit-result cells."""
+    if not isinstance(groups, dict) or not set(groups) <= set(keys):
+        raise native.AggregateUnavailable("Invalid measurement groups")
+    result = {}
+    for key in keys:
+        value = groups.get(key, {"accounts": 0, "observations": 0})
+        if not isinstance(value, dict) or set(value) != {"accounts", "observations"}:
+            raise native.AggregateUnavailable("Invalid measurement group")
+        accounts, observations = _count(value["accounts"]), _count(value["observations"])
+        if accounts > users or accounts > observations or (accounts == 0) != (observations == 0):
+            raise native.AggregateUnavailable("Invalid distinct measurement accounts")
+        result[key] = {"accounts": accounts, "observations": observations}
+    return result
+
+
 def _observations(raw, descriptors, eligible):
     if isinstance(raw, str):
         raw = json.loads(raw)
@@ -197,6 +216,7 @@ def _observations(raw, descriptors, eligible):
             "observations",
             "uncorrelated",
             "phases",
+            "results",
             "correlated",
             "attempts",
         }:
@@ -209,6 +229,8 @@ def _observations(raw, descriptors, eligible):
             or row["action_id"] in seen
             or not isinstance(row["phases"], dict)
             or not set(row["phases"]) <= set(PHASES)
+            or not isinstance(row["results"], dict)
+            or not set(row["results"]) <= set(RESULTS)
             or not isinstance(row["attempts"], dict)
             or set(row["attempts"]) not in (set(), set(ATTEMPTS))
         ):
@@ -217,19 +239,8 @@ def _observations(raw, descriptors, eligible):
         users, count = _count(row["accounts"]), _count(row["observations"])
         all_source = _count(row["all_source_accounts"])
         uncorrelated, correlated = _count(row["uncorrelated"]), _count(row["correlated"])
-        phases = {}
-        for phase in PHASES:
-            value = row["phases"].get(phase, {"accounts": 0, "observations": 0})
-            if not isinstance(value, dict) or set(value) != {"accounts", "observations"}:
-                raise native.AggregateUnavailable("Invalid phase aggregate")
-            accounts, observations = _count(value["accounts"]), _count(value["observations"])
-            if (
-                accounts > users
-                or accounts > observations
-                or (accounts == 0) != (observations == 0)
-            ):
-                raise native.AggregateUnavailable("Invalid distinct feature accounts")
-            phases[phase] = {"accounts": accounts, "observations": observations}
+        phases = _groups(row["phases"], PHASES, users)
+        results = _groups(row["results"], RESULTS, users)
         attempts = {key: _count(row["attempts"].get(key, 0)) for key in ATTEMPTS}
         if (
             not 0 < users <= all_source <= values["observedAccounts"]
@@ -237,6 +248,8 @@ def _observations(raw, descriptors, eligible):
             or count > MAX_OBSERVATIONS
             or users > sum(v["accounts"] for v in phases.values())
             or sum(v["observations"] for v in phases.values()) != count
+            or sum(v["observations"] for v in results.values()) != count
+            or users > sum(v["accounts"] for v in results.values())
             or uncorrelated > count
             or correlated > count - uncorrelated
             or any(v > correlated for v in attempts.values())
@@ -254,6 +267,7 @@ def _observations(raw, descriptors, eligible):
                 "allSourceObservedAccounts": all_source,
                 "observations": count,
                 "phases": phases,
+                "results": results,
                 "attempts": attempts,
                 "uncorrelatedObservations": uncorrelated,
             }
@@ -400,8 +414,14 @@ async def aggregate(request, binding, *, pool=None, now=None, environment="produ
                 raise native.AggregateUnavailable("Metrics snapshot precedes cutoff")
             if await _candidates(data, since, through, now) != ids:
                 raise native.AggregateUnavailable("Metrics population changed")
+            result_column = await data.fetchval(FEATURE_RESULT_COLUMN_SQL, timeout=5)
+            if result_column not in {None, "text"}:
+                raise native.AggregateUnavailable("Metrics result schema unavailable")
+            query = (
+                FEATURE_OBSERVATIONS_WITH_RESULTS_SQL if result_column else FEATURE_OBSERVATIONS_SQL
+            )
             raw = await data.fetchval(
-                FEATURE_OBSERVATIONS_SQL, enabled, retained_from, through, now, reviewed, timeout=5
+                query, enabled, retained_from, through, now, reviewed, timeout=5
             )
             features, values, by_agent = _observations(raw, descriptors, enabled)
             confirmed = await _confirmed(data, eligible, since, through - timedelta(microseconds=1))
