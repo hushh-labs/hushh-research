@@ -285,3 +285,23 @@ These events are declared in the schema, but there is no current live emitter in
 | `mcp_ria_read_tool_called` | declared only | add emitter or remove from contract. This is a server-side MCP concern; the web client cannot emit it, and no emitter exists in `consent-protocol` either. |
 
 Do not build dashboard assumptions on declared-only events.
+
+## Calendar booking operation observation
+
+`one_calendar_action:booking_create` observes the existing Calendar booking
+dialog. A reviewed meeting is not a created event: only a provider response with
+`action=create` and a nonempty string event ID emits `success`. Board conflict
+and expired review, or the five declared account/selection/permission prewrite
+reason codes, emit `expected_error`; definite review-stage failure emits
+`error`. After execution starts, other timeout, malformed or mismatched results remain
+unconfirmed and emit no false failure/success. Cancelled or review-only flows
+emit none.
+
+The observer retains its validated owner generation, vault epoch and live
+mount/account/token context from review through confirmation, and settles at
+most once. Only the route, closed action and result leave the observer; no event
+ID, title, attendee, time, contact, content or provider diagnostic is forwarded.
+The canonical private projection preserves the booking subaction. Its generic
+blocked phase requires the reviewed private-bridge mapping; derived GA4 aliases
+require the independently reviewed feature-alias helper. These are prospective
+observations, not historical reconstruction or runtime publication proof.

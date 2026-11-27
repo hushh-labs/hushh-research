@@ -376,3 +376,13 @@ unrecorded activity. Generic attempt errors do not prove a remote write absent.
   live evidence to installed package, native version/build, installer, reporting
   stream, backend environment and exact measurement dates. No device was attached
   during the 7 October local audit.
+
+## Calendar booking observation boundary
+
+The actual Main Calendar dialog uses review then confirmation. Verify provider
+creation separately from board/expiry blocks and definite review-stage errors;
+never classify an uncertain execute response as failed or confirmed. The nearest
+booking-operation, Calendar account board, governed-event and private-projection
+tests cover this boundary, one terminal emission, owner/vault/unmount retirement
+and private metadata exclusion. Source mocks do not prove deployment, provider
+side effects, GA4 processing or historical coverage.

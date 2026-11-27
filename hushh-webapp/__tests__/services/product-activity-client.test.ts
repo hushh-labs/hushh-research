@@ -88,6 +88,16 @@ describe("private product observation lifecycle", () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it("retains the declared Calendar booking subaction in the private projection", async () => {
+    const client = await fixture();
+    client.observeProductEvent("one_calendar_action", "booking_create", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body)).toMatchObject({ actionId: "observation:one_calendar_action:booking_create", phase: "returned" });
+    client.observeProductEvent("one_calendar_action", "PRIVATE_MEETING_TITLE", "success");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(1);
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE");
+  });
   it("refreshes admission for new operations after a remote reset without rebinding pending terminal reports", async () => {
     const f = await fixture();
     const now = Date.now();

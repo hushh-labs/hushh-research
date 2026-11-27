@@ -121,6 +121,14 @@ describe("governed observability dispatch", () => {
     expect(adapters.nativeTrack).not.toHaveBeenCalled();
   });
 
+  it("admits the finite Calendar booking result and excludes private meeting fields", () => {
+    expect(trackEvent("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "success", title: "PRIVATE_TITLE", attendees: ["PRIVATE_EMAIL@example.test"] } as never)).toBe(true);
+    expect(adapters.webTrack).toHaveBeenCalledExactlyOnceWith("one_calendar_action", expect.objectContaining({ action: "booking_create", result: "success" }));
+    expect(JSON.stringify(adapters.webTrack.mock.calls)).not.toContain("PRIVATE");
+    expect(trackEvent("one_calendar_action", { route_id: "one_calendar", action: "PRIVATE_TITLE", result: "success" } as never)).toBe(false);
+    expect(adapters.webTrack).toHaveBeenCalledOnce();
+  });
+
   it("rejects the entire event when a governed enum is undeclared", () => {
     const handedOff = trackEvent("one_memory_action", {
       route_id: "pkm",
