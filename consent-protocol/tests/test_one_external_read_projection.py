@@ -232,6 +232,206 @@ def test_unrelated_sessions_and_events_are_preserved():
     assert durable_external_read_projection(session) is session
 
 
+def _mixed_browser_portfolio_history():
+    from hushh_mcp.one_adk.portfolio_context_contract import (
+        PORTFOLIO_CONTEXT_TOOL,
+        STATE_PORTFOLIO_CONTEXT_PRIVATE,
+    )
+    from hushh_mcp.one_adk.receipt_client_tools import STATE_RECEIPT_PRIVATE
+
+    binding = {
+        "owner_id": "owner",
+        "pod_id": "pod",
+        "incarnation": "epoch",
+        "task_id": "browser_" + "a" * 32,
+        "environment": "development",
+        "expires_at": 2000,
+    }
+    call = types.FunctionCall(
+        id="adk-browser-call", name="start_browser_task", args={"goal": "PRIVATE_ARG"}
+    )
+    response = types.FunctionResponse(
+        id=call.id,
+        name=call.name,
+        response={
+            "status": "accepted",
+            "binding": {**binding, "grant": "PRIVATE_TOKEN"},
+            "password": "PRIVATE_PASS",
+            "url": "https://private.example",
+        },
+    )
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={
+            STATE_RECEIPT_PRIVATE: ["read-turn"],
+            STATE_PORTFOLIO_CONTEXT_PRIVATE: ["read-turn"],
+        },
+        events=[
+            _event([types.Part(function_call=call)]),
+            _event([types.Part(function_response=response)]),
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="portfolio-call",
+                            name=PORTFOLIO_CONTEXT_TOOL,
+                            response={"holdings": "PRIVATE_PORTFOLIO"},
+                        )
+                    )
+                ]
+            ),
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="other-call", name="other_tool", response={"result": "PRIVATE_OTHER"}
+                        )
+                    )
+                ]
+            ),
+        ],
+    )
+    return session, binding
+
+
+def test_private_portfolio_turn_preserves_only_correlated_browser_creation_for_static_history():
+    from hushh_mcp.one_adk.browser_activity_history import (
+        accepted_browser_creations,
+        restored_browser_activity,
+    )
+    from hushh_mcp.services.pod_browser.activity_receipt import activity_receipt
+    from hushh_mcp.services.pod_browser.task_contracts import BrowserCapability, BrowserTaskSnapshot
+
+    session, binding = _mixed_browser_portfolio_history()
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    decoded = session
+    for persistence in range(3):
+        encoded = service._encode(decoded)
+        decoded = service._decode(
+            {f"payload_{key}": value for key, value in encoded.items()},
+            app_name=session.app_name,
+            user_id=session.user_id,
+            session_id=session.id,
+        )
+        if persistence == 0:
+            decoded.events.append(
+                _event(
+                    [types.Part(text="Ordinary next request")],
+                    author="user",
+                    invocation="later-turn",
+                )
+            )
+    safe_binding = {key: binding[key] for key in ("owner_id", "pod_id", "incarnation", "task_id")}
+    assert decoded.events[1].content.parts[0].function_response.response == {
+        "status": "accepted",
+        "binding": safe_binding,
+    }
+    assert decoded.events[0].content.parts[0].function_call.args == {}
+    assert decoded.events[2].content.parts[0].function_response.response == {
+        "content_redacted": True
+    }
+    assert decoded.events[3].content.parts[0].function_response.response == {
+        "content_redacted": True
+    }
+    assert (
+        "PRIVATE_" not in decoded.model_dump_json()
+        and "private.example" not in decoded.model_dump_json()
+    )
+    assert [
+        (index, event.invocation_id, value)
+        for index, event, value in accepted_browser_creations(decoded.events)
+    ] == [(1, "read-turn", safe_binding)]
+    receipt = activity_receipt(
+        kind="browser_sign_in",
+        state="completed",
+        task_id=binding["task_id"],
+        operation_id="signin_operation",
+    )
+    snapshot = BrowserTaskSnapshot(
+        binding=binding,
+        phase="completed",
+        control_owner="stopped",
+        control_epoch=2,
+        next_sequence=2,
+        revision=2,
+        capability=BrowserCapability(available=False, code="BROWSER_DISABLED"),
+        activity_receipt=receipt,
+    )
+    restored, anchors = restored_browser_activity(decoded.events, (snapshot,))
+    assert restored == {"read-turn": [receipt]} and anchors == {"read-turn": 1}
+    assert (
+        session.events[1].content.parts[0].function_response.response["password"] == "PRIVATE_PASS"
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "foreign_agent",
+        "foreign_call_author",
+        "foreign_owner",
+        "refused",
+        "partial",
+        "thought",
+        "missing_call",
+        "wrong_call",
+        "missing_id",
+        "malformed_binding",
+        "empty_incarnation",
+        "oversized_pod",
+        "projected_extra_field",
+    ],
+)
+@pytest.mark.parametrize("already_projected", [False, True])
+def test_private_portfolio_turn_does_not_preserve_untrusted_browser_result(
+    fault, already_projected
+):
+    from hushh_mcp.one_adk.browser_activity_history import accepted_browser_creations
+
+    session, _ = _mixed_browser_portfolio_history()
+    if already_projected:
+        session = durable_external_read_projection(session)
+    event = session.events[1]
+    response = event.content.parts[0].function_response
+    if fault == "foreign_agent":
+        event.author = "finance"
+    elif fault == "foreign_call_author":
+        session.events[0].author = "finance"
+    elif fault == "foreign_owner":
+        response.response["binding"]["owner_id"] = "foreign"
+    elif fault == "refused":
+        response.response["status"] = "refused"
+    elif fault == "partial":
+        event.partial = True
+    elif fault == "thought":
+        event.content.parts[0].thought = True
+    elif fault == "missing_call":
+        session.events[0].content.parts = []
+    elif fault == "wrong_call":
+        response.id = "another-call"
+    elif fault == "missing_id":
+        response.id = None
+    elif fault == "empty_incarnation":
+        response.response["binding"]["incarnation"] = ""
+    elif fault == "oversized_pod":
+        response.response["binding"]["pod_id"] = "p" * 257
+    elif fault == "projected_extra_field":
+        response.response["binding"].pop("environment", None)
+        response.response["binding"].pop("expires_at", None)
+        response.response["binding"].pop("grant", None)
+        response.response["private"] = "PRIVATE_EXTRA"
+    else:
+        response.response["binding"]["pod_id"] = []
+    projected = durable_external_read_projection(session)
+    assert projected.events[1].content.parts[0].function_response.response == {
+        "content_redacted": True
+    }
+    assert accepted_browser_creations(projected.events) == []
+    assert "PRIVATE_" not in projected.model_dump_json()
+
+
 @pytest.mark.parametrize("in_state", [False, True])
 def test_mcp_approval_reference_is_never_durable_even_in_event_only(in_state):
     key = "temp:hussh:mcp_approval"

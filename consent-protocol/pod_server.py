@@ -571,6 +571,9 @@ async def _pod_startup() -> None:
     app.state.browser_composition = None
     app.state.browser_task_runtime = None
     app.state.browser_unavailable_code = "BROWSER_DISABLED"
+    from hushh_mcp.services.pod_browser.session_erasure import install_session_cleanup
+
+    install_session_cleanup(app, log=boot_log, dek=boot_dek, logger=logger)
     if os.getenv("POD_COMPUTER_USE_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.services.pod_browser.composition import install_browser_startup
 
@@ -628,6 +631,10 @@ async def _stop_files_queue() -> None:
         await browser.close()
         app.state.browser_composition = None
         app.state.browser_task_runtime = None
+    cleanup = getattr(app.state, "browser_session_cleanup", None)
+    if cleanup is not None:
+        cleanup.close()
+        app.state.browser_session_cleanup = None
 
     import contextlib  # noqa: PLC0415
 

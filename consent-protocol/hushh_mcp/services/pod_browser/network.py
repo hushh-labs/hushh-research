@@ -9,7 +9,7 @@ checks cannot contain a compromised process in that container.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 import httpcore
@@ -37,6 +37,10 @@ class BrowserNetworkAuthorityPort(Protocol):
 
     async def authorize_request(
         self, binding: BrowserBinding, request: BrowserRequest, commitment: str
+    ) -> BrowserNetworkPermit: ...
+
+    async def authorize_credential_request(
+        self, binding: BrowserBinding, request: BrowserRequest, commitment: str, credential
     ) -> BrowserNetworkPermit: ...
 
     async def journal_dispatch(
@@ -79,6 +83,19 @@ class BrowserNetworkBroker:
         self._inflight: set[asyncio.Task] = set()
         self._scope_check: Callable[[BrowserExecutionScope], None] | None = None
         self.downloads = BrowserDownloads()
+        self._credential_check: Callable[[], Awaitable[None]] | None = None
+        self._credential_authority = None
+
+    def bind_credential_authority(self, value) -> None:
+        previous = self._credential_authority
+        self._credential_authority = value
+        if value is not None:
+            self._credential_check = value.check
+        elif previous is not None:
+            self._credential_check = None
+
+    def bind_credential_check(self, check: Callable[[], Awaitable[None]] | None) -> None:
+        self._credential_check = check
 
     def bind_scope_validator(self, check: Callable[[BrowserExecutionScope], None]) -> None:
         if self._scope_check is not None:
@@ -163,7 +180,7 @@ class BrowserNetworkBroker:
             parts.append(chunk)
         return BrowserResponse(status=response.status, headers=headers, body=b"".join(parts))
 
-    async def fetch(self, request: BrowserRequest) -> BrowserResponse:
+    async def fetch(self, request: BrowserRequest, *, credential_proof=None) -> BrowserResponse:
         self._validate(request)
         current = asyncio.current_task()
         if current is None:
@@ -177,9 +194,19 @@ class BrowserNetworkBroker:
                 await self._authority.check_no_pending_dispatch(self._binding)
                 self._pending_reviews += 1
                 try:
-                    permit = await self._authority.authorize_request(
-                        self._binding, request, commitment
-                    )
+                    credential = self._credential_authority
+                    if credential_proof is not None:
+                        if credential is None or not await credential.authorize(
+                            request, credential_proof
+                        ):
+                            raise BrowserRefused("BROWSER_CREDENTIAL_REQUEST_REFUSED")
+                        permit = await self._authority.authorize_credential_request(
+                            self._binding, request, commitment, credential
+                        )
+                    else:
+                        permit = await self._authority.authorize_request(
+                            self._binding, request, commitment
+                        )
                 finally:
                     self._pending_reviews -= 1
                 if not isinstance(permit, BrowserNetworkPermit):
@@ -187,7 +214,10 @@ class BrowserNetworkBroker:
                 # Human review uses the original action budget. HTTP itself
                 # retains its independent fifteen-second execution deadline.
                 async with asyncio.timeout(15):
-                    return await self._dispatch(request, commitment, permit)
+                    response = await self._dispatch(request, commitment, permit)
+                    if credential_proof is not None:
+                        credential.response(request, credential_proof, response)
+                    return response
         except BaseException as exc:
             if isinstance(exc, (BrowserRefused, asyncio.CancelledError)):
                 raise
@@ -206,6 +236,8 @@ class BrowserNetworkBroker:
                 dispatched = True
                 self._pending_effects += 1
             await self._authority.check_binding(self._binding)
+            if self._credential_check is not None:
+                await self._credential_check()
             # Takeover/Stop can win any awaited review or ledger operation.
             # Check live authority after the last await, immediately before IO.
             self._validate(request)

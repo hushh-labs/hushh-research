@@ -17,6 +17,7 @@ import {
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 import { ComputerUseReview } from "./computer-use-review";
 import { ComputerUseSessions } from "./computer-use-sessions";
+import { ComputerUseCredentials } from "./computer-use-credentials";
 import {
   extractVerifiedDomain,
   useWorkspaceSplitPaneHost,
@@ -67,8 +68,9 @@ export function ComputerUseTaskCard({
   const lastOpenSignalRef = useRef(openReviewSignal);
   const openedTaskRef = useRef<string | null>(null);
   const taskIdentity = JSON.stringify([ownerId, podId, incarnation, taskId, environment]);
-  useBackLayer(route, reviewId ? 4 : open ? 3 : 0, () => {
-    if (reviewId) setReviewId(null);
+  const genericReviewOpen = Boolean(reviewId && state.snapshot?.review?.id === reviewId && state.snapshot.review.purpose !== "credential_fill");
+  useBackLayer(route, genericReviewOpen ? 4 : open ? 3 : 0, () => {
+    if (genericReviewOpen) setReviewId(null);
     else if (open) setOpen(false);
     else return false;
     return true;
@@ -79,12 +81,14 @@ export function ComputerUseTaskCard({
     void controller.refresh().catch(() => undefined);
     const interval = setInterval(() => {
       const current = controller.getSnapshot();
-      if (document.hidden || current.pending || !isComputerUseActivelyStreaming(current.snapshot)) return;
+      if (document.hidden || current.pending || (!isComputerUseActivelyStreaming(current.snapshot)
+        && !(current.snapshot?.credentialEntryActive && current.snapshot.phase === "running"))) return;
       void controller.refresh().catch(() => undefined);
     }, 2_000);
     const visibility = () => {
       const current = controller.getSnapshot();
-      if (!document.hidden && !current.pending && (!current.verified || isComputerUseActivelyStreaming(current.snapshot))) {
+      if (!document.hidden && !current.pending && (!current.verified || isComputerUseActivelyStreaming(current.snapshot)
+        || (current.snapshot?.credentialEntryActive && current.snapshot.phase === "running"))) {
         void controller.refresh().catch(() => undefined);
       }
     };
@@ -120,13 +124,16 @@ export function ComputerUseTaskCard({
     if (openReviewSignal === lastOpenSignalRef.current) return;
     lastOpenSignalRef.current = openReviewSignal;
     if (openReviewSignal <= 0) return;
+    if (snapshot?.credentialRequest) return; // The composer already reveals the fixed host sign-in card.
     if (snapshot?.review) setReviewId(snapshot.review.id);
     else setOpen(true);
   }, [openReviewSignal, snapshot]);
   const usable = state.verified && snapshot?.capability === "ready" && !isComputerUseTerminal(snapshot.phase);
-  const canPreview = usable && Boolean(snapshot?.approvedOrigins?.length) && snapshot?.review?.purpose !== "model_process";
+  const canPreview = usable && !snapshot?.credentialEntryActive && Boolean(snapshot?.approvedOrigins?.length) && snapshot?.review?.purpose !== "model_process";
   const verifiedDomain = extractVerifiedDomain(snapshot);
   const message = !state.verified && !state.pending ? "Couldn’t reach the browser. Check again to reconnect."
+    : snapshot?.credentialEntryActive ? "Signing in privately. AI screen viewing is paused."
+    : snapshot?.code === "BROWSER_CREDENTIAL_SUBMITTED" ? "Sign-in submitted. Checking the website…"
     : snapshot?.code === "BROWSER_MODEL_RATE_LIMITED" ? "Your AI is busy. Try this task again later."
     : snapshot?.code === "BROWSER_WAITING_FOR_WORKER" ? "Waiting for current background work to finish…"
     : snapshot?.code === "BROWSER_DOWNLOAD_READY" ? "Download ready to save."
@@ -197,7 +204,7 @@ export function ComputerUseTaskCard({
         statusMessage={message}
         controls={controls}
         onClose={() => setOpen(false)}
-        onOpenReview={snapshot?.review ? () => setReviewId(snapshot.review?.id ?? null) : undefined}
+        onOpenReview={snapshot?.review && snapshot.review.purpose !== "credential_fill" ? () => setReviewId(snapshot.review?.id ?? null) : undefined}
         onSaveDownload={saveDownloadById}
         downloadPending={state.pending}
         showMobileHeaderClose={showMobileHeaderClose}
@@ -263,7 +270,7 @@ export function ComputerUseTaskCard({
               </p>
             </div>
           </div>
-          {canPreview ? (
+          {canPreview && !snapshot.credentialRequest ? (
             <ShellActionSurface
               variant="pill"
               className="min-h-10"
@@ -275,6 +282,9 @@ export function ComputerUseTaskCard({
             >
               Sign in privately
             </ShellActionSurface>
+          ) : null}
+          {snapshot.savedLoginsAvailable && snapshot.credentialRequest ? (
+            <ComputerUseCredentials controller={controller} snapshot={snapshot} route={route} pending={state.pending} onTypeMyself={() => { setOpen(true); control("takeover"); }} />
           ) : null}
         </div>
       ) : null}
@@ -288,7 +298,7 @@ export function ComputerUseTaskCard({
             onClick={() => saveDownloadById(download.id)}>Save to Files</ShellActionSurface>
         </div>
       ))}
-      {usable && snapshot?.review ? (
+      {usable && snapshot?.review && snapshot.review.purpose !== "credential_fill" ? (
         <div className="flex flex-wrap items-center gap-2">
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
             onClick={() => setReviewId(snapshot.review?.id ?? null)}>Review request</ShellActionSurface>

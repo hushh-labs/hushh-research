@@ -20,9 +20,15 @@ from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, Bou
 from .contracts import BrowserBinding, BrowserRefused
 
 Purpose = Literal[
-    "model_process", "disclose", "session_remember", "session_restore", "provider_safety"
+    "model_process",
+    "disclose",
+    "session_remember",
+    "session_restore",
+    "provider_safety",
+    "credential_fill",
 ]
 ACTION_PREFIX = "browser."
+ApprovalRecheck = Callable[[], Awaitable[None]]
 
 
 def private_commitment(key: bytes, value: object) -> str:
@@ -62,7 +68,7 @@ class BrowserConsentPort(Protocol):
 
     async def require(
         self, binding: BrowserBinding, purpose: Purpose, private_terms: dict
-    ) -> None: ...
+    ) -> ApprovalRecheck | None: ...
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,7 @@ class LedgerBrowserConsent:
         self._store, self._key, self._admission, self._clock = store, key, check_binding, clock
         self._receipts: dict[BrowserReview, BrowserApprovalReceipt] = {}
         self._leases: dict[BrowserReview, BrowserApprovalReceipt] = {}
+        self._invalidation_generation = 0
 
     def review(self, binding: BrowserBinding, purpose: Purpose, terms: dict) -> BrowserReview:
         return BrowserReview(binding, purpose, private_commitment(self._key, terms))
@@ -122,10 +129,15 @@ class LedgerBrowserConsent:
             raise BrowserRefused("BROWSER_APPROVAL_ALREADY_USED")
         self._receipts[review] = receipt
 
-    async def require(self, binding: BrowserBinding, purpose: Purpose, private_terms: dict) -> None:
+    async def require(
+        self, binding: BrowserBinding, purpose: Purpose, private_terms: dict
+    ) -> ApprovalRecheck | None:
         await self.check_binding(binding)
         review = self.review(binding, purpose, private_terms)
-        if purpose not in {"disclose", "provider_safety"} and review in self._leases:
+        if (
+            purpose not in {"disclose", "provider_safety", "credential_fill"}
+            and review in self._leases
+        ):
             lease = self._leases[review]
             await self._store.require_consumed_browser(
                 **review.identity,
@@ -148,9 +160,30 @@ class LedgerBrowserConsent:
         await self.check_binding(binding)
         # Website transmissions are single-use. Model/reuse grants are immutable,
         # task-bound leases; changed revisions/generations have a new commitment.
-        if purpose not in {"disclose", "provider_safety"}:
+        if purpose not in {"disclose", "provider_safety", "credential_fill"}:
             self._leases[review] = receipt
+        if purpose == "credential_fill":
+            generation = self._invalidation_generation
+
+            # Request-local proof, not a reusable grant. Each check reads the
+            # exact consumed receipt from the existing ledger under admission.
+            async def recheck():
+                if generation != self._invalidation_generation:
+                    raise BrowserRefused("BROWSER_APPROVAL_ALREADY_USED")
+                await self.check_binding(binding)
+                await self._store.require_consumed_browser(
+                    **review.identity,
+                    directive_id=receipt.directive_id,
+                    receipt=receipt.receipt,
+                    terms=review.terms,
+                )
+                await self.check_binding(binding)
+                if generation != self._invalidation_generation:
+                    raise BrowserRefused("BROWSER_APPROVAL_ALREADY_USED")
+
+            return recheck
 
     def invalidate(self) -> None:
+        self._invalidation_generation += 1
         self._receipts.clear()
         self._leases.clear()

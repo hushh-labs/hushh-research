@@ -44,6 +44,7 @@ from hushh_mcp.consent.export_envelope import (
 )
 from hushh_mcp.consent.pkm_scope_policy import (
     consent_token_scope_value,
+    is_owner_item_grant_scope,
     is_private_pkm_export_scope,
 )
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
@@ -667,7 +668,9 @@ async def approve_consent(
 
     # Issue consent token - map scope to ConsentScope enum using centralized resolver
     requested_scope = pending_request["scope"]
-    if is_private_pkm_export_scope(requested_scope):
+    if is_private_pkm_export_scope(requested_scope) and not is_owner_item_grant_scope(
+        requested_scope
+    ):
         raise HTTPException(
             status_code=410,
             detail={
@@ -686,6 +689,23 @@ async def approve_consent(
 
     raw_metadata = pending_request.get("metadata")
     metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+    owner_item = is_owner_item_grant_scope(requested_scope)
+    if owner_item:
+        from hushh_mcp.services.owner_item_grants import OwnerItemGrantRefused, owner_item_binding
+
+        try:
+            binding = owner_item_binding(metadata, userId, requested_scope)
+            if (
+                pending_request["developer"] != metadata.get("recipient_agent_id", "agent_one")
+                or _body.modelProcessingAllowed
+                or source_content_revision != binding["source_content_revision"]
+                or source_manifest_revision != binding["source_manifest_revision"]
+            ):
+                raise OwnerItemGrantRefused("OWNER_ITEM_AUTHORITY_REFUSED")
+        except OwnerItemGrantRefused:
+            raise HTTPException(
+                403, detail={"error_code": "OWNER_ITEM_AUTHORITY_REFUSED"}
+            ) from None
     metadata["model_processing"] = owner_model_processing(_body.modelProcessingAllowed)
     developer_label = (
         metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
@@ -701,13 +721,17 @@ async def approve_consent(
         is_developer_request=is_developer_request,
     )
 
-    paid_approval = await paid_owner_approval(
-        subject_user_id,
-        requestId,
-        requested_scope,
-        metadata,
-        expiry_hours,
-        model_processing_allowed=_body.modelProcessingAllowed,
+    paid_approval = (
+        None
+        if owner_item
+        else await paid_owner_approval(
+            subject_user_id,
+            requestId,
+            requested_scope,
+            metadata,
+            expiry_hours,
+            model_processing_allowed=_body.modelProcessingAllowed,
+        )
     )
     if paid_approval is not None:
         return paid_approval
@@ -723,6 +747,10 @@ async def approve_consent(
         requested_scope=requested_scope,
         **_identifier_filter_kwargs(userId, owned_identifiers),
     )
+    if owner_item:
+        # A covering token belongs to a different owner-started request/export.
+        # Never reuse that lineage for a newly sealed credential projection.
+        existing_token = None
     if existing_token and is_developer_information_request:
         existing_export = await service.get_consent_export_metadata(
             str(existing_token.get("token_id") or "")
@@ -1360,6 +1388,29 @@ async def create_generic_consent_request(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.post("/owner-items/requests")
+async def create_owner_item_consent_request(
+    request: Request,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Start an exact owner-reviewed item grant; approval remains separate."""
+    from hushh_mcp.services.owner_item_grants import (
+        OwnerItemGrantRefused,
+        OwnerItemRequest,
+        create_owner_item_request,
+    )
+
+    try:
+        payload = OwnerItemRequest.model_validate(await request.json())
+    except (ValueError, TypeError):
+        # Unexpected fields must not echo an accidentally pasted secret.
+        raise HTTPException(422, detail={"error_code": "OWNER_ITEM_REQUEST_INVALID"}) from None
+    try:
+        return await create_owner_item_request(str(token_data["user_id"]), payload)
+    except OwnerItemGrantRefused:
+        raise HTTPException(409, detail={"error_code": "OWNER_ITEM_REQUEST_REFUSED"}) from None
+
+
 @router.get("/handshake/history")
 async def get_handshake_history(
     counterpart_id: str = Query(..., min_length=1, max_length=128),
@@ -1899,7 +1950,15 @@ async def upload_refreshed_export(
     if str(token_obj.user_id) != request.userId:
         raise HTTPException(status_code=403, detail="Consent token user mismatch")
 
-    existing_export = await service.get_consent_export(consent_token)
+    if is_owner_item_grant_scope(consent_token_scope_value(token_obj)):
+        # The previous source is necessarily stale while a refresh is pending.
+        # Only bounded internal metadata may bypass that freshness check; token,
+        # exact owner-item lineage and current recipient remain mandatory.
+        existing_export = await service.get_consent_export_metadata(
+            consent_token, _include_grant_metadata=True
+        )
+    else:
+        existing_export = await service.get_consent_export(consent_token)
     if not existing_export:
         raise HTTPException(status_code=404, detail="Consent export no longer exists")
     if is_private_pkm_export_scope(str(existing_export.get("scope") or "")):

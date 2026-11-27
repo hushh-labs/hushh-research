@@ -155,6 +155,10 @@
       "file": "app/api/consent/logout/route.ts"
     },
     {
+      "template": "/api/consent/owner-items/requests",
+      "file": "app/api/consent/owner-items/requests/route.ts"
+    },
+    {
       "template": "/api/consent/pending",
       "file": "app/api/consent/pending/route.ts"
     },
@@ -5508,6 +5512,68 @@
         "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flocation%2Fdetail",
         "expectedMarker": "native-route-pkm-location-detail",
         "expectedRoute": "/one/pkm/location/detail",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/pkm/logins",
+      "page_file": "app/one/pkm/logins/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.pkm.logins.compatibility",
+          "purpose": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+          "screen": "pkm",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the redirect failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified root Chat route without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The redirect completes after Memory opens; secret use still requires the unlocked owner and explicit Allow.",
+          "next_route": "/one/pkm",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Use the canonical Memory Secrets controls."
+        }
+      },
+      "native": {
+        "route": "/one/pkm/logins",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flogins",
+        "expectedMarker": "native-route-pkm-logins",
+        "expectedRoute": "/one/pkm/logins",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -11466,5 +11532,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8ac8284c0c901a64db82f629b5010ae69ae26501eb4b5d3462935e008a932309"
+  "content_sha256": "2c3e2b69781e9260b7a6903c38b39ad561ca935a214e156a7e06bab174fd7ad3"
 }

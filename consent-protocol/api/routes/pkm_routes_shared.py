@@ -60,7 +60,9 @@ from hushh_mcp.services.pkm_mutation_contracts import (
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
 from hushh_mcp.services.push_notifications import send_user_data_push
-from hushh_mcp.services.secrets_domain_validation import validate_secrets_summary_envelope
+from hushh_mcp.services.secrets_domain_validation import (
+    validate_secrets_write_sidecars,
+)
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envelope
 
@@ -685,20 +687,20 @@ def _enforce_secrets_write_policy(request: "StoreDomainRequest", canonical_domai
     is the one place a faulty client could put a secret or its label onto the
     server in plaintext, and that is refused outright.
     """
+    if canonical_domain == "credentials":
+        raise HTTPException(409, detail={"code": "LEGACY_CREDENTIALS_READ_ONLY"})
     if canonical_domain != "secrets":
         return
     try:
-        validate_secrets_summary_envelope(request.summary)
+        manifest = getattr(request, "manifest", None)
+        decision = getattr(request, "structure_decision", None)
+        validate_secrets_write_sidecars(
+            request.summary,
+            manifest=manifest.model_dump() if manifest is not None else None,
+            structure_decision=decision.model_dump() if decision is not None else None,
+        )
     except ValueError as exc:
-        logger.warning("[PKM] secrets write refused: envelope reason=%s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "SECRETS_SUMMARY_ENVELOPE_INVALID",
-                "message": "The Secrets summary may carry bookkeeping only.",
-                "reason": str(exc),
-            },
-        ) from exc
+        raise HTTPException(422, detail={"code": "SECRETS_SUMMARY_ENVELOPE_INVALID"}) from exc
 
 
 _SHADOW_LOG_LABEL = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")

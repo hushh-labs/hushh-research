@@ -42,6 +42,7 @@ const NON_EXTERNALIZABLE_PKM_DOMAINS = new Set([
   "source_library",
   "one_wiki",
   "secrets",
+  "credentials",
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",
@@ -54,6 +55,10 @@ const EXCLUDED_FULL_EXPORT_PKM_DOMAINS = new Set([
 
 export function isNonExternalizablePkmDomain(domain: string): boolean {
   return NON_EXTERNALIZABLE_PKM_DOMAINS.has(domain.trim().toLowerCase());
+}
+
+export function isOwnerItemGrantScope(scope: string): boolean {
+  return /^attr\.secrets\.items\.sec_[a-f0-9]{16}$/.test(scope);
 }
 
 export function isPrivatePkmExportScope(scope: string): boolean {

@@ -328,3 +328,160 @@ def test_remembered_object_reader_bounds_before_materializing(declared, chunks, 
     else:
         assert read_bounded_response(response, max_bytes=8) == b"12345678"
     assert response.closed
+
+
+async def test_session_only_refuses_save_restore_but_preserves_forget(tmp_path):
+    sessions, auth, store, log, site, state, origins, closed = await _session_fixture(tmp_path)
+    current = await sessions.remember(binding(), site, state, approved_origins=origins)
+
+    async def lockdown():
+        raise BrowserRefused("BROWSER_SESSION_ONLY")
+
+    sessions._check_session_allowed = lockdown
+
+    async def install(value):
+        pytest.fail("locked-down session must never install")
+
+    with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+        await sessions.remember(binding(), site, state, approved_origins=origins)
+    with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+        await sessions.restore_for_task(binding(), site, approved_origins=origins, install=install)
+    assert (await sessions.forget(binding(), site)).persisted
+    assert await store.get(current.object_key) is None
+
+
+async def test_cookie_opt_in_reuses_same_login_allow_and_never_retains_local_storage(tmp_path):
+    sessions, auth, store, log, site, state, origins, closed = await _session_fixture(tmp_path)
+
+    async def no_second_review(*args):
+        pytest.fail("compound Allow must not create a second session approval")
+
+    auth.require = no_second_review
+    checked = []
+
+    async def same_allow():
+        checked.append(True)
+
+    with pytest.raises(BrowserRefused, match="ORIGINS_REFUSED"):
+        await sessions.remember(
+            binding(), site, state, approved_origins=origins, credential_authorization=same_allow
+        )
+    cookies_only = state.model_copy(update={"origins": ()})
+    saved = await sessions.remember(
+        binding(), site, cookies_only, approved_origins=origins, credential_authorization=same_allow
+    )
+    assert len(checked) == 2
+    raw = await store.get(saved.object_key)
+    opened = sessions._cipher.open(raw, site, saved.generation, saved.object_key)
+    assert b'"origins":[]' in opened and b"localStorage" not in opened
+
+
+async def test_owner_erasure_joins_inflight_put_before_deleting_its_inventoried_object(tmp_path):
+    from hushh_mcp.services.pod_browser.session_erasure import erase_session_site
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore
+
+    class PausedStore(LocalObjectStore):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def put(self, object_key, value):
+            if object_key.startswith("browser/sessions/"):
+                self.entered.set()
+                await self.release.wait()
+            await super().put(object_key, value)
+
+    store = PausedStore(str(tmp_path))
+    sessions, auth, _, log, site, state, origins, _ = await _session_fixture(tmp_path, store)
+    saving = asyncio.create_task(
+        sessions.remember(binding(), site, state, approved_origins=origins)
+    )
+    fenced = asyncio.Event()
+
+    async def fence(_):
+        fenced.set()
+
+    erasing = None
+    try:
+        await asyncio.wait_for(store.entered.wait(), 1)
+        erasing = asyncio.create_task(
+            erase_session_site(
+                log=log,
+                store=store,
+                site=site,
+                mutations=sessions._mutations,
+                check=lambda: auth.check_binding(binding()),
+                fence=fence,
+            )
+        )
+        await asyncio.wait_for(fenced.wait(), 1)
+        done, _ = await asyncio.wait({erasing}, timeout=0.1)
+        assert not done, "owner erasure must join the existing session writer lock"
+        store.release.set()
+        with pytest.raises(BrowserRefused, match="FORGET_PENDING"):
+            await asyncio.wait_for(saving, 1)
+        receipt = await asyncio.wait_for(erasing, 1)
+        assert receipt.fenced and receipt.persisted and receipt.deletion_requested
+        records = await log.replay()
+        assert await store.get(records[0]["payload"]["object"]) is None
+        assert await sessions.recovery_inventory() == ()
+        assert [record["payload"]["operation"] for record in records] == [
+            "intent",
+            "forget",
+        ]
+    finally:
+        store.release.set()
+        await asyncio.gather(
+            saving, *([erasing] if erasing is not None else []), return_exceptions=True
+        )
+
+
+@pytest.mark.parametrize("fault", ["close", "delete", "revoke_during_delete"])
+async def test_owner_erasure_retains_honest_partial_receipts_and_rechecks_each_delete(
+    tmp_path, monkeypatch, fault
+):
+    from hushh_mcp.services.pod_browser.session_erasure import erase_session_site
+
+    sessions, auth, store, log, site, state, origins, _ = await _session_fixture(tmp_path)
+    first = await sessions.remember(binding(), site, state, approved_origins=origins)
+    second = await sessions.remember(binding(), site, state, approved_origins=origins)
+    delete = store.delete
+    attempts, fenced = [], []
+
+    async def maybe_delete(object_key):
+        attempts.append(object_key)
+        if fault == "delete" and len(attempts) == 1:
+            raise RuntimeError("synthetic delete failed")
+        await delete(object_key)
+        if fault == "revoke_during_delete" and len(attempts) == 1:
+            auth.revoked = True
+
+    async def fence(_):
+        fenced.append(True)
+        if fault == "close" and len(fenced) == 1:
+            raise BrowserRefused("BROWSER_CLOSE_UNCONFIRMED")
+
+    async def erase():
+        return await erase_session_site(
+            log=log,
+            store=store,
+            site=site,
+            mutations=sessions._mutations,
+            check=lambda: auth.check_binding(binding()),
+            fence=fence,
+        )
+
+    monkeypatch.setattr(store, "delete", maybe_delete)
+    if fault == "revoke_during_delete":
+        with pytest.raises(BrowserRefused, match="BINDING_REFUSED"):
+            await erase()
+        assert len(attempts) == 1
+        remaining = [await store.get(key) for key in (first.object_key, second.object_key)]
+        assert sum(value is not None for value in remaining) == 1
+        auth.revoked = False
+    else:
+        partial = await erase()
+        assert partial.persisted and not partial.deletion_requested
+        assert partial.fenced == (fault != "close")
+    complete = await erase()
+    assert complete.fenced and complete.persisted and complete.deletion_requested
+    assert await store.get(first.object_key) is None and await store.get(second.object_key) is None
+    assert await sessions.recovery_inventory() == ()

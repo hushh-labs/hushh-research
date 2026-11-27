@@ -3,7 +3,7 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
 from api.routes.one.pod_browser import PrivateBrowserRoute, no_store
@@ -147,6 +147,52 @@ async def selected_information(
     except Exception:
         # Neither grant references, ciphertext nor provider/database errors leak.
         raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"}) from None
+
+
+class CredentialSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    owner_id: str = Field(min_length=1, max_length=256)
+    pod_id: str = Field(min_length=1, max_length=256)
+    secret_id: str = Field(pattern=r"^sec_[a-f0-9]{16}$")
+    content_revision: int = Field(ge=1)
+    manifest_revision: int = Field(ge=1)
+
+
+@router.post("/credential-source")
+async def credential_source_current(
+    request: Request, body: CredentialSourceRequest, authorization: str | None = Header(None)
+):
+    """Metadata-only source fence; never reads a secret or creates a grant."""
+    from api.routes.one.pod_owner_feed import _resolve_owner
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pod_browser.information_export import verify_export_source_revisions
+
+    if not personal_agent_enabled():
+        raise HTTPException(404, detail={"code": "BROWSER_DISABLED"})
+    principal = await verify_pod_request(request, authorization, owner_bound=True)
+    if (
+        principal is None
+        or not principal.signed
+        or principal.standby
+        or principal.hushh_id != body.pod_id
+    ):
+        raise HTTPException(401, detail={"code": "BROWSER_POD_IDENTITY_REQUIRED"})
+    try:
+        registry = PersonalAgentRegistryRepo()
+        owner = await _resolve_owner(principal, registry)
+        if owner[0] != body.owner_id:
+            raise ValueError()
+        await verify_export_source_revisions(
+            body.owner_id,
+            f"attr.secrets.items.{body.secret_id}",
+            content_revision=body.content_revision,
+            manifest_revision=body.manifest_revision,
+        )
+        if await _resolve_owner(principal, registry) != owner:
+            raise ValueError()
+        return {"current": True}
+    except Exception:
+        raise HTTPException(409, detail={"code": "BROWSER_CREDENTIAL_SOURCE_CHANGED"}) from None
 
 
 class OwnerConfirmation(BrowserHubMutation):

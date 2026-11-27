@@ -370,6 +370,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/cancel",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/complete",
         "/api/one/pod/agent-chat/feedback",
+        "/api/one/pod/agent-chat/browser-activity",
         "/api/one/pod/agent-chat/proposals",
         "/api/one/pod/agent-chat/proposals/typed",
         "/api/one/pod/agent-chat/proposals/{command_id}",
@@ -379,6 +380,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
         "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
         "/api/one/pod/browser/capability",
+        "/api/one/pod/browser/sessions/forget",
         "/api/one/pod/browser/tasks",
         "/api/one/pod/browser/tasks/{task_id}",
         "/api/one/pod/browser/tasks/{task_id}/control",
@@ -387,6 +389,9 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/browser/tasks/{task_id}/review",
         "/api/one/pod/browser/tasks/{task_id}/session",
         "/api/one/pod/browser/tasks/{task_id}/downloads/{download_id}",
+        "/api/one/pod/browser/tasks/{task_id}/credentials",
+        "/api/one/pod/browser/tasks/{task_id}/credentials/use",
+        "/api/one/pod/browser/tasks/{task_id}/credentials/transient",
         "/api/one/pod/connectors/{connector_id}",
         "/api/one/pod/connectors/gmail/accounts",
         "/api/one/pod/connectors/gmail/accounts/{account_id}",
@@ -513,7 +518,27 @@ def _concrete(path: str) -> str:
 def test_the_owner_reachable_surface_is_exactly_these_paths():
     from api.middlewares.pod_ingress import is_app_surface
 
+    # Path reachability does not authorize new verbs. Pin the ephemeral entry
+    # and static history seams independently of their ingress regex/shared prefix.
+    credential_methods = {
+        "/api/one/pod/browser/sessions/forget": {"POST"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials": {"GET"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials/use": {"POST"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials/transient": {"POST"},
+        "/api/one/pod/agent-chat/browser-activity": {"POST"},
+    }
+    methods = {
+        path: {
+            method
+            for route in pod_server.app.routes
+            if getattr(route, "path", None) == path
+            for method in getattr(route, "methods", ())
+        }
+        for path in credential_methods
+    }
+    assert methods == credential_methods
     mounted = _paths()
+    assert not any(path.startswith("/api/one/pod/credentials") for path in mounted)
     expected = OWNER_REACHABLE_PATHS | QUEUE_REACHABLE_PATHS | PROVIDER_REACHABLE_PATHS
     assert expected <= mounted, (
         f"pinned as owner-reachable but not mounted: {sorted(expected - mounted)}"

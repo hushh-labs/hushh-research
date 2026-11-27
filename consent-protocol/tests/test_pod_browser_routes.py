@@ -7,7 +7,57 @@ import pytest
 from tests.helpers.pod_browser import task_runtime_fixture
 
 
-async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(monkeypatch):
+async def test_owner_snapshot_preserves_v1_picker_wire_after_internal_account_selection(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_browser.credential_contracts import CredentialUseRequest
+    from tests.helpers.pod_browser import approved_task
+
+    fixture = task_runtime_fixture(monkeypatch)
+    snapshot = await approved_task(fixture)
+    task = fixture.runtime._tasks[snapshot.binding.task_id]
+    selected = CredentialUseRequest.model_validate(
+        {
+            "operation_id": "credential_operation_1",
+            "handle": "sec_" + "a" * 16,
+            "origin": "https://example.com",
+            "control_epoch": task.control.control_epoch,
+            "targets": {
+                "username": {"x": 1, "y": 1},
+                "password": {"x": 2, "y": 2},
+                "submit": {"x": 3, "y": 3},
+            },
+        }
+    )
+    lease_public_metadata = {
+        "id": "lease_" + "a" * 32,
+        "public_key": "A" * 43,
+        "expires_at": 1900,
+    }
+    task.control.credentials = SimpleNamespace(
+        selection=selected, lease_key=lease_public_metadata, owner_pending=True
+    )
+    try:
+        wire = fixture.runtime._owner_snapshot(task).model_dump(mode="json")
+        assert wire["credential_request"] == {
+            "operation_id": selected.operation_id,
+            "handle": "owner_selection",
+            "origin": selected.origin,
+            "lease_key": lease_public_metadata,
+        }
+        assert task.control.credentials.selection.handle == "sec_" + "a" * 16
+    finally:
+        task.control.credentials = None
+        fixture.model.release.set()
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize("purpose", ["model_process", "credential_fill"])
+async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(
+    monkeypatch, purpose
+):
     import time
     from unittest.mock import AsyncMock
 
@@ -46,7 +96,7 @@ async def test_browser_hub_approval_separates_owner_and_signed_machine_authority
             "environment": "development",
             "expires_at": int(time.time()) + 600,
         },
-        "purpose": "model_process",
+        "purpose": purpose,
         "commitment": "a" * 64,
         "pod_key_id": "key",
         "environment": "dev",
@@ -128,6 +178,7 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
             "public_research_only": False,
             "code": "BROWSER_CLOUD_GATE_UNAVAILABLE",
             "remembered_sessions_available": False,
+            "saved_logins_available": False,
             "owner_id": "owner",
             "pod_id": "pod",
             "incarnation": "epoch",
@@ -157,6 +208,28 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
         )
         assert invalid.status_code == 422
         assert "owner-password" not in invalid.text and "owner-secret" not in invalid.text
+        for suffix in ("credentials/use", "credentials/transient"):
+            invalid_private = await client.post(
+                path + "/tasks/task/" + suffix,
+                headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
+                json={
+                    "operation_id": "owner-password",
+                    "handle": "owner-secret",
+                    "control_epoch": "owner-secret",
+                },
+            )
+            assert invalid_private.status_code == 422
+            assert (
+                "owner-password" not in invalid_private.text
+                and "owner-secret" not in invalid_private.text
+            )
+        scopes.remove("browser.control")
+        catalog_denied = await client.get(
+            path + "/tasks/task/credentials?origin=https://example.com",
+            headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
+        )
+        assert catalog_denied.status_code == 403
+        scopes.add("browser.control")
         fixture = task_runtime_fixture(monkeypatch)
         app.state.browser_task_runtime = fixture.runtime
         accepted = await client.post(
@@ -406,3 +479,103 @@ async def test_browser_routes_admit_uat_and_refuse_production(
             assert resp.json()["environment"] == expected_wire_env
         else:
             assert resp.json()["detail"]["code"] == "BROWSER_ENVIRONMENT_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "disabled",
+        "unsigned",
+        "standby",
+        "foreign_pod",
+        "foreign_owner",
+        "source_changed",
+        "registry_changed",
+    ],
+)
+async def test_credential_source_fences_feature_signed_owner_revision_and_registry_reread(
+    monkeypatch, fault
+):
+    from unittest.mock import AsyncMock
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from api.routes.one import pod_browser_approval as route
+    from api.routes.one import pod_owner_feed
+    from hushh_mcp.services.pod_browser import information_export
+    from hushh_mcp.services.pod_request_signing import VerifiedPod
+
+    principal = VerifiedPod(
+        "another" if fault == "foreign_pod" else "pod",
+        key_id=None if fault == "unsigned" else "signed-test",
+        standby=fault == "standby",
+    )
+    machine = AsyncMock(return_value=principal)
+    current = ("owner", b"public-metadata", "recipient-id", "service-id")
+    resolved = AsyncMock(
+        side_effect=[("another", *current[1:])]
+        if fault == "foreign_owner"
+        else [
+            current,
+            ("owner", b"rotated-public-metadata", *current[2:])
+            if fault == "registry_changed"
+            else current,
+        ]
+    )
+    verify = AsyncMock(
+        side_effect=ValueError("synthetic-private-canary") if fault == "source_changed" else None
+    )
+    monkeypatch.setattr(route, "personal_agent_enabled", lambda: fault != "disabled")
+    monkeypatch.setattr(route, "verify_pod_request", machine)
+    monkeypatch.setattr(pod_owner_feed, "_resolve_owner", resolved)
+    monkeypatch.setattr(information_export, "verify_export_source_revisions", verify)
+    app = FastAPI()
+    app.include_router(route.router)
+    body = {
+        "owner_id": "owner",
+        "pod_id": "pod",
+        "secret_id": "sec_" + "a" * 16,
+        "content_revision": 2,
+        "manifest_revision": 3,
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://hub") as client:
+        response = await client.post(
+            "/api/one/pod/browser-approval/credential-source",
+            json=body,
+            headers={"Authorization": "Bearer synthetic-signer"},
+        )
+    expected = (
+        200
+        if fault is None
+        else 404
+        if fault == "disabled"
+        else 401
+        if fault in {"unsigned", "standby", "foreign_pod"}
+        else 409
+    )
+    assert response.status_code == expected
+    if fault is None:
+        assert response.headers["Cache-Control"] == "no-store, private"
+    assert (
+        "synthetic-private-canary" not in response.text and body["secret_id"] not in response.text
+    )
+    if fault == "disabled":
+        machine.assert_not_awaited()
+    else:
+        machine.assert_awaited_once()
+        assert machine.await_args.kwargs == {"owner_bound": True}
+    if fault in {None, "source_changed", "registry_changed"}:
+        verify.assert_awaited_once_with(
+            "owner",
+            "attr.secrets.items." + body["secret_id"],
+            content_revision=2,
+            manifest_revision=3,
+        )
+    else:
+        verify.assert_not_awaited()
+    if fault is None:
+        assert response.json() == {"current": True} and resolved.await_count == 2
+    elif fault == "registry_changed":
+        assert resolved.await_count == 2

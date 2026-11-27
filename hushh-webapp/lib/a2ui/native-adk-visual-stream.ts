@@ -9,8 +9,16 @@ const NATIVE_ERROR_CODES = [
   "POD_CHAT_BUSY", "POD_CHAT_UPDATING", "AGENT_ERROR", "PUPPY_NOT_CONFIGURED",
   "PUPPY_SESSION_UNAVAILABLE", "PUPPY_KEY_REFUSED", "PUPPY_UNAVAILABLE",
 ] as const;
-const NATIVE_EVENTS = new Set(["message", "start", "activity", "portfolio_context", "review", "done", "error"]);
+const NATIVE_EVENTS = new Set(["message", "start", "activity", "portfolio_context", "review", "done", "error", "browser_task"]);
 type NativeErrorCode = typeof NATIVE_ERROR_CODES[number];
+
+export type NativeBrowserTaskReceipt = {
+  invocationId: string;
+  toolCallId: string;
+  status: "accepted";
+  binding: { owner_id: string; task_id: string };
+};
+type BrowserTaskObserver = (receipt: NativeBrowserTaskReceipt, sessionId?: string) => void;
 
 export type NativeAdkTurnOutput = {
   surfaces: A2uiSurfaces;
@@ -31,6 +39,19 @@ export function createNativeAdkTurnOutput(): NativeAdkTurnOutput {
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function browserTaskReceipt(value: unknown): NativeBrowserTaskReceipt | null {
+  const payload = object(value);
+  const binding = object(payload?.binding);
+  const id = (candidate: unknown): candidate is string => typeof candidate === "string" && /^[A-Za-z0-9_.:-]{1,200}$/.test(candidate);
+  if (!payload || Object.keys(payload).sort().join(",") !== "binding,invocationId,status,toolCallId" ||
+      !binding || Object.keys(binding).sort().join(",") !== "owner_id,task_id" ||
+      payload.status !== "accepted" || !id(payload.invocationId) || !id(payload.toolCallId) ||
+      typeof binding.owner_id !== "string" || !binding.owner_id || binding.owner_id.length > 256 ||
+      typeof binding.task_id !== "string" || !/^browser_[a-f0-9]{32}$/.test(binding.task_id)) return null;
+  return { invocationId: payload.invocationId, toolCallId: payload.toolCallId, status: "accepted",
+    binding: { owner_id: binding.owner_id, task_id: binding.task_id } };
 }
 
 /** Consume one public projection from an admitted native ADK stream. */
@@ -67,7 +88,9 @@ function applyNativeAdkEvent(output: NativeAdkTurnOutput, value: unknown, locati
 }
 
 export function consumeNativeAdkFrames(
-  output: NativeAdkTurnOutput, chunk: string, remainder = "", locationChatReview = false,
+  output: NativeAdkTurnOutput, chunk: string, remainder = "",
+  onBrowserTask?: BrowserTaskObserver,
+  locationChatReview = false,
 ): { output: NativeAdkTurnOutput; remainder: string } {
   const parsed = parseSSEBlocks(chunk, remainder, "message");
   let next = output;
@@ -87,6 +110,11 @@ export function consumeNativeAdkFrames(
     }
     const payload = object(value);
     if (!payload) continue;
+    if (event === "browser_task") {
+      const receipt = browserTaskReceipt(payload);
+      if (receipt) onBrowserTask?.(receipt, next.sessionId);
+      continue;
+    }
     if (event === "start" && !next.sessionId && typeof payload.sessionId === "string" &&
         /^[A-Za-z0-9_.:-]{1,200}$/.test(payload.sessionId)) {
       next = { ...next, sessionId: payload.sessionId };
@@ -116,6 +144,7 @@ export function consumeNativeAdkFrames(
 export async function readNativeAdkTurn(
   response: Response,
   onOutput: (turn: NativeAdkTurnOutput) => void,
+  onBrowserTask?: BrowserTaskObserver,
   locationChatReview = false,
 ): Promise<NativeAdkTurnOutput> {
   const type = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
@@ -131,7 +160,7 @@ export async function readNativeAdkTurn(
     while (output.status === "streaming") {
       const { value, done } = await reader.read();
       if (done) break;
-      const next = consumeNativeAdkFrames(output, decoder.decode(value, { stream: true }), remainder, locationChatReview);
+      const next = consumeNativeAdkFrames(output, decoder.decode(value, { stream: true }), remainder, onBrowserTask, locationChatReview);
       remainder = next.remainder;
       if (next.output !== output) {
         output = next.output;

@@ -157,7 +157,10 @@ export class ConsentExportRefreshOrchestrator {
             throw new Error("Missing connector public key for refresh.");
           }
 
-          const builtExport = await buildConsentExportForScope({
+          const buildExport = /^attr\.secrets\.items\.sec_[a-f0-9]{16}$/.test(job.grantedScope)
+            ? (await import("@/lib/services/credential-sharing-service")).buildSecretItemExport
+            : buildConsentExportForScope;
+          const builtExport = await buildExport({
             userId: params.userId,
             scope: job.grantedScope,
             vaultKey: params.vaultKey,

@@ -113,6 +113,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/plaid/vault/remove",
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/browser-activity",
         "/api/one/pod/agent-chat/portfolio-context",
         "/api/one/pod/agent-chat/migration/import",
         # The owner's ratings, and voice command proposals validated and
@@ -139,6 +140,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/browser/capability",
         "/api/one/pod/browser/tasks",
         "/api/one/pod/browser/worker",
+        "/api/one/pod/browser/sessions/forget",
         "/api/one/puppy/relay",
         # The owner's memory doors (api/routes/one/pod_memory.py). Each is named
         # here one at a time rather than by a `/memory/` prefix, so a later memory
@@ -215,6 +217,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"/api/one/pod/actions/(?:gmod|gcal)_[A-Za-z0-9_-]{16,64}/status",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}(?:/(?:frame|control|input|review|session))?",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}/downloads/[a-f0-9]{32}",
+        r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}/credentials(?:/(?:use|transient))?",
     )
 )
 

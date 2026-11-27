@@ -868,9 +868,18 @@ One's manifest instructs the specialist to select the task's non-secret fields.
 `ScopedProjectionReader` requires a current V2 scoped export from the existing
 grant owner: exact owner/task/incarnation, recipient, scope, export revision,
 source content/manifest revisions, expiry and revocation. The pilot accepts
-bounded scalar projections only; Secrets, runtime credentials, wallet and identity
-domains are refused. Neither a replica nor conversational memory authorizes reads.
-The production loader must perform these checks against its authoritative sources.
+bounded scalar projections only; general Secrets, runtime credentials, wallet and
+identity domains are refused. Saved logins use the canonical encrypted
+`secrets.items` store and require an explicit human **Allow** from the unlocked
+device. The private Browser worker alone owns the ephemeral decryption key for
+one short-lived, exact-origin/task/control-epoch-bound lease. No standing pod
+password key, persistent password projection or automatic unreviewed submission
+is authorized. The Hub sees only opaque item/source metadata, not the lease
+plaintext. Neither a replica nor conversational memory authorizes secret reads.
+
+The source candidate, canonical schema, owner controls, encrypted static receipts,
+legacy import and installed qualification limits are described in the
+[Browser module](../../../docs/architecture/modules/browser.md#saved-website-logins).
 
 Model processing and website disclosure are independent exact reviews. Private
 values stay in pod/browser memory; the action ledger stores keyed commitments.
@@ -929,6 +938,26 @@ failed saves. Pending saves/restores cannot supersede it. The receipt distinguis
 live fencing, durable persistence and deletion requests. Physical removal remains
 subject to cloud retention; Forget does not remotely log out a website. Erasure
 inventory includes these objects and requires drained/fenced writers.
+
+Session-only lockdown records the canonical setting durably before suspending
+already-live private sign-in contexts through the existing task lifecycle.
+Execution checks recheck the active projection and sealed setting around
+authority awaits. Public tasks do not acquire this restriction. A failed close
+returns an explicit refusal while retaining lockdown; repeating the setting
+retries cleanup. Encrypted remembered objects survive suspension, and unlocking
+does not resume a terminated task. Live Forget retains exact current-owner and
+binding checks through an erasure-only admission path. Old terminal task ports
+and origin lists remain detached. Canonical Secrets instead calls
+`POST /api/one/pod/browser/sessions/forget` with the selected `sec_id` and current
+exact origins. Its current app `browser.control` authority is rechecked around
+metadata and deletion awaits, independently of Browser/model qualification.
+Authenticated startup recovers an erasure-only custody context even when Browser
+is disabled. No cookie decryption, credential reveal, task binding or model launch
+is needed. This path shares the same generation/CAS transaction and owner writer
+lock as task Forget, joins pending puts, and holds update admission until cleanup
+settles. The receipt reports incomplete close or delete outcomes for explicit retry.
+It covers only that record's current origins; removed origins and old manual
+account labels cannot be reconstructed from the opaque session inventory.
 
 Same-custody restart can rebuild metadata and restore current encrypted objects
 with fresh admission and per-task site/account reuse approval. Record-only

@@ -281,7 +281,16 @@ def _store_body(plan: dict, *, manifest_paths: tuple[str, ...] = (), **extra) ->
         "user_id": _OWNER,
         "domain": plan["proposed_domain"],
         "encrypted_blob": {"ciphertext": "Y2lwaGVy", "iv": "aXY=", "tag": "dGFn"},
-        "summary": {},
+        "summary": (
+            {
+                "domain_intent": "credentials",
+                "schema_version": 1,
+                "consumer_visible": False,
+                "storage_mode": "encrypted_domain",
+            }
+            if plan["proposed_domain"] == "credentials"
+            else {}
+        ),
         "mutation_plan": plan,
         **extra,
     }

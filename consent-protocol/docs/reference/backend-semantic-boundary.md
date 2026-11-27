@@ -247,6 +247,29 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Browser saved website sign-in
+
+- Owner: One delegates the existing task to its Browser specialist. Authored
+  instructions are `hushh_mcp/agents/one/agent.yaml` and
+  `hushh_mcp/agents/computer_use/agent.yaml`; there is no additional router.
+- Contract: the native `saved_website_logins` and `use_saved_website_login` hands
+  in `services/pod_browser/credential_tools.py` expose verified origins, opaque
+  handles and the explicit `CredentialUseRequest` target contract. The model
+  identifies the sign-in surface and targets. Passwords, usernames and TOTP
+  values are never model inputs or tool arguments.
+- Validators: current task/control epoch, exact HTTPS origin and explicit
+  masked input targets; current owner-item grant, recipient key, source and
+  record generations; saved use policy; one-use native form request commitment;
+  observation suppression, cleanup, action budget and replay fencing. Ambiguous
+  selection and unsupported authentication return to the owner controls. These
+  checks cannot infer a substitute DOM target or authorize unrelated actions.
+- Before capability promotion: run synthetic native-model sign-in, ambiguous
+  selection, malicious-page and manual-fallback journeys on each exact qualified
+  cloud image, followed by Web/iOS/Android owner acceptance. Current controlled
+  Chromium, ADK contract and PostgreSQL checks prove their bounded contracts;
+  they do not replace live model or installed-image acceptance. Credential
+  qualification remains closed until that evidence exists.
+
 ### Declared: Agent One portfolio review
 
 - Owner: One, through the tool-free `one_portfolio_review` gene in `hushh_mcp/agents/one/agent.yaml`.

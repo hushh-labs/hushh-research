@@ -99,9 +99,10 @@ async def test_redirect_joins_original_scope_and_unknown_parent_cannot_borrow_ne
         await asyncio.gather(work, return_exceptions=True)
 
 
+@pytest.mark.parametrize("termination", ["takeover", "session_only"])
 @pytest.mark.parametrize("operation", ["observe", "click"])
 async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
-    monkeypatch, operation
+    monkeypatch, operation, termination
 ):
     fixture = task_runtime_fixture(monkeypatch)
     fixture.driver.release = asyncio.Event()
@@ -123,6 +124,22 @@ async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
     await asyncio.wait_for(fixture.driver.entered.wait(), 1)
     task = fixture.runtime._tasks[started.binding.task_id]
     try:
+        if termination == "session_only":
+            from hushh_mcp.services import pod_config
+
+            task.private_context = True  # an earlier sign-in/restore in this context
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+            await asyncio.wait_for(
+                fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id), 1
+            )
+            assert task.closed
+            assert task.phase == ("outcome_uncertain" if operation == "click" else "cancelled")
+            assert task.code == (
+                "BROWSER_OUTCOME_UNCERTAIN" if operation == "click" else "BROWSER_SESSION_ONLY"
+            )
+            return
         taking = fixture.runtime.control(
             fixture.owner, task.binding.task_id, "takeover", started.control_epoch
         )
@@ -135,9 +152,11 @@ async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
             assert taken.control_owner == "owner" and taken.phase == "needs_owner"
         assert task.worker.done() and not fixture.driver.release.is_set()
     finally:
-        await fixture.runtime.control(
-            fixture.owner, task.binding.task_id, "cancel", task.control.control_epoch
-        )
+        if not task.closed:
+            await fixture.runtime.control(
+                fixture.owner, task.binding.task_id, "cancel", task.control.control_epoch
+            )
+        assert fixture.admission._states["epoch"].active == 0
     assert fixture.admission._states["epoch"].active == 0
 
 
@@ -176,6 +195,231 @@ async def test_owner_status_and_stop_do_not_wait_behind_a_browser_input(monkeypa
             await pending
     finally:
         fixture.driver.release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize(
+    "context,close_fault",
+    [
+        ("restore", False),
+        ("restore", True),
+        ("type_myself", False),
+        ("public", False),
+        ("forget", False),
+    ],
+)
+async def test_session_only_retires_private_contexts_preserves_cookies_and_keeps_public_work(
+    monkeypatch, tmp_path, context, close_fault
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_config
+    from tests.helpers.pod_browser import _session_fixture
+
+    monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+    sessions, _, store, _, site, state, origins, _ = await _session_fixture(tmp_path)
+    saved = await sessions.remember(binding(), site, state, approved_origins=origins)
+    ciphertext = await store.get(saved.object_key)
+    fixture = task_runtime_fixture(monkeypatch)
+    policy_reads = []
+
+    async def current_session_policy():
+        policy_reads.append(True)
+
+    fixture.runtime._session_context_check = current_session_policy
+    started = await approved_task(fixture)
+    task = fixture.runtime._tasks[started.binding.task_id]
+    if context == "type_myself":
+        task.control.credentials = SimpleNamespace(
+            selection=SimpleNamespace(
+                operation_id="operation_signin", origin="https://example.com"
+            ),
+            owner_pending=True,
+            lease_key=None,
+            prepared=None,
+        )
+    await fixture.runtime.control(
+        fixture.owner, task.binding.task_id, "takeover", started.control_epoch
+    )
+    control = task.control
+    sessions._consent = task.consent
+    sessions._fence = fixture.runtime.fence_live_contexts
+    try:
+        if context in {"restore", "forget"}:
+            imported = []
+
+            async def install(value, approved_origins):
+                imported.append((value, approved_origins))
+
+            monkeypatch.setattr(fixture.driver, "import_session", install, raising=False)
+            task.sessions = sessions
+            terms = {
+                "site": site,
+                "generation": saved.generation,
+                "object": saved.object_key,
+                "digest": saved.digest,
+                "origins": sorted(origins),
+            }
+            fixture.reviews.grants.add(
+                fixture.reviews.identity(task.binding, "session_restore", terms)
+            )
+            assert await fixture.runtime.session(
+                fixture.owner,
+                task.binding.task_id,
+                "restore",
+                "https://example.com",
+                "opaque-account",
+            ) == {"restored": True, "authenticated": False}
+            assert len(imported) == 1
+        assert task.private_context == (context != "public")
+        assert bool(policy_reads) == (context != "public")
+        if context == "type_myself":
+            assert control.credentials.selection is None  # intent survives prompt removal
+        monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True))
+        action = BrowserAction(
+            operation="observe", sequence=control.next_sequence, control_epoch=control.control_epoch
+        )
+        if context == "public":
+            await fixture.runtime.input(fixture.owner, task.binding.task_id, action)
+            assert not policy_reads
+        else:
+            with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+                await fixture.runtime.input(fixture.owner, task.binding.task_id, action)
+        assert (
+            await fixture.runtime.read(fixture.owner, task.binding.task_id)
+        ).binding == task.binding
+        with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
+            await fixture.runtime.suspend_private_contexts(pod_id="another-pod")
+        if context == "forget":
+            receipt = await fixture.runtime.session(
+                fixture.owner,
+                task.binding.task_id,
+                "forget",
+                "https://example.com",
+                "opaque-account",
+            )
+            assert receipt["fenced"] and receipt["persisted"]
+            assert task.closed and fixture.admission._states["epoch"].active == 0
+            assert await store.get(saved.object_key) is None
+            return
+        if close_fault:
+            original_close = fixture.driver.close
+            attempts = []
+
+            async def close():
+                attempts.append(True)
+                if len(attempts) == 1:
+                    raise BrowserRefused("BROWSER_TRANSPORT_UNAVAILABLE")
+                await original_close()
+
+            monkeypatch.setattr(fixture.driver, "close", close)
+            with pytest.raises(BrowserRefused, match="CLOSE_UNCONFIRMED"):
+                await fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id)
+            assert not task.closed and fixture.admission._states["epoch"].active == 1
+            assert (
+                await fixture.runtime.read(fixture.owner, task.binding.task_id)
+            ).code == "BROWSER_CLOSE_UNCONFIRMED"
+        await fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id)
+        assert task.closed == (context != "public")
+        assert await store.get(saved.object_key) == ciphertext  # suspend is not Forget
+        assert await sessions.recovery_inventory() == (saved.object_key,)
+        monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+        if context != "public":
+            status = await fixture.runtime.read(fixture.owner, task.binding.task_id)
+            assert status.phase == "cancelled" and status.code == "BROWSER_SESSION_ONLY"
+            assert task.worker is None and fixture.admission._states["epoch"].active == 0
+            assert fixture.launcher.calls == 1  # unlocking never resumes a closed context
+        else:
+            # Stop remains usable while locked even though public work is allowed.
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+            await fixture.runtime.control(
+                fixture.owner, task.binding.task_id, "cancel", control.control_epoch
+            )
+        monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True))
+        assert (await sessions.forget(task.binding, site)).persisted
+        assert await store.get(saved.object_key) is None
+        fixture.auth.revoked = True
+        with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
+            await sessions.forget(task.binding, site)
+        fixture.auth.revoked = False
+    finally:
+        fixture.auth.revoked = False
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize("config_source", ["active", "durable"])
+async def test_session_only_rechecks_private_authority_after_await_before_effect(
+    monkeypatch, tmp_path, config_source
+):
+    from hushh_mcp.services import pod_config
+
+    monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+    fixture = task_runtime_fixture(monkeypatch)
+    started = await approved_task(fixture)
+    taken = await fixture.runtime.control(
+        fixture.owner, started.binding.task_id, "takeover", started.control_epoch
+    )
+    task = fixture.runtime._tasks[started.binding.task_id]
+    task.private_context = True
+    if config_source == "durable":
+        from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+        log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"S" * 32, owner_id="owner")
+
+        async def durable_policy():
+            if (
+                await pod_config.resolve_pod_config(log, hushh_id=fixture.owner.pod_id)
+            ).session_only_lockdown:
+                raise BrowserRefused("BROWSER_SESSION_ONLY")
+
+        fixture.runtime._session_context_check = durable_policy
+    entered, release = asyncio.Event(), asyncio.Event()
+    authorize = fixture.auth.authorize_action
+
+    async def waiting(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        await authorize(*args, **kwargs)
+
+    monkeypatch.setattr(fixture.auth, "authorize_action", waiting)
+    pending = asyncio.create_task(
+        fixture.runtime.input(
+            fixture.owner,
+            task.binding.task_id,
+            BrowserAction(
+                operation="click",
+                sequence=taken.next_sequence,
+                control_epoch=taken.control_epoch,
+                x=1,
+                y=1,
+            ),
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        if config_source == "durable":
+            await pod_config.record_pod_config(
+                log, hushh_id=fixture.owner.pod_id, changes={"session_only_lockdown": True}
+            )
+            # A lost write acknowledgement must not make a stale cache authority.
+            monkeypatch.setattr(pod_config, "_ACTIVE", pod_config.PodConfig())
+        else:
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+        release.set()
+        with pytest.raises(BrowserRefused, match="SESSION_ONLY"):
+            await asyncio.wait_for(pending, 1)
+        assert "click" not in fixture.driver.calls and not fixture.auth.journal
+        await fixture.runtime.control(
+            fixture.owner, task.binding.task_id, "cancel", task.control.control_epoch
+        )
+        assert task.closed and fixture.admission._states["epoch"].active == 0
+    finally:
+        release.set()
         await asyncio.gather(pending, return_exceptions=True)
         await fixture.runtime.drain()
 
@@ -489,3 +733,675 @@ async def test_interactive_request_review_keeps_exact_scope_outside_http_deadlin
         release.set()
         await broker.close()
         await asyncio.gather(work, return_exceptions=True)
+
+
+def _credential_fixture():
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_browser.credential_contracts import (
+        CredentialDescriptor,
+        CredentialLease,
+        CredentialUseRequest,
+    )
+    from hushh_mcp.services.pod_browser.credential_use import BrowserCredentialUse
+    from tests.helpers.pod_browser import Executor, control, shared_readiness
+
+    auth = Authority()
+    entered, release = asyncio.Event(), asyncio.Event()
+    descriptor = CredentialDescriptor(
+        handle="sec_" + "a" * 16,
+        origin="https://example.com",
+        record_revision=1,
+    )
+    leases, approvals = [], []
+
+    class Driver(Executor):
+        fills = 0
+        clean = True
+
+        async def prepare_credential_lease(self, request, *, binding=None):
+            return {"id": "lease_" + "a" * 32, "public_key": "synthetic-only", "expires_at": 1050}
+
+        async def verify_credential_targets(self, request):
+            assert request.origin == "https://example.com"
+            return {
+                "action_url": "https://example.com/session",
+                "encoding": "application/x-www-form-urlencoded",
+            }
+
+        async def fill_credentials(self, request, lease, *, scope, check):
+            await check()
+            assert lease.password == bytearray(b"synthetic-private-password")
+            self.fills += 1
+            import hashlib
+
+            from hushh_mcp.services.pod_browser.contracts import BrowserRequest, BrowserResponse
+
+            sent = BrowserRequest(
+                url=lease.submission.target["action_url"],
+                method="POST",
+                body=b"synthetic-form",
+                headers=(("Content-Type", "application/x-www-form-urlencoded"),),
+                scope=scope,
+            )
+            proof = {
+                "kind": "submit",
+                "operation_id": request.operation_id,
+                "request_id": "synthetic-native-form",
+                "action_url": sent.url,
+                "body_sha256": hashlib.sha256(sent.body).hexdigest(),
+            }
+            assert await lease.submission.authorize(sent, proof)
+            lease.submission.response(
+                sent, proof, BrowserResponse(status=200, headers=(), body=b"ok")
+            )
+            return {"submitted": True, "cleared": self.clean}
+
+        async def require_clear_secret_inputs(self):
+            if not self.clean:
+                raise BrowserRefused("BROWSER_SECRET_FIELDS_NOT_CLEARED")
+
+    class Source:
+        rows = (descriptor,)
+
+        async def catalog(self, bound, origin):
+            await auth.check_binding(bound)
+            return self.rows
+
+        async def validate_transient(self, bound, aad, selected=None):
+            await auth.check_binding(bound)
+
+        @asynccontextmanager
+        async def open_transient(self, bound, request, envelope, selected=None, *, claim):
+            await claim()
+            lease = CredentialLease(
+                bytearray(b"synthetic-user"),
+                bytearray(b"synthetic-private-password"),
+                lambda: auth.check_binding(bound),
+            )
+            leases.append(lease)
+            try:
+                entered.set()
+                await release.wait()
+                await lease.recheck()
+                yield lease
+            finally:
+                lease.clear()
+
+    async def require(bound, purpose, terms):
+        approvals.append((purpose, terms))
+        await auth.check_binding(bound)
+        return lambda: auth.check_binding(bound)
+
+    driver, source = Driver(), Source()
+    state = control(
+        driver=driver,
+        auth=auth,
+        ready=shared_readiness(
+            credential_entry_verified=True,
+            credential_cleanup_verified=True,
+            credential_isolation_verified=True,
+        ),
+    )
+    port = BrowserCredentialUse(
+        state,
+        source,
+        SimpleNamespace(check_binding=auth.check_binding, require=require),
+        allowed_origins=[descriptor.origin],
+    )
+    state.credentials = port
+    request = CredentialUseRequest(
+        operation_id="credential_operation",
+        handle=descriptor.handle,
+        origin=descriptor.origin,
+        control_epoch=1,
+        targets={
+            "username": {"x": 10, "y": 10},
+            "password": {"x": 10, "y": 40},
+            "submit": {"x": 10, "y": 70},
+        },
+    )
+
+    def prepare_for(port, request, bound):
+        from uuid import uuid4
+
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+        from hushh_mcp.services import pod_sealed_envelope as sealed
+        from hushh_mcp.services.pod_browser.credential_transient import PURPOSE
+
+        aad = {
+            "purpose": PURPOSE.name,
+            "ownerId": bound.owner_id,
+            "credentialId": request.handle,
+            "recordRevision": 1,
+            "sourceContentRevision": 1,
+            "sourceManifestRevision": 1,
+            "podId": bound.pod_id,
+            "leaseKeyId": "lease_" + "a" * 32,
+            "taskId": bound.task_id,
+            "incarnation": bound.incarnation,
+            "controlEpoch": request.control_epoch,
+            "origin": request.origin,
+            "operationId": request.operation_id,
+            "expiresAt": 1050,
+            "nonce": str(uuid4()),
+        }
+        envelope = sealed.seal(
+            {"username": "synthetic-user", "password": "synthetic-private-password"},
+            purpose=PURPOSE,
+            pod_public_key_raw=sealed.raw_public(X25519PrivateKey.generate().public_key()),
+            aad=aad,
+        )
+        port.selection = request
+        port.lease_key = {
+            "id": aad["leaseKeyId"],
+            "public_key": "synthetic-only",
+            "expires_at": 1050,
+        }
+        port.prepared = {
+            "aad": {
+                k: aad[k]
+                for k in (
+                    "credentialId",
+                    "recordRevision",
+                    "sourceContentRevision",
+                    "sourceManifestRevision",
+                )
+            },
+            "terms": {"synthetic": True, "remember_session": False},
+        }
+        return envelope, {}
+
+    transient = prepare_for(port, request, state.binding)
+    return SimpleNamespace(
+        transient=transient,
+        prepare_for=prepare_for,
+        auth=auth,
+        control=state,
+        port=port,
+        driver=driver,
+        source=source,
+        request=request,
+        entered=entered,
+        release=release,
+        leases=leases,
+        approvals=approvals,
+    )
+
+
+@pytest.mark.parametrize("missing_proof", [None, True])
+async def test_credential_authority_cannot_replace_exact_receipt_recheck_with_a_boolean(
+    missing_proof,
+):
+    fixture = _credential_fixture()
+    await fixture.control.initialize()
+    fixture.release.set()
+
+    async def no_recheck(*_args):
+        return missing_proof
+
+    fixture.port.consent.require = no_recheck
+    try:
+        with pytest.raises(BrowserRefused, match="APPROVAL_UNAVAILABLE"):
+            await fixture.port.use(fixture.request, transient=fixture.transient)
+        assert fixture.control.control_epoch == fixture.request.control_epoch
+        assert not fixture.leases and fixture.driver.fills == 0 and not fixture.auth.journal
+    finally:
+        await fixture.control.stop()
+
+
+async def test_saved_secret_never_unwraps_or_submits_without_human_allow():
+    fixture = _credential_fixture()
+    await fixture.control.initialize()
+    fixture.release.set()
+
+    async def refuse(bound, purpose, terms):
+        assert purpose == "credential_fill"
+        raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+    fixture.port.consent.require = refuse
+    try:
+        with pytest.raises(BrowserRefused, match="OWNER_APPROVAL_REQUIRED"):
+            await fixture.port.use(fixture.request, transient=fixture.transient)
+        assert not fixture.leases and fixture.driver.fills == 0
+        assert not fixture.auth.journal
+    finally:
+        await fixture.control.stop()
+
+
+@pytest.mark.parametrize(
+    "termination,pending_stage",
+    [
+        ("stop", "lease"),
+        ("expiry", "lease"),
+        ("update_drain", "lease"),
+        ("session_only", "lease"),
+        ("stop", "refusal_cleanup"),
+    ],
+)
+async def test_credential_cancellation_joins_teardown_and_releases_admission(
+    monkeypatch, termination, pending_stage
+):
+    from hushh_mcp.services.pod_browser.credential_use import BrowserCredentialUse
+    from tests.helpers.pod_browser import shared_readiness
+
+    sensitive = _credential_fixture()
+    fixture = task_runtime_fixture(
+        monkeypatch,
+        ready=shared_readiness(
+            credential_entry_verified=True,
+            credential_cleanup_verified=True,
+            credential_isolation_verified=True,
+        ),
+    )
+    started = await approved_task(fixture)
+    task = fixture.runtime._tasks[started.binding.task_id]
+    control = task.control
+    for method in ("verify_credential_targets", "fill_credentials", "require_clear_secret_inputs"):
+        monkeypatch.setattr(
+            fixture.driver, method, getattr(sensitive.driver, method), raising=False
+        )
+    if pending_stage == "refusal_cleanup":
+
+        async def manual_required(request):
+            raise BrowserRefused("BROWSER_CREDENTIAL_MANUAL_REQUIRED")
+
+        monkeypatch.setattr(fixture.driver, "verify_credential_targets", manual_required)
+        fixture.driver.entered.clear()
+        fixture.driver.release = asyncio.Event()
+    control.credentials = BrowserCredentialUse(
+        control, sensitive.source, task.consent, allowed_origins=[sensitive.request.origin]
+    )
+    control.credentials.selection = sensitive.request.model_copy(
+        update={"control_epoch": control.control_epoch}
+    )
+    transient = sensitive.prepare_for(
+        control.credentials, control.credentials.selection, task.binding
+    )
+    fixture.reviews.grants.add(
+        fixture.reviews.identity(
+            task.binding, "credential_fill", control.credentials.prepared["terms"]
+        )
+    )
+    closing_entered, release_close = asyncio.Event(), asyncio.Event()
+    original_close = fixture.driver.close
+    worker = shutdown = None
+
+    async def close():
+        closing_entered.set()
+        await release_close.wait()
+        await original_close()
+
+    try:
+        await fixture.runtime.use_credential(
+            fixture.owner,
+            task.binding.task_id,
+            handle=sensitive.request.handle,
+            operation_id=sensitive.request.operation_id,
+            control_epoch=control.control_epoch,
+            transient=transient,
+        )
+        worker = task.credential_worker
+        entered = sensitive.entered if pending_stage == "lease" else fixture.driver.entered
+        await asyncio.wait_for(entered.wait(), 1)
+        monkeypatch.setattr(fixture.driver, "close", close)
+        if termination == "stop":
+            shutdown = asyncio.create_task(
+                fixture.runtime.control(
+                    fixture.owner, task.binding.task_id, "cancel", control.control_epoch
+                )
+            )
+        elif termination == "session_only":
+            from hushh_mcp.services import pod_config
+
+            monkeypatch.setattr(
+                pod_config, "_ACTIVE", pod_config.PodConfig(session_only_lockdown=True)
+            )
+            shutdown = asyncio.create_task(
+                fixture.runtime.suspend_private_contexts(pod_id=fixture.owner.pod_id)
+            )
+        elif termination == "update_drain":
+            shutdown = asyncio.create_task(fixture.runtime.drain())
+        else:
+            monkeypatch.setattr(
+                fixture.runtime._lifecycle, "_clock", lambda: task.binding.expires_at
+            )
+            shutdown = asyncio.create_task(task.finished.wait())
+        await asyncio.wait_for(closing_entered.wait(), 2)
+        assert fixture.admission._states["epoch"].active == 1
+        assert not task.finished.is_set()
+        release_close.set()
+        done, _ = await asyncio.wait({shutdown}, timeout=2)
+        assert shutdown in done, "credential cancellation must not join its own lifecycle close"
+        await shutdown
+        assert worker.cancelled()
+        assert task.closed and task.finished.is_set()
+        assert fixture.admission._states["epoch"].active == 0
+        assert fixture.driver.calls.count("close") >= 1
+        assert sensitive.driver.fills == 0
+        assert bool(sensitive.leases) == (pending_stage == "lease")
+        assert all(
+            not any(lease.password) and not any(lease.username) for lease in sensitive.leases
+        )
+    finally:
+        sensitive.release.set()
+        release_close.set()
+        if fixture.driver.release is not None:
+            fixture.driver.release.set()
+        # A regression leaves the worker joining close while close joins it.
+        # A second cancellation breaks only this synthetic task's cycle so a
+        # failing negative control cannot retain test workers or admission.
+        if worker is not None and not worker.done():
+            worker.cancel()
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+        pending = [job for job in (shutdown, task.closing) if job is not None]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [None, "revoke", "stop", "cleanup"],
+)
+async def test_private_credential_transaction_fences_observation_rechecks_and_never_replays(fault):
+    fixture = _credential_fixture()
+    await fixture.control.initialize()
+    work = asyncio.create_task(fixture.port.use(fixture.request, transient=fixture.transient))
+    try:
+        await asyncio.wait_for(fixture.entered.wait(), 1)
+        assert fixture.control.latest_frame is None and fixture.control.control_owner == "agent"
+        with pytest.raises(BrowserRefused, match="MODEL_OBSERVATION_PAUSED"):
+            await fixture.control.require_model_observation()
+        with pytest.raises(BrowserRefused, match="CREDENTIAL_ENTRY_ACTIVE"):
+            await fixture.control.take_control()
+        assert [item[0] for item in fixture.approvals] == ["credential_fill"]
+        if fault == "revoke":
+            fixture.auth.revoked = True
+        elif fault == "stop":
+            stopping = asyncio.create_task(fixture.control.stop())
+            await asyncio.sleep(0)  # Stop publishes the fence before joining the action lock.
+            fixture.release.set()
+            await stopping
+        elif fault == "cleanup":
+            fixture.driver.clean = False
+        fixture.release.set()
+        if fault:
+            with pytest.raises(BrowserRefused):
+                await work
+            assert fixture.control.latest_frame is None
+            assert fixture.driver.fills == (1 if fault == "cleanup" else 0)
+        else:
+            assert await work == {"state": "submitted", "origin": "https://example.com"}
+            assert fixture.driver.fills == 1
+            assert await fixture.control.require_model_observation() == 2
+            assert fixture.control.latest_frame is not None
+            assert [state for _, state in fixture.auth.journal] == ["dispatch", "settled"]
+            with pytest.raises(BrowserRefused):
+                await fixture.port.use(
+                    fixture.request.model_copy(update={"control_epoch": 2}),
+                    transient=fixture.transient,
+                )
+        assert all(not any(lease.password) and not any(lease.username) for lease in fixture.leases)
+    finally:
+        fixture.release.set()
+        await asyncio.gather(work, return_exceptions=True)
+        await fixture.control.stop()
+
+
+async def test_credential_owner_selection_is_a_completed_call_barrier_and_unqualified_execution_stays_closed():
+    fixture = _credential_fixture()
+    fixture.control.readiness = fixture.control.readiness.model_copy(
+        update={"credential_isolation_verified": False}
+    )
+    with pytest.raises(BrowserRefused, match="EXECUTION_UNQUALIFIED"):
+        await fixture.port.catalog(fixture.request.origin)
+    fixture.control.readiness = fixture.control.readiness.model_copy(
+        update={"credential_isolation_verified": True}
+    )
+    fixture.control._actions = 60
+    with pytest.raises(BrowserRefused, match="CONTINUATION_REQUIRED"):
+        await fixture.port.use(fixture.request)
+    assert not fixture.leases
+    fixture.control._actions = 0
+    fixture.source.rows = ()  # vault-only logins are intentionally absent from durable pod catalog
+    with pytest.raises(BrowserRefused, match="CREDENTIAL_OWNER_REQUIRED"):
+        await fixture.port.use(fixture.request.model_copy(update={"handle": "owner_selection"}))
+    with pytest.raises(BrowserRefused, match="MODEL_OBSERVATION_PAUSED"):
+        await fixture.control.require_model_observation()
+    assert fixture.port.selection.targets == fixture.request.targets and not fixture.leases
+    await fixture.control.initialize()
+    await fixture.control.take_control()
+    await fixture.control.resume_agent()
+    assert fixture.port.selection is None and await fixture.control.require_model_observation() == 3
+
+
+@pytest.mark.parametrize("fault", [None, "body", "destination", "epoch", "revoke"])
+async def test_authentication_policy_permits_only_exact_native_post_and_linked_read_without_owner(
+    tmp_path, fault
+):
+    import hashlib
+    import time
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import httpcore
+
+    from hushh_mcp.services.pod_browser.contracts import BrowserExecutionScope, BrowserRequest
+    from hushh_mcp.services.pod_browser.credential_contracts import CredentialDescriptor
+    from hushh_mcp.services.pod_browser.credential_network import CredentialSubmission
+    from hushh_mcp.services.pod_browser.dispatch_journal import BrowserDispatchJournal
+    from hushh_mcp.services.pod_browser.execution_authority import (
+        PublicResearchNetworkAuthority,
+        PublicResearchPolicy,
+    )
+    from hushh_mcp.services.pod_browser.playwright_executor import PlaywrightExecutor
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+    fixture = _credential_fixture()
+    bound = binding(expires_at=int(time.time()) + 600)
+    reviews = []
+    review_terms = []
+
+    async def review(value, purpose, terms):
+        reviews.append(purpose)
+        review_terms.append(terms)
+        raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+    consent = SimpleNamespace(check_binding=fixture.auth.check_binding, require=review)
+    journal = BrowserDispatchJournal(
+        PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner"),
+        key=b"J" * 32,
+        owner_id="owner",
+        pod_id="pod",
+    )
+    authority = PublicResearchNetworkAuthority(
+        bound,
+        consent,
+        journal,
+        PublicResearchPolicy(
+            page_urls=("https://example.com/login",),
+            static_prefixes=("https://example.com/assets/",),
+            interactive_origins=("https://example.com",),
+        ),
+    )
+    broker = BrowserNetworkBroker(
+        binding=bound, allowed_origins=frozenset({"https://example.com"}), authority=authority
+    )
+    scope = BrowserExecutionScope(
+        sequence=1, control_epoch=2, actor="agent", deadline_at=time.time() + 20
+    )
+    broker.bind_scope_validator(lambda candidate: None)
+    descriptor = CredentialDescriptor(
+        handle=fixture.request.handle,
+        origin=fixture.request.origin,
+        record_revision=1,
+    )
+    credential = CredentialSubmission(
+        bound,
+        descriptor,
+        fixture.request,
+        scope,
+        {
+            "action_url": "https://example.com/session",
+            "encoding": "application/x-www-form-urlencoded",
+        },
+        lambda: fixture.auth.check_binding(bound),
+    )
+    broker.bind_credential_authority(credential)
+
+    class Pool:
+        calls = 0
+
+        async def handle_async_request(self, request):
+            self.calls += 1
+            if request.url.target.endswith(b"/start.js"):
+                return httpcore.Response(
+                    303, headers=[(b"location", b"/assets/final.js")], content=b""
+                )
+            if request.url.target.endswith(b"/start.css"):
+                return httpcore.Response(
+                    303, headers=[(b"location", b"/assets/final.css")], content=b""
+                )
+            return (
+                httpcore.Response(303, headers=[(b"location", b"/account")], content=b"")
+                if self.calls == 1
+                else httpcore.Response(200, content=b"safe")
+            )
+
+        async def aclose(self):
+            pass
+
+    await broker._pool.aclose()
+    pool = broker._pool = Pool()
+    request = BrowserRequest(
+        url="https://example.com/session",
+        method="POST",
+        body=b"exact-native-form",
+        headers=(("Content-Type", "application/x-www-form-urlencoded"),),
+        scope=scope,
+    )
+    proof = {
+        "kind": "submit",
+        "operation_id": fixture.request.operation_id,
+        "request_id": "native-1",
+        "action_url": request.url,
+        "body_sha256": hashlib.sha256(request.body).hexdigest(),
+    }
+    if fault == "body":
+        request = request.model_copy(update={"body": b"another-effect"})
+    elif fault == "destination":
+        request = request.model_copy(update={"url": "https://example.com/payment"})
+    elif fault == "epoch":
+        request = request.model_copy(
+            update={"scope": scope.model_copy(update={"control_epoch": 3})}
+        )
+    elif fault == "revoke":
+        fixture.auth.revoked = True
+    driver = None
+    try:
+        if fault:
+            with pytest.raises(BrowserRefused):
+                await broker.fetch(request, credential_proof=proof)
+            assert pool.calls == 0 and not reviews
+        else:
+            driver = PlaywrightExecutor(network=broker, chromium_sandbox=True)
+            driver._main_frame_id = "main"
+            driver._credential_operation = fixture.request.operation_id
+            driver._credential_targets = SimpleNamespace(
+                submitting=True,
+                navigation_cleanup=SimpleNamespace(
+                    require_receipt=AsyncMock(),
+                    authentication={"action_url": request.url, "body_sha256": proof["body_sha256"]},
+                ),
+                original_cleared=False,
+            )
+            delivered = []
+
+            async def send(method, params):
+                delivered.append((method, params))
+
+            driver._cdp = SimpleNamespace(send=send)
+
+            async def intercepted(identifier, value, kind="Document", parent=None, frame="main"):
+                raw = {"url": value.url, "method": value.method, "headers": dict(value.headers)}
+                if value.body:
+                    raw.update(hasPostData=True, postData=value.body.decode())
+                await driver._paused_request(
+                    {
+                        "requestId": identifier,
+                        "request": raw,
+                        "resourceType": kind,
+                        "frameId": frame,
+                        **({"redirectedRequestId": parent} if parent else {}),
+                    },
+                    scope=value.scope,
+                )
+                return delivered[-1]
+
+            method, response = await intercepted("native-1", request)
+            assert method == "Fetch.fulfillRequest" and response["responseCode"] == 303
+            assert not credential.completed
+            redirected = BrowserRequest(
+                url="https://example.com/account", method="GET", scope=scope
+            )
+            with pytest.raises(BrowserRefused, match="CREDENTIAL_REQUEST_REFUSED"):
+                await broker.fetch(
+                    redirected,
+                    credential_proof={
+                        "kind": "redirect",
+                        "operation_id": fixture.request.operation_id,
+                        "request_id": "forged-read",
+                        "parent_request_id": "unrelated-parent",
+                    },
+                )
+
+            method, response = await intercepted("native-2", redirected, parent="native-1")
+            assert method == "Fetch.fulfillRequest" and response["responseCode"] == 200
+            assert credential.completed and pool.calls == 2 and not reviews
+            for kind, extension in (("Script", "js"), ("Stylesheet", "css")):
+                original = redirected.model_copy(
+                    update={"url": f"https://example.com/assets/start.{extension}"}
+                )
+                final = redirected.model_copy(
+                    update={"url": f"https://example.com/assets/final.{extension}"}
+                )
+                assert (await intercepted(f"{kind}-1", original, kind))[0] == "Fetch.fulfillRequest"
+                assert (await intercepted(f"{kind}-2", final, kind, parent=f"{kind}-1"))[
+                    0
+                ] == "Fetch.fulfillRequest"
+            ordinary_document = redirected.model_copy(
+                update={"url": "https://example.com/assets/ordinary"}
+            )
+            assert (await intercepted("ordinary-document", ordinary_document, parent="Script-1"))[
+                0
+            ] == "Fetch.fulfillRequest"
+            assert (
+                await intercepted(
+                    "foreign-frame", ordinary_document, parent="native-1", frame="child"
+                )
+            )[0] == "Fetch.fulfillRequest"
+            assert credential.completed and pool.calls == 8 and not reviews
+            with pytest.raises(BrowserRefused, match="ACTION_REPLAY"):
+                await broker.fetch(request, credential_proof=proof)
+            for identifier, value in (
+                (
+                    "unrelated-write",
+                    request.model_copy(update={"url": "https://example.com/payment"}),
+                ),
+                (
+                    "same-url-mismatch",
+                    request.model_copy(update={"body": b"mismatched-native-form"}),
+                ),
+            ):
+                assert (await intercepted(identifier, value))[0] == "Fetch.failRequest"
+            assert reviews == ["disclose", "disclose"] and pool.calls == 8
+            assert "exact-native-form" not in str(review_terms)
+            assert "mismatched-native-form" not in str(review_terms)
+    finally:
+        if driver is not None:
+            await driver.close()
+        await broker.close()

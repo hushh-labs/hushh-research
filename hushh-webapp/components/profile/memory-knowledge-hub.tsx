@@ -17,6 +17,7 @@ import {
   peekCoreAgentMarkdownFile,
 } from "@/lib/pkm/agent-core-markdown-files";
 import { useVault } from "@/lib/vault/vault-context";
+import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 
 export function MemoryKnowledgeHub({
   onNavigate,
@@ -106,6 +107,7 @@ export function MemoryKnowledgeHub({
 
   return (
     <div className="space-y-4">
+      <section aria-label="Secrets" data-memory-secrets="true"><SecretsListGroup onUnlock={() => navigateTo(ROUTES.PROFILE_SECURITY_VAULT)} /></section>
       <SettingsGroup title="Wiki" separatorInset testId="memory-knowledge-wiki">
         <SettingsRow
           title="Personal wiki"

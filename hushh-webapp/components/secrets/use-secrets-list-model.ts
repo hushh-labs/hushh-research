@@ -23,13 +23,13 @@ export function secretPanelItem(item: SecretItemSummary): SecretPanelItem {
  * Values stay in the existing reveal hook; no second decryptor or writer. */
 export function useSecretsListModel({ active, native, current }: { active: boolean; native: boolean; current: () => boolean }) {
   const reveal = useSecretReveal(active);
-  const { getVaultOwnerToken } = useVault();
+  const { getVaultOwnerToken, getVaultKey } = useVault();
   const { userId, vaultKey, vaultOwnerToken } = reveal.vaultContext;
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const generation = privacy?.generation;
   const [visibilityEpoch, setVisibilityEpoch] = useState(0);
-  const allowed = active && !reveal.locked && document.visibilityState !== "hidden";
+  const allowed = active && !reveal.locked && typeof document !== "undefined" && document.visibilityState !== "hidden";
   const owner = useMemo(() => ({ live: false, pending: false, reads: 0, admitted: allowed, visibilityEpoch, id: crypto.randomUUID(), userId, key: vaultKey, epoch, generation,
     auth: snapshotValidatedAuthSessionOwner() }), [userId, vaultKey, epoch, generation, allowed, visibilityEpoch]);
   const live = useRef({ owner, current, allowed });
@@ -39,9 +39,9 @@ export function useSecretsListModel({ active, native, current }: { active: boole
     const privacy = nativePrivacyObservation().state;
     return owner.live && live.current.owner === owner && live.current.allowed && live.current.current() &&
       owner.auth?.userId === userId && isValidatedAuthSessionOwnerCurrent(owner.auth) && snapshotVaultSessionEpoch() === epoch &&
-      !!getVaultOwnerToken() && document.visibilityState !== "hidden" && privacy?.generation === generation &&
-      !privacy?.shielded && privacy?.appIsActive !== false && (!Capacitor.isNativePlatform() || !!privacy);
-  }, [owner, userId, epoch, generation, getVaultOwnerToken]);
+      !!getVaultOwnerToken() && getVaultKey() === vaultKey && document.visibilityState !== "hidden" && privacy?.generation === generation &&
+      !privacy?.shielded && privacy?.appIsActive !== false && !privacy?.presentationsRetiring && (!Capacitor.isNativePlatform() || !!privacy);
+  }, [owner, userId, epoch, generation, getVaultOwnerToken, getVaultKey, vaultKey]);
   const [snapshot, setSnapshot] = useState<{ owner: typeof owner; items: SecretItemSummary[]; loading: boolean; failed: boolean } | null>(null);
   const [selection, setSelection] = useState<{ owner: typeof owner; id: string | null; removing: string | null; uncertain: boolean; outcome: string | null } | null>(null);
   const [filing, setFiling] = useState<{ owner: typeof owner; item: SecretItemSummary; state: "idle" | "filing" | "filed" | "failed" } | null>(null);
@@ -61,7 +61,7 @@ export function useSecretsListModel({ active, native, current }: { active: boole
     const request = ++owner.reads;
     setSnapshot(previous => ({ owner, items: previous?.owner === owner ? previous.items : [], loading: true, failed: false }));
     try {
-      const next = await SecretsVaultService.listSecrets({ userId, vaultKey, vaultOwnerToken });
+      const next = await SecretsVaultService.listSecrets({ userId, vaultKey, vaultOwnerToken, beforeEffect: async () => { if (!isCurrent()) throw new Error("secret_owner_retired"); } });
       if (!isCurrent() || request !== owner.reads) return;
       setSnapshot({ owner, items: next, loading: false, failed: false });
       setSelection(previous => previous?.owner === owner ? { ...previous, uncertain: false,

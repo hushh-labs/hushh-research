@@ -1,5 +1,6 @@
 import { readNativeAdkTurn } from "@/lib/a2ui/native-adk-visual-stream";
 import { sendWhileAgentWakes } from "@/lib/agent/owner-pod-wake";
+import { browserTaskProgress } from "@/lib/computer-use/chat-progress";
 import { parsePortfolioContextRequest, readPortfolioContext } from "@/lib/kai/portfolio-chat-context";
 import { ApiService } from "./api-service";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
@@ -36,12 +37,13 @@ export async function admitsNativeCloudChat(
 export async function streamNativeCloudChat(input: {
   request: RequestInit;
   conversationId: string;
+  ownerId: string;
   isCurrent: () => boolean;
   handlers: AgentChatStreamHandlers;
   locationChatReview?: boolean;
   portfolio?: { userId: string; vaultKey: string; vaultOwnerToken: string; runId: string };
 }) {
-  const { request, conversationId, isCurrent, handlers } = input;
+  const { request, conversationId, ownerId, isCurrent, handlers } = input;
   const watchdog = new AbortController();
   const signal = request.signal ? AbortSignal.any([request.signal, watchdog.signal]) : watchdog.signal;
   const active = () => isCurrent() && !signal.aborted;
@@ -58,6 +60,7 @@ export async function streamNativeCloudChat(input: {
   );
   let started = false;
   let lastMessageId: string | undefined;
+  const browserReceipts = new Set<string>();
   let lastLocationProposalId: string | undefined;
   let sentPortfolioResult = false;
   liveness.start();
@@ -112,6 +115,16 @@ export async function streamNativeCloudChat(input: {
         handlers.onLocationProposal?.(output.locationChatProposal);
       }
       handlers.onNativeOutput?.(visible);
+    }, (receipt, sessionId) => {
+      if (!active() || !browserTaskProgress(receipt, ownerId).accepted) return;
+      if (sessionId !== conversationId) throw new Error("POD_CHAT_REQUEST_INVALID");
+      // Several frames may share a network chunk; the parser has already seen
+      // start even when its aggregate visual update has not been delivered yet.
+      if (!started) { started = true; handlers.onStart?.({ conversationId }); }
+      const key = JSON.stringify([receipt.invocationId, receipt.toolCallId, receipt.binding.task_id]);
+      if (browserReceipts.has(key) || !active()) return;
+      browserReceipts.add(key);
+      handlers.onBrowserTaskCreated?.();
     }, input.locationChatReview);
     if (!active()) throw new DOMException("Agent turn cancelled", "AbortError");
     return result;

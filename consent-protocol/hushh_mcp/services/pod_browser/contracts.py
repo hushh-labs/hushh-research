@@ -97,6 +97,9 @@ class BrowserReadiness(StrictContract):
     model_transport_verified: bool = False
     model_name: str = Field(default="", max_length=128)
     model_transport: str = Field(default="", max_length=256)
+    credential_entry_verified: bool = False
+    credential_cleanup_verified: bool = False
+    credential_isolation_verified: bool = False
 
     def require_ready(self) -> None:
         if self.version == 2:

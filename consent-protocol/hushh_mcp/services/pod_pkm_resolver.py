@@ -290,6 +290,10 @@ async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[st
 
     lines: list[str] = []
     for domain in domains:
+        # Saved sign-in information has a dedicated model-blind broker. Never
+        # reuse even a historical malformed plaintext index as agent grounding.
+        if str(domain).strip().lower() == "credentials":
+            continue
         summary = (summaries.get(domain) or {}).get("readable_summary")
         if summary:
             lines.append(f"{domain}: {summary}")

@@ -3779,6 +3779,49 @@
       "native_surface_id": "native-route-pkm-location-detail"
     },
     {
+      "route_pattern": "/one/pkm/logins",
+      "page_file": "app/one/pkm/logins/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.pkm.logins.compatibility",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.pkm.logins.compatibility",
+        "purpose": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+        "screen": "pkm",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the redirect failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified root Chat route without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "The redirect completes after Memory opens; secret use still requires the unlocked owner and explicit Allow.",
+        "next_route": "/one/pkm",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Use the canonical Memory Secrets controls."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "pkm",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "block_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-pkm-logins"
+    },
+    {
       "route_pattern": "/one/pkm/recent",
       "page_file": "app/one/pkm/recent/page.tsx",
       "route_mode": "standard",

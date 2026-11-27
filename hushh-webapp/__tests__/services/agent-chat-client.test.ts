@@ -120,27 +120,32 @@ describe("native Cloud chat", () => {
     publishValidatedAuthSessionOwner(null);
   });
 
-  it("delivers a named one-hour Location proposal from native Chat on an ordinary thread", async () => {
+  it("delivers a named one-hour Location proposal alongside a native Browser receipt", async () => {
     const proposal = { type: "location.chat_action", id: "00000000-0000-4000-8000-000000000001",
       action: "share_live", people: ["Kushal"], durationHours: 1, conversation: true };
     const context = { step: "duration" as const, action: "share_live" as const, people: ["Kushal"], circles: [] };
     const event = { author: "one", content: { parts: [{ functionResponse: {
       name: "propose_location_action", response: proposal,
     } }] } };
+    const receipt = { invocationId: "location-turn", toolCallId: "browser-call", status: "accepted",
+      binding: { owner_id: input.userId, task_id: `browser_${"a".repeat(32)}` } };
     vi.mocked(ApiService.ownerPodRequest).mockReset()
       .mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1, nativeLocationChatReview: true, nativeLocationChatConversation: true }))
       .mockResolvedValueOnce(new Response(
         'event: start\ndata: {"sessionId":"native-thread"}\n\n' +
+        `event: browser_task\ndata: ${JSON.stringify(receipt)}\n\n` +
         `data: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
         { headers: { "Content-Type": "text/event-stream" } },
       ));
     const onLocationProposal = vi.fn();
+    const onBrowserTaskCreated = vi.fn();
     await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatConversation: true, locationChatContinuation: context,
-      screenContext: { route: { pathname: "/" } }, handlers: { onLocationProposal } });
+      screenContext: { route: { pathname: "/" } }, handlers: { onLocationProposal, onBrowserTaskCreated } });
     const body = JSON.parse(String(vi.mocked(ApiService.ownerPodRequest).mock.calls[1][1]?.body));
     expect(body.forwardedProps).toMatchObject({ locationChatReview: true, locationChatConversation: true, locationChatContinuation: context });
     expect(body.forwardedProps).not.toHaveProperty("mainChat");
     expect(onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ people: ["Kushal"], durationHours: 1, conversation: true }));
+    expect(onBrowserTaskCreated).toHaveBeenCalledOnce();
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
   });
 
@@ -160,32 +165,67 @@ describe("native Cloud chat", () => {
     expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.map(([path]) => path)).toEqual(["agent-chat/capabilities"]);
   });
 
-  it("sends only the native body and delivers the saved-portfolio surface to the live turn", async () => {
+  it("preserves native surfaces and distinct Browser receipts without replaying discovery", async () => {
     const { ONE_A2UI_CATALOG } = await import("@/lib/a2ui/surface-store");
     const surface = {
       version: "1.0", createSurface: { catalogId: ONE_A2UI_CATALOG, surfaceId: "holdings",
         components: [{ id: "root", component: "SavedPortfolio", section: "holdings" }] },
     };
-    const event = { author: "one", content: { parts: [{ functionResponse: {
+    const event = { author: "one", content: { parts: [{ text: "Browser task prepared." }, { functionResponse: {
       name: "send_a2ui_json_to_client", response: { validated_a2ui_json: [surface] },
     } }] } };
+    const receipt = { invocationId: "run:a", toolCallId: "b", status: "accepted",
+      binding: { owner_id: input.userId, task_id: `browser_${"a".repeat(32)}` } };
+    const notice = (payload: unknown) => `event: browser_task\ndata: ${JSON.stringify(payload)}\n\n`;
     vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
-      `event: start\ndata: {"sessionId":"native-thread"}\n\ndata: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
+      `event: start\ndata: {"sessionId":"native-thread"}\n\n` +
+      notice({ ...receipt, invocationId: "foreign-owner", binding: { ...receipt.binding, owner_id: "other-owner" } }) +
+      notice({ ...receipt, invocationId: "invalid-task", binding: { ...receipt.binding, task_id: "invalid" } }) +
+      notice({ ...receipt, invocationId: "blocked", status: "blocked" }) + notice({ ...receipt, invocationId: "extra-field", goal: "unrelated payload" }) +
+      notice(receipt) + notice(receipt) +
+      notice({ ...receipt, invocationId: "run", toolCallId: "a:b" }) +
+      notice({ ...receipt, invocationId: "run-2", toolCallId: "call-2", binding: { ...receipt.binding, task_id: `browser_${"b".repeat(32)}` } }) +
+      `data: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n` +
+      notice({ ...receipt, invocationId: "late", toolCallId: "late" }),
       { headers: { "Content-Type": "text/event-stream" } },
     ));
     const onStart = vi.fn();
     const onNativeOutput = vi.fn();
-    await expect(streamAgentChat({ ...input, handlers: { onStart, onNativeOutput } }))
-      .resolves.toMatchObject({ conversationId: "native-thread", interrupted: false });
+    const onBrowserTaskCreated = vi.fn();
+    await expect(streamAgentChat({ ...input, handlers: { onStart, onNativeOutput, onBrowserTaskCreated } }))
+      .resolves.toMatchObject({ conversationId: "native-thread", interrupted: false, text: "Browser task prepared." });
     const post = vi.mocked(ApiService.ownerPodRequest).mock.calls[1]!;
     const sent = JSON.parse(String(post[1]?.body));
     expect(sent).toMatchObject({ transport: "native-adk-v1", threadId: "native-thread", message: input.message });
     expect(sent).not.toHaveProperty("tools");
     expect(sent).not.toHaveProperty("messages");
     expect(onStart).toHaveBeenCalledOnce();
+    expect(onBrowserTaskCreated).toHaveBeenCalledTimes(3);
+    expect(onStart.mock.invocationCallOrder[0]).toBeLessThan(onBrowserTaskCreated.mock.invocationCallOrder[0]!);
+    expect(JSON.stringify(onNativeOutput.mock.calls)).not.toContain(receipt.binding.task_id);
     expect(onNativeOutput.mock.lastCall?.[0].surfaces.get("holdings").components.get("root"))
       .toMatchObject({ component: "SavedPortfolio", section: "holdings" });
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "vault", "stop"] as const)("discards a native Browser receipt after %s retirement", async retirement => {
+    const abort = new AbortController();
+    const receipt = { invocationId: "run-1", toolCallId: "call-1", status: "accepted",
+      binding: { owner_id: input.userId, task_id: `browser_${"a".repeat(32)}` } };
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
+      `event: start\ndata: {"sessionId":"native-thread"}\n\nevent: browser_task\ndata: ${JSON.stringify(receipt)}\n\nevent: done\ndata: {}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    const onBrowserTaskCreated = vi.fn();
+    await expect(streamAgentChat({ ...input, signal: abort.signal, handlers: {
+      onBrowserTaskCreated,
+      onStart: () => {
+        if (retirement === "owner") { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner(input.userId); }
+        else if (retirement === "vault") advanceVaultSessionEpoch();
+        else abort.abort();
+      },
+    } })).rejects.toMatchObject({ name: "AbortError" });
+    expect(onBrowserTaskCreated).not.toHaveBeenCalled();
   });
 
   it("uses Dev Finance A2UI only when its private runtime advertises the preview", async () => {
@@ -1312,15 +1352,20 @@ describe("AG-UI Agent One client", () => {
     expect(onSpecialistDirective).not.toHaveBeenCalled();
   });
 
-  it("keeps the turn Activity descriptor on assistant history only", async () => {
+  it("keeps bounded static Browser receipts and turn Activity on assistant history only", async () => {
     const turnActivity = { activityType: "one.turn_activity.v1",
       content: { steps: [{ id: "call-1", tool: "discover_workspace_tools", status: "done", provider: "calendar" }] } };
+    const receipt = { v: 1, kind: "browser_sign_in", state: "completed", task_id: "browser_" + "a".repeat(32), operation_id: "operation_123" };
     vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
-      messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer", metadata: { turnActivity } })),
+      messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer", metadata: { turnActivity,
+        compactActivityReceipts: [receipt, { ...receipt, password: "PRIVATE" }] } })),
     })));
     const messages = await getAgentChatHistory({ vaultKey: TEST_VAULT_KEY, conversationId: "c1", vaultOwnerToken: "fixture" });
     expect(messages[0].metadata?.turnActivity).toEqual(turnActivity);
     expect(messages[1].metadata?.turnActivity).toBeUndefined();
+    expect(messages[0].metadata?.compactActivityReceipts).toEqual([receipt]);
+    expect(messages[1].metadata?.compactActivityReceipts).toBeUndefined();
+    expect(JSON.stringify(messages)).not.toContain("PRIVATE");
   });
   beforeEach(() => {
     publishValidatedAuthSessionOwner("user-1");

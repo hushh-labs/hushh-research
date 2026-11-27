@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused, StrictContract
@@ -61,9 +62,12 @@ router = APIRouter(
 
 
 async def owner_access(
-    request: Request, authorization: str | None, scope: str
+    request: Request, authorization: str | None, scope: str, *, bind_runtime: bool = True
 ) -> BrowserOwnerAccess:
     authority, claims = verified_session(authorization, role=ROLE_APP, scope=scope)
+    erasure_epoch = authority.epoch if not bind_runtime else None
+    if not bind_runtime and claims.get("epoch") != erasure_epoch:
+        raise refusal(BrowserRefused("BROWSER_OWNER_REFUSED"))
     if authority.environment not in {"dev", "development", "uat"}:
         raise refusal(BrowserRefused("BROWSER_ENVIRONMENT_UNAVAILABLE"))
     wire_env: Literal["development", "uat"] = (
@@ -83,6 +87,7 @@ async def owner_access(
                 current_authority is not authority
                 or current_claims != claims
                 or pod_incarnation() != incarnation
+                or (not bind_runtime and authority.epoch != erasure_epoch)
             ):
                 raise BrowserRefused("BROWSER_OWNER_REFUSED")
             await authority.require_held()
@@ -102,9 +107,10 @@ async def owner_access(
         check=check,
         environment=wire_env,
     )
-    from hushh_mcp.services.pod_browser.composition import bind_browser_owner
+    if bind_runtime:
+        from hushh_mcp.services.pod_browser.composition import bind_browser_owner
 
-    await bind_browser_owner(request.app, access)
+        await bind_browser_owner(request.app, access)
     return access
 
 
@@ -129,6 +135,15 @@ async def controlling(
 InvokeOwner = Annotated[BrowserOwnerAccess, Depends(invoking)]
 ObserveOwner = Annotated[BrowserOwnerAccess, Depends(observing)]
 ControlOwner = Annotated[BrowserOwnerAccess, Depends(controlling)]
+
+
+async def erasing(
+    request: Request, authorization: str | None = Header(default=None)
+) -> BrowserOwnerAccess:
+    return await owner_access(request, authorization, SCOPE_BROWSER_CONTROL, bind_runtime=False)
+
+
+EraseOwner = Annotated[BrowserOwnerAccess, Depends(erasing)]
 
 
 def refusal(exc: BrowserRefused) -> HTTPException:
@@ -198,6 +213,40 @@ class SessionRequest(StrictContract):
     operation: Literal["remember", "restore", "forget"]
     origin: str = Field(min_length=1, max_length=4096, repr=False)
     account_id: str = Field(min_length=1, max_length=256, repr=False)
+
+
+class ForgetSessionsRequest(StrictContract):
+    sec_id: str = Field(pattern=r"^sec_[a-f0-9]{16}$")
+    origins: list[Annotated[str, Field(max_length=2048)]] = Field(
+        min_length=1, max_length=16, repr=False
+    )
+
+    @model_validator(mode="after")
+    def exact_origins(self):
+        from hushh_mcp.services.pod_browser.session_erasure import exact_session_selection
+
+        try:
+            exact_session_selection(self.sec_id, self.origins)
+        except BrowserRefused:
+            raise ValueError("Exact public origins required") from None
+        return self
+
+
+class CredentialUseRequest(StrictContract):
+    operation_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,128}$")
+    handle: str = Field(pattern=r"^sec_[a-f0-9]{16}$")
+    control_epoch: int = Field(ge=1)
+
+
+class CredentialPrepareRequest(CredentialUseRequest):
+    record_revision: int = Field(ge=1)
+    source_content_revision: int = Field(ge=1)
+    source_manifest_revision: int = Field(ge=1)
+    remember_session: bool = False
+
+
+class TransientCredentialUseRequest(CredentialUseRequest):
+    envelope: dict = Field(repr=False)
 
 
 class SaveDownload(StrictContract):
@@ -338,12 +387,81 @@ async def task_review(request: Request, task_id: str, body: ReviewRequest, owner
         raise refusal(exc) from None
 
 
+@router.get("/tasks/{task_id}/credentials")
+async def task_credentials(request: Request, task_id: str, origin: str, owner: ControlOwner):
+    try:
+        return await runtime(request).credential_catalog(owner, task_id, origin)
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
+@router.post(
+    "/tasks/{task_id}/credentials/use", response_model=BrowserTaskSnapshot, status_code=202
+)
+async def use_credential(
+    request: Request, task_id: str, body: CredentialPrepareRequest, owner: ControlOwner
+):
+    try:
+        return await runtime(request).prepare_credential(owner, task_id, **body.model_dump())
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
+@router.post(
+    "/tasks/{task_id}/credentials/transient", response_model=BrowserTaskSnapshot, status_code=202
+)
+async def use_transient_credential(
+    request: Request, task_id: str, body: TransientCredentialUseRequest, owner: ControlOwner
+):
+    try:
+        if len(str(body.envelope)) > 40000:
+            raise BrowserRefused("BROWSER_CREDENTIAL_TRANSIENT_REFUSED")
+        return await runtime(request).use_credential(
+            owner,
+            task_id,
+            handle=body.handle,
+            operation_id=body.operation_id,
+            control_epoch=body.control_epoch,
+            transient=(body.envelope, {}),
+        )
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
 @router.post("/tasks/{task_id}/session")
 async def task_session(request: Request, task_id: str, body: SessionRequest, owner: ControlOwner):
     try:
         return await runtime(request).session(
             owner, task_id, body.operation, body.origin, body.account_id
         )
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+
+
+@router.post("/sessions/forget")
+async def forget_sessions(request: Request, body: ForgetSessionsRequest, owner: EraseOwner):
+    from hushh_mcp.services.pod_browser.session_erasure import OwnerSessionCleanup
+
+    cleanup = getattr(request.app.state, "browser_session_cleanup", None)
+    if not isinstance(cleanup, OwnerSessionCleanup):
+        raise refusal(BrowserRefused("BROWSER_RECOVERY_UNAVAILABLE"))
+
+    async def fence(site):
+        await owner.check()
+        installed = getattr(request.app.state, "browser_task_runtime", None)
+        if isinstance(installed, BrowserTaskRuntime):
+            await installed.require_owner(owner)
+            await installed.fence_live_contexts(site)
+        await owner.check()
+
+    try:
+        await owner.check()
+        installed = getattr(request.app.state, "browser_task_runtime", None)
+        if isinstance(installed, BrowserTaskRuntime):
+            await installed.require_owner(owner)
+        receipt = await cleanup.forget(owner, sec_id=body.sec_id, origins=body.origins, fence=fence)
+        await owner.check()
+        return asdict(receipt)
     except BrowserRefused as exc:
         raise refusal(exc) from None
 

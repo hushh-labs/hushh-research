@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from hushh_mcp.one_adk.browser_activity_history import restored_browser_activity
 from hushh_mcp.one_adk.consent_continuation import CONSENT_OUTCOME_LABELS, continued_outcomes
 from hushh_mcp.one_adk.consent_redaction import shared_record_for_history
 from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connector_result
@@ -460,6 +461,7 @@ def project_conversation_history(
     consent_by_invocation: dict[str, str] | None = None,
     consent_ended: dict[str, str] | None = None,
     before_id: str | None = None,
+    browser_activity_snapshots: tuple[Any, ...] = (),
 ) -> dict[str, Any]:
     messages: list[dict[str, object]] = []
     state = session_state or {}
@@ -470,6 +472,9 @@ def project_conversation_history(
     by_invocation = consent_by_invocation or {}
     ended = consent_ended or {}
     projected, turn_events, last_answer, last_card, receipts = _index_turns(events, project_event)
+    browser_receipts, browser_anchors = restored_browser_activity(
+        events, browser_activity_snapshots
+    )
     # A turn's cards and Activity belong with its answer, as they were shown
     # live. Card-only tool events fold into the answer; a turn without an
     # answer keeps its last card message as the anchor.
@@ -477,6 +482,10 @@ def project_conversation_history(
     held_location_proposals: dict[str, dict[str, Any]] = {}
     for index, event in enumerate(events):
         text, metadata = projected[index]
+        turn = event.invocation_id
+        browser_anchor = last_answer.get(turn, last_card.get(turn, browser_anchors.get(turn)))
+        if turn in browser_receipts and index == browser_anchor:
+            metadata = {**(metadata or {}), "compactActivityReceipts": browser_receipts[turn]}
         attachments = history_text_attachments(event)
         if attachments:
             metadata = {**(metadata or {}), "attachments": attachments}
@@ -484,7 +493,6 @@ def project_conversation_history(
             continue
         if event.author not in {"user", "one"}:
             text = ""  # Tool events restore only allowlisted safe descriptors.
-        turn = event.invocation_id
         answer_index = last_answer.get(turn) if turn else None
         if metadata and not text and answer_index is not None and answer_index > index:
             cards = metadata.get("structuredExperiences")

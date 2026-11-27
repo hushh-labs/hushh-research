@@ -458,3 +458,151 @@ async def _assert_closed_and_private(monkeypatch, manifest, model, runtime, proc
             control=runtime, processing=process, goal=process.task_goal
         )
     assert len(requests) == completed_request_count + 1
+
+
+@pytest.mark.parametrize("resolution", ["fill", "manual"])
+async def test_native_credential_hands_keep_only_handles_origins_and_explicit_targets_in_adk(
+    monkeypatch,
+    resolution,
+):
+    """Real pinned Runner confirmation pauses and resumes without another fill."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from google.adk.models import Gemini
+    from google.genai import types
+
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+    from hushh_mcp.services.pod_browser.adk_task import NativeAdkBrowserModel
+    from hushh_mcp.services.pod_browser.information import (
+        BrowserInformation,
+        BrowserModelProcessing,
+    )
+    from tests.test_pod_browser_interactive_review import _credential_fixture
+
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
+    monkeypatch.setenv("ADK_TELEMETRY_IGNORE_RUN_CONFIG", "false")
+    manifest = ManifestLoader.load(
+        str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/computer_use/agent.yaml")
+    )
+    fixture = _credential_fixture()
+    runtime = fixture.control
+    await runtime.initialize()
+    fixture.port.selection = fixture.port.lease_key = fixture.port.prepared = None
+    consent = _BrowserConsent()
+    processing = BrowserModelProcessing(
+        BrowserInformation(SimpleNamespace(), consent),
+        runtime.binding,
+        (),
+        readiness().model_name,
+        readiness().model_transport,
+        ("https://example.com",),
+        "Sign in to the approved website.",
+    )
+    approve_browser_processing(consent, processing)
+    requests = []
+
+    async def generate(**request):
+        requests.append(request)
+        name, args = (
+            ("saved_website_logins", {"origin": "https://example.com"})
+            if len(requests) == 1
+            else (
+                "use_saved_website_login",
+                {
+                    "handle": "owner_selection",
+                    "origin": "https://example.com",
+                    "username_x": 10,
+                    "username_y": 10,
+                    "password_x": 10,
+                    "password_y": 40,
+                    "submit_x": 10,
+                    "submit_y": 70,
+                },
+            )
+            if len(requests) == 2
+            else (
+                "finish_task",
+                {"outcome": "completed", "summary": "The owner-approved submission completed."},
+            )
+        )
+        return types.GenerateContentResponse(
+            candidates=[
+                types.Candidate(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(function_call=types.FunctionCall(name=name, args=args))],
+                    ),
+                    finish_reason=types.FinishReason.STOP,
+                )
+            ]
+        )
+
+    model = Gemini(model=processing.model_name)
+    model.__dict__["api_client"] = SimpleNamespace(
+        vertexai=False, aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    native = NativeAdkBrowserModel(manifest, model)
+    try:
+        result = await native.run(control=runtime, processing=processing, goal=processing.task_goal)
+        assert result.outcome == "needs_owner" and len(requests) == 2
+        assert not fixture.leases and fixture.driver.fills == 0
+        context = native._tasks[runtime.binding.task_id]
+        assert context.confirmation and fixture.port.sdk_confirmation
+        with pytest.raises(BrowserRefused, match="MODEL_OBSERVATION_PAUSED"):
+            await native.run(control=runtime, processing=processing, goal=processing.task_goal)
+        assert len(requests) == 2
+        # Existing owner ledger and direct transient transaction settle before
+        # the SDK is answered; SDK confirmation itself never opens a password.
+        if resolution == "fill":
+            selection = fixture.port.selection.model_copy(update={"handle": fixture.request.handle})
+            transient = fixture.prepare_for(fixture.port, selection, runtime.binding)
+            fixture.release.set()
+            await fixture.port.use(selection, transient=transient)
+            assert fixture.driver.fills == 1 and fixture.approvals[0][0] == "credential_fill"
+            # A settled receipt for another operation cannot answer this SDK pause.
+            actual = fixture.port.completed_confirmation
+            fixture.port.completed_confirmation = {**actual, "operation_id": "foreign_operation"}
+            with pytest.raises(BrowserRefused, match="CONFIRMATION_REFUSED"):
+                await native.run(control=runtime, processing=processing, goal=processing.task_goal)
+            fixture.port.completed_confirmation = actual
+        else:
+            await runtime.take_control()
+            await runtime.resume_agent()
+        result = await native.run(control=runtime, processing=processing, goal=processing.task_goal)
+        assert result.outcome == "completed" and len(requests) == 3
+        assert fixture.driver.fills == (1 if resolution == "fill" else 0)
+        responses = [
+            part.function_response
+            for content in requests[-1]["contents"]
+            for part in content.parts or []
+            if part.function_response
+        ]
+        assert any(
+            r.name == "use_saved_website_login"
+            and r.response == {"state": "submitted" if resolution == "fill" else "cancelled"}
+            for r in responses
+        )
+        assert "synthetic-private-password" not in str(requests)
+        assert "synthetic-user" not in str(requests)
+        declarations = [
+            declaration
+            for tool in requests[0]["config"].tools
+            for declaration in tool.function_declarations or []
+        ]
+        hand = next(d for d in declarations if d.name == "use_saved_website_login")
+        assert set(hand.parameters_json_schema["properties"]) == {
+            "handle",
+            "origin",
+            "username_x",
+            "username_y",
+            "password_x",
+            "password_y",
+            "submit_x",
+            "submit_y",
+            "otp_x",
+            "otp_y",
+        }
+    finally:
+        await native.release_task(runtime.binding)
+        await runtime.stop()

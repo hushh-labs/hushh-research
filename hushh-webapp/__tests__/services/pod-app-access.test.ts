@@ -6,6 +6,7 @@ import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access
 import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-preparation";
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 import { RECEIPT_TOOL_DECLARATIONS } from "@/lib/mail/receipt-analysis";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const pod = vi.hoisted(() => ({
   currentPodConnection: vi.fn(),
@@ -347,6 +348,25 @@ it("admits reviewed owner pod wiki file routes and refuses unreviewed wiki paths
   await expect(ownerPodRequest("files/wiki/unreviewed", { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
 });
 
+it("admits task-independent Browser Forget only with current app control authority and the exact POST route", async () => {
+  const fetch = vi.fn(async () => Response.json({ ok: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.control"] } };
+  const route = "browser/sessions/forget";
+  for (const session of [{ ...connection.session, role: "device" }, { ...connection.session, scopes: ["browser.observe"] }]) {
+    pod.currentPodConnection.mockResolvedValueOnce({ ...connection, session });
+    await expect(ownerPodRequest(route, { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  }
+  pod.currentPodConnection.mockResolvedValue(connection);
+  await expect(ownerPodRequest(route, { method: "GET" }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  await expect(ownerPodRequest("browser/sessions/forget/all", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  expect(fetch).not.toHaveBeenCalled();
+  const body = JSON.stringify({ sec_id: "sec_" + "a".repeat(16), origins: ["https://example.com"] });
+  expect((await ownerPodRequest(route, { method: "POST", body }, ports)).ok).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
 it("admits owner pod browser download save route only when browser.control and files scopes are held", async () => {
   const fetch = vi.fn(async () => Response.json({ verified: true }));
   const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
@@ -396,6 +416,28 @@ it("admits status, config, and circle-rules routes only with app role and exact 
   expect((await ownerPodRequest("circle-rules/rule_abcd1234ef", { method: "DELETE" }, ports)).ok).toBe(true);
   await expect(ownerPodRequest("circle-rules/not-a-valid-id", { method: "DELETE" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
   expect(fetch).toHaveBeenCalledTimes(7);
+});
+
+
+it("keeps only exact credential prepare/lease routes behind browser.control", async () => {
+  const fetch = vi.fn(async () => Response.json({ accepted: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const root = `browser/tasks/browser_${"a".repeat(32)}/credentials`;
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.observe"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  for (const [route, method] of [[root + "/use", "POST"], [root + "/transient", "POST"]]) {
+    await expect(ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  }
+  expect(fetch).not.toHaveBeenCalled();
+  connection.session.scopes = ["browser.control"];
+  for (const [route, method] of [[root + "/use", "POST"], [root + "/transient", "POST"]]) {
+    expect((await ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await expect(ownerPodRequest(root, { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  await expect(ownerPodRequest("credentials/cred_" + "a".repeat(32), { method: "GET" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+  await expect(ownerPodRequest(root + "/unreviewed", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
 });
 
 it("re-opens pod session transparently on 401 when pooled sandbox recycles without endpointVersion bump", async () => {
@@ -476,4 +518,53 @@ it("admits sovereign pod plaid vault routes only for app POST requests with pkm.
     expect(res.ok).toBe(true);
   }
   expect(fetch).toHaveBeenCalledTimes(4);
+});
+
+
+const credentialRetryRoute = `browser/tasks/browser_${"a".repeat(32)}/credentials/transient`;
+function credentialRetryConnection(role = "app", scopes = ["browser.control", "pod.status", "pkm.read", "browser.observe"], hushhId = "ha1_owner") {
+  return { endpoint: { hushhId, url: `https://${hushhId}.a.run.app`, endpointVersion: 1 },
+    session: { session: "synthetic-renewed-session", role, scopes } };
+}
+
+it("retries an admitted credential write once with its original sealed body", async () => {
+  pod.currentPodConnection.mockReset().mockResolvedValueOnce(credentialRetryConnection()).mockResolvedValue(credentialRetryConnection());
+  pod.openPodSession.mockReset().mockResolvedValue(credentialRetryConnection().session);
+  let requests = 0;
+  const fetch = vi.fn(async (_url: string, _init: RequestInit) => Response.json({}, { status: ++requests === 1 ? 401 : 200 }));
+  const body = JSON.stringify({ sealed: "synthetic-envelope" });
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  expect((await ownerPodRequest(credentialRetryRoute, { method: "POST", body }, ports, "ha1_owner")).ok).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.map(([, init]) => init.body)).toEqual([body, body]);
+  expect(pod.openPodSession).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { label: "Browser scope", route: credentialRetryRoute, next: credentialRetryConnection("app", ["browser.observe"]), error: "POD_BROWSER_REQUEST_REFUSED" },
+  { label: "Browser role", route: credentialRetryRoute, next: credentialRetryConnection("device"), error: "POD_BROWSER_REQUEST_REFUSED" },
+  { label: "activity app scope", route: "agent-chat/browser-activity", next: credentialRetryConnection("app", ["browser.control"]), error: "POD_CHAT_REQUEST_INVALID" },
+  { label: "pod identity", route: credentialRetryRoute, next: credentialRetryConnection("app", ["browser.control"], "ha1_other"), error: "POD_DIRECT_OWNER_MISMATCH" },
+])("refuses renewed $label before retransmitting a credential write", async ({ route, next, error }) => {
+  pod.currentPodConnection.mockReset().mockResolvedValueOnce(credentialRetryConnection()).mockResolvedValue(next);
+  pod.openPodSession.mockReset().mockResolvedValue(next.session);
+  const fetch = vi.fn(async () => Response.json({}, { status: 401 }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  await expect(ownerPodRequest(route, { method: "POST", body: "{}" }, ports, "ha1_owner")).rejects.toThrow(error);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each(["caller", "owner", "vault"] as const)("refuses a retired %s after credential session renewal", async retired => {
+  let current = true;
+  pod.currentPodConnection.mockReset().mockResolvedValue(credentialRetryConnection());
+  pod.openPodSession.mockReset().mockImplementation(async () => {
+    if (retired === "caller") current = false;
+    if (retired === "owner") publishValidatedAuthSessionPrincipal({ firebaseUid: "other", ownerId: "other", accountGeneration: 1 });
+    if (retired === "vault") advanceVaultSessionEpoch();
+    return credentialRetryConnection().session;
+  });
+  const fetch = vi.fn(async () => Response.json({}, { status: 401 }));
+  const ports = { transport: async () => ({}), fetch, isCurrent: () => current } as Parameters<typeof ownerPodRequest>[2];
+  await expect(ownerPodRequest(credentialRetryRoute, { method: "POST", body: "{}" }, ports, "ha1_owner")).rejects.toThrow(/POD_(OWNER|VAULT_SESSION)_CHANGED/);
+  expect(fetch).toHaveBeenCalledOnce();
 });

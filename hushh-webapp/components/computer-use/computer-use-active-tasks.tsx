@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import {
@@ -18,6 +18,7 @@ type ActiveTasksProps = {
   getVaultOwnerToken?: () => string | null;
   openReviewSignal?: number;
   onReviewCountChange?: (count: number) => void;
+  onActivityReceipt?: (snapshot: ComputerUseSnapshot) => void;
 };
 
 export function ComputerUseActiveTasks(props: ActiveTasksProps) {
@@ -32,6 +33,7 @@ function OwnerBrowserTasks({
   getVaultOwnerToken,
   openReviewSignal = 0,
   onReviewCountChange,
+  onActivityReceipt,
 }: ActiveTasksProps) {
   const [owner] = useState(snapshotValidatedAuthSessionOwner);
   const client = useMemo(() => new ComputerUseClient(ownerId, getVaultOwnerToken), [ownerId, getVaultOwnerToken]);
@@ -40,17 +42,20 @@ function OwnerBrowserTasks({
     owner: string;
     rows: DiscoveredBrowserTask[];
   }>({ owner: ownerId, rows: [] });
+  const tasksRef = useRef(tasks);
+  useLayoutEffect(() => { tasksRef.current = tasks; }, [tasks]);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const updateTaskSnapshot = useCallback((snapshot: ComputerUseSnapshot) => {
     if (owner?.userId !== ownerId || !isValidatedAuthSessionOwnerCurrent(owner)) return;
+    if (snapshot.activityReceipt && tasksRef.current.rows.some(task => task.current && sameComputerUseBinding(task.binding, snapshot.binding))) onActivityReceipt?.(snapshot);
     setTasks(current => {
       if (!isValidatedAuthSessionOwnerCurrent(owner) || current.owner !== ownerId) return current;
       const index = current.rows.findIndex(task => task.current && sameComputerUseBinding(task.binding, snapshot.binding));
       if (index < 0 || current.rows[index]?.phase === snapshot.phase) return current;
       return { ...current, rows: current.rows.map((task, position) => position === index ? { ...task, phase: snapshot.phase } : task) };
     });
-  }, [owner, ownerId]);
+  }, [owner, ownerId, onActivityReceipt]);
   useEffect(() => {
     const owner = snapshotValidatedAuthSessionOwner();
     if (owner?.userId !== ownerId) return;

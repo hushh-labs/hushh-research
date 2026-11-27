@@ -5,13 +5,16 @@ from __future__ import annotations
 from .contracts import BrowserRefused
 
 
-def require_completed_calls(events) -> None:
+def require_completed_calls(
+    events, *, pending_confirmation=None, confirmed_calls=frozenset()
+) -> None:
     """Never let native task resumption replay an unanswered computer call.
 
     Preserve all events and provider signatures. An unmatched complete call
     requires owner reconciliation; deleting it would hide an uncertain effect.
     """
     pending: dict[str, str] = {}
+    completed: dict[str, str] = {}
     size = 0
     for event in events:
         size += len(event.model_dump_json().encode())
@@ -26,7 +29,16 @@ def require_completed_calls(events) -> None:
                     raise BrowserRefused("BROWSER_CONTINUATION_UNCERTAIN")
                 pending[call.id] = call.name
             if response is not None and response.name != "finish_task":
+                if (
+                    response.id in confirmed_calls
+                    and response.name == "use_saved_website_login"
+                    and completed.get(response.id) == response.name
+                ):
+                    continue  # SDK's exact confirmed call returns its settled receipt.
                 if not response.id or pending.pop(response.id, None) != response.name:
                     raise BrowserRefused("BROWSER_CONTINUATION_UNCERTAIN")
-    if pending:
+                completed[response.id] = response.name
+    if pending != (
+        {pending_confirmation: "adk_request_confirmation"} if pending_confirmation else {}
+    ):
         raise BrowserRefused("BROWSER_CONTINUATION_UNCERTAIN")

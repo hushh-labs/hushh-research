@@ -14,7 +14,7 @@ import type { NativeMemoryMarkdownBlock } from "./native-memory-markdown";
 import type { PkmNaturalModel } from "./use-pkm-natural-model";
 
 type Action = (choice: NativeWorkspaceChoice) => void | Promise<unknown>;
-export type NativeMemorySavedHandoff = (target: "soul-editor" | "sharing" | "detail" | "payments" | "navigation", action: () => void) => Promise<boolean>;
+export type NativeMemorySavedHandoff = (target: "soul-editor" | "sharing" | "detail" | "payments" | "navigation" | "secrets", action: () => void) => Promise<boolean>;
 export type NativeMemorySavedModel = Pick<PkmNaturalModel,
   | "ownerId" | "soul" | "authLoading" | "canOpen" | "selectedCard" | "selectedMetadataDomain"
   | "bootstrapLoading" | "bootstrapError" | "metadata"
@@ -27,7 +27,7 @@ export type NativeMemorySavedModel = Pick<PkmNaturalModel,
 
 /** A missing field is not a license to hide a control: null means retain the
  * complete authored React owner until native can represent this state. */
-export function nativeMemorySaved({ model, commerce, handle, handoff, openPayments }: {
+export function nativeMemorySaved({ model, commerce, handle, handoff, openPayments, openSecrets }: {
   model: NativeMemorySavedModel;
   mirror?: LiveMirrorViewState;
   commerce: MemoryCommerceSummaryModel;
@@ -35,6 +35,7 @@ export function nativeMemorySaved({ model, commerce, handle, handoff, openPaymen
   /** Must retire native ownership before invoking the supplied authored action. */
   handoff: NativeMemorySavedHandoff;
   openPayments: () => void;
+  openSecrets?: () => void;
   openSharing: () => void;
   markdownProjection?: { source: string; blocks: readonly NativeMemoryMarkdownBlock[] | null };
 }): { sections: readonly NativeDrawerSection[]; actions: ReadonlyMap<string, Action> } | null {
@@ -87,6 +88,9 @@ export function nativeMemorySaved({ model, commerce, handle, handoff, openPaymen
       { chevron: true },
     );
   }), "Core files");
+
+  group("secrets", [row("secrets-open", "Secrets", "Only you can use or share saved passwords and keys.",
+    hand("secrets", () => openSecrets?.()), { chevron: true })], "Secrets");
 
   if (commerce.user) {
     const earnings = commerce.data?.earnings;

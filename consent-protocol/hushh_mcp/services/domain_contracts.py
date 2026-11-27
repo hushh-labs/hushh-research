@@ -52,6 +52,7 @@ class DomainSharingPolicy:
     # ``attr.<domain>.<branch>.<item_id>``, and only when the OWNER starts the
     # grant. A requester can never ask for it, by wildcard or by exact path.
     per_item_grant_branch: str | None = None
+    per_item_grant_branches: tuple[str, ...] = ()
     per_item_id_pattern: str | None = None
 
 
@@ -705,7 +706,6 @@ def is_allowed_top_level_domain(domain: str) -> bool:
 
 
 def current_domain_contract_version(domain: str) -> int:
-    _canonical = canonical_top_level_domain(domain)
     return GENERIC_DOMAIN_CONTRACT_VERSION
 
 

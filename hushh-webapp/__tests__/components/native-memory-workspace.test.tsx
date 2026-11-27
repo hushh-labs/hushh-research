@@ -1,3 +1,5 @@
+import { ROUTES } from "@/lib/navigation/routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMemo, useState } from "react";
@@ -33,7 +35,7 @@ vi.mock("@/components/profile/memory-commerce-summary", () => ({ useMemoryCommer
 vi.mock("@/components/profile/pkm-saved-sharing", () => ({ usePkmSharingExpansion: () => ({ section: "", setSection: vi.fn() }) }));
 vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: () => <div data-testid="native-owner" /> }));
 vi.mock("@/components/profile/native-memory-saved", () => ({
-  nativeMemorySaved: (input: { model: PkmNaturalModel; handoff: (kind: string, action: () => void) => Promise<boolean>; openSharing: () => void }) => {
+  nativeMemorySaved: (input: { model: PkmNaturalModel; handoff: (kind: string, action: () => void) => Promise<boolean>; openSharing: () => void; openSecrets: () => void }) => {
     harness.savedProjection(input);
     if (!harness.savedAvailable) return null;
     return {
@@ -43,6 +45,7 @@ vi.mock("@/components/profile/native-memory-saved", () => ({
       actions: new Map([
         ["synthetic-edit", () => input.handoff("soul-editor", input.model.soul.beginEdit)],
         ["synthetic-sharing", () => input.handoff("sharing", input.openSharing)],
+        ["synthetic-secrets", () => input.handoff("secrets", input.openSecrets)],
         ["synthetic-navigation", () => input.handoff("navigation", () => input.model.navigate("/one/files?folder=personal-wiki"))],
       ]),
     };
@@ -184,6 +187,17 @@ describe("native Memory workspace ownership", () => {
     expect(screen.getByTestId("native-owner")).toBeInTheDocument();
     expect(harness.options!.presentationOwner).toBe(owner);
     expect(harness.registrations).toBe(2);
+  });
+
+  it("hands Secrets to the existing authored surface and returns through the shared Back layer", async () => {
+    render(<Fixture />);
+    const owner = harness.options!.presentationOwner;
+    await act(async () => { await invoke("synthetic-secrets"); });
+    expect(screen.getByTestId("react-fallback")).toBeVisible();
+    expect(harness.retire).toHaveBeenCalledOnce();
+    act(() => { expect(unwindBackLayer(ROUTES.PKM)).toBe(true); });
+    expect(screen.getByTestId("native-owner")).toBeInTheDocument();
+    expect(harness.options!.presentationOwner).toBe(owner);
   });
 
   it("does not admit the Memory workspace on a child route", () => {

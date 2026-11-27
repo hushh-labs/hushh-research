@@ -34,6 +34,8 @@ import type { SecretFileTo, SecretKind } from "@/lib/pkm/secret-patterns";
 import type { ResolvedSecret, SecretCapture } from "@/lib/pkm/secret-span-guard";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { buildWebsiteCredentialItem, parseWebsiteCredentialItem, websiteCredentialSummary, websiteLoginInput, WEBSITE_SECRET_ID,
+  WebsiteCredentialError, type WebsiteLoginInput, type WebsiteLoginSummary } from "./website-credential";
 
 export const SECRETS_DOMAIN = "secrets";
 const ITEMS_BRANCH = "items";
@@ -43,6 +45,7 @@ export type SecretsVaultContext = {
   userId: string;
   vaultKey: string | null | undefined;
   vaultOwnerToken: string | null | undefined;
+  beforeEffect?: () => Promise<void>;
 };
 
 /** One stored secret, without its value. Safe to render and to name to a model. */
@@ -55,6 +58,7 @@ export type SecretItemSummary = {
   offerNoun: string | null;
   createdAt: string;
   filedTo: Exclude<SecretFileTo, "none"> | null;
+  websiteLogin?: boolean;
 };
 
 export type SaveSecretCapturesResult =
@@ -89,6 +93,7 @@ function toSummary(id: string, item: Record<string, unknown>): SecretItemSummary
     label: String(item.label ?? "Secret"),
     kind: String(item.kind ?? "credential") as SecretKind,
     patternId: String(item.pattern_id ?? ""),
+    ...(parseWebsiteCredentialItem(id, item) ? { websiteLogin: true } : {}),
     fileTo: (fileTo === "wallet" || fileTo === "kyc_identity_documents" ? fileTo : "none") as SecretFileTo,
     offerNoun: typeof item.offer_noun === "string" ? item.offer_noun : null,
     createdAt: String(item.created_at ?? ""),
@@ -209,6 +214,7 @@ async function writeItems(params: {
     confirmation: params.confirmation,
     beforeEffect: params.beforeEffect,
     build: async (writeContext) => {
+      await params.beforeEffect?.();
       const base = isRecord(writeContext.currentDomainData) ? writeContext.currentDomainData : {};
       const domainData = { ...base, [ITEMS_BRANCH]: params.mutate({ ...itemsOf(base) }) };
       const artifacts = await buildSecretsArtifacts({
@@ -223,16 +229,109 @@ async function writeItems(params: {
 
 async function loadItems(context: SecretsVaultContext): Promise<Record<string, Record<string, unknown>>> {
   const unlocked = requireUnlocked(context);
-  const data = await PersonalKnowledgeModelService.loadDomainData({
+  await context.beforeEffect?.();
+  const { data } = await PersonalKnowledgeModelService.loadDomainSnapshot({
     userId: unlocked.userId,
     domain: SECRETS_DOMAIN,
     vaultKey: unlocked.vaultKey,
     vaultOwnerToken: unlocked.vaultOwnerToken,
+    force: true,
   });
+  await context.beforeEffect?.();
   return itemsOf(data);
 }
 
 export class SecretsVaultService {
+  /** The owner's explicit recovery action. Old ciphertext is never modified. */
+  static async importLegacyWebsiteLogins(context: SecretsVaultContext): Promise<number> {
+    const unlocked = requireUnlocked(context);
+    const { readLegacyWebsiteLogins } = await import("./legacy-website-logins");
+    const legacy = await readLegacyWebsiteLogins(context);
+    const records = await Promise.all(legacy.map(async value => ({ ...value,
+      secretId: `sec_${(await sha256Hex(`${context.userId}:credentials:${value.id}`)).slice(0, 16)}` })));
+    if (!records.length) return 0;
+    const imported = new Set<string>();
+    const result = await writeItems({ context: unlocked, beforeEffect: context.beforeEffect,
+      confirmation: { confirmedByUser: true, source: "secrets_vault", surface: "web" }, mutate: items => {
+        imported.clear();
+        for (const record of records) {
+          const existing = items[record.secretId];
+          if (existing) {
+            const marker = existing.legacy_source;
+            if (!isRecord(marker) || marker.domain !== "credentials" || marker.id !== record.id || marker.revision !== record.revision) throw new WebsiteCredentialError("LEGACY_LOGIN_CONFLICT");
+            continue;
+          }
+          imported.add(record.secretId);
+          items[record.secretId] = { ...buildWebsiteCredentialItem(record.input),
+            legacy_source: { domain: "credentials", id: record.id, revision: record.revision } };
+        }
+        return items;
+      } });
+    if (!result.success) throw new WebsiteCredentialError("LEGACY_LOGIN_IMPORT_UNCONFIRMED");
+    const readback = await loadItems(context);
+    for (const record of records) {
+      const stored = readback[record.secretId];
+      const checked = parseWebsiteCredentialItem(record.secretId, stored);
+      if (!stored || !checked || !isRecord(stored.legacy_source) ||
+        stored.legacy_source.domain !== "credentials" || stored.legacy_source.id !== record.id || imported.has(record.secretId) && (checked.value !== record.input.password ||
+          checked.credential.username !== record.input.username || JSON.stringify(checked.bound_origins) !== JSON.stringify(record.input.boundOrigins) ||
+          checked.totp_secret !== record.input.totpSecret || checked.credential.notes !== record.input.notes)) throw new WebsiteCredentialError("LEGACY_LOGIN_IMPORT_UNCONFIRMED");
+    }
+    return records.length;
+  }
+
+  static async listWebsiteLogins(context: SecretsVaultContext): Promise<WebsiteLoginSummary[]> {
+    return Object.entries(await loadItems(context)).flatMap(([id, value]) => {
+      const item = parseWebsiteCredentialItem(id, value);
+      return item ? [websiteCredentialSummary(id, item)] : [];
+    }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /** Fresh source identity for a human-approved, single-use Browser lease. */
+  static async websiteLoginSnapshot(context: SecretsVaultContext, id: string) {
+    const unlocked = requireUnlocked(context);
+    if (!WEBSITE_SECRET_ID.test(id)) throw new WebsiteCredentialError("WEBSITE_LOGIN_UNAVAILABLE");
+    await context.beforeEffect?.();
+    const loaded = await PersonalKnowledgeModelService.loadDomainSnapshot({ ...unlocked, domain: SECRETS_DOMAIN, force: true });
+    await context.beforeEffect?.();
+    const item = parseWebsiteCredentialItem(id, itemsOf(loaded.data)[id]);
+    if (!item || !loaded.snapshot?.contentRevision || !loaded.snapshot.manifestRevision) throw new WebsiteCredentialError("WEBSITE_LOGIN_UNAVAILABLE");
+    return { item, contentRevision: loaded.snapshot.contentRevision, manifestRevision: loaded.snapshot.manifestRevision };
+  }
+
+  static async readWebsiteLogin(context: SecretsVaultContext, id: string): Promise<WebsiteLoginInput> {
+    const { item } = await this.websiteLoginSnapshot(context, id);
+    return { label: item.label, boundOrigins: item.bound_origins, username: item.credential.username, password: item.value,
+      ...(item.totp_secret ? { totpSecret: item.totp_secret } : {}), ...(item.credential.notes ? { notes: item.credential.notes } : {}),
+      staySignedInEnabled: item.stay_signed_in_enabled };
+  }
+
+  static async saveWebsiteLogin(context: SecretsVaultContext, input: WebsiteLoginInput, existing?: WebsiteLoginSummary): Promise<boolean> {
+    const unlocked = requireUnlocked(context);
+    const checked = websiteLoginInput(input);
+    const id = existing?.id ?? `sec_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+    if (!WEBSITE_SECRET_ID.test(id)) throw new WebsiteCredentialError("WEBSITE_LOGIN_INVALID");
+    const result = await writeItems({ context: unlocked, beforeEffect: context.beforeEffect,
+      confirmation: { confirmedByUser: true, source: "secrets_vault", surface: "web" }, mutate: items => {
+        const old = parseWebsiteCredentialItem(id, items[id]);
+        if (existing && (!old || old.revision !== existing.revision || old.updated_at !== existing.updatedAt)) throw new WebsiteCredentialError("WEBSITE_REVISION_STALE");
+        if (!existing && items[id]) throw new WebsiteCredentialError("WEBSITE_REVISION_STALE");
+        items[id] = buildWebsiteCredentialItem(checked, old ?? undefined);
+        return items;
+      } });
+    return result.success;
+  }
+
+  static async removeWebsiteLogin(context: SecretsVaultContext, selected: WebsiteLoginSummary): Promise<boolean> {
+    const result = await writeItems({ context: requireUnlocked(context), beforeEffect: context.beforeEffect,
+      confirmation: { confirmedByUser: true, source: "secrets_vault_remove", surface: "web" }, mutate: items => {
+        const item = parseWebsiteCredentialItem(selected.id, items[selected.id]);
+        if (!item || item.revision !== selected.revision || item.updated_at !== selected.updatedAt) throw new WebsiteCredentialError("WEBSITE_REVISION_STALE");
+        delete items[selected.id]; return items;
+      } });
+    return result.success;
+  }
+
   /**
    * Save the secrets the guard captured from one outgoing turn. An item that
    * already holds the same value is reused, so its placeholder names it.

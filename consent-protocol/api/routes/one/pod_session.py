@@ -382,6 +382,7 @@ async def pod_upgrade_release(
 
 @router.post("/config")
 async def pod_config_write(
+    request: Request,
     payload: ConfigRequest = Body(...),
     authorization: Optional[str] = Header(default=None),
 ) -> dict[str, Any]:
@@ -402,6 +403,21 @@ async def pod_config_write(
         raise HTTPException(
             status_code=400, detail={"code": "POD_CONFIG_INVALID", "message": str(exc)}
         ) from exc
+    if config.session_only_lockdown:
+        from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+        from hushh_mcp.services.pod_browser.task_runtime import BrowserTaskRuntime
+
+        runtime = getattr(request.app.state, "browser_task_runtime", None)
+        if isinstance(runtime, BrowserTaskRuntime):
+            try:
+                await runtime.suspend_private_contexts(pod_id=authority.hushh_id)
+            except BrowserRefused as exc:
+                # The durable lockdown remains effective even if Browser stop
+                # cannot be confirmed. Repeating true retries that cleanup.
+                raise HTTPException(
+                    status_code=503,
+                    detail={"code": exc.code, "config_retained": True},
+                ) from exc
     logger.info("pod_config.updated fields=%s", sorted(payload.changes))
     return {"config": config.as_dict()}
 

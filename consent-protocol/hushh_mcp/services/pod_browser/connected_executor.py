@@ -106,7 +106,11 @@ class ConnectedBrowserExecutor:
 
     async def _fetch(self, payload: dict) -> dict:
         try:
-            _bound(payload, self._binding, {"request"})
+            _bound(
+                payload,
+                self._binding,
+                {"request", "credential_proof"} if "credential_proof" in payload else {"request"},
+            )
             self._requests += 1
             if self._shutdown is not None or self._requests > 512:
                 raise BrowserRefused("BROWSER_STOPPED")
@@ -115,7 +119,9 @@ class ConnectedBrowserExecutor:
                 raise BrowserRefused("BROWSER_ACTION_SCOPE_REFUSED")
             if request.scope is not None:
                 request.scope.remaining()
-            response = await self._broker.fetch(request)
+            response = await self._broker.fetch(
+                request, credential_proof=payload.get("credential_proof")
+            )
             return dict(response.model_dump(mode="json"))
         except Exception as exc:
             return _error(exc, "BROWSER_NETWORK_REFUSED")
@@ -138,6 +144,10 @@ class ConnectedBrowserExecutor:
                 # Even observation can overlap an autosave network request.
                 raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN") from None
             await self._broker.check_observation()
+            if operation == "credential_verify" and result == {
+                "error": "BROWSER_CREDENTIAL_TARGET_REFUSED"
+            }:
+                raise BrowserRefused("BROWSER_CREDENTIAL_TARGET_REFUSED")
             if "error" in result:
                 raise BrowserRefused(
                     "BROWSER_OUTCOME_UNCERTAIN"
@@ -145,8 +155,13 @@ class ConnectedBrowserExecutor:
                     else "BROWSER_EXECUTOR_REFUSED"
                 )
             return dict(result)
-        except BaseException:
-            await self.close()
+        except BaseException as exc:
+            if not (
+                operation == "credential_verify"
+                and isinstance(exc, BrowserRefused)
+                and exc.code == "BROWSER_CREDENTIAL_TARGET_REFUSED"
+            ):
+                await self.close()
             raise
 
     async def initialize(self) -> None:
@@ -186,6 +201,43 @@ class ConnectedBrowserExecutor:
         except (ValueError, BrowserRefused):
             await self.close()
             raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED") from None
+
+    async def require_clear_secret_inputs(self) -> None:
+        if await self._call("credential_clear", action=None) != {"cleared": True}:
+            raise BrowserRefused("BROWSER_SECRET_CLEANUP_UNCONFIRMED")
+
+    async def verify_credential_targets(self, request) -> dict:
+        result = await self._call("credential_verify", request=request.model_dump(mode="json"))
+        if result.get("verified") is not True or set(result) != {"verified", "target"}:
+            raise BrowserRefused("BROWSER_CREDENTIAL_TARGET_REFUSED")
+        return result["target"]
+
+    async def prepare_credential_lease(self, request, *, binding=None) -> dict:
+        result = await self._call("credential_prepare", request=request.model_dump(mode="json"))
+        if set(result) != {"id", "public_key", "expires_at"}:
+            raise BrowserRefused("BROWSER_CREDENTIAL_EXECUTOR_UNAVAILABLE")
+        return result
+
+    async def fill_credentials(self, request, lease, *, scope, check) -> dict:
+        if not isinstance(lease.envelope, dict):
+            raise BrowserRefused("BROWSER_CREDENTIAL_TRANSIENT_REQUIRED")
+        await check()
+        self._scope = scope
+        self._broker.bind_credential_check(check)
+        self._broker.bind_credential_authority(lease.submission)
+        try:
+            return await self._call(
+                "credential_fill",
+                request=request.model_dump(mode="json"),
+                envelope=lease.envelope,
+                target=lease.expected_target,
+                scope=scope.model_dump(mode="json"),
+                timeout=scope.remaining(),
+            )
+        finally:
+            self._scope = None
+            self._broker.bind_credential_check(None)
+            self._broker.bind_credential_authority(None)
 
     async def import_session(
         self, state: RememberedState, approved_origins: frozenset[str]
@@ -237,10 +289,13 @@ class ConnectedBrowserWorker:
     def __init__(self, binding: BrowserBinding) -> None:
         self._binding = binding
         self._channel: ConnectedBrowserTransport | None = None
+        from .credential_transient import CredentialLeaseKeys
+
+        self._lease_keys = CredentialLeaseKeys(binding)
         self._network_gate = asyncio.Lock()
         self._network_requests = 0
 
-    async def fetch(self, request: BrowserRequest) -> BrowserResponse:
+    async def fetch(self, request: BrowserRequest, *, credential_proof=None) -> BrowserResponse:
         if self._channel is None:
             raise BrowserRefused("BROWSER_BINDING_REFUSED")
         # Pages load many assets together. Backpressure belongs before the
@@ -255,11 +310,11 @@ class ConnectedBrowserWorker:
             # This request was never sent; unlike reply loss, it is not uncertain.
             raise BrowserRefused("BROWSER_NETWORK_REFUSED") from None
         try:
-            return await self._fetch(request)
+            return await self._fetch(request, credential_proof=credential_proof)
         finally:
             self._network_gate.release()
 
-    async def _fetch(self, request: BrowserRequest) -> BrowserResponse:
+    async def _fetch(self, request: BrowserRequest, *, credential_proof=None) -> BrowserResponse:
         if self._channel is None:
             raise BrowserRefused("BROWSER_BINDING_REFUSED")
         try:
@@ -267,6 +322,11 @@ class ConnectedBrowserWorker:
                 {
                     "binding": self._binding.model_dump(mode="json"),
                     "request": request.model_dump(mode="json"),
+                    **(
+                        {"credential_proof": credential_proof}
+                        if credential_proof is not None
+                        else {}
+                    ),
                 },
                 timeout=request.scope.remaining() if request.scope else 20,
             )
@@ -286,10 +346,19 @@ class ConnectedBrowserWorker:
                 fields = {"operation", "origins", "state"} if session else {"operation", "action"}
                 if payload.get("operation") == "execute":
                     fields.add("scope")
+                elif payload.get("operation") == "credential_fill":
+                    fields = {"operation", "request", "envelope", "scope", "target"}
+                elif payload.get("operation") in {"credential_verify", "credential_prepare"}:
+                    fields = {"operation", "request"}
                 _bound(payload, self._binding, fields)
                 return await self._dispatch(executor, payload)
             except Exception as exc:
-                return _error(exc, "BROWSER_EXECUTOR_REFUSED")
+                return _error(
+                    exc,
+                    "BROWSER_CREDENTIAL_TARGET_REFUSED"
+                    if payload.get("operation") == "credential_verify"
+                    else "BROWSER_EXECUTOR_REFUSED",
+                )
 
         try:
             self._channel = await ConnectedBrowserTransport.connect(connection, command)
@@ -302,10 +371,10 @@ class ConnectedBrowserWorker:
                 else:
                     connection.close()
             finally:
+                self._lease_keys.clear()
                 await executor.close()
 
-    @staticmethod
-    async def _dispatch(executor: BrowserSessionExecutionPort, payload: dict) -> dict:
+    async def _dispatch(self, executor: BrowserSessionExecutionPort, payload: dict) -> dict:
         match payload["operation"]:
             case "initialize" if payload["action"] is None:
                 await executor.initialize()
@@ -319,11 +388,31 @@ class ConnectedBrowserWorker:
                 )
                 if scope is not None:
                     scope.require_action(action, BrowserBinding.model_validate(payload["binding"]))
+                    self._lease_keys.retire_epoch(scope.control_epoch)
                 return dict((await executor.execute(action, scope=scope)).model_dump(mode="json"))
             case "session_export" if payload["state"] is None:
                 origins = _origins(payload["origins"])
                 state = (await executor.export_session(origins)).for_origins(origins)
                 return dict(state.model_dump(mode="json"))
+            case "credential_clear" if payload["action"] is None:
+                await executor.require_clear_secret_inputs()
+                return {"cleared": True}
+            case "credential_fill":
+                from .credential_bridge import worker_fill
+
+                return await worker_fill(executor, payload, keys=self._lease_keys)
+            case "credential_prepare":
+                from .credential_contracts import CredentialUseRequest
+
+                request = CredentialUseRequest.model_validate(payload["request"])
+                await executor.verify_credential_targets(request)
+                return self._lease_keys.prepare(request)
+            case "credential_verify":
+                from .credential_contracts import CredentialUseRequest
+
+                request = CredentialUseRequest.model_validate_json(json.dumps(payload["request"]))
+                target = await executor.verify_credential_targets(request)
+                return {"verified": True, "target": target}
             case "session_import":
                 origins = _origins(payload["origins"])
                 state = RememberedState.model_validate_json(json.dumps(payload["state"]))

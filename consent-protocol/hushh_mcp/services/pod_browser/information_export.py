@@ -112,7 +112,7 @@ async def require_export_grant(
         result = (
             service._get_db()
             .table("consent_audit")
-            .select("user_id,agent_id,scope,request_id")
+            .select("user_id,agent_id,scope,request_id,metadata")
             .eq("token_id", bearer)
             .eq("action", "CONSENT_GRANTED")
             .order("issued_at", desc=True)
@@ -130,6 +130,39 @@ async def require_export_grant(
     }
     if len(rows) != 1 or any(rows[0].get(k) != v for k, v in expected.items()):
         raise BrowserRefused("BROWSER_INFORMATION_GRANT_REFUSED")
+    if selection.field.domain == "credentials":
+        from hushh_mcp.services.owner_item_grants import OwnerItemGrantRefused, owner_item_binding
+
+        metadata = rows[0].get("metadata")
+        if isinstance(metadata, str):
+            import json
+
+            try:
+                metadata = json.loads(metadata)
+            except ValueError:
+                metadata = None
+        try:
+            proof = owner_item_binding(
+                metadata if isinstance(metadata, dict) else {},
+                selection.owner_id,
+                selection.field.scope,
+            )
+            if (
+                proof.get("recipient_kind", "owner_pod") != "owner_pod"
+                or proof.get("pod_id") != selection.pod_id
+                or proof.get("pod_key_id") != selection.pod_key_id
+                or (
+                    selection.field.export_revision == 1
+                    and (
+                        proof["source_content_revision"] != selection.field.source_content_revision
+                        or proof["source_manifest_revision"]
+                        != selection.field.source_manifest_revision
+                    )
+                )
+            ):
+                raise OwnerItemGrantRefused("OWNER_ITEM_AUTHORITY_REFUSED")
+        except OwnerItemGrantRefused:
+            raise BrowserRefused("BROWSER_INFORMATION_GRANT_REFUSED") from None
 
 
 async def verify_export_source_revisions(

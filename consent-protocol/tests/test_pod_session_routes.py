@@ -376,6 +376,438 @@ def test_config_write_updates_the_active_record_and_refuses_unknown_fields(pod):
     assert pod_config.active_pod_config().puppy_broker is False
 
 
+def test_session_only_config_is_durable_before_browser_fence_and_failed_cleanup_retries(
+    pod, monkeypatch
+):
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+    from tests.helpers.pod_browser import task_runtime_fixture
+
+    fixture = task_runtime_fixture(monkeypatch)
+    pod["client"].app.state.browser_task_runtime = fixture.runtime
+    calls = []
+
+    async def suspend(*, pod_id):
+        assert pod_id == OWNER
+        assert pod_config.active_pod_config().session_only_lockdown
+        stored = await pod_config.resolve_pod_config(pod["log"], hushh_id=OWNER)
+        assert stored.session_only_lockdown
+        calls.append(pod_id)
+        if len(calls) == 1:
+            raise BrowserRefused("BROWSER_CLOSE_UNCONFIRMED")
+
+    monkeypatch.setattr(fixture.runtime, "suspend_private_contexts", suspend)
+    client = pod["client"]
+    restricted = Subject("tdv_config_readonly", "web")
+    session = _admit(client, restricted, restricted.binding(scopes=[psa.SCOPE_POD_STATUS]))
+    denied = client.post(
+        "/api/one/pod/config",
+        json={"changes": {"session_only_lockdown": True}},
+        headers=_auth(session),
+    )
+    assert denied.status_code == 403 and not calls
+    assert not pod_config.active_pod_config().session_only_lockdown
+    session = _admit(client, Subject("tdv_config_owner", "web"))
+    response = client.post(
+        "/api/one/pod/config",
+        json={"changes": {"session_only_lockdown": True}},
+        headers=_auth(session),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "BROWSER_CLOSE_UNCONFIRMED",
+        "config_retained": True,
+    }
+    assert pod_config.active_pod_config().session_only_lockdown
+    retry = client.post(
+        "/api/one/pod/config",
+        json={"changes": {"session_only_lockdown": True}},
+        headers=_auth(session),
+    )
+    assert retry.status_code == 200 and len(calls) == 2
+    assert retry.json()["config"]["session_only_lockdown"]
+    assert fixture.launcher.calls == 0  # changing config never starts Browser
+
+
+async def _owner_session_cleanup_fixture(pod, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from api.routes.one import pod_browser
+    from hushh_mcp.services import pod_storage
+    from hushh_mcp.services.pod_browser import composition
+    from hushh_mcp.services.pod_browser.session_erasure import (
+        browser_custody_key,
+        install_session_cleanup,
+    )
+    from hushh_mcp.services.pod_browser.sessions import BrowserSessions
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+    from tests.helpers.pod_browser import _remembered, binding, readiness
+
+    pod["objects"] = pod["authority"].lease._store
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "false")
+    monkeypatch.setattr(pod_storage, "resolve_pod_object_store", lambda: pod["objects"])
+    monkeypatch.setattr(
+        composition,
+        "bind_browser_owner",
+        AsyncMock(side_effect=AssertionError("erasure must not bind Browser")),
+    )
+    app = pod["client"].app
+    app.include_router(pod_browser.router)
+    admission = PodUpgradeAdmission(log_resolver=lambda: pod["log"])
+    install_session_cleanup(
+        app, log=pod["log"], dek=DEK, logger=pod_session.logger, admission=admission
+    )
+    cleanup = app.state.browser_session_cleanup
+    # Seed an approved synthetic cookie object through the production writer.
+    # This fixture does not stand in for website login or owner grant admission.
+    sessions = BrowserSessions(
+        owner_id=USER,
+        store=pod["objects"],
+        log=pod["log"],
+        custody_key=browser_custody_key(DEK),
+        consent=SimpleNamespace(check_binding=AsyncMock(), require=AsyncMock()),
+        readiness=readiness(),
+        fence_live_contexts=AsyncMock(),
+        clock=lambda: 1000,
+        mutations=cleanup.mutations,
+    )
+    sec_id, origins = "sec_" + "a" * 16, ["https://example.com"]
+    site = sessions.site_id(origins[0], sec_id)
+    saved = await sessions.remember(
+        binding(owner_id=USER), site, _remembered(), approved_origins=frozenset(origins)
+    )
+    return cleanup, sessions, saved, admission, {"sec_id": sec_id, "origins": origins}
+
+
+@pytest.mark.parametrize("delete_fault", [False, True])
+async def test_owner_forget_after_restart_needs_no_task_browser_or_cookie_decryption(
+    pod, monkeypatch, delete_fault
+):
+    from dataclasses import replace
+
+    from hushh_mcp.services.pod_browser.session_cipher import BrowserSessionCipher
+    from hushh_mcp.services.pod_browser.session_erasure import install_session_cleanup
+
+    cleanup, _, saved, admission, body = await _owner_session_cleanup_fixture(pod, monkeypatch)
+    app, client = pod["client"].app, pod["client"]
+    owner = _admit(client, Subject("tdv_erase_owner", "web"))
+    headers = _auth(owner)
+    path = "/api/one/pod/browser/sessions/forget"
+    ciphertext = await pod["objects"].get(saved.object_key)
+    assert ciphertext and b"synthetic-session" not in ciphertext
+    monkeypatch.setattr(
+        BrowserSessionCipher, "open", lambda *_: pytest.fail("Forget must not decrypt cookies")
+    )
+    for subject, scopes in (
+        (Subject("tdv_erase_device", "macos"), None),
+        (Subject("tdv_erase_readonly", "web"), [psa.SCOPE_BROWSER_OBSERVE]),
+    ):
+        session = _admit(client, subject, subject.binding(scopes=scopes))
+        denied = client.post(path, headers=_auth(session), json=body)
+        assert denied.status_code == 403
+        assert await pod["objects"].get(saved.object_key) == ciphertext
+    for attribute in ("_pod", "_incarnation"):
+        with monkeypatch.context() as context:
+            context.setattr(cleanup, attribute, "foreign")
+            assert client.post(path, headers=headers, json=body).status_code == 403
+    with monkeypatch.context() as context:
+        lease = pod["authority"].lease
+        context.setattr(lease, "_incarnation", replace(lease.incarnation, epoch=lease.epoch + 1))
+        assert client.post(path, headers=headers, json=body).status_code == 403
+    for invalid in (
+        {**body, "sec_id": "manual-label"},
+        {**body, "origins": ["https://example.com/path"]},
+        {**body, "origins": body["origins"] * 2},
+        {**body, "origins": ["https://example.com"] * 17},
+        {**body, "password": "CANARY_PRIVATE"},
+    ):
+        response = client.post(path, headers=headers, json=invalid)
+        assert response.status_code == 422 and "CANARY_PRIVATE" not in response.text
+    assert (
+        client.post(
+            "/api/one/pod/config",
+            headers=headers,
+            json={"changes": {"session_only_lockdown": True}},
+        ).status_code
+        == 200
+    )
+    cleanup.close()
+    install_session_cleanup(
+        app, log=pod["log"], dek=DEK, logger=pod_session.logger, admission=admission
+    )
+    assert app.state.browser_session_cleanup is not cleanup
+    delete = pod["objects"].delete
+    attempts = []
+
+    async def maybe_delete(object_key):
+        attempts.append(object_key)
+        if delete_fault and len(attempts) == 1:
+            raise RuntimeError("synthetic deletion failure")
+        await delete(object_key)
+
+    monkeypatch.setattr(pod["objects"], "delete", maybe_delete)
+    response = client.post(path, headers=headers, json=body)
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store, private"
+    assert response.json() == {
+        "fenced": True,
+        "persisted": True,
+        "deletion_requested": not delete_fault,
+        "physical_deletion": "subject_to_cloud_retention",
+        "remote_logout": False,
+    }
+    if delete_fault:
+        assert await pod["objects"].get(saved.object_key) == ciphertext
+    retried = client.post(path, headers=headers, json=body)
+    assert retried.status_code == 200 and retried.json()["deletion_requested"]
+    assert await pod["objects"].get(saved.object_key) is None
+    records = await pod["log"].replay()
+    assert (
+        len(
+            [
+                record
+                for record in records
+                if record["kind"] == "browser_session_v1"
+                and record["payload"]["operation"] == "forget"
+            ]
+        )
+        == 1
+    )
+    assert not hasattr(app.state, "browser_task_runtime")
+    assert all(state.active == 0 for state in admission._states.values())
+
+
+@pytest.mark.parametrize("change", ["revoke", "epoch", "incarnation"])
+async def test_owner_forget_rechecks_authority_after_inventory_await_before_tombstone(
+    pod, monkeypatch, change
+):
+    import asyncio
+    from dataclasses import replace
+
+    from httpx import ASGITransport, AsyncClient
+
+    from api.routes.one import pod_browser
+
+    _, _, saved, admission, body = await _owner_session_cleanup_fixture(pod, monkeypatch)
+    subject = Subject("tdv_erase_current", "web")
+    owner = _admit(pod["client"], subject)
+    entered, release = asyncio.Event(), asyncio.Event()
+    fold = pod["log"].fold_since
+
+    async def pause(*args, **kwargs):
+        result = await fold(*args, **kwargs)
+        entered.set()
+        await release.wait()
+        return result
+
+    monkeypatch.setattr(pod["log"], "fold_since", pause)
+    async with AsyncClient(
+        transport=ASGITransport(app=pod["client"].app), base_url="https://pod"
+    ) as client:
+        work = asyncio.create_task(
+            client.post("/api/one/pod/browser/sessions/forget", headers=_auth(owner), json=body)
+        )
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            if change == "revoke":
+                await pod["authority"].revoke_subject(subject.subject_id)
+            elif change == "epoch":
+                lease = pod["authority"].lease
+                monkeypatch.setattr(
+                    lease, "_incarnation", replace(lease.incarnation, epoch=lease.epoch + 1)
+                )
+            else:
+                monkeypatch.setattr(pod_browser, "pod_incarnation", lambda: "replacement")
+            release.set()
+            response = await asyncio.wait_for(work, 2)
+            assert response.status_code == 403
+            assert response.json()["detail"]["code"] == "BROWSER_OWNER_REFUSED"
+            assert await pod["objects"].get(saved.object_key) is not None
+            assert not any(
+                record["kind"] == "browser_session_v1"
+                and record["payload"]["operation"] == "forget"
+                for record in await pod["log"].replay()
+            )
+            assert all(state.active == 0 for state in admission._states.values())
+        finally:
+            release.set()
+            await asyncio.gather(work, return_exceptions=True)
+
+
+@pytest.mark.parametrize("overlap", [False, True])
+async def test_owner_forget_fences_new_task_restore_until_erasure_finishes(
+    pod, monkeypatch, overlap
+):
+    import asyncio
+
+    from httpx import ASGITransport, AsyncClient
+    from starlette.requests import Request
+
+    from api.routes.one import pod_browser
+    from hushh_mcp.services.pod_browser.sessions import BrowserSessions
+    from tests.helpers.pod_browser import (
+        _remembered,
+        approved_task,
+        readiness,
+        task_runtime_fixture,
+    )
+
+    cleanup, _, saved, _, body = await _owner_session_cleanup_fixture(pod, monkeypatch)
+    if not overlap:
+        body["origins"].append("https://second.example")
+    app = pod["client"].app
+    admitted = _admit(pod["client"], Subject("tdv_erase_restore", "web"))
+    headers = _auth(admitted)
+    path = "/api/one/pod/browser/sessions/forget"
+    access = await pod_browser.owner_access(
+        Request({"type": "http", "app": app, "path": path, "headers": []}),
+        headers["Authorization"],
+        psa.SCOPE_BROWSER_CONTROL,
+        bind_runtime=False,
+    )
+    fixture = task_runtime_fixture(monkeypatch, log=pod["log"])
+    runtime = fixture.runtime
+    runtime._owner, runtime._pod, runtime._incarnation = USER, OWNER, access.incarnation
+    runtime._public_research_only = False
+    runtime._session_mutations = cleanup.mutations
+    fixture.owner = access
+    fixture.request = fixture.request.model_copy(update={"allowed_origins": tuple(body["origins"])})
+
+    async def check_binding(_):
+        await access.check()
+
+    monkeypatch.setattr(fixture.auth, "check_binding", check_binding)
+    imported = []
+
+    async def install(state, _origins):
+        imported.append(state)
+
+    monkeypatch.setattr(fixture.driver, "import_session", install, raising=False)
+    runtime._sessions_factory = lambda consent: BrowserSessions(
+        owner_id=USER,
+        store=pod["objects"],
+        log=pod["log"],
+        custody_key=cleanup._key,
+        consent=consent,
+        readiness=readiness(),
+        fence_live_contexts=runtime.fence_live_contexts,
+        clock=lambda: 1000,
+        mutations=cleanup.mutations,
+    )
+    app.state.browser_task_runtime = runtime
+    fenced = [asyncio.Event(), asyncio.Event()]
+    release = [asyncio.Event(), asyncio.Event()]
+    close_calls = 0
+    close_contexts = runtime.fence_live_contexts
+
+    async def pause_after_close(site):
+        nonlocal close_calls
+        index = close_calls
+        close_calls += 1
+        await close_contexts(site)
+        if index < (2 if overlap else 1):
+            fenced[index].set()
+            await release[index].wait()
+
+    monkeypatch.setattr(runtime, "fence_live_contexts", pause_after_close)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://pod") as client:
+        erasing = asyncio.create_task(client.post(path, headers=headers, json=body))
+        overlapping = None
+        try:
+            await asyncio.wait_for(fenced[0].wait(), 2)
+            if overlap:
+                overlapping = asyncio.create_task(client.post(path, headers=headers, json=body))
+                await asyncio.wait_for(fenced[1].wait(), 2)
+            # A newly admitted public task remains usable while erasure closes
+            # the prior context. Its new session port must share the fence.
+            snapshot = await asyncio.wait_for(approved_task(fixture), 3)
+            task = runtime._tasks[snapshot.binding.task_id]
+            await asyncio.wait_for(
+                runtime.control(access, task.binding.task_id, "takeover", snapshot.control_epoch), 3
+            )
+            site = task.sessions.site_id(body["origins"][0], body["sec_id"])
+            terms = {
+                "site": site,
+                "generation": saved.generation,
+                "object": saved.object_key,
+                "digest": saved.digest,
+                "origins": [body["origins"][0]],
+            }
+            fixture.reviews.grants.add(
+                fixture.reviews.identity(task.binding, "session_restore", terms)
+            )
+            for origin in body["origins"]:
+                with pytest.raises(pod_browser.BrowserRefused, match="FORGET_PENDING"):
+                    await asyncio.wait_for(
+                        runtime.session(
+                            access, task.binding.task_id, "restore", origin, body["sec_id"]
+                        ),
+                        3,
+                    )
+            with pytest.raises(pod_browser.BrowserRefused, match="FORGET_PENDING"):
+                await runtime.session(
+                    access, task.binding.task_id, "remember", body["origins"][0], body["sec_id"]
+                )
+            assert not imported
+            release[0].set()
+            receipt = await asyncio.wait_for(erasing, 2)
+            assert receipt.status_code == 200 and receipt.json()["fenced"]
+            assert await pod["objects"].get(saved.object_key) is None
+            if overlapping is not None:
+                assert not overlapping.done()
+                with pytest.raises(pod_browser.BrowserRefused, match="FORGET_PENDING"):
+                    await runtime.session(
+                        access, task.binding.task_id, "restore", body["origins"][0], body["sec_id"]
+                    )
+                release[1].set()
+                second_receipt = await asyncio.wait_for(overlapping, 2)
+                assert second_receipt.status_code == 200 and second_receipt.json()["fenced"]
+            # Completion releases the temporary fence; an explicit new save
+            # and review can create a new generation without a permanent drain.
+            if task.closed:
+                fixture.request = fixture.request.model_copy(update={"request_id": "new_request"})
+                fixture.model.entered.clear()
+                launches = fixture.launcher.calls
+                snapshot = await runtime.start(access, fixture.request)
+                await runtime._tasks[snapshot.binding.task_id].worker
+                snapshot = await runtime.read(access, snapshot.binding.task_id)
+                assert snapshot.phase == "needs_owner" and fixture.launcher.calls == launches
+                await runtime.confirm_review(
+                    access,
+                    snapshot.binding.task_id,
+                    snapshot.review.review_id,
+                    "synthetic-owner-receipt-" + "x" * 32,
+                )
+                await asyncio.wait_for(fixture.model.entered.wait(), 3)
+                assert fixture.launcher.calls == launches + 1
+                snapshot = await runtime.read(access, snapshot.binding.task_id)
+                task = runtime._tasks[snapshot.binding.task_id]
+                await runtime.control(
+                    access, task.binding.task_id, "takeover", snapshot.control_epoch
+                )
+            state = _remembered()
+            remember_terms = {
+                "site": site,
+                "generation": 1,
+                "origins": [body["origins"][0]],
+                "state": state.model_dump(mode="json"),
+            }
+            fixture.reviews.grants.add(
+                fixture.reviews.identity(task.binding, "session_remember", remember_terms)
+            )
+            current = await task.sessions.remember(
+                task.binding, site, state, approved_origins=frozenset({body["origins"][0]})
+            )
+            assert current.generation == 1 and current.object_key != saved.object_key
+        finally:
+            for event in release:
+                event.set()
+            await asyncio.gather(
+                erasing, *([overlapping] if overlapping is not None else []), return_exceptions=True
+            )
+            await asyncio.wait_for(runtime.drain(), 3)
+
+
 # -- revocation -----------------------------------------------------------------------
 
 

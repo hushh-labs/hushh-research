@@ -42,6 +42,7 @@ class BrowserTaskState:
     starting: asyncio.Task | None = field(default=None, repr=False)
     input_worker: asyncio.Task | None = field(default=None, repr=False)
     save_worker: asyncio.Task | None = field(default=None, repr=False)
+    credential_worker: asyncio.Task | None = field(default=None, repr=False)
     input_commitment: str | None = field(default=None, repr=False)
     delivery_id: str | None = None
     delivery_attached: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
@@ -51,11 +52,15 @@ class BrowserTaskState:
     revision: int = 1
     code: str | None = None
     summary: str | None = field(default=None, repr=False)
+    activity_receipt: dict | None = None
     review: BrowserReviewOffer | None = field(default=None, repr=False)
     closed: bool = False
     processing_approved: bool = False
     stop_refusal: str | None = None
     model_completed: bool = False
+    # Monotonic for this live context: clearing a login prompt or completing a
+    # fill must not turn its authenticated cookies back into public browsing.
+    private_context: bool = False
     saved_downloads: dict[str, dict] = field(default_factory=dict, repr=False)
     operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     review_operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -68,4 +73,5 @@ class BrowserTaskState:
         self.request = self.access = self.processing = self.consent = None
         self.sessions = self.authority = self.control = None
         self.worker = self.monitor = self.input_worker = self.starting = self.save_worker = None
+        self.credential_worker = None
         self.input_commitment = None

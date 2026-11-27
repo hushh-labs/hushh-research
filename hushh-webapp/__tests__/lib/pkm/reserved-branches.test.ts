@@ -20,7 +20,11 @@ import {
 } from "@/lib/pkm/reserved-branches";
 import { buildGmailWorkspaceRoute, gmailDeepLinkWorkspace } from "@/lib/navigation/routes";
 import { collectDomainRows } from "@/lib/pkm/memory-complete-rows";
-import { excludePrivatePkmDomains, isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
+import { excludePrivatePkmDomains, isOwnerItemGrantScope, isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
+
+import { externalizableManifestLeaves } from "@/lib/consent/manifest-exposure";
+import { buildPkmMemorySnapshot, shouldSkipPkmAgentContextKey } from "@/lib/pkm/pkm-memory-cards";
+import { buildPkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 
 /**
  * `contracts/pkm/reserved-branches.v1.json` decides which PKM branches belong to
@@ -139,6 +143,25 @@ function offerRouteProblems(
 }
 
 describe("reserved-branch loader", () => {
+  it("quarantines retired credentials independently of the canonical registry", () => {
+    const id = "cred_" + "a".repeat(32);
+    expect(reservedEntryFor("credentials", "summary")).toBeNull();
+    for (const writerId of ["memory_structured", "secrets_vault", "pkm_upgrade_orchestrator", "unknown"]) {
+      expect(evaluateReservedWrite({ domain: "credentials", paths: ["summary", "secrets"], writerId })).not.toEqual([]);
+    }
+    for (const scope of ["attr.credentials.*", `attr.credentials.summary.${id}`, `attr.credentials.secrets.${id}`]) {
+      expect(isPrivatePkmExportScope(scope)).toBe(true); expect(isOwnerItemGrantScope(scope)).toBe(false);
+    }
+    expect(isOwnerItemGrantScope("attr.secrets.items.sec_aaaaaaaaaaaaaaaa")).toBe(true);
+    expect(shouldSkipPkmAgentContextKey("credentials")).toBe(true);
+    expect(buildPkmMemorySnapshot({ metadata: null, fullBlob: { credentials: { summary: { [id]: { label: "SYNTHETIC_PRIVATE_LABEL" } } } } }).cards).toEqual([]);
+    expect(collectDomainRows({ domain: "credentials", domainData: { summary: { label: "SYNTHETIC_PRIVATE_LABEL" } }, audience: "agent" }).rows).toEqual([]);
+    expect(externalizableManifestLeaves({ domain: "credentials", externalizable_paths: ["summary.label"], paths: [{ json_path: "summary.label", path_type: "leaf", exposure_eligibility: true }] })).toEqual([]);
+    expect(excludePrivatePkmDomains({ credentials: { summary: { label: "SYNTHETIC_PRIVATE_LABEL" } }, food: { name: "Synthetic" } })).toEqual({ food: { name: "Synthetic" } });
+    const preview = buildPkmSectionPreviewPresentation({ domain: "credentials", domainTitle: "Credentials", permissionLabel: "Private", topLevelScopePath: "summary", value: { label: "SYNTHETIC_PRIVATE_LABEL" } });
+    expect(JSON.stringify(preview)).not.toContain("SYNTHETIC_PRIVATE_LABEL");
+  });
+
   it("reserves a wildcard domain apart from its except branch", () => {
     expect(reservedEntryFor("financial", "portfolio.holdings")?.ownerFeature).toBe("finance");
     expect(reservedEntryFor("financial", "")?.ownerFeature).toBe("finance");

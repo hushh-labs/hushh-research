@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .task_runtime import BrowserTaskRuntime
     from .task_state import BrowserTaskState
 
-from .consent import BrowserConsentPort, Purpose
+from .consent import ApprovalRecheck, BrowserConsentPort, Purpose
 from .contracts import (
     BrowserAction,
     BrowserAuthorityPort,
@@ -74,15 +74,23 @@ class TaskConsent(BrowserConsentPort):
             raise BrowserRefused("BROWSER_BINDING_REFUSED")
         if self._check_runtime:
             await self._check_runtime()
-        await self._access.check()
-        await self._reviews.check_binding(binding)
+        await self.check_cleanup_binding(binding)
         if self._check_runtime:
             await self._check_runtime()
 
-    async def require(self, binding: BrowserBinding, purpose: Purpose, private_terms: dict) -> None:
+    async def check_cleanup_binding(self, binding: BrowserBinding) -> None:
+        """Current owner admission for erasure, never execution or observation."""
+        if binding != self._binding or binding.expires_at <= self._clock():
+            raise BrowserRefused("BROWSER_BINDING_REFUSED")
+        await self._access.check()
+        await self._reviews.check_binding(binding)
+
+    async def require(
+        self, binding: BrowserBinding, purpose: Purpose, private_terms: dict
+    ) -> ApprovalRecheck | None:
         await self.check_binding(binding)
         try:
-            await self._reviews.require(binding, purpose, private_terms)
+            approval = await self._reviews.require(binding, purpose, private_terms)
         except BrowserRefused as exc:
             if exc.code != "BROWSER_OWNER_APPROVAL_REQUIRED":
                 raise
@@ -91,15 +99,28 @@ class TaskConsent(BrowserConsentPort):
             if offer.purpose != purpose:
                 raise BrowserRefused("BROWSER_REVIEW_INVALID")
             self._pending(owner_review(offer))
-            if purpose not in {"provider_safety", "disclose"} or self._wait_for_review is None:
+            if (
+                purpose not in {"provider_safety", "disclose", "credential_fill"}
+                or self._wait_for_review is None
+            ):
                 raise
             # Keep the exact native invocation paused in this bounded task.
             # A confirmation wakes this stack, not a new interpretation of the
             # goal. Takeover, stop, expiry and drain cancel the waiting worker.
             await self._wait_for_review(offer)
             await self.check_binding(binding)
-            await self._reviews.require(binding, purpose, private_terms)
+            approval = await self._reviews.require(binding, purpose, private_terms)
         await self.check_binding(binding)
+        if purpose == "credential_fill":
+            if not callable(approval):
+                raise BrowserRefused("BROWSER_CREDENTIAL_APPROVAL_UNAVAILABLE")
+
+            async def recheck():
+                await self.check_binding(binding)
+                await approval()
+                await self.check_binding(binding)
+
+            return recheck
 
 
 class TaskAuthority(BrowserAuthorityPort):
@@ -107,6 +128,13 @@ class TaskAuthority(BrowserAuthorityPort):
         self, binding: BrowserBinding, consent: TaskConsent, authority: BrowserAuthorityPort
     ) -> None:
         self._binding, self._consent, self._authority = binding, consent, authority
+
+    async def consume_credential_nonce(self, binding, nonce: str) -> None:
+        await self.check_binding(binding)
+        consume = getattr(self._authority, "consume_credential_nonce", None)
+        if consume is None:
+            raise BrowserRefused("BROWSER_CREDENTIAL_NONCE_UNAVAILABLE")
+        await consume(binding, nonce)
 
     async def check_binding(self, binding: BrowserBinding) -> None:
         if binding != self._binding:
@@ -173,6 +201,7 @@ async def prepare_task(
     async def check_runtime() -> None:
         if task.closed or task.closing is not None:
             raise BrowserRefused("BROWSER_STOPPED")
+        await runtime._check_private_context_current(task)
         current = runtime.capability()
         if not current.available:
             raise BrowserRefused(current.code)

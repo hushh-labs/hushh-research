@@ -121,9 +121,9 @@ def test_nl_structuring_cannot_invent_the_secrets_domain() -> None:
         "attr.secrets.items.sec_00000000000000ab.value",
     ],
 )
-def test_nothing_in_secrets_is_requestable_and_nothing_exports(scope: str) -> None:
+def test_secrets_remain_nonrequestable_with_only_exact_owner_item_export(scope: str) -> None:
     assert not is_external_requestable_pkm_scope(scope)
-    assert is_private_pkm_export_scope(scope)
+    assert is_private_pkm_export_scope(scope) is not is_owner_item_grant_scope(scope)
 
 
 @pytest.mark.parametrize(

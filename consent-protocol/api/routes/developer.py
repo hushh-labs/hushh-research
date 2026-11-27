@@ -240,15 +240,10 @@ def _require_hushh_tech_consent_epoch(
 
 
 def _hushh_tech_consent_scope_allowed(scope: str | None) -> bool:
-    normalized = normalize_scope(scope) if scope else ""
-    allowed = {
-        normalize_scope(item)
-        for item in str(os.getenv("HUSSH_TECH_ALLOWED_CONSENT_SCOPES", "")).split(",")
-        if str(item).strip()
-    }
-    return (
-        normalized.startswith("attr.") and not normalized.endswith(".*") and normalized in allowed
-    )
+    # Compatibility entrypoint; one policy is used by readers and owner offers.
+    from hushh_mcp.services.hushh_tech_consent_policy import hushh_tech_consent_scope_allowed
+
+    return bool(hushh_tech_consent_scope_allowed(scope))
 
 
 def _require_hushh_tech_consent_scope(

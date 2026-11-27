@@ -101,6 +101,7 @@ const OWNER_POD_ROUTES = new Set([
   "memory/provider-consent",
   "status",
   "config",
+  "agent-chat/browser-activity",
   "circle-rules",
   "circle-rules/preview",
   "turn/stream",
@@ -113,6 +114,7 @@ const OWNER_POD_ROUTES = new Set([
   "actions/gmail/proposals",
   "browser/capability",
   "browser/tasks",
+  "browser/sessions/forget",
   "tasks",
   "tasks/control",
   "tasks/review",
@@ -143,6 +145,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
+  /^browser\/tasks\/browser_[a-f0-9]{32}\/credentials\/(use|transient)$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
   /^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/,
   /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
@@ -330,31 +333,36 @@ export async function ownerPodRequest(
       throw new Error("SCHEDULE_GRANT_REFUSED");
     }
   }
-  if (route.startsWith("browser/")) {
-    const read =
-      route === "browser/capability" ||
-      (route === "browser/tasks" && method === "GET") ||
-      /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
-    const isDownloadSave =
-      /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/.test(
-        route,
-      );
-    const scope = read
-      ? "browser.observe"
-      : route === "browser/tasks"
-        ? "browser.invoke"
-        : "browser.control";
-    if (
-      session.role !== "app" ||
-      !session.scopes.includes(scope) ||
-      (isDownloadSave &&
-        (!session.scopes.includes("files.read") ||
-          !session.scopes.includes("files.manage"))) ||
-      method !== (read ? "GET" : "POST")
-    ) {
-      throw new Error("POD_BROWSER_REQUEST_REFUSED");
+  const validateBrowserSession = (session: OwnerPodConnection["session"]) => {
+    if (route === "agent-chat/browser-activity" && (method !== "POST" || session.role !== "app" || !session.scopes.includes("pod.status") || !session.scopes.includes("pkm.read") || !session.scopes.includes("browser.observe"))) throw new Error("POD_CHAT_REQUEST_INVALID");
+    if (route.startsWith("browser/")) {
+      const read =
+        route === "browser/capability" ||
+        (route === "browser/tasks" && method === "GET") ||
+        /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
+      const isDownloadSave =
+        /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/.test(
+          route,
+        );
+      const scope = read
+        ? "browser.observe"
+        : route === "browser/tasks"
+          ? "browser.invoke"
+          : "browser.control";
+      if (
+        session.role !== "app" ||
+        !session.scopes.includes(scope) ||
+        (isDownloadSave &&
+          (!session.scopes.includes("files.read") ||
+            !session.scopes.includes("files.manage"))) ||
+        method !== (read ? "GET" : "POST")
+      ) {
+        throw new Error("POD_BROWSER_REQUEST_REFUSED");
+      }
     }
-  }
+
+  };
+  validateBrowserSession(session);
   if (
     route.startsWith("actions/") &&
     (session.role !== "app" ||
@@ -554,6 +562,14 @@ export async function ownerPodRequest(
         ownerPod.currentPodConnection(uid, transport),
         init.signal,
       );
+      refuseCancelled();
+      refuseRetiredOwner(ports.isCurrent);
+      if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
+      if (!isVaultSessionEpochCurrent(vaultEpoch)) throw new Error("POD_VAULT_SESSION_CHANGED");
+      if (next.endpoint.hushhId !== endpoint.hushhId ||
+          (expectedHushhId && next.endpoint.hushhId !== expectedHushhId))
+        throw new Error("POD_DIRECT_OWNER_MISMATCH");
+      validateBrowserSession(next.session);
       ({ endpoint, session, directVerifiedAt } = next);
       headers.set("Authorization", `Bearer ${session.session}`);
       const retryRequest: RequestInit = {

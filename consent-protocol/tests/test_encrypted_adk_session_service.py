@@ -23,6 +23,200 @@ from hushh_mcp.one_adk.encrypted_session_service import (
 from tests.helpers.chat_keys import static_chat_cipher
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_answer", [True, False])
+async def test_browser_activity_is_bound_static_encrypted_history_not_model_content(
+    tmp_path, has_answer
+):
+    import json
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
+    from hushh_mcp.one_adk.browser_activity_history import record_browser_activity
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionProjection,
+        PodAdkSessionRepository,
+    )
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+    owner_id, pod_id, incarnation = "owner-browser", "ha1_browser-test", "incarnation-test"
+    task_id = "browser_" + "a" * 32
+    access = AsyncMock()
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"b" * 32, owner_id=pod_id)
+    projection = PodAdkSessionProjection(owner_id=owner_id, hushh_id=pod_id, log=log)
+    service = EncryptedAdkSessionService(
+        static_chat_cipher(),
+        repository=PodAdkSessionRepository(
+            projection=projection,
+            require_access=access,
+        ),
+    )
+    session = await service.create_session(
+        app_name=ONE_APP_NAME, user_id=owner_id, session_id="browser-thread"
+    )
+    binding = {
+        "owner_id": owner_id,
+        "pod_id": pod_id,
+        "incarnation": incarnation,
+        "task_id": task_id,
+    }
+    creation = Event(
+        id="browser-created",
+        author="one",
+        invocation_id="browser-turn",
+        content=types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        name="start_browser_task",
+                        id="browser-call",
+                        response={"status": "accepted", "binding": binding},
+                    )
+                )
+            ],
+        ),
+    )
+    await service.append_event(session, creation)
+    if has_answer:
+        await service.append_event(
+            session,
+            Event(
+                id="browser-answer",
+                author="one",
+                invocation_id="browser-turn",
+                content=types.Content(
+                    role="model", parts=[types.Part(text="The browser task is ready.")]
+                ),
+            ),
+        )
+    # Never attach a delayed Browser receipt to this newer unrelated answer.
+    await service.append_event(
+        session,
+        Event(
+            id="unrelated-answer",
+            author="one",
+            invocation_id="another-turn",
+            content=types.Content(role="model", parts=[types.Part(text="Another answer.")]),
+        ),
+    )
+    owner = SimpleNamespace(
+        owner=owner_id,
+        hushh_id=pod_id,
+        _browser_incarnation=incarnation,
+        sessions=service,
+        projection=projection,
+        require_access=access,
+        runtime_scope=nullcontext,
+    )
+    receipt = {
+        "v": 1,
+        "kind": "browser_sign_in",
+        "state": "completed",
+        "task_id": task_id,
+        "operation_id": "credential_operation_1",
+    }
+    snapshot = SimpleNamespace(binding=SimpleNamespace(**binding), activity_receipt=receipt)
+    first = await record_browser_activity(owner, session.id, snapshot)
+    second = await record_browser_activity(owner, session.id, snapshot)
+    assert (
+        first
+        == second
+        == {
+            "conversation_id": session.id,
+            "message_id": "browser-answer" if has_answer else "browser-created",
+            "receipt": receipt,
+        }
+    )
+    restored = await service.get_session(
+        app_name=ONE_APP_NAME, user_id=owner_id, session_id=session.id
+    )
+    receipt_events = [event for event in restored.events if event.author == "browser_activity"]
+    assert len(receipt_events) == 1
+    assert receipt_events[0].content is None and not receipt_events[0].actions.state_delta
+    assert len(json.dumps(receipt, separators=(",", ":")).encode()) <= 256
+    # A delayed request observed Allow before the completion but commits later.
+    # Both its response and history retain the real final result.
+    delayed = SimpleNamespace(
+        binding=snapshot.binding, activity_receipt={**receipt, "state": "allowed"}
+    )
+    assert await record_browser_activity(owner, session.id, delayed) == first
+    restored = await service.get_session(
+        app_name=ONE_APP_NAME, user_id=owner_id, session_id=session.id
+    )
+    # If the app missed a later supersession, a read of the actual sealed task
+    # checkpoint restores that fact without a controller, write or new model call.
+    from hushh_mcp.one_adk.browser_activity_history import browser_activity_snapshots
+    from hushh_mcp.one_adk.history_descriptors import _event_text, _safe_agent_history_metadata
+    from hushh_mcp.one_adk.history_projection import project_conversation_history
+
+    terminal = SimpleNamespace(
+        binding=snapshot.binding, activity_receipt={**receipt, "state": "superseded"}
+    )
+    read_metadata = AsyncMock(return_value={task_id: terminal})
+    owner.browser_runtime = SimpleNamespace(read_activity_receipts=read_metadata)
+    owner.claims = {"exp": 2_000_000_000}
+    owner.authority = SimpleNamespace(environment="development")
+    owner._browser_history_access = AsyncMock()
+    checkpoints = await browser_activity_snapshots(owner, restored.events)
+    assert checkpoints == (terminal,)
+    read_metadata.assert_awaited_once()
+    assert read_metadata.await_args.args[1] == [task_id]
+    history = project_conversation_history(
+        restored.events,
+        session.id,
+        100,
+        browser_activity_snapshots=checkpoints,
+        project_event=lambda e: (_event_text(e), _safe_agent_history_metadata(e)),
+    )
+    anchor = next(item for item in history["messages"] if item["id"] == first["message_id"])
+    assert anchor["metadata"]["compactActivityReceipts"] == [terminal.activity_receipt]
+    assert not any(
+        item["metadata"] and item["metadata"].get("compactActivityReceipts")
+        for item in history["messages"]
+        if item["id"] == "unrelated-answer"
+    )
+    older_checkpoint = project_conversation_history(
+        restored.events,
+        session.id,
+        100,
+        browser_activity_snapshots=(delayed,),
+        project_event=lambda e: (_event_text(e), _safe_agent_history_metadata(e)),
+    )
+    final_anchor = next(
+        item for item in older_checkpoint["messages"] if item["id"] == first["message_id"]
+    )
+    assert final_anchor["metadata"]["compactActivityReceipts"] == [receipt]
+    # Existing owner-key sealing, log recovery and idempotent append are used.
+    rows = await log.replay()
+    assert rows
+    assert "browser_sign_in" not in json.dumps(rows)
+    for file in tmp_path.rglob("*"):
+        if file.is_file():
+            assert b"browser_sign_in" not in file.read_bytes()
+
+    original_count = len(restored.events)
+    foreign = SimpleNamespace(
+        binding=SimpleNamespace(**{**binding, "owner_id": "foreign-owner"}),
+        activity_receipt=receipt,
+    )
+    with pytest.raises(ValueError, match="NOT_ADMITTED"):
+        await record_browser_activity(owner, session.id, foreign)
+    with pytest.raises(ValueError, match="CONVERSATION_NOT_FOUND"):
+        await record_browser_activity(owner, "foreign-thread", snapshot)
+    # Closed fields reject a forged URL/password payload instead of persisting it.
+    malformed = SimpleNamespace(
+        binding=snapshot.binding, activity_receipt={**receipt, "password": "synthetic-private"}
+    )
+    with pytest.raises(ValueError, match="NOT_ADMITTED"):
+        await record_browser_activity(owner, session.id, malformed)
+    final = await service.get_session(
+        app_name=ONE_APP_NAME, user_id=owner_id, session_id=session.id
+    )
+    assert len(final.events) == original_count
+
+
 def _decode_as(service, session, row):
     return service._decode(
         row, app_name=session.app_name, user_id=session.user_id, session_id=session.id

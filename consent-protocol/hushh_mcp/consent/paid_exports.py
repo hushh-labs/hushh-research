@@ -229,7 +229,9 @@ async def _store_canonical_export(
     return token
 
 
-async def export_is_admitted(service: Any, export: dict[str, Any]) -> bool:
+async def export_is_admitted(
+    service: Any, export: dict[str, Any], *, allow_stale_source: bool = False
+) -> bool:
     """All export lookups share signature, exact grant and paid admission."""
     from hushh_mcp.consent.token import validate_token_with_db
 
@@ -241,6 +243,18 @@ async def export_is_admitted(service: Any, export: dict[str, Any]) -> bool:
     grant = await token_grant(service._get_db(), str(export.get("consent_token")))
     metadata = service._parse_metadata(grant.get("metadata")) if grant else {}
     from hushh_mcp.consent.paid_admission import is_paid_grant, paid_grant_is_admitted
+    from hushh_mcp.consent.pkm_scope_policy import (
+        consent_token_scope_value,
+        is_owner_item_grant_scope,
+    )
+
+    if is_owner_item_grant_scope(consent_token_scope_value(token)):
+        from hushh_mcp.services.credentials_export_validation import owner_item_export_is_admitted
+
+        if not await owner_item_export_is_admitted(
+            export, token, metadata, allow_stale_source=allow_stale_source
+        ):
+            return False
 
     if is_paid_grant(metadata):
         from db.connection import get_pool

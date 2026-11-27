@@ -43,6 +43,62 @@ and Web/iOS/Android human journeys remain required. Saved website logins remain
 the separate Phase 4 in
 [#9511](https://github.com/hushh-labs/hushh-research/issues/9511).
 
+## Saved-login source alignment (27 November 2026)
+
+The [owner review](https://github.com/hushh-labs/hushh-research/issues/9511#issuecomment-7209970731)
+supersedes the November 24 separate credentials/pod-wrap proposal. PR #10040 is
+held for canonical Secrets, human-key-only single-use Allow, static encrypted
+history receipts and per-item PostgreSQL grant alignment. Earlier source probes
+and application deployment receipts for that superseded candidate do not prove
+this refactor or installed acceptance. Old encrypted records must remain
+recoverable through explicit unlocked-device import; no automatic migration or
+owner-account journey is claimed.
+
+Phase 3 requires actual Confidential Sandbox walkthrough receipts on Dev and UAT
+for Web, iPhone and Android: workspace, private takeover, Resume, Files save and
+zero idle polling. Azure BYOC and Puppy qualification are paused until dedicated
+pod/hardware handoff. Issue #9511 remains open until the owner accepts those
+journeys and the exact saved-login image/host/model qualifications.
+
+The current PR candidate also closes two source gaps: Session-only now fences
+already-live private Browser contexts, and canonical Secrets can Forget a
+record's current-origin sessions after task teardown without launching Browser.
+Focused verification passed 172 backend tests, 99 frontend tests, and 76
+migration/replay/governance tests after allocating the Browser successor to 467.
+These are source checks, not serving-image or device acceptance.
+The current native Chat merge also preserves validated Browser creation metadata
+when a Finance read in the same invocation is redacted. Its 28 focused tests
+include encrypted-history readback and retain the private-result boundary.
+The subsequent persistence correction verifies three encrypted save/read cycles
+and a later turn, with 44 focused cases covering both initial and already
+projected receipts. This metadata never grants Browser execution authority.
+A shared temporary erasure fence also prevents newly admitted tasks from
+restoring cookies while Forget closes contexts and deletes session objects.
+The 151-case affected suite covers overlapping erasers and later explicitly
+reviewed saves; public browsing remains available during erasure.
+
+| Environment | Surface | Walkthrough evidence on 27 November |
+| --- | --- | --- |
+| Dev | Web | Reviewer authentication and vault unlock passed. The public Browser prompt was submitted through a fresh chat after dismissing two authored notices. The BYOC GCP reviewer is not a Sandbox fixture, and trusted-device enrollment refuses its review-mode token with `TRUSTED_DEVICE_REVIEW_SESSION_REFUSED`. No accepted Browser task or complete Sandbox journey was verified. |
+| UAT | Web | Reviewer authentication and vault unlock passed. No accepted Browser task or complete signed-in journey was verified. |
+| Dev and UAT | Native iPhone | Not run. A native Simulator target and runner recipe are prepared; no app walkthrough was executed. |
+| Dev and UAT | Native Android | Not run. The task-local SDK, Emulator target and runner recipe are prepared; no app walkthrough was executed. |
+
+The owner's linked Phase 3 request names Web, iPhone and Android without
+explicitly requiring physical hardware. Simulator/Emulator receipts must name
+their actual targets and do not establish physical-device or human acceptance.
+Neither PR #10040 nor Search Console PR #1149 is recorded here as merged or
+deployed by these local checks.
+
+The source prerequisites for Sandbox acceptance also remain open: an explicit
+opaque Sentinel CONNECT backend with current lease and tunnel lifecycle checks,
+resident Browser task delivery, exact gVisor image/native-model qualification,
+and typed activation through the actual Edge-to-standby placement path. Existing
+owner-cloud activation and synthetic probes do not qualify that host. Preserve
+website TLS and the reviewer-token containment guard; use a normally admitted
+owner-selected Sandbox test session for the live walks. Do not enable the host
+by changing flags or route credentials through plaintext Sentinel forwarding.
+
 ## Dev confidential sandbox cutover baseline (23 November 2026)
 
 Source-implemented on `dev` (pending live `hushh-pda-dev` atomic rollout and background Chrome comeback acceptance):

@@ -24,7 +24,7 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_SELECTED_DRIVE_SHARE,
 )
 from hushh_mcp.one_adk.finance_a2ui import native_finance_receipt_kind
-from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME
+from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME, _browser_task_receipt
 from hushh_mcp.one_adk.plaid_connector_tools import (
     PLAID_RESULT_STATUSES,
     PLAID_TOOL_NAMES,
@@ -52,6 +52,7 @@ from hushh_mcp.one_adk.wiki_recall_tools import (
     WIKI_TOOL_NAMES,
 )
 from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
+from hushh_mcp.services.pod_browser.contracts import BrowserBinding
 
 _EPHEMERAL = frozenset(
     {
@@ -137,7 +138,47 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     return receipt
 
 
+def _browser_creation_metadata(event, response, *, owner_id: str, calls: set[tuple]) -> dict | None:
+    """Keep a correlated discovery/history anchor, never the Browser tool payload."""
+    if (
+        event.author != "one"
+        or event.partial
+        or response.name != "start_browser_task"
+        or (event.invocation_id, response.id) not in calls
+        or _browser_task_receipt(event, response) is None
+    ):
+        return None
+    raw = response.response["binding"]
+    fields = ("owner_id", "pod_id", "incarnation", "task_id")
+    if set(response.response) == {"status", "binding"} and set(raw) == set(fields):
+        # Re-saving decoded history must preserve this closed, presentation-only
+        # shape. It deliberately carries no expiry or execution environment.
+        if any(not isinstance(value, str) or not 0 < len(value) <= 256 for value in raw.values()):
+            return None
+        metadata = dict(raw)
+    else:
+        try:
+            binding = BrowserBinding.model_validate(
+                {key: raw.get(key) for key in BrowserBinding.model_fields}
+            )
+        except ValueError:
+            return None
+        metadata = {key: getattr(binding, key) for key in fields}
+    if metadata["owner_id"] != owner_id:
+        return None
+    return {"status": "accepted", "binding": metadata}
+
+
 def durable_external_read_projection(session: Session) -> Session:
+    browser_calls = {
+        (event.invocation_id, part.function_call.id)
+        for event in session.events
+        if event.author == "one" and event.content
+        for part in event.content.parts or []
+        if not part.thought
+        and part.function_call
+        and part.function_call.name == "start_browser_task"
+    }
     account_calls = {
         part.function_call.id
         for event in session.events
@@ -272,7 +313,14 @@ def durable_external_read_projection(session: Session) -> Session:
                 part.function_response.name in PRIVATE_DEVICE_READ_TOOLS
                 or event.invocation_id in receipt_result_invocations
             ):
-                part.function_response.response = {"content_redacted": True}
+                creation = (
+                    _browser_creation_metadata(
+                        event, part.function_response, owner_id=session.user_id, calls=browser_calls
+                    )
+                    if not part.thought
+                    else None
+                )
+                part.function_response.response = creation or {"content_redacted": True}
             if event.author != "user" and event.invocation_id in receipt_invocations and part.text:
                 placeholder = (
                     PRIVATE_ACCOUNT_ANSWER

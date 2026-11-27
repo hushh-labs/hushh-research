@@ -179,6 +179,7 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.GMAIL]: "Mail",
     [ROUTES.PKM]: "Memory",
     [ROUTES.PKM_RECENT]: "Recently learned",
+    [ROUTES.PKM_LOGINS]: "Website logins",
     [ROUTES.PKM_LOCATION]: "Location",
     [ROUTES.PKM_LOCATION_DETAIL]: "Detail",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
@@ -1025,6 +1026,15 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           { label: "Recently learned" },
         ],
       };
+    },
+  },
+  {
+    id: "pkm-logins",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.PKM_LOGINS) return undefined;
+      return { backHref: ROUTES.PKM, width: "profile", align: "center", items: [
+        { label: "One", href: ROUTES.ONE_HOME }, { label: "Memory", href: ROUTES.PKM }, { label: "Website logins" },
+      ] };
     },
   },
   {

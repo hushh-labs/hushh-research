@@ -98,6 +98,19 @@ it("consumes a fragmented native ADK result from top-level One only", () => {
   expect(second.remainder).toBe("");
 });
 
+it("delivers a coalesced Browser receipt under its native session without retaining it in visual output", () => {
+  const receipt = { invocationId: "invocation", toolCallId: "call", status: "accepted",
+    binding: { owner_id: "owner", task_id: `browser_${"a".repeat(32)}` } };
+  const observed: unknown[] = [];
+  const output = consumeNativeAdkFrames(createNativeAdkTurnOutput(),
+    `event: start\ndata: {"sessionId":"session"}\n\nevent: browser_task\ndata: ${JSON.stringify(receipt)}\n\nevent: done\ndata: {}\n\nevent: browser_task\ndata: ${JSON.stringify(receipt)}\n\n`,
+    "", (value, sessionId) => observed.push({ value, sessionId }),
+  ).output;
+  expect(observed).toEqual([{ value: receipt, sessionId: "session" }]);
+  expect(output).toMatchObject({ status: "complete", sessionId: "session", settledText: "" });
+  expect(JSON.stringify(output)).not.toContain(receipt.binding.task_id);
+});
+
 it("keeps all 52 validated holding rows when a malformed frame precedes an update", () => {
   const holdings = Array.from({ length: 52 }, (_, index) => [`TEST${index + 1}`, index + 1]);
   const showHoldings = {

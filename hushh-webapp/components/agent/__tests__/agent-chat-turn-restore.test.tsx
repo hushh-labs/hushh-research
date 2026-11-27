@@ -24,6 +24,8 @@ import {
   AgentBubble,
   ChatAgentSubtitle,
   chatHeaderSubtitle,
+  currentNativeTurnVisual,
+  isEmptySettledAssistantMessage,
   labelRestoredConnectorSteps,
   planLostTurnRetry,
   retireRetriedResponsePresentation,
@@ -51,6 +53,8 @@ import {
   watchDetachedAgentTurn,
 } from "@/lib/agent/agent-chat-turn-watch";
 import { rememberInAppChat } from "@/lib/agent/in-app-chat-selection";
+import { consumeNativeAdkFrames, createNativeAdkTurnOutput } from "@/lib/a2ui/native-adk-visual-stream";
+import { ONE_A2UI_CATALOG } from "@/lib/a2ui/surface-store";
 
 // Leaving a chat and coming back must restore the same turn the owner saw:
 // the Activity rows and the connect card, not only the answer text. The
@@ -566,5 +570,67 @@ describe("a turn whose stream was lost", () => {
     );
     expect(screen.getByTestId("one-thinking-indicator")).toBeInTheDocument();
     unmount();
+  });
+
+  it("keeps an accepted native-only card after completion only in its bound owner presentation", () => {
+    const event = { author: "one", content: { parts: [{ functionResponse: {
+      name: "send_a2ui_json_to_client", response: { validated_a2ui_json: [{ version: "1.0", createSurface: {
+        surfaceId: "result", catalogId: ONE_A2UI_CATALOG,
+        components: [{ id: "root", component: "TextBlock", text: "Synthetic native result" }],
+      } }] },
+    } }] } };
+    const output = consumeNativeAdkFrames(createNativeAdkTurnOutput(),
+      `event: start\ndata: {"sessionId":"native-thread"}\n\ndata: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
+    ).output;
+    const message = { id: "native-answer", role: "assistant" as const, text: "", timestamp: "3:20 AM", status: "done" as const };
+    const turn = { ownerId: "owner-1", vaultEpoch: 7, conversationId: "native-thread",
+      nativeVisual: { assistantMessageId: message.id, surfaces: output.surfaces, complete: true } };
+    const current = { ownerId: turn.ownerId, vaultEpoch: turn.vaultEpoch, conversationId: turn.conversationId, vaultUnlocked: true };
+    const reply = (context: typeof current) => {
+      const native = currentNativeTurnVisual(turn, context);
+      return [message].filter(item => !isEmptySettledAssistantMessage(item, native))
+        .map(item => <AgentBubble key={item.id} message={item} nativeSurfaces={native?.surfaces} />);
+    };
+    expect(output.status).toBe("complete");
+    const { rerender, unmount } = render(<>{reply(current)}</>);
+    expect(screen.getByText("Synthetic native result")).toBeVisible();
+    expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
+    for (const retired of [{ ownerId: "other-owner" }, { vaultEpoch: 8 }, { conversationId: "other-thread" }, { vaultUnlocked: false }]) {
+      rerender(<>{reply({ ...current, ...retired })}</>);
+      expect(screen.queryByText("Synthetic native result")).not.toBeInTheDocument();
+    }
+    expect(isEmptySettledAssistantMessage({ ...message, id: "other-answer" }, turn.nativeVisual)).toBe(true);
+    expect(isEmptySettledAssistantMessage(message, { ...turn.nativeVisual, surfaces: new Map() })).toBe(true);
+    expect(isEmptySettledAssistantMessage(message)).toBe(true);
+    unmount();
+  });
+});
+
+
+describe("static Browser activity in encrypted chat history", () => {
+  it("round-trips bounded host receipts without restoring an interactive Browser surface", async () => {
+    const { parseCompactActivityReceipt, applyCompactActivityReceipt } = await import("@/lib/agent/compact-activity-receipt");
+    const { agentMessagesToStoredMessages } = await import("@/components/agent/workspace/agent-message-transforms");
+    const receipt = { v: 1 as const, kind: "browser_sign_in" as const, state: "completed" as const,
+      task_id: "browser_" + "a".repeat(32), operation_id: "operation_123" };
+    expect(new TextEncoder().encode(JSON.stringify(receipt)).length).toBeLessThanOrEqual(256);
+    const original = [{ id: "local-answer", serverMessageId: "answer-event", role: "assistant" as const, text: "", status: "done" as const, timestamp: "10:00" }];
+    expect(applyCompactActivityReceipt(original, "foreign-answer", receipt)).toBe(original);
+    const rows = applyCompactActivityReceipt(original, "answer-event", receipt);
+    expect(applyCompactActivityReceipt(rows, "answer-event", { ...receipt, state: "allowed" })).toBe(rows);
+    expect(isEmptySettledAssistantMessage(rows[0]!)).toBe(false);
+    const restored = storedMessagesToAgentMessages(agentMessagesToStoredMessages(rows, "thread"));
+    expect(restored[0]?.compactActivityReceipts).toEqual([receipt]);
+    const view = render(<AgentBubble message={restored[0]!} conversationId="thread" />);
+    expect(screen.getByTestId("browser-static-activity-receipt").textContent).toBe("Private sign-in submitted.");
+    expect(screen.queryByText(/signed in/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Take control|Resume agent|Use saved login/ })).toBeNull();
+    expect(screen.queryByText(receipt.task_id)).toBeNull();
+    expect(parseCompactActivityReceipt({ ...receipt, password: "synthetic-private-value" })).toBeNull();
+    expect(parseCompactActivityReceipt({ ...receipt, operation_id: "review:operation.id-1" })).not.toBeNull();
+    expect(parseCompactActivityReceipt({ ...receipt, operation_id: "x".repeat(65) })).toBeNull();
+    const malformed = storedMessagesToAgentMessages([{ ...agentMessagesToStoredMessages(rows, "thread")[0]!, metadata: { compactActivityReceipts: [{ ...receipt, state: "unexpected" } as never] } }]);
+    expect(malformed[0]?.compactActivityReceipts).toBeUndefined(); view.unmount();
   });
 });

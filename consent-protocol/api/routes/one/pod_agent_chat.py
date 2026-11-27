@@ -24,7 +24,7 @@ from api.routes.external_connectors import (
     PrivateConnectorRoute,
     _mcp_review_response,
 )
-from api.routes.one import pod_agent_chat_connectors, pod_command_proposals
+from api.routes.one import pod_agent_chat_connectors, pod_browser, pod_command_proposals
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_chat_owner import owner_context
 from api.routes.one.pod_consent_chat import admit_continuation
@@ -662,6 +662,9 @@ async def history(
         lookup=PodConsentReadPort(owner).lookup,
     )
     await owner.require_access()
+    from hushh_mcp.one_adk.browser_activity_history import browser_activity_snapshots
+
+    browser_snapshots = await browser_activity_snapshots(owner, session.events)
     result = project_conversation_history(
         session.events,
         conversation_id,
@@ -670,6 +673,7 @@ async def history(
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
+        browser_activity_snapshots=browser_snapshots,
         project_event=lambda event: (
             _event_text(event),
             _safe_agent_history_metadata(event, submitted, providers),
@@ -706,6 +710,34 @@ async def history(
         if value["reference"]["pendingHandle"] not in legacy_handles
     ]
     return result
+
+
+class BrowserActivityHistoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9_.:-]+$")
+    task_id: str = Field(pattern=r"^browser_[a-f0-9]{32}$")
+
+
+@router.post("/browser-activity")
+async def browser_activity(
+    input: BrowserActivityHistoryRequest,
+    request: Request,
+    access: pod_browser.ObserveOwner,
+    owner: PodChatContext = Depends(context),
+):
+    from hushh_mcp.one_adk.browser_activity_history import record_browser_activity
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+
+    await owner.require_access()
+    if access.owner_id != owner.owner or access.pod_id != owner.hushh_id:
+        raise HTTPException(403, detail={"code": "BROWSER_ACTIVITY_OWNER_MISMATCH"})
+    try:
+        snapshot = await pod_browser.runtime(request).read(access, input.task_id)
+        return await record_browser_activity(owner, input.conversation_id, snapshot)
+    except BrowserRefused as exc:
+        raise pod_browser.refusal(exc) from None
+    except ValueError:
+        raise HTTPException(409, detail={"code": "BROWSER_ACTIVITY_NOT_ADMITTED"}) from None
 
 
 class Rename(BaseModel):

@@ -1799,3 +1799,25 @@ describe("retired One Live relay", () => {
     expect(relayFetch).not.toHaveBeenCalled();
   });
 });
+
+
+describe("ApiService Browser activity persistence", () => {
+  it("sends only exact conversation/task ids to the bound pod and refuses foreign or retired receipts", async () => {
+    const conversationId = "thread.native:one-1";
+    const receipt = { v: 1, kind: "browser_sign_in", state: "completed", task_id: "browser_" + "a".repeat(32), operation_id: "operation_123" };
+    const request = vi.spyOn(ApiService, "ownerPodRequest").mockResolvedValue(Response.json({ conversation_id: conversationId, message_id: "answer-event", receipt }));
+    let current = true;
+    const input = { conversationId, taskId: receipt.task_id, podId: "pod", vaultKey: "0f".repeat(32), isCurrent: () => current };
+    expect(await ApiService.syncBrowserActivity(input)).toMatchObject({ messageId: "answer-event", receipt });
+    expect(request).toHaveBeenCalledWith("agent-chat/browser-activity", expect.objectContaining({ method: "POST", body: JSON.stringify({ conversation_id: conversationId, task_id: receipt.task_id }) }),
+      false, undefined, "pod", input.isCurrent);
+    expect(new Headers(request.mock.calls[0]![1]?.headers).get("X-Hussh-Chat-Key")).toMatch(/^hck1\.[a-f0-9]{64}$/);
+    expect(JSON.stringify(request.mock.calls[0]![1]?.body)).not.toContain(input.vaultKey);
+    request.mockResolvedValueOnce(Response.json({ conversation_id: "other-thread", message_id: "answer-event", receipt }));
+    await expect(ApiService.syncBrowserActivity(input)).rejects.toThrow("BROWSER_ACTIVITY_UNCONFIRMED");
+    request.mockImplementationOnce(async () => { current = false; return Response.json({ conversation_id: conversationId, message_id: "answer-event", receipt }); });
+    await expect(ApiService.syncBrowserActivity(input)).rejects.toThrow("BROWSER_ACTIVITY_UNCONFIRMED");
+    request.mockClear(); await expect(ApiService.syncBrowserActivity(input)).rejects.toThrow("POD_OWNER_CHANGED");
+    expect(request).not.toHaveBeenCalled(); request.mockRestore();
+  });
+});

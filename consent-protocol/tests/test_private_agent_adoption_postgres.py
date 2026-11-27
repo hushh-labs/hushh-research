@@ -252,6 +252,30 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         )
         assert guard_catalog(connection) == before
         reject_guard_drift(connection, entry)
+        # A qualified Browser credential successor survives immutable420;
+        # a missing individual guard must refuse before420 can recreate it.
+        from db.browser_credential_authority import definition_match_sql
+
+        with connection.cursor() as cursor:
+            cursor.execute((MIGRATIONS / "467_browser_credential_fill_authority.sql").read_text())
+        for _ in range(2):
+            assert asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY)) == (
+                FOUNDATION,
+            )
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT " + definition_match_sql(successor=True))
+            assert cursor.fetchone()[0] is True
+            for drift in (
+                "COMMENT ON CONSTRAINT pod_chat_action_identity ON one_action_directive_ledger IS NULL",
+                "ALTER TABLE one_action_directive_ledger DROP CONSTRAINT pod_chat_action_identity",
+            ):
+                cursor.execute("BEGIN")
+                try:
+                    cursor.execute(drift)
+                    with pytest.raises(psycopg2.errors.RaiseException, match="Unqualified Browser"):
+                        cursor.execute(execution_sql(entry))
+                finally:
+                    cursor.execute("ROLLBACK")
         assert_pending_ledger_receipt(replay_pg, database, connection, entry)
         # Preserve the corrected validator, its ACL and its refusal boundary.
         assert_notification_successor_survives_420_replay(connection, replay_pg, database, entry)

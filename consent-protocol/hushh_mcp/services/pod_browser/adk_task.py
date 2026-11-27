@@ -36,6 +36,8 @@ class _NativeTask:
     goal: str = field(repr=False)
     calls: int = 0
     segments: int = 0
+    confirmation: dict | None = field(default=None, repr=False)
+    confirmed_calls: set[str] = field(default_factory=set, repr=False)
 
 
 class NativeAdkBrowserModel:
@@ -104,8 +106,47 @@ class NativeAdkBrowserModel:
             if continuing
             else types.Content(role="user", parts=[types.Part(text=goal)])
         )
+        invocation_id = "browser_segment_" + uuid4().hex
+        resume_observation = []
+        if context.confirmation is not None:
+            pending = context.confirmation
+            port = control.credentials
+            completed = getattr(port, "completed_confirmation", None)
+            confirmed = completed == {
+                "function_call_id": pending["function_call_id"],
+                "operation_id": pending["operation_id"],
+            }
+            if completed is not None and not confirmed:
+                raise BrowserRefused("BROWSER_CREDENTIAL_CONFIRMATION_REFUSED")
+            if not confirmed and control.control_epoch == pending["control_epoch"]:
+                raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+            # Only the host's settled exact operation acknowledges Allow. A
+            # later explicit manual handback declines the paused hand instead.
+            resume_observation = list(message.parts)
+            message = types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id=pending["confirmation_id"],
+                            name="adk_request_confirmation",
+                            response={
+                                "confirmed": confirmed,
+                                "payload": {
+                                    "task_id": task_id,
+                                    "operation_id": pending["operation_id"],
+                                },
+                            },
+                        )
+                    )
+                ],
+            )
+            invocation_id = pending["invocation_id"]
+            context.confirmed_calls.add(pending["function_call_id"])
+            context.confirmation = None
         context.segments += 1
         result: BrowserTaskResultV1 | None = None
+        settled_call_ids = set()
         try:
             with suppress_instrumentation():
                 async with asyncio.timeout(900):
@@ -115,7 +156,7 @@ class NativeAdkBrowserModel:
                             session_id=session_id,
                             # Explicit fresh ID prevents ADK from selecting an
                             # unfinished invocation and replaying its tool call.
-                            invocation_id="browser_segment_" + uuid4().hex,
+                            invocation_id=invocation_id,
                             new_message=message,
                             run_config=RunConfig(
                                 max_llm_calls=60 - context.calls,
@@ -126,7 +167,8 @@ class NativeAdkBrowserModel:
                                 # input transiently, never another session turn.
                                 model_input_context=[
                                     types.Content(
-                                        role="user", parts=[types.Part(text=context.goal)]
+                                        role="user",
+                                        parts=[types.Part(text=context.goal), *resume_observation],
                                     )
                                 ]
                                 if continuing
@@ -135,6 +177,43 @@ class NativeAdkBrowserModel:
                         )
                     ) as events:
                         async for event in events:
+                            settled_call_ids.update(fr.id for fr in event.get_function_responses())
+                            if (
+                                context.confirmation is not None
+                                and context.confirmation["function_call_id"] in settled_call_ids
+                            ):
+                                break  # Drain SDK's pending result before closing its iterator.
+                            confirmations = [
+                                fc
+                                for fc in event.get_function_calls()
+                                if fc.name == "adk_request_confirmation"
+                            ]
+                            if confirmations:
+                                port = control.credentials
+                                selected = getattr(port, "sdk_confirmation", None)
+                                if len(confirmations) != 1 or selected is None:
+                                    raise BrowserRefused("BROWSER_CREDENTIAL_CONFIRMATION_REFUSED")
+                                fc = confirmations[0]
+                                original = (fc.args or {}).get("originalFunctionCall", {})
+                                if (
+                                    not fc.id
+                                    or original.get("id") != selected["function_call_id"]
+                                    or original.get("name") != "use_saved_website_login"
+                                ):
+                                    raise BrowserRefused("BROWSER_CREDENTIAL_CONFIRMATION_REFUSED")
+                                context.confirmation = {
+                                    **selected,
+                                    "confirmation_id": fc.id,
+                                    "control_epoch": control.control_epoch,
+                                    "invocation_id": event.invocation_id,
+                                }
+                                result = BrowserTaskResultV1(
+                                    outcome="needs_owner",
+                                    summary="Sign in requires the owner's Allow.",
+                                )
+                                if selected["function_call_id"] in settled_call_ids:
+                                    break
+                                continue  # SDK yields its dynamic-request marker immediately next.
                             if (
                                 event.content
                                 and event.content.role == "model"
@@ -176,7 +255,11 @@ class NativeAdkBrowserModel:
         )
         if session is None:
             raise BrowserRefused("BROWSER_CONTINUATION_UNAVAILABLE")
-        require_completed_calls(session.events)
+        require_completed_calls(
+            session.events,
+            pending_confirmation=(context.confirmation or {}).get("confirmation_id"),
+            confirmed_calls=context.confirmed_calls,
+        )
         epoch = await control.require_model_observation()
         await processing.require()
         await control.require_model_observation(expected_epoch=epoch)

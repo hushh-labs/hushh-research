@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Protocol
 
-from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
+from hushh_mcp.consent.pkm_scope_policy import (
+    is_owner_item_grant_scope,
+    is_source_library_pkm_scope,
+)
 from hushh_mcp.consent.scope_helpers import scope_matches
 
 
@@ -51,6 +54,15 @@ async def continuous_refresh_tokens_for_domain_write(
         consent_token = str(token.get("token_id") or "").strip()
         if not granted_scope or not consent_token:
             continue
+        # Exact owner-started items are intentionally absent from external
+        # discovery. Their existing grant can still refresh its same item until
+        # the original expiry; upload/read admission rechecks the owner lineage.
+        if (
+            domain == "secrets"
+            and granted_scope.startswith("attr.secrets.items.")
+            and is_owner_item_grant_scope(granted_scope)
+        ):
+            candidate_scopes.add(granted_scope)
         if not any(scope_matches(granted_scope, candidate) for candidate in candidate_scopes):
             continue
         metadata = token.get("_refresh_metadata") or (

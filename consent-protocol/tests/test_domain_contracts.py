@@ -268,6 +268,9 @@ class TestVersionHelpers:
     def test_current_domain_contract_version_unknown_dynamic_domain(self) -> None:
         assert current_domain_contract_version("custom_music") == GENERIC_DOMAIN_CONTRACT_VERSION
 
+    def test_credentials_uses_existing_generic_domain_upgrade_contract(self) -> None:
+        assert current_domain_contract_version("credentials") == GENERIC_DOMAIN_CONTRACT_VERSION
+
     def test_the_reserved_branch_relocation_never_bumps_a_domain_version(self) -> None:
         """Shipped builds refuse to write a domain stored at a newer version.
 

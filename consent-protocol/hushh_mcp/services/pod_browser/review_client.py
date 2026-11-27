@@ -9,7 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .consent import Purpose, private_commitment
+from .consent import ApprovalRecheck, Purpose, private_commitment
 from .contracts import BrowserBinding, BrowserRefused
 from .review_contracts import BrowserHubMutation, BrowserHubReview
 from .task_contracts import BrowserReviewOffer
@@ -189,7 +189,9 @@ class PodBrowserReviews:
             if result != {"status": "consumed"}:
                 raise BrowserRefused("BROWSER_REVIEW_UNAVAILABLE")
 
-    async def require(self, binding, purpose: Purpose, private_terms: dict) -> None:
+    async def require(
+        self, binding, purpose: Purpose, private_terms: dict
+    ) -> ApprovalRecheck | None:
         await self.check_binding(binding)
         review = self._terms(binding, purpose, private_terms)
         async with self._lock:
@@ -214,5 +216,31 @@ class PodBrowserReviews:
             )
             if result != {"status": "valid"}:
                 raise BrowserRefused("BROWSER_REVIEW_UNAVAILABLE")
-            if purpose in {"disclose", "provider_safety"}:
+            if purpose in {"disclose", "provider_safety", "credential_fill"}:
                 pending.consumed = True
+            if purpose == "credential_fill":
+                # This closure cannot consume again or dispatch. Revocation,
+                # exact terms and current pod authority are reread at the hub.
+                async def recheck():
+                    await self.check_binding(binding)
+                    async with self._lock:
+                        if (
+                            not pending.consumed
+                            or pending.receipt is None
+                            or self._pending.get(pending.offer.review_id) is not pending
+                            or pending.review.model_copy(update={"service_uid": None}) != review
+                        ):
+                            raise BrowserRefused("BROWSER_REVIEW_CHANGED")
+                        result = await self._call(
+                            "validate",
+                            BrowserHubMutation(
+                                review=pending.review,
+                                directive_id=pending.offer.review_id,
+                                receipt=pending.receipt,
+                            ),
+                        )
+                        if result != {"status": "valid"}:
+                            raise BrowserRefused("BROWSER_REVIEW_UNAVAILABLE")
+                    await self.check_binding(binding)
+
+                return recheck

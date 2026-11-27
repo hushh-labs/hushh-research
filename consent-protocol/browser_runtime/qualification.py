@@ -246,12 +246,26 @@ def validate_qualification(
         "model_name",
         "model_transport",
     }
+    credential_gates = {
+        "credential_entry_verified",
+        "credential_cleanup_verified",
+        "credential_isolation_verified",
+    }
     if (
         not isinstance(ready, dict)
-        or not required <= set(ready) <= required | set(_V2_DEFAULTS)
-        or (value["version"] == 2 and set(ready) != required | set(_V2_DEFAULTS))
+        or not required <= set(ready) <= required | set(_V2_DEFAULTS) | credential_gates
+        or (value["version"] == 2 and set(ready) - credential_gates != required | set(_V2_DEFAULTS))
     ):
         raise ValueError("invalid Browser readiness evidence")
+    if credential_gates & set(ready):
+        if not credential_gates <= set(ready) or any(
+            type(ready[name]) is not bool for name in credential_gates
+        ):
+            raise ValueError("incomplete Browser credential qualification")
+        if any(ready[name] for name in credential_gates) and not (
+            all(ready[name] for name in credential_gates) and ready.get("chromium_sandbox") is True
+        ):
+            raise ValueError("unqualified Browser credential execution")
     if (
         not _execution_ready(ready, value["version"], host)
         or ready["cloud"] != capability.provider

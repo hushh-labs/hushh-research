@@ -22,6 +22,7 @@ BROWSER_ACTION_IDS = frozenset(
         "browser.session_remember",
         "browser.session_restore",
         "browser.provider_safety",
+        "browser.credential_fill",
     }
 )
 

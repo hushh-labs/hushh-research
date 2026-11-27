@@ -27,14 +27,16 @@ describe("native Memory Saved projection", () => {
   it("organizes Wiki and Core files cleanly and navigates directly into /one/files", async () => {
     const model = fixture("# Preferences\n\n## Travel\n- Window seat");
     const openSharing = vi.fn();
+    const openSecrets = vi.fn();
     const handoff = vi.fn(async (_target, action: () => void) => { action(); return true; });
-    const result = nativeMemorySaved({ model, commerce, handle, handoff, openPayments: vi.fn(), openSharing })!;
+    const result = nativeMemorySaved({ model, commerce, handle, handoff, openPayments: vi.fn(), openSharing, openSecrets })!;
     expect(result.sections.slice(0, 2).map(section => section.title)).toEqual([
       "Wiki",
       "Core files",
     ]);
     const labels = result.sections.flatMap(section => section.rows).map(row => row.label);
     expect(labels).toContain("Personal wiki");
+    expect(labels).toContain("Secrets");
     expect(labels).toContain("memory.md");
     expect(labels).toContain("identity.md");
     expect(labels).toContain("soul.md");
@@ -49,6 +51,10 @@ describe("native Memory Saved projection", () => {
 
     await result.actions.get(handle("memory-saved:identity-doc"))?.(choice);
     expect(model.navigate).toHaveBeenCalledWith(`${ROUTES.ONE_FILES}?folder=personal-wiki&doc=identity.md`);
+
+    await result.actions.get(handle("memory-saved:secrets-open"))?.(choice);
+    expect(handoff).toHaveBeenCalledWith("secrets", expect.any(Function));
+    expect(openSecrets).toHaveBeenCalledOnce();
 
     await result.actions.get(handle("memory-saved:download"))?.(choice);
     expect(model.handleExportMemory).toHaveBeenCalledTimes(1);

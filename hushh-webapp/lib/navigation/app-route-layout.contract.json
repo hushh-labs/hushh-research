@@ -1734,7 +1734,13 @@
     "mode": "standard",
     "shellVerification": {
       "file": "components/goals/goals-workspace.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceCard"]
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceCard"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.goals",
@@ -1759,7 +1765,16 @@
       "outOfScopeBehavior": "Never invent a control or infer execution permission from a saved goal."
     },
     "backVerification": {
-      "cases": [{ "href": "/one/goals", "expected": { "href": "/one", "mode": "push", "transitionMode": "full" } }],
+      "cases": [
+        {
+          "href": "/one/goals",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
       "kind": "parent"
     }
   },
@@ -1810,15 +1825,27 @@
         },
         {
           "href": "/one/tasks?scheduled=1",
-          "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         },
         {
           "href": "/one/tasks?from=goals",
-          "expected": { "href": "/one/goals", "mode": "push", "transitionMode": "full" }
+          "expected": {
+            "href": "/one/goals",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         },
         {
           "href": "/one/tasks?from=unknown",
-          "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "parent"
@@ -1853,7 +1880,12 @@
     "backVerification": {
       "kind": "redirect",
       "reason": "The compatibility entry redirects to Tasks and has no standalone Back target.",
-      "cases": [{ "href": "/one/todos", "expected": null }]
+      "cases": [
+        {
+          "href": "/one/todos",
+          "expected": null
+        }
+      ]
     }
   },
   {
@@ -2000,6 +2032,47 @@
         }
       ],
       "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/pkm/logins",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+    "voicePlaybook": {
+      "playbookId": "route.one.pkm.logins.compatibility",
+      "purpose": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+      "screen": "pkm",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the redirect failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified root Chat route without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The redirect completes after Memory opens; secret use still requires the unlocked owner and explicit Allow.",
+      "nextRoute": "/one/pkm",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Use the canonical Memory Secrets controls."
+    },
+    "backVerification": {
+      "kind": "redirect",
+      "reason": "Compatibility-only redirect to the canonical Memory Secrets area; no separate website-login screen.",
+      "cases": [
+        {
+          "href": "/one/pkm/logins",
+          "expected": {
+            "href": "/one/pkm",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {

@@ -103,6 +103,9 @@ def _qualify_hosted_azure_target_check_successor(sql: str) -> str:
 
 def qualify_private_agent_successors(sql: str) -> str:
     """Accept only measured successor validators under the full custody-family GUC."""
+    from db.browser_credential_authority import qualify_foundation_sql
+
+    sql = qualify_foundation_sql(sql)
     sql = _qualify_vm_publication_successor(sql)
     sql = _qualify_erasure_substrate_successor(sql)
     sql = _qualify_worker_event_successor(sql)

@@ -52,6 +52,8 @@ import { whileNotAborted } from "@/lib/agent/puppy-abort";
 import { OneModelConnection } from "@/components/agent/one-model-connection";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import { applyCompactActivityReceipt } from "@/lib/agent/compact-activity-receipt";
+import type { ComputerUseSnapshot } from "@/lib/computer-use/contracts";
 import {
   useWorkspaceSplitPaneOpen,
   WorkspaceSplitPaneDock,
@@ -791,6 +793,27 @@ function AgentChatSplitSection({
   );
 }
 
+export function currentNativeTurnVisual(
+  turn: Pick<ActiveAgentTurnSession, "ownerId" | "vaultEpoch" | "conversationId" | "nativeVisual"> | null,
+  current: { ownerId: string | null | undefined; vaultEpoch: number; conversationId: string | null; vaultUnlocked: boolean },
+) {
+  return current.vaultUnlocked && turn?.ownerId === current.ownerId &&
+    turn?.vaultEpoch === current.vaultEpoch && turn?.conversationId === current.conversationId
+    ? turn.nativeVisual : undefined;
+}
+
+export function isEmptySettledAssistantMessage(
+  message: AgentMessage, nativeVisual?: ActiveAgentTurnSession["nativeVisual"],
+): boolean {
+  return message.role === "assistant" && message.status === "done" &&
+    !message.text.trim() && !message.ephemeral && !message.thinkingSummary?.trim() &&
+    !(message.streamEvents ?? []).some(event => event.label !== "Memory" && event.label !== "Add to Memory") &&
+    !message.sources?.length && !message.structuredExperience && !message.structuredExperiences?.length &&
+    !message.specialistDirective && !message.consentAccessEnded && !message.locationChatProposal &&
+    !message.calendarMeeting && !message.memoryCapture && !message.compactActivityReceipts?.length &&
+    !(nativeVisual?.assistantMessageId === message.id && nativeVisual.surfaces.size > 0);
+}
+
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1397,6 +1420,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [browserTasksRefresh, setBrowserTasksRefresh] = useState(0);
   const [browserReviewCount, setBrowserReviewCount] = useState(0);
   const [browserOpenReviewSignal, setBrowserOpenReviewSignal] = useState(0);
+  const browserActivity = useRef<{ identity: string; sent: Set<string>; responses: Awaited<ReturnType<typeof ApiService.syncBrowserActivity>>[] }>({ identity: "", sent: new Set(), responses: [] });
+  const syncBrowserActivity = useCallback((snapshot: ComputerUseSnapshot) => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const conversation = conversationIdRef.current;
+    if (!snapshot.activityReceipt || owner?.userId !== applicationOwnerId || snapshot.binding.ownerId !== applicationOwnerId || !conversation || !isVaultUnlocked || !vaultKey) return;
+    const identity = JSON.stringify([owner.generation, vaultSessionEpoch, conversation]);
+    if (browserActivity.current.identity !== identity) browserActivity.current = { identity, sent: new Set(), responses: [] };
+    const receiptKey = JSON.stringify([snapshot.binding, snapshot.activityReceipt]);
+    if (browserActivity.current.sent.has(receiptKey)) return;
+    browserActivity.current.sent.add(receiptKey);
+    const current = () => isValidatedAuthSessionOwnerCurrent(owner) && snapshotVaultSessionEpoch() === vaultSessionEpoch &&
+      vaultKeyRef.current === vaultKey && !!getVaultOwnerToken() && conversationIdRef.current === conversation && browserActivity.current.identity === identity;
+    void ApiService.syncBrowserActivity({ conversationId: conversation, taskId: snapshot.binding.taskId, podId: snapshot.binding.podId, vaultKey, isCurrent: current }).then(result => {
+      if (!current()) return;
+      browserActivity.current.responses.push(result);
+      setMessages(rows => applyCompactActivityReceipt(rows, result.messageId, result.receipt));
+    }).catch(() => undefined); // No replay of an uncertain effect; authoritative history retains a committed receipt.
+  }, [applicationOwnerId, vaultSessionEpoch, isVaultUnlocked, vaultKey, getVaultOwnerToken]);
+  useEffect(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const identity = JSON.stringify([owner?.generation, vaultSessionEpoch, conversationId]);
+    if (!isVaultUnlocked || !vaultKey || browserActivity.current.identity !== identity) { browserActivity.current = { identity, sent: new Set(), responses: [] }; return; }
+    if (browserActivity.current.responses.length) setMessages(rows => browserActivity.current.responses.reduce((result, value) => applyCompactActivityReceipt(result, value.messageId, value.receipt), rows));
+  }, [messages, conversationId, vaultSessionEpoch, isVaultUnlocked, vaultKey]);
+
   // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
   // view of the review card current.
   const pendingMcpReviewsRef = useRef(pendingMcpReviews);
@@ -9483,27 +9531,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       />
     );
   };
+  const liveNativeVisual = currentNativeTurnVisual(visualTurn, {
+    ownerId: applicationOwnerId, vaultEpoch: vaultSessionEpoch, conversationId, vaultUnlocked: isVaultUnlocked,
+  });
   const visibleMessages = dedupeAdjacentAgentMessages(
     messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? redactReceiptAnswer(message) : message).filter((message) => {
       if (message.id === "agent-greeting") return false;
-      if (
-        message.role === "assistant" &&
-        message.status === "done" &&
-        !message.text.trim() &&
-        !message.ephemeral &&
-        !message.thinkingSummary?.trim() &&
-        !(message.streamEvents ?? []).some(
-          (event) => event.label !== "Memory" && event.label !== "Add to Memory",
-        ) &&
-        !message.sources?.length &&
-        !message.structuredExperience &&
-        !message.structuredExperiences?.length &&
-        !message.specialistDirective &&
-        !message.consentAccessEnded &&
-        !message.locationChatProposal &&
-        !message.calendarMeeting &&
-        !message.memoryCapture
-      ) {
+      if (isEmptySettledAssistantMessage(message, liveNativeVisual)) {
         return false;
       }
       if (
@@ -9662,9 +9696,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           message.text.trim().length > 0,
       )?.id ?? null;
   const latestTranscriptMessageId = visibleMessages.findLast((message) => !message.ephemeral)?.id;
-  const liveNativeVisual = isVaultUnlocked && visualTurn?.ownerId === applicationOwnerId &&
-    visualTurn?.vaultEpoch === vaultSessionEpoch && visualTurn?.conversationId === conversationId
-    ? visualTurn.nativeVisual : undefined;
   const latestFinanceMessageIdRef = useRef(latestTranscriptMessageId);
   latestFinanceMessageIdRef.current = latestTranscriptMessageId;
   const responseActionBusy = isChatLoading || isStreaming || specialistBusy || appActionBusy ||
@@ -11605,6 +11636,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   getVaultOwnerToken={getVaultOwnerToken}
                   openReviewSignal={browserOpenReviewSignal}
                   onReviewCountChange={setBrowserReviewCount}
+                  onActivityReceipt={syncBrowserActivity}
                 />
               ) : null}
 
