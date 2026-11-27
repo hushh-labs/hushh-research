@@ -276,6 +276,10 @@ export function sanitizeGmailUserMessage(
     return fallback;
   }
 
+  if (trimmed.startsWith("SELF_ENROLL_FAILED:")) {
+    return "This device couldn’t verify access to your private agent. Check Hosting in Settings, then try again.";
+  }
+
   if (isAuthErrorText(trimmed)) {
     return authFallback;
   }

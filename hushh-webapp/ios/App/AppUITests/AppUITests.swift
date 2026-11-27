@@ -1847,12 +1847,19 @@ final class AppUITests: XCTestCase {
             XCTFail("PRODUCT_HISTORY_REQUIRES_RUNNING_APP"); return
         }
         app.activate()
+        perfTapNav(app, label: "Chat")
+        dismissRehearsalChatKeyboard(app)
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
-        let open = app.buttons["Open chat history"].firstMatch
+        let open = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ AND label BEGINSWITH %@", "chat-history-toggle", "Open chat history"
+        )).firstMatch
         let close = app.buttons["Close chat history"].firstMatch
-        let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
-        guard waitForAdmittedControl(open), waitForAdmittedControl(composer), !web.buttons["Unlock"].exists else {
-            XCTFail("PRODUCT_HISTORY_REQUIRES_UNLOCKED_CHAT"); return
+        let composer = rehearsalChatComposer(app)
+        guard !web.buttons["Unlock"].exists, waitForAdmittedControl(composer) else {
+            return XCTFail("The unlocked Chat composer must be ready before opening History")
+        }
+        guard waitForAdmittedControl(open) else {
+            return XCTFail("History opener exists=\(open.exists) enabled=\(open.exists && open.isEnabled) hittable=\(open.exists && open.isHittable)")
         }
         let initialFrame = web.frame
         let initialDraft = composer.value as? String
@@ -1867,7 +1874,7 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(app.buttons["native-history-row-one-stream"].exists, "History includes the pinned main chat on Dev")
             XCTAssertFalse(app.buttons["native-history-row-todos"].exists, "Tasks lives in One Profile")
             XCTAssertFalse(web.buttons["Search chats"].firstMatch.isHittable)
-            XCTAssertFalse(composer.isHittable, "The covered React editor must be isolated")
+            XCTAssertFalse(composer.isHittable, "The covered Chat composer must be isolated")
             let frame = native.frame
             XCTAssertEqual(frame.minY, app.frame.minY, accuracy: 1)
             XCTAssertEqual(frame.maxY, app.frame.maxY, accuracy: 1, "History must remain full-height")
@@ -2369,25 +2376,105 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(hosts.count, 1, "Tabs must use one identified Capacitor WebView")
         XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
                        "Every WebView accessibility node must belong to the same Capacitor host")
-        let history = webView.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open chat history")).firstMatch
-        XCTAssertTrue(history.waitForExistence(timeout: 30), "Chat did not settle without another vault unlock")
+        let history = app.buttons["chat-history-toggle"].firstMatch
+        XCTAssertTrue(history.waitForExistence(timeout: 10), "Chat did not present its native History control")
         history.tap()
         let close = app.buttons["Close chat history"]
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         XCTAssertFalse(bar.exists && bar.isHittable, "Native tabs escaped the web overlay")
         close.tap()
-        tap("One")
+        let launcher = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label == %@", "native-launcher-agent-", "Open Mail"
+        )).firstMatch
+        let circles = app.segmentedControls["native-workspace-tabs"].buttons["Circles"].firstMatch
+        let webFeed = webView.staticTexts["Feed"].firstMatch
+        let nativeFeed = app.descendants(matching: .any).matching(identifier: "native-route-workspace").firstMatch
+        let status = app.buttons["native-test-status"].firstMatch
+        var previousLabel = "Chat"
+        for _ in 0..<2 {
+            for (label, body) in [("One", launcher), ("Connect", circles), ("Feed", webFeed), ("Chat", history)] {
+                let previous = tab(previousLabel)
+                tap(label)
+                let destination = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    guard tab(label).isSelected, !previous.isSelected else { return false }
+                    if label != "Feed" { return body.exists }
+                    guard !circles.exists else { return false }
+                    if status.exists {
+                        let value = status.value as? String ?? status.label
+                        guard self.normalizeRoute(self.parseStatus(value)["route"] ?? "") == "/one/feed" else { return false }
+                    }
+                    return webFeed.exists || (nativeFeed.exists && nativeFeed.scrollViews.firstMatch.exists)
+                }, object: bar)
+                guard XCTWaiter.wait(for: [destination], timeout: 8) == .completed else {
+                    return XCTFail("One native tap did not reach the selected \(label) screen")
+                }
+                previousLabel = label
+            }
+        }
         XCTAssertFalse(webView.buttons["Unlock"].exists, "A tab switch lost the unlocked session")
-        tap("Connect")
-        tap("Feed")
-        tap("Chat")
-        XCTAssertTrue(history.waitForExistence(timeout: 30))
         XCTAssertEqual(hosts.count, 1)
         XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
                        "Tab switching introduced another WebView host")
         XCTAssertTrue(tab("Chat").isSelected, "Final selection did not match the settled Chat destination")
         XCTAssertFalse(tab("Search").exists, "Archived Search remained in native navigation")
         print("NATIVE_NAVIGATION_CONTINUITY tabs_overlay_single_webview")
+    }
+
+    func testLocalSessionAppearanceSwitchKeepsItsScreenAndUnlockedVault() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in switch on an existing unlocked iPhone")
+        }
+        let app = XCUIApplication()
+        guard app.state == .runningForeground || app.state == .runningBackground else {
+            XCTFail("An existing unlocked session is required"); return
+        }
+        app.activate()
+        let host = app.webViews.matching(identifier: "native-webview")
+        let web = host.firstMatch
+        let profile = app.buttons["Open Profile"].firstMatch
+        let appearance = app.buttons["native-profile-row-preferences"].firstMatch
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+        let native = app.switches["native-profile-row-preferences-native-interface"].firstMatch
+        let standard = web.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@", "Experimental native interface")).firstMatch
+        func reveal(_ control: XCUIElement, in region: XCUIElement) -> Bool {
+            guard control.waitForExistence(timeout: 10) else { return false }
+            for _ in 0..<3 {
+                if control.isHittable && control.isEnabled && app.frame.insetBy(dx: 0, dy: 44).contains(
+                    CGPoint(x: control.frame.midX, y: control.frame.midY)) { return true }
+                region.swipeUp()
+            }
+            return control.exists && control.isHittable && control.isEnabled
+        }
+        guard waitForAdmittedControl(profile) else { XCTFail("Chat did not admit Profile"); return }
+        profile.tap()
+        guard reveal(appearance, in: menu) else { XCTFail("Profile did not admit Appearance"); return }
+        appearance.tap()
+        guard reveal(native, in: menu), native.value as? String == "1" else {
+            XCTFail("Native Appearance did not admit its enabled interface switch"); return
+        }
+        native.tap()
+        guard reveal(standard, in: web) else { XCTFail("Standard Appearance did not return after one switch tap"); return }
+        XCTAssertFalse(native.exists)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        XCTAssertEqual(host.count, 1)
+        standard.tap()
+        guard reveal(native, in: menu), native.value as? String == "1" else {
+            XCTFail("Native Appearance did not return after one switch tap"); return
+        }
+        XCTAssertFalse(standard.exists && standard.isHittable)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        // UIKit isolates the covered WebView from accessibility while this drawer owns focus.
+        let back = nativeProfileBack(app, parent: "Profile")
+        guard waitForAdmittedControl(back) else { XCTFail("Appearance lost its authored Back"); return }
+        back.tap()
+        guard reveal(appearance, in: menu) else { XCTFail("Back did not restore the Profile menu"); return }
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        guard waitForAdmittedControl(close) else { XCTFail("Profile close was unavailable"); return }
+        close.tap()
+        XCTAssertTrue(waitForAdmittedControl(app.buttons["chat-history-toggle"].firstMatch))
+        XCTAssertEqual(host.count, 1, "Dismissing Profile must restore one original WebView")
+        XCTAssertFalse(web.buttons["Unlock"].exists)
     }
 
     func testLocalSessionNativeBottomChromeFollowsTheSharedScrollOwner() throws {
@@ -3693,6 +3780,83 @@ final class AppUITests: XCTestCase {
         print("PROFILE_PHOTO_PREVIEW_CONTINUITY open_close_without_mutation")
     }
 
+    func testLocalSessionNativeConnectTabRoundTrip() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires an unlocked local session with the experimental interface enabled.")
+        }
+        let app = XCUIApplication()
+        guard app.state == .runningForeground || app.state == .runningBackground else {
+            throw XCTSkip("Requires the running app.")
+        }
+        app.activate()
+        defer { perfTapNav(app, label: "Chat") }
+        perfTapNav(app, label: "Connect")
+        assertNativeWorkspaceTabs(app, labels: ["Circles", "Circles", "Connections"])
+    }
+
+    func testLocalSessionNativeConsentTabRoundTrip() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires the unlocked experimental interface on Consent.")
+        }
+        let app = XCUIApplication()
+        app.activate()
+        assertNativeWorkspaceTabs(app, labels: ["Active", "History", "Connections", "Requests"])
+    }
+
+    private func assertNativeWorkspaceTabs(_ app: XCUIApplication, labels: [String]) {
+        let strips = app.segmentedControls.matching(identifier: "native-workspace-tabs")
+        for label in labels {
+            let choice = strips.firstMatch.buttons[label].firstMatch
+            guard waitForAdmittedControl(choice) else { return XCTFail("Workspace option unavailable: \(label)") }
+            choice.tap()
+            let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: choice)
+            XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+            XCTAssertEqual(strips.count, 1)
+        }
+    }
+
+    func testLocalSessionNativeCareerUploadStageCancels() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires the unlocked experimental interface on Career.")
+        }
+        let app = XCUIApplication()
+        app.activate()
+        let upload = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label IN %@", "native-workspace-row-", ["Upload", "Replace"]
+        )).firstMatch
+        guard waitForAdmittedControl(upload) else { return XCTFail("Career upload action unavailable") }
+        upload.tap()
+        let web = app.webViews.firstMatch
+        let cancel = web.buttons["Cancel"].firstMatch
+        guard waitForAdmittedControl(cancel), web.buttons["Choose file"].exists else {
+            return XCTFail("Career upload stage did not present its file choice and Cancel")
+        }
+        cancel.tap()
+        XCTAssertTrue(waitForAdmittedControl(upload), "Cancel did not restore native Career")
+    }
+
+    func testLocalSessionLocationScopeCancelReturnsToSettings() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Requires an unlocked local session on Location Settings.")
+        }
+        let app = XCUIApplication()
+        app.activate()
+        func row(_ label: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label == %@", "native-workspace-row-", label
+            )).firstMatch
+        }
+        let choose = row("Choose approval scope")
+        guard waitForAdmittedControl(choose) else { return XCTFail("Location Settings did not present the scope row") }
+        choose.tap()
+        let cancel = row("Cancel")
+        guard waitForAdmittedControl(cancel) else { return XCTFail("The scope editor did not present Cancel") }
+        XCTAssertTrue(row("All contacts").exists)
+        cancel.tap()
+        XCTAssertTrue(waitForAdmittedControl(choose))
+        XCTAssertFalse(cancel.exists)
+    }
+
     func testLocalSessionMailPagerAndSoftwareKeyboardKeepTheSession() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in warm Mail pager and software-keyboard regression")
@@ -3736,11 +3900,16 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(softwareKeyboardIsOnscreen(keyboard, in: app), "SOFTWARE_KEYBOARD_NOT_DISMISSED")
         XCTAssertTrue((composer.value as? String) == draft, "KEYBOARD_CHANGED_UNSENT_DRAFT")
         perfTapNav(app, label: "One")
-        let mail = web.links.matching(NSPredicate(format: "label == %@", "Open Mail")).firstMatch
-        XCTAssertTrue(mail.waitForExistence(timeout: 15) && mail.isHittable, "MAIL_ENTRY_UNAVAILABLE")
+        let nativeMail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "native-launcher-agent-", "Open Mail")).firstMatch
+        let webMail = web.links["Open Mail"].firstMatch
+        let launcher = app.descendants(matching: .any).matching(identifier: "native-workspace-tabs").firstMatch
+        let mail = launcher.waitForExistence(timeout: 3) ? nativeMail : webMail
+        for _ in 0..<4 where !mail.exists || !mail.isHittable { app.swipeUp() }
+        guard mail.exists && mail.isHittable else { return XCTFail("MAIL_ENTRY_UNAVAILABLE") }
         mail.tap()
         func tab(_ name: String) -> XCUIElement {
-            web.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
+            let strip = app.segmentedControls["native-workspace-tabs"].firstMatch
+            return strip.exists ? strip.buttons[name].firstMatch : web.buttons[name].firstMatch
         }
         func settled(_ name: String) {
             let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: tab(name))
@@ -6726,10 +6895,15 @@ final class AppUITests: XCTestCase {
             "Your Map did not settle before the close interaction"
         )
 
-        // The native Google Maps view does not expose the WebView overlay
-        // controls to XCUI reliably. Tap the visible close affordance by its
-        // stable safe-area position so this test exercises real hit testing.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.07)).tap()
+        XCTAssertEqual(status["bootstrap"], "vault_unlocked")
+        let close = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@", "map-close", "Back to Location"
+        )).firstMatch
+        guard close.waitForExistence(timeout: 8) else {
+            XCTFail("Your Map did not expose its authored Back control")
+            return
+        }
+        close.tap()
 
         let closeDeadline = Date().addingTimeInterval(15)
         while Date() < closeDeadline {
@@ -6809,7 +6983,8 @@ final class AppUITests: XCTestCase {
                 marker: "native-route-home",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
-            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc"),
+            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc",
+                          allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]),
             reviewerRoute(
                 name: "one-location",
                 redirect: "/one/location",

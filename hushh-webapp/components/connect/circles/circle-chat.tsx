@@ -413,10 +413,16 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
     const selected = [replyRef.current, actionRef.current?.message].filter((item): item is OpenMessage => Boolean(item));
     const loaded = new Map([...selected.map((item) => [item.id, item] as const), ...messagesRef.current.map((item) => [item.id, item] as const), ...targetsRef.current]);
     if (!loaded.size) return;
-    const updates = await CircleChatService.updates(session, [...loaded.keys()].slice(0, 600), signal);
-    if (!active.current || signal?.aborted) return;
-    applyStates([...updates.states, ...updates.unavailableIds.map((id) => ({ id, revision: loaded.get(id)?.revision ?? 0, hidden: true, deletedForEveryoneAt: null }))]);
-    const changed = updates.states.filter((state) => !state.hidden && !state.deletedForEveryoneAt && state.revision > (loaded.get(state.id)?.revision ?? 0)).map((state) => state.id);
+    const ids = [...loaded.keys()];
+    const batches: { states: CircleMessageState[]; unavailableIds: string[] }[] = [];
+    for (let index = 0; index < ids.length; index += 600) {
+      batches.push(await CircleChatService.updates(session, ids.slice(index, index + 600), signal));
+      if (!active.current || signal?.aborted) return;
+    }
+    const states = batches.flatMap((batch) => batch.states);
+    const unavailableIds = batches.flatMap((batch) => batch.unavailableIds);
+    applyStates([...states, ...unavailableIds.map((id) => ({ id, revision: loaded.get(id)?.revision ?? 0, hidden: true, deletedForEveryoneAt: null }))]);
+    const changed = states.filter((state) => !state.hidden && !state.deletedForEveryoneAt && state.revision > (loaded.get(state.id)?.revision ?? 0)).map((state) => state.id);
     for (let index = 0; index < changed.length && active.current; index += 40) {
       const resolved = await CircleChatService.resolve(session, changed.slice(index, index + 40), signal);
       if (!active.current || signal?.aborted) return;
@@ -463,13 +469,16 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
         if (!active.current || generation !== historyGeneration.current) continue;
         await reconcile(abort.signal);
         if (!active.current || generation !== historyGeneration.current) continue;
-        await cacheTargets(page.replyTargets);
+        // Reply targets are secondary metadata. Start decrypting them in
+        // parallel, but do not hold the first visible transcript on them.
+        const replyTargetsReady = cacheTargets(page.replyTargets);
         if (!last.current) setHasOlder(page.hasMore);
         mergeMembershipEvents(page.events);
         // Keep the older scroll window stable while still reconciling live
         // reactions and receipts for the messages visible in that window.
         const holdOlderWindow = anchored.current || !atBottomRef.current && messagesRef.current.length >= 300;
         append(holdOlderWindow ? [] : await decrypt(page.items), page.receipts, page.reactionUpdates, generation);
+        await replyTargetsReady;
         if (generation !== historyGeneration.current) continue;
         if (!holdOlderWindow && active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
         // Repair a reconnect gap in bounded pages, without skipping any sequence.
@@ -496,11 +505,10 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_REPAIR_INTERVAL_MS);
     window.addEventListener(CIRCLE_CHAT_CHANGED, event); window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => { void refresh(); });
-    return () => { active.current = false; abort.abort(); clearInterval(timer); removeLifecycle();
+    return () => { active.current = false; abort.abort(); removeLifecycle();
       window.removeEventListener(CIRCLE_CHAT_CHANGED, event); window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh); };
   }, [session, append, decrypt, fail, mergeMembershipEvents, reconcile, cacheTargets]);

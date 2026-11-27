@@ -13,6 +13,11 @@ struct HushhNativeNavigationState {
     private(set) var interactionEpoch = -1
     private var retiredDocuments = Set<String>()
 
+    mutating func suspendPresentation() {
+        visible = false
+        interactionEnabled = false
+    }
+
     mutating func retireDocument() {
         if let documentId { retiredDocuments.insert(documentId) }
         documentId = nil
@@ -273,7 +278,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard NativeDrawerQualificationPolicy.coherentPresentationEnabled else {
-                self.state.retireDocument()
+                self.state.suspendPresentation()
                 self.updatePresentation()
                 call.resolve(["supported": false, "contentHeight": 0, "bottomInset": 0])
                 return

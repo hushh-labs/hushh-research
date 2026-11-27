@@ -8,6 +8,7 @@ import { formatMinor } from "@/lib/mail/receipt-money";
 import { type ReceiptInsight, buildReceiptInsights, findCancellationProof } from "@/lib/mail/receipt-insights";
 import { type NoticeEvidence, noticeInsight, noticePlanKey, providerCancellationFor } from "@/lib/mail/receipt-notice";
 import { riseFacts, shortDate } from "@/lib/mail/receipt-tracking-present";
+import { parseReceiptDate } from "@/lib/mail/receipt-date";
 import { confirmCancellation, confirmedSavings, pendingCancellations, recordInsightReviewed, savePlanReview } from "@/lib/mail/receipt-tracking";
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { cn } from "@/lib/utils";
@@ -494,7 +495,7 @@ function ReceiptsInsightReview({
                     <button type="button" onClick={() => onOpenReceipt(row.primaryReceiptKey)} className="flex min-h-[56px] w-full items-center justify-between gap-3 px-4 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]">
                       <span className="min-w-0">
                         <span className="block truncate text-[14px] leading-[21px] font-semibold text-foreground">{row.merchantName}</span>
-                        <span className="block text-[12px] leading-[18px] text-muted-foreground">{row.receiptDate ? new Date(row.receiptDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "Date unknown"} · {row.status === "cancelled" || row.eventTimeline[0]?.eventKind === "cancellation" ? "Cancellation" : "Payment"}</span>
+                        <span className="block text-[12px] leading-[18px] text-muted-foreground">{row.receiptDate ? parseReceiptDate(row.receiptDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "Date unknown"} · {row.status === "cancelled" || row.eventTimeline[0]?.eventKind === "cancellation" ? "Cancellation" : "Payment"}</span>
                       </span>
                       <ChevronRight aria-hidden="true" className="size-4 text-muted-foreground" />
                     </button>

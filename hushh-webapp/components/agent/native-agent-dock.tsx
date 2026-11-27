@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { Capacitor } from "@capacitor/core";
@@ -33,7 +34,11 @@ function actionConfiguration(projection: DockProjection) {
 }
 
 /** One retained native host; existing features retain all operation authority. */
-export function NativeAgentDock({ enabled }: { enabled: boolean }) {
+export function NativeAgentDock(props: { enabled: boolean }) {
+  return <DockPresentation key={useInterfaceRevision()} {...props} />;
+}
+
+function DockPresentation({ enabled }: { enabled: boolean }) {
   const { userId } = useAuth();
   const dock = useAgentDockState();
   const ports = useNativeDockPorts();

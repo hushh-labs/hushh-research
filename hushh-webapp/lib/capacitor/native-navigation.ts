@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { nativeDrawerIsolation } from "./native-drawers";
@@ -196,6 +197,7 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
   column: NativeNavigationColumn | null;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
+  useInterfaceRevision();
   // The native tab bar and native route renderer are one presentation mode.
   // When the coherent renderer is disabled, leave the complete React bar in
   // the slot instead of installing a native control over a different shell.
@@ -265,11 +267,14 @@ export function useNativeNavigation({ enabled: requestedEnabled, visible, intera
     let removePrivacyObservation: (() => void) | undefined;
     const reconcilePrivacyAdmission = (event: NativeSessionPrivacyState) => {
       if (cancelled) return;
+      // Validation and the native listener can acknowledge the same release.
+      // A tap made after that release still belongs to this active session.
+      if (!event.shielded && event.appIsActive && releasedPrivacyGeneration === event.generation) return;
       invalidateConfirmations();
       if (event.shielded || !event.appIsActive) {
         releasedPrivacyGeneration = undefined;
         scrollDelivery.current?.update(null);
-      } else if (releasedPrivacyGeneration !== event.generation) {
+      } else {
         releasedPrivacyGeneration = event.generation;
         // Retry only presentation admission, never a choice. Validation can
         // release the cover through its completion without a listener event.

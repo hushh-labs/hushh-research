@@ -342,7 +342,7 @@ export function WalletWorkspace() {
       }
     }
   };
-  const [nativeWallet] = useState(() => nativeWalletCardFormsEnabled());
+  const nativeWallet = nativeWalletCardFormsEnabled();
   const walletTabs = nativeWallet ? NATIVE_WALLET_TABS : WALLET_TABS;
   const [walletAccessOpen, setWalletAccessOpen] = useState(false);
   const walletAccessTrigger = useRef<HTMLButtonElement>(null);

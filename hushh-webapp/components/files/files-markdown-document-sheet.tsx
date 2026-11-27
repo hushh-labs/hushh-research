@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import {
   useCallback,
   useEffect,
@@ -120,6 +121,7 @@ export function FilesMarkdownDocumentSheet({
   }) => Promise<boolean>;
   onForgetWikiClaim?: (params: { pageId: string; claimId: string; statement: string }) => Promise<void>;
 }) {
+  useInterfaceRevision();
   const isMobile = useIsMobile();
   const nativePage = customNativePresentationEnabled();
   const owner = snapshotValidatedAuthSessionOwner();

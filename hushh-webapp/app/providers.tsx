@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 /**
@@ -16,6 +17,7 @@ import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 import {
   CSSProperties,
+  Fragment,
   ReactNode,
   Suspense,
   useCallback,
@@ -155,6 +157,7 @@ function readCustomVar(style: CSSProperties, key: string): string {
 }
 
 function AppShellFrame({ children }: ProvidersProps) {
+  const interfaceRevision = useInterfaceRevision();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -696,13 +699,15 @@ function AppShellFrame({ children }: ProvidersProps) {
                   {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
                   {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
-                  <AppBottomShell model={bottomShellModel} />
-                  <ProfilePane
-                    owner={userId}
-                    open={profilePaneOpen}
-                    onOpenChange={handleProfilePaneOpenChange}
-                    returnFocusRef={profileReturnFocus}
-                  />
+                  <Fragment key={interfaceRevision}>
+                    <AppBottomShell model={bottomShellModel} />
+                    <ProfilePane
+                      owner={userId}
+                      open={profilePaneOpen}
+                      onOpenChange={handleProfilePaneOpenChange}
+                      returnFocusRef={profileReturnFocus}
+                    />
+                  </Fragment>
                   <PersonProfilePreview />
                   {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
@@ -729,9 +734,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                             signedInShellContentOffset.mode
                           }
                         >
+                          {interfaceRevision < 0 && <div role="status" className="fixed inset-0 z-[9999] grid place-items-center bg-background">Applying interface…</div>}
                           <NativeWorkspaceSeat />
                           {!hidesPersistentChrome && !isCanonicalChatRoute ? (
-                            <AppTopShell model={topShellModel} />
+                            <AppTopShell key={interfaceRevision} model={topShellModel} />
                           ) : null}
                           <Suspense
                             fallback={

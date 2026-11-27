@@ -643,6 +643,7 @@ export default function ProfileGmailOAuthReturnPageClient({
           </h1>
           <p className={`mt-2 text-muted-foreground ${calendar ? calendarType.support : "text-sm"}`}>{error}</p>
           <Button
+            size="prominent"
             onClick={() => router.replace(returnToSetup ? ROUTES.ONE_SETUP : buildProfileGmailReturnPath())}
             className="mt-4 w-full"
           >

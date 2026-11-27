@@ -383,10 +383,11 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     }
 
     func install(_ view: UIView, id: String, group: String?, pane: NativeContentPaneIdentity? = nil) {
-        // Keep the shell Back control above the full-frame WebView for UIKit
-        // accessibility hit testing. Admission still fences covered controls.
-        if pane != nil || (id == "top-shell-back" && group == nil) { contentChrome.addSubview(view) }
-        else if let group {
+        // UIKit accessibility hit-tests the WebView's full rectangle. Keep
+        // the ungrouped shell header controls on the front chrome plane.
+        if pane != nil || (group == nil && (id == "top-shell-back" || id == "chat-history-toggle")) {
+            contentChrome.addSubview(view)
+        } else if let group {
             let host = groupHost(group)
             host.addSubview(view)
         } else if id == "route-workspace" {

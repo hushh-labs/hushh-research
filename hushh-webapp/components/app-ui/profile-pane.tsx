@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ProfilePaneDrag } from "@/components/app-ui/profile-pane-drag";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
@@ -192,6 +193,7 @@ type ProfilePaneProps = {
  * right-side presentation used by the shell and native edge gesture.
  */
 export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
+  useInterfaceRevision();
   const nativeEligible = customNativePresentationEnabled() && nativeDrawersPlatformEligible();
   const [nativeScore, setNativeScore] = useState<boolean | null>(null);
   useEffect(() => {

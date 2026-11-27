@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect, useRef, useState } from "react";
 import { NativeActionMenu } from "./native-action-menu";
 import { nativeOwnedChoicesEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -253,10 +254,12 @@ function WebActionMenu({
 /** Renderer is selected for the popup family, not for each screen or click.
  * Trigger geometry/artwork stays authored; only the complete popup is native. */
 export function ActionMenu(props: Parameters<typeof WebActionMenu>[0]) {
-  const [native] = useState(() => nativeOwnedChoicesEnabled() && props.items.length > 0 &&
+  const interfaceRevision = useInterfaceRevision();
+  const [supportsNativeChoices] = useState(() => props.items.length > 0 &&
     props.items.length <= 256 && props.items.every(item => {
       const label = plainChoiceText(item.label)?.trim();
       return item.id.length > 0 && item.id.length <= 128 && label && label.length <= 256;
     }) && new Set(props.items.map(item => item.id)).size === props.items.length);
+  const native = interfaceRevision >= 0 && nativeOwnedChoicesEnabled() && supportsNativeChoices;
   return native ? <NativeActionMenu {...props} webFallback={open => <WebActionMenu {...props} initialOpen={open} />} /> : <WebActionMenu {...props} />;
 }

@@ -31,6 +31,14 @@ import type {
 } from "@/lib/navigation/profile-routes";
 
 export * from "./connections-boundaries";
+export { MarketInsightsEmptyError, MarketNewsSnapshotChangedError, isMarketInsightsEmptyError } from "@/lib/services/market-errors";
+
+// This fixture opens Profile with no linked financial institutions.
+export async function loadFinancialForVault() { return null; }
+export function buildVaultPlaidStatus() { return null; }
+export async function refreshVaultConnections() {
+  throw new Error("No financial sync in the Profile layout fixture");
+}
 
 function subscribe(listener: () => void) {
   window.addEventListener("popstate", listener);
