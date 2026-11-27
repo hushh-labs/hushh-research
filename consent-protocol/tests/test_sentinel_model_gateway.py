@@ -290,3 +290,67 @@ def test_sentinel_connect_ip_attribution_system_allow_and_terminal_scrub(tmp_pat
     finally:
         sink_sock.close()
         runtime.stop()
+
+
+def test_sentinel_stateless_model_surrogate_survives_proxy_restart_and_ha_replicas() -> None:
+    """When Sentinel restarts or scales across replicas, active sandbox surrogates stay valid without 401s."""
+    now = {"ts": 1_700_000_000}
+    hmac_key = b"S" * 32
+    ctrl_token = "ctrl-sentinel-ha-restart-01234567"
+
+    def fake_upstream(
+        url: str, method: str, headers: Mapping[str, str], body: bytes
+    ) -> tuple[int, dict[str, str], Iterable[bytes]]:
+        payload = {"candidates": [{"content": {"role": "model", "parts": [{"text": "HA OK"}]}}]}
+        return 200, {"Content-Type": "application/json"}, [json.dumps(payload).encode("utf-8")]
+
+    sentinel_a = SentinelProxyRuntime(
+        hmac_key=hmac_key,
+        control_token=ctrl_token,
+        proxy_port=0,
+        control_port=0,
+        model_gateway_port=0,
+        vertex_token_provider=lambda: "ya29.ha_token",
+        model_upstream_transport=fake_upstream,
+        clock_s=lambda: now["ts"],
+    )
+    sentinel_b = SentinelProxyRuntime(
+        hmac_key=hmac_key,
+        control_token=ctrl_token,
+        proxy_port=0,
+        control_port=0,
+        model_gateway_port=0,
+        vertex_token_provider=lambda: "ya29.ha_token",
+        model_upstream_transport=fake_upstream,
+        clock_s=lambda: now["ts"],
+    )
+    sentinel_a.start_background()
+    sentinel_b.start_background()
+    try:
+        sentinel_a.set_lease_policy("lease_ha", {}, owner_id="ha1_owner", pod_ip="127.0.0.1")
+        surrogate, _ = sentinel_a.mint_model_surrogate(
+            lease_id="lease_ha", owner_id="ha1_owner", ttl_seconds=3600
+        )
+        # Simulate pod eviction of sentinel_a: active sandbox calls sentinel_b with empty RAM.
+        conn = http.client.HTTPConnection("127.0.0.1", sentinel_b.model_gateway_port, timeout=5)
+        try:
+            conn.request(
+                "POST",
+                "/v1beta1/projects/hushh-pda-dev/locations/global/publishers/google/models/gemini-4-hydrogen:generateContent",
+                body=b"{}",
+                headers={"Authorization": f"Bearer {surrogate}"},
+            )
+            resp = conn.getresponse()
+            body = json.loads(resp.read().decode("utf-8"))
+        finally:
+            conn.close()
+        assert resp.status == 200
+        assert body["candidates"][0]["content"]["parts"][0]["text"] == "HA OK"
+
+        # Wrong client IP is still rejected 403 even on stateless recovery.
+        with pytest.raises(SentinelEgressError) as ip_err:
+            sentinel_b.authorize_model_surrogate(surrogate, client_ip="10.99.0.5")
+        assert ip_err.value.code == MODEL_SURROGATE_IP_MISMATCH
+    finally:
+        sentinel_a.stop()
+        sentinel_b.stop()
