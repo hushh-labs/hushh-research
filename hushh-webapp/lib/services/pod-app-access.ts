@@ -241,14 +241,32 @@ export async function ownerPodRequest(
         init.signal,
       );
     } catch (error) {
+      if (isAgentStillWaking(error)) throw error;
       if (!isStalePinnedEndpointAdmissionError(error)) throw error;
       prewarmedChatGrants = null;
       const refreshed = await untilCancelled(
         ownerPod.refreshEndpointFromHub(uid, transport),
         init.signal,
       );
-      if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+      if (!refreshed || refreshed.endpointVersion < pinned.endpointVersion) {
         throw error;
+      }
+      if (refreshed.endpointVersion === pinned.endpointVersion) {
+        const message = error instanceof Error ? error.message : "";
+        const canReopenSameVersionSession =
+          refreshed.hushhId === pinned.hushhId &&
+          refreshed.podKeyId === pinned.podKeyId &&
+          refreshed.url === pinned.url &&
+          typeof ownerPod.openPodSession === "function" &&
+          (message.startsWith("POD_CHALLENGE_REFUSED:") ||
+            message.startsWith("POD_ADMISSION_REFUSED:"));
+        if (!canReopenSameVersionSession) {
+          throw error;
+        }
+        await untilCancelled(
+          ownerPod.openPodSession(uid, transport, true),
+          init.signal,
+        );
       }
       return untilCancelled(
         ownerPod.currentPodConnection(uid, transport),

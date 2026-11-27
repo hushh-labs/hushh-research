@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
  */
 export function AgentQueuedStack({
   prompts,
+  warmingUp = false,
   deliveryUnconfirmed = false,
   sendingImmediately = false,
   hasComposerDraft = false,
@@ -30,6 +31,7 @@ export function AgentQueuedStack({
   onSendNow,
 }: {
   prompts: readonly QueuedAgentPrompt[];
+  warmingUp?: boolean;
   deliveryUnconfirmed?: boolean;
   sendingImmediately?: boolean;
   hasComposerDraft?: boolean;
@@ -59,6 +61,13 @@ export function AgentQueuedStack({
         {sendingImmediately && !deliveryUnconfirmed ? (
           <span className="min-w-0 truncate text-[color:var(--app-accent)]">
             {prompts.length > 1 || hasComposerDraft ? "Sending together now…" : "Sending now…"}
+          </span>
+        ) : warmingUp && !deliveryUnconfirmed ? (
+          <span
+            data-testid="agent-chat-queue-warming-status"
+            className="min-w-0 truncate text-foreground/80"
+          >
+            Waking One · Sends automatically when ready
           </span>
         ) : onSendNow && !deliveryUnconfirmed ? (
           <button
@@ -103,9 +112,11 @@ export function AgentQueuedStack({
                 data-testid="agent-chat-queued-marker"
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-[var(--motion-duration-md)]",
-                  prompt.placement === "joining"
-                    ? "bg-[color:var(--app-accent)]"
-                    : "bg-foreground/25",
+                  warmingUp
+                    ? "bg-amber-400 motion-safe:animate-pulse"
+                    : prompt.placement === "joining"
+                      ? "bg-[color:var(--app-accent)]"
+                      : "bg-foreground/25",
                 )}
               />
               {editing ? (

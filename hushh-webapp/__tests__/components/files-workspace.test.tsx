@@ -98,31 +98,73 @@ describe("Files form submission", () => {
       expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled(),
     );
     expect(
-      screen.queryByText(/Your private Files library is not connected/),
+      screen.queryByText(/Couldn't reach Files right now/),
     ).toBeNull();
   });
-  it("shows the connection action after bounded transient retries fail", async () => {
+  it("shows the clean non-jargon retry card after bounded transient retries fail", async () => {
     files.list.mockRejectedValue(new TypeError("Cold connection"));
     render(<FilesWorkspace />);
     await screen.findByText(
-      /Your private Files library is not connected/,
+      /Couldn't reach Files right now/,
       {},
       { timeout: 5000 },
     );
     expect(files.list).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute(
+      "href",
+      "/one/profile/hosting",
+    );
+    expect(screen.queryByText(/Reconnect pod/i)).toBeNull();
     expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+  });
+  it("silently wakes a sleeping sandbox with a calm warming state and loads entries without error UI", async () => {
+    files.list
+      .mockRejectedValueOnce(new Error("SANDBOX_WAKING"))
+      .mockRejectedValueOnce(new Error("POD_CHALLENGE_REFUSED:SANDBOX_WAKING"))
+      .mockResolvedValueOnce({
+        entries: [fileEntry({ id: "doc-1", name: "Roadmap.md" })],
+        cursor: "",
+      });
+    render(<FilesWorkspace wakeRetryDelaysMs={[10, 10, 0]} />);
+    await screen.findByTestId("files-warming-status");
+    expect(screen.getByText("Waking your private library…")).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't reach Files right now/)).toBeNull();
+    expect(screen.queryByText(/Reconnect pod/i)).toBeNull();
+    await screen.findByText("Roadmap.md");
+    expect(screen.queryByTestId("files-warming-status")).toBeNull();
+  });
+  it("keeps cached encrypted entries visible while the sandbox wakes in the background", async () => {
+    setFilesHostingCache(session.ownerId, session.vaultKey, "pod");
+    setFilesListCache(session.ownerId, "root", "", false, {
+      entries: [fileEntry({ id: "cached-1", name: "CachedBrief.pdf" })],
+      cursor: "",
+      chunkBytes: 1024,
+    });
+    files.list
+      .mockRejectedValueOnce(new Error("SANDBOX_WAKING"))
+      .mockResolvedValueOnce({
+        entries: [fileEntry({ id: "cached-1", name: "CachedBrief.pdf" })],
+        cursor: "",
+      });
+    render(<FilesWorkspace wakeRetryDelaysMs={[10, 0]} />);
+    expect(screen.getByText("CachedBrief.pdf")).toBeInTheDocument();
+    expect(screen.queryByTestId("files-warming-status")).toBeNull();
+    expect(screen.queryByText(/Couldn't reach Files right now/)).toBeNull();
+    await waitFor(() => expect(files.list).toHaveBeenCalledTimes(2));
+    evictInMemoryFilesCacheForTests();
   });
   it("does not retry an authorization refusal", async () => {
     files.list.mockRejectedValueOnce(new Error("POD_DIRECT_OWNER_MISMATCH"));
     render(<FilesWorkspace />);
-    await screen.findByText(/Your private Files library is not connected/);
+    await screen.findByText(/Couldn't reach Files right now/);
     expect(files.list).toHaveBeenCalledTimes(1);
   });
   it("explains when an existing pod has not enabled Files", async () => {
     files.list.mockRejectedValueOnce(new Error("FILES_NOT_ENABLED"));
     render(<FilesWorkspace />);
     await screen.findByText(
-      "Files is not enabled on this pod. Review setup below.",
+      "Files is not enabled yet. Review setup below.",
     );
     expect(files.list).toHaveBeenCalledTimes(1);
   });

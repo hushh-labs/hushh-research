@@ -83,9 +83,25 @@ if [[ -z "${IMAGE_REF}" ]]; then
   fi
 fi
 if [[ -z "${IMAGE_REF}" ]]; then
+  LATEST_TAG_DIGEST="$(gcloud artifacts docker images describe "${POD_REPO}:latest" \
+    --project="${PROJECT_ID}" --format='value(image_summary.digest)' 2>/dev/null || true)"
+  if [[ "${LATEST_TAG_DIGEST}" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+    IMAGE_REF="${POD_REPO}@${LATEST_TAG_DIGEST}"
+  fi
+fi
+if [[ -z "${IMAGE_REF}" ]]; then
   LATEST_DIGEST="$(gcloud artifacts docker images list "${POD_REPO}" \
-    --project="${PROJECT_ID}" --sort-by="~UPDATE_TIME" --limit=1 \
-    --format='value(version)' 2>/dev/null || true)"
+    --project="${PROJECT_ID}" --include-tags --sort-by="~UPDATE_TIME" --limit=15 \
+    --format=json 2>/dev/null | python3 -c '
+import json, sys
+items = json.loads(sys.stdin.read() or "[]")
+for it in items:
+    tags = [str(t) for t in (it.get("tags") or [])]
+    ver = str(it.get("version") or "").strip()
+    if ver.startswith("sha256:") and tags and "buildcache" not in tags:
+        print(ver)
+        break
+' || true)"
   if [[ -z "${LATEST_DIGEST}" ]]; then
     echo "Sandbox cluster reconcile (${DEPLOY_ENV}): no signed pod image digest found in ${POD_REPO}; skipping." >&2
     exit 0
@@ -222,15 +238,29 @@ gcloud secrets versions access latest --secret="sentinel-control-token" --projec
 
 WEB_CID_FILE="${WORK_DIR}/web-cid"
 WEB_SEC_FILE="${WORK_DIR}/web-sec"
+WEB_CID_SOURCE=""
 read_secret_optional "GOOGLE_WEB_OAUTH_CLIENT_ID" "${WEB_CID_FILE}"
-if [[ ! -s "${WEB_CID_FILE}" ]]; then
-  read_secret_optional "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" "${WEB_CID_FILE}"
+if [[ -s "${WEB_CID_FILE}" ]]; then
+  WEB_CID_SOURCE="web"
+  read_secret_optional "GOOGLE_WEB_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
+  if [[ ! -s "${WEB_SEC_FILE}" ]]; then
+    read_secret_optional "GOOGLE_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
+  fi
 fi
 if [[ ! -s "${WEB_CID_FILE}" ]]; then
   read_secret_optional "GOOGLE_OAUTH_CLIENT_ID" "${WEB_CID_FILE}"
+  if [[ -s "${WEB_CID_FILE}" ]]; then
+    WEB_CID_SOURCE="oauth"
+    read_secret_optional "GOOGLE_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
+  fi
 fi
-read_secret_optional "GOOGLE_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
-if [[ "${DEPLOY_ENV}" == "uat" ]] && gcloud secrets describe "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+if [[ ! -s "${WEB_CID_FILE}" ]]; then
+  read_secret_optional "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" "${WEB_CID_FILE}"
+  if [[ -s "${WEB_CID_FILE}" ]]; then
+    WEB_CID_SOURCE="uat_mail"
+  fi
+fi
+if [[ "${DEPLOY_ENV}" == "uat" && "${WEB_CID_SOURCE}" == "uat_mail" ]]; then
   UAT_MAIL_SEC_B64="$(kctl -n hussh-agents get secret uat-private-mail-oauth -o jsonpath='{.data.client-secret}' 2>/dev/null || true)"
   if [[ -n "${UAT_MAIL_SEC_B64}" ]]; then
     printf '%s' "${UAT_MAIL_SEC_B64}" | base64 -d > "${WEB_SEC_FILE}"

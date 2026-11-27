@@ -137,7 +137,10 @@ function detailCode(body: Record<string, unknown>): string {
   if (detail && typeof detail === "object" && "code" in detail) {
     return String((detail as { code?: unknown }).code ?? "");
   }
-  return typeof detail === "string" ? detail : "";
+  if (typeof detail === "string" && detail) {
+    return detail;
+  }
+  return typeof body.code === "string" ? body.code : "";
 }
 
 // -- enrolment and discovery ---------------------------------------------------------

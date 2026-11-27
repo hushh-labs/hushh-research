@@ -11,6 +11,7 @@ import { SharedFilesStore, type SharedFilesAccess } from "@/lib/files/shared/sto
 import type { FileEntry } from "@/lib/files/service";
 import { clearFilesCache } from "@/lib/files/files-cache";
 import { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { emitSandboxCutoverReadyToast } from "@/lib/one/sandbox-cutover-toast";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -954,6 +955,9 @@ export async function runSharedToAceMigration(
 
     const anyMigrated =
       migratedSessions > 0 || migratedFiles > 0 || migratedWikiPages > 0;
+    if (anyMigrated && nextMarker.chat && nextMarker.files) {
+      emitSandboxCutoverReadyToast({ backgroundCleanupQueued: false });
+    }
     return {
       status: anyMigrated
         ? "migrated"

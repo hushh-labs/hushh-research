@@ -147,6 +147,8 @@ describe("waking a sleeping private agent", () => {
 describe("what counts as still waking", () => {
   it("is a gateway status that is not the agent's own JSON, or a pre-send network failure", () => {
     expect(isAgentStillWaking(gateway(503))).toBe(true);
+    expect(isAgentStillWaking(new Error("POD_CHALLENGE_REFUSED:SANDBOX_WAKING"))).toBe(true);
+    expect(isAgentStillWaking(new Error("POD_ADMISSION_REFUSED:SANDBOX_WAKING"))).toBe(true);
     expect(
       isAgentStillWaking(
         new Response(JSON.stringify({ code: "SANDBOX_WAKING" }), {

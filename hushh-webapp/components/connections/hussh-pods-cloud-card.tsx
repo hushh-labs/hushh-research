@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
-import { ArrowRight, CheckIcon, X } from "@/components/icons";
+import { ArrowRight, CheckIcon } from "@/components/icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,9 +45,13 @@ import {
 } from "@/lib/services/hosted-pod-migration";
 import { cn } from "@/lib/utils";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import {
+  SANDBOX_CUTOVER_PILL_STORAGE_KEY,
+  emitSandboxCutoverReadyToast,
+} from "@/lib/one/sandbox-cutover-toast";
 import { PodSessionLockdownControl } from "./pod-session-lockdown-row";
 
-export const SANDBOX_CUTOVER_PILL_STORAGE_KEY = "hussh:sandbox-cutover-pill";
+export { SANDBOX_CUTOVER_PILL_STORAGE_KEY };
 
 const MIGRATION_STEPS = [
   "Locking current pod",
@@ -140,65 +144,22 @@ function formatSafetyWindowDate(iso: string | null | undefined): string {
 }
 
 export function SandboxCutoverStatusPill() {
-  const [notice, setNotice] = useState<{
-    backgroundCleanupQueued: boolean;
-    migrationMode?: string;
-  } | null>(null);
-
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY);
       if (!raw) return;
+      window.sessionStorage.removeItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY);
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       if (!parsed || typeof parsed !== "object") return;
-      setNotice({
+      emitSandboxCutoverReadyToast({
         backgroundCleanupQueued: parsed.backgroundCleanupQueued === true,
-        migrationMode:
-          typeof parsed.migrationMode === "string" ? parsed.migrationMode : undefined,
       });
     } catch {
       // Ignore storage access errors in restricted webviews.
     }
   }, []);
 
-  if (!notice) return null;
-
-  const label = notice.backgroundCleanupQueued
-    ? "Confidential Sandbox ready · Prior cloud cleanup running in background"
-    : "Confidential Sandbox ready";
-
-  return (
-    <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--app-top-bar-height,3.5rem)+0.75rem)] z-40 flex justify-center px-4">
-      <div
-        role="status"
-        aria-live="polite"
-        data-testid="sandbox-cutover-ready-pill"
-        className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--app-accent-border)] bg-[color:var(--app-card-surface-default)]/95 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-md"
-      >
-        <span
-          aria-hidden="true"
-          className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--app-accent)]"
-        />
-        <span className="truncate">{label}</span>
-        <button
-          type="button"
-          aria-label="Dismiss notification"
-          data-testid="sandbox-cutover-pill-dismiss"
-          onClick={() => {
-            try {
-              window.sessionStorage.removeItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY);
-            } catch {
-              // Ignore storage access errors.
-            }
-            setNotice(null);
-          }}
-          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--app-text-secondary)] hover:bg-background hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 export function HusshPodsActiveCard({
@@ -857,7 +818,7 @@ export function PooledSandboxSwitchCard({
         loading: hasAssignedCloudPod
           ? "Switching to Hussh Confidential Sandbox…"
           : "Starting Hussh Confidential Sandbox…",
-        success: "Your Hussh Confidential Sandbox is ready.",
+        success: "Personal Sandbox is ready",
         error: (err) =>
           err instanceof Error && err.message
             ? err.message
