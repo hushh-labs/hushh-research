@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import hmac
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import contextmanager
 
 from hushh_mcp.services.pod_commit_log import ObjectStore, PodCommitLog, PodLogConflict
 
@@ -46,12 +47,41 @@ def exact_session_selection(sec_id: str, origins: list[str] | tuple[str, ...]) -
         raise BrowserRefused("BROWSER_SESSION_SELECTION_INVALID")
 
 
+class SessionMutationState:
+    """One owner's live erasure fence and existing serialized cookie writers."""
+
+    def __init__(self, lock: asyncio.Lock | None = None) -> None:
+        self.lock = lock if lock is not None else asyncio.Lock()
+        self._erasing: dict[str, int] = {}
+
+    def require_available(self, site: str | None = None) -> None:
+        pending = bool(self._erasing) if site is None else self._erasing.get(site, 0) > 0
+        if pending:
+            raise BrowserRefused("BROWSER_SESSION_FORGET_PENDING")
+
+    @contextmanager
+    def erasing(self, sites: Sequence[str]) -> Iterator[None]:
+        # No await precedes this fence or its release. Counts keep overlapping
+        # erasers fenced until every close and deletion attempt has completed.
+        for site in sites:
+            self._erasing[site] = self._erasing.get(site, 0) + 1
+        try:
+            yield
+        finally:
+            for site in sites:
+                remaining = self._erasing[site] - 1
+                if remaining:
+                    self._erasing[site] = remaining
+                else:
+                    del self._erasing[site]
+
+
 async def erase_session_site(
     *,
     log: PodCommitLog,
     store: ObjectStore,
     site: str,
-    lock: asyncio.Lock,
+    mutations: SessionMutationState,
     check: Callable[[], Awaitable[None]],
     fence: Callable[[str], Awaitable[None]],
 ) -> ForgetReceipt:
@@ -59,42 +89,43 @@ async def erase_session_site(
     if not isinstance(site, str) or not _SITE.fullmatch(site):
         raise BrowserRefused("BROWSER_SESSION_SITE_INVALID")
     await check()
-    closed = True
-    try:
-        await fence(site)
-    except Exception:
-        closed = False
-    await check()
-    async with lock:
-        # A delayed put holds this same lock. Inventory deletion cannot run
-        # ahead of it, even when its task has already detached terminal state.
-        await check()
+    with mutations.erasing((site,)):
+        closed = True
         try:
-            projection, cursor = await refresh_projection(log, None, SessionProjection())
-            await check()
-            current = projection.sites.get(site, SiteRevision())
-            if current.object_key is not None or current.generation == 0:
-                await log.append(
-                    KIND,
-                    {"operation": "forget", "site": site, "generation": current.generation + 1},
-                    expected_seq=cursor.seq if cursor is not None else 0,
-                )
-            await check()
-            projection, _ = await refresh_projection(log, None, SessionProjection())
-        except BrowserRefused:
-            raise
-        except (PodLogConflict, RuntimeError):
-            return ForgetReceipt(closed, False, False)
+            await fence(site)
+        except Exception:
+            closed = False
         await check()
-        deleted = closed
-        for object_key in projection.objects.get(site, set()):
+        async with mutations.lock:
+            # Close remains outside this lock: an in-flight restore must be
+            # able to unwind and release its writer lock while close joins it.
             await check()
             try:
-                await store.delete(object_key)
-            except Exception:
-                deleted = False
+                projection, cursor = await refresh_projection(log, None, SessionProjection())
+                await check()
+                current = projection.sites.get(site, SiteRevision())
+                if current.object_key is not None or current.generation == 0:
+                    await log.append(
+                        KIND,
+                        {"operation": "forget", "site": site, "generation": current.generation + 1},
+                        expected_seq=cursor.seq if cursor is not None else 0,
+                    )
+                await check()
+                projection, _ = await refresh_projection(log, None, SessionProjection())
+            except BrowserRefused:
+                raise
+            except (PodLogConflict, RuntimeError):
+                return ForgetReceipt(closed, False, False)
             await check()
-        return ForgetReceipt(closed, True, deleted)
+            deleted = closed
+            for object_key in projection.objects.get(site, set()):
+                await check()
+                try:
+                    await store.delete(object_key)
+                except Exception:
+                    deleted = False
+                await check()
+            return ForgetReceipt(closed, True, deleted)
 
 
 class OwnerSessionCleanup:
@@ -116,7 +147,8 @@ class OwnerSessionCleanup:
         self._pod, self._incarnation = authority.hushh_id, incarnation
         self._admission = admission
         self._key = browser_custody_key(dek)
-        self.lock = asyncio.Lock()
+        self.mutations = SessionMutationState()
+        self.lock = self.mutations.lock
 
     async def _check(self, access: BrowserOwnerAccess) -> None:
         from hushh_mcp.services.pod_session_authority import (
@@ -155,24 +187,26 @@ class OwnerSessionCleanup:
         try:
             await self._check(access)
             cipher = BrowserSessionCipher(access.owner_id, self._key)
-            receipts = []
-            for origin in origins:
-                receipts.append(
-                    await erase_session_site(
-                        log=self._log,
-                        store=self._store,
-                        site=cipher.site_id(origin, sec_id),
-                        lock=self.lock,
-                        check=lambda: self._check(access),
-                        fence=fence,
+            sites = tuple(cipher.site_id(origin, sec_id) for origin in origins)
+            with self.mutations.erasing(sites):
+                receipts = []
+                for site in sites:
+                    receipts.append(
+                        await erase_session_site(
+                            log=self._log,
+                            store=self._store,
+                            site=site,
+                            mutations=self.mutations,
+                            check=lambda: self._check(access),
+                            fence=fence,
+                        )
                     )
+                await self._check(access)
+                return ForgetReceipt(
+                    all(receipt.fenced for receipt in receipts),
+                    all(receipt.persisted for receipt in receipts),
+                    all(receipt.deletion_requested for receipt in receipts),
                 )
-            await self._check(access)
-            return ForgetReceipt(
-                all(receipt.fenced for receipt in receipts),
-                all(receipt.persisted for receipt in receipts),
-                all(receipt.deletion_requested for receipt in receipts),
-            )
         finally:
             await permit.release()
 

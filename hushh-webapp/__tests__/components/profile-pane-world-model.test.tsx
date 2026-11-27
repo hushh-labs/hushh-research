@@ -55,6 +55,7 @@ const vault = vi.hoisted(() => ({
   vaultOwnerToken: "token-a",
   isVaultUnlocked: true,
   tokenExpiresAt: null,
+  getVaultKey: () => vault.vaultKey,
   getVaultOwnerToken: () => "token-a",
 }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));

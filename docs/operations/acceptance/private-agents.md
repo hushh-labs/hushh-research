@@ -69,19 +69,35 @@ These are source checks, not serving-image or device acceptance.
 The current native Chat merge also preserves validated Browser creation metadata
 when a Finance read in the same invocation is redacted. Its 28 focused tests
 include encrypted-history readback and retain the private-result boundary.
+The subsequent persistence correction verifies three encrypted save/read cycles
+and a later turn, with 44 focused cases covering both initial and already
+projected receipts. This metadata never grants Browser execution authority.
+A shared temporary erasure fence also prevents newly admitted tasks from
+restoring cookies while Forget closes contexts and deletes session objects.
+The 151-case affected suite covers overlapping erasers and later explicitly
+reviewed saves; public browsing remains available during erasure.
 
 | Environment | Surface | Walkthrough evidence on 27 November |
 | --- | --- | --- |
-| Dev | Web | Reviewer authentication and vault unlock passed. The public Browser prompt was submitted through a fresh chat after dismissing two authored notices. A critical API failure leaves the Browser journey incomplete. |
+| Dev | Web | Reviewer authentication and vault unlock passed. The public Browser prompt was submitted through a fresh chat after dismissing two authored notices. The BYOC GCP reviewer is not a Sandbox fixture, and trusted-device enrollment refuses its review-mode token with `TRUSTED_DEVICE_REVIEW_SESSION_REFUSED`. No accepted Browser task or complete Sandbox journey was verified. |
 | UAT | Web | Reviewer authentication and vault unlock passed. No accepted Browser task or complete signed-in journey was verified. |
-| Dev and UAT | Native iPhone | Not run; an installed native Simulator journey remains required. |
-| Dev and UAT | Native Android | Not run; an installed native Emulator journey remains required. |
+| Dev and UAT | Native iPhone | Not run. A native Simulator target and runner recipe are prepared; no app walkthrough was executed. |
+| Dev and UAT | Native Android | Not run. The task-local SDK, Emulator target and runner recipe are prepared; no app walkthrough was executed. |
 
 The owner's linked Phase 3 request names Web, iPhone and Android without
 explicitly requiring physical hardware. Simulator/Emulator receipts must name
 their actual targets and do not establish physical-device or human acceptance.
 Neither PR #10040 nor Search Console PR #1149 is recorded here as merged or
 deployed by these local checks.
+
+The source prerequisites for Sandbox acceptance also remain open: an explicit
+opaque Sentinel CONNECT backend with current lease and tunnel lifecycle checks,
+resident Browser task delivery, exact gVisor image/native-model qualification,
+and typed activation through the actual Edge-to-standby placement path. Existing
+owner-cloud activation and synthetic probes do not qualify that host. Preserve
+website TLS and the reviewer-token containment guard; use a normally admitted
+owner-selected Sandbox test session for the live walks. Do not enable the host
+by changing flags or route credentials through plaintext Sentinel forwarding.
 
 ## Dev confidential sandbox cutover baseline (23 November 2026)
 

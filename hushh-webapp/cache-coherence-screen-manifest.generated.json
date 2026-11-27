@@ -16,8 +16,8 @@
     "surface_map_count": 166,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 49,
-      "vault-backed": 69,
+      "redirect/alias": 50,
+      "vault-backed": 68,
       "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -3470,26 +3470,23 @@
     {
       "route": "/one/pkm/logins",
       "page_file": "app/one/pkm/logins/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm%2Flogins",
@@ -3508,9 +3505,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/pkm/recent",
@@ -7471,5 +7466,5 @@
       ]
     }
   ],
-  "content_sha256": "4176f212d03d2f6eb3d684a0b9cbc24d78e9c37e8934e2d91c415ad67bade479"
+  "content_sha256": "62e73900fd05e938f18ff9d40c7a52be6dac5935f9c72f56aab4453c30fafcc2"
 }

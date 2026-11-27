@@ -149,20 +149,24 @@ def _browser_creation_metadata(event, response, *, owner_id: str, calls: set[tup
     ):
         return None
     raw = response.response["binding"]
-    try:
-        binding = BrowserBinding.model_validate(
-            {key: raw.get(key) for key in BrowserBinding.model_fields}
-        )
-    except ValueError:
+    fields = ("owner_id", "pod_id", "incarnation", "task_id")
+    if set(response.response) == {"status", "binding"} and set(raw) == set(fields):
+        # Re-saving decoded history must preserve this closed, presentation-only
+        # shape. It deliberately carries no expiry or execution environment.
+        if any(not isinstance(value, str) or not 0 < len(value) <= 256 for value in raw.values()):
+            return None
+        metadata = dict(raw)
+    else:
+        try:
+            binding = BrowserBinding.model_validate(
+                {key: raw.get(key) for key in BrowserBinding.model_fields}
+            )
+        except ValueError:
+            return None
+        metadata = {key: getattr(binding, key) for key in fields}
+    if metadata["owner_id"] != owner_id:
         return None
-    if binding.owner_id != owner_id:
-        return None
-    return {
-        "status": "accepted",
-        "binding": {
-            key: getattr(binding, key) for key in ("owner_id", "pod_id", "incarnation", "task_id")
-        },
-    }
+    return {"status": "accepted", "binding": metadata}
 
 
 def durable_external_read_projection(session: Session) -> Session:

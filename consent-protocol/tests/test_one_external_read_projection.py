@@ -306,13 +306,23 @@ def test_private_portfolio_turn_preserves_only_correlated_browser_creation_for_s
 
     session, binding = _mixed_browser_portfolio_history()
     service = EncryptedAdkSessionService(static_chat_cipher())
-    encoded = service._encode(session)
-    decoded = service._decode(
-        {f"payload_{key}": value for key, value in encoded.items()},
-        app_name=session.app_name,
-        user_id=session.user_id,
-        session_id=session.id,
-    )
+    decoded = session
+    for persistence in range(3):
+        encoded = service._encode(decoded)
+        decoded = service._decode(
+            {f"payload_{key}": value for key, value in encoded.items()},
+            app_name=session.app_name,
+            user_id=session.user_id,
+            session_id=session.id,
+        )
+        if persistence == 0:
+            decoded.events.append(
+                _event(
+                    [types.Part(text="Ordinary next request")],
+                    author="user",
+                    invocation="later-turn",
+                )
+            )
     safe_binding = {key: binding[key] for key in ("owner_id", "pod_id", "incarnation", "task_id")}
     assert decoded.events[1].content.parts[0].function_response.response == {
         "status": "accepted",
@@ -369,12 +379,20 @@ def test_private_portfolio_turn_preserves_only_correlated_browser_creation_for_s
         "wrong_call",
         "missing_id",
         "malformed_binding",
+        "empty_incarnation",
+        "oversized_pod",
+        "projected_extra_field",
     ],
 )
-def test_private_portfolio_turn_does_not_preserve_untrusted_browser_result(fault):
+@pytest.mark.parametrize("already_projected", [False, True])
+def test_private_portfolio_turn_does_not_preserve_untrusted_browser_result(
+    fault, already_projected
+):
     from hushh_mcp.one_adk.browser_activity_history import accepted_browser_creations
 
     session, _ = _mixed_browser_portfolio_history()
+    if already_projected:
+        session = durable_external_read_projection(session)
     event = session.events[1]
     response = event.content.parts[0].function_response
     if fault == "foreign_agent":
@@ -395,6 +413,15 @@ def test_private_portfolio_turn_does_not_preserve_untrusted_browser_result(fault
         response.id = "another-call"
     elif fault == "missing_id":
         response.id = None
+    elif fault == "empty_incarnation":
+        response.response["binding"]["incarnation"] = ""
+    elif fault == "oversized_pod":
+        response.response["binding"]["pod_id"] = "p" * 257
+    elif fault == "projected_extra_field":
+        response.response["binding"].pop("environment", None)
+        response.response["binding"].pop("expires_at", None)
+        response.response["binding"].pop("grant", None)
+        response.response["private"] = "PRIVATE_EXTRA"
     else:
         response.response["binding"]["pod_id"] = []
     projected = durable_external_read_projection(session)

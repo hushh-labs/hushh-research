@@ -469,7 +469,7 @@ async def _owner_session_cleanup_fixture(pod, monkeypatch):
         readiness=readiness(),
         fence_live_contexts=AsyncMock(),
         clock=lambda: 1000,
-        mutation_lock=cleanup.lock,
+        mutations=cleanup.mutations,
     )
     sec_id, origins = "sec_" + "a" * 16, ["https://example.com"]
     site = sessions.site_id(origins[0], sec_id)
@@ -632,6 +632,180 @@ async def test_owner_forget_rechecks_authority_after_inventory_await_before_tomb
         finally:
             release.set()
             await asyncio.gather(work, return_exceptions=True)
+
+
+@pytest.mark.parametrize("overlap", [False, True])
+async def test_owner_forget_fences_new_task_restore_until_erasure_finishes(
+    pod, monkeypatch, overlap
+):
+    import asyncio
+
+    from httpx import ASGITransport, AsyncClient
+    from starlette.requests import Request
+
+    from api.routes.one import pod_browser
+    from hushh_mcp.services.pod_browser.sessions import BrowserSessions
+    from tests.helpers.pod_browser import (
+        _remembered,
+        approved_task,
+        readiness,
+        task_runtime_fixture,
+    )
+
+    cleanup, _, saved, _, body = await _owner_session_cleanup_fixture(pod, monkeypatch)
+    if not overlap:
+        body["origins"].append("https://second.example")
+    app = pod["client"].app
+    admitted = _admit(pod["client"], Subject("tdv_erase_restore", "web"))
+    headers = _auth(admitted)
+    path = "/api/one/pod/browser/sessions/forget"
+    access = await pod_browser.owner_access(
+        Request({"type": "http", "app": app, "path": path, "headers": []}),
+        headers["Authorization"],
+        psa.SCOPE_BROWSER_CONTROL,
+        bind_runtime=False,
+    )
+    fixture = task_runtime_fixture(monkeypatch, log=pod["log"])
+    runtime = fixture.runtime
+    runtime._owner, runtime._pod, runtime._incarnation = USER, OWNER, access.incarnation
+    runtime._public_research_only = False
+    runtime._session_mutations = cleanup.mutations
+    fixture.owner = access
+    fixture.request = fixture.request.model_copy(update={"allowed_origins": tuple(body["origins"])})
+
+    async def check_binding(_):
+        await access.check()
+
+    monkeypatch.setattr(fixture.auth, "check_binding", check_binding)
+    imported = []
+
+    async def install(state, _origins):
+        imported.append(state)
+
+    monkeypatch.setattr(fixture.driver, "import_session", install, raising=False)
+    runtime._sessions_factory = lambda consent: BrowserSessions(
+        owner_id=USER,
+        store=pod["objects"],
+        log=pod["log"],
+        custody_key=cleanup._key,
+        consent=consent,
+        readiness=readiness(),
+        fence_live_contexts=runtime.fence_live_contexts,
+        clock=lambda: 1000,
+        mutations=cleanup.mutations,
+    )
+    app.state.browser_task_runtime = runtime
+    fenced = [asyncio.Event(), asyncio.Event()]
+    release = [asyncio.Event(), asyncio.Event()]
+    close_calls = 0
+    close_contexts = runtime.fence_live_contexts
+
+    async def pause_after_close(site):
+        nonlocal close_calls
+        index = close_calls
+        close_calls += 1
+        await close_contexts(site)
+        if index < (2 if overlap else 1):
+            fenced[index].set()
+            await release[index].wait()
+
+    monkeypatch.setattr(runtime, "fence_live_contexts", pause_after_close)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://pod") as client:
+        erasing = asyncio.create_task(client.post(path, headers=headers, json=body))
+        overlapping = None
+        try:
+            await asyncio.wait_for(fenced[0].wait(), 2)
+            if overlap:
+                overlapping = asyncio.create_task(client.post(path, headers=headers, json=body))
+                await asyncio.wait_for(fenced[1].wait(), 2)
+            # A newly admitted public task remains usable while erasure closes
+            # the prior context. Its new session port must share the fence.
+            snapshot = await asyncio.wait_for(approved_task(fixture), 3)
+            task = runtime._tasks[snapshot.binding.task_id]
+            await asyncio.wait_for(
+                runtime.control(access, task.binding.task_id, "takeover", snapshot.control_epoch), 3
+            )
+            site = task.sessions.site_id(body["origins"][0], body["sec_id"])
+            terms = {
+                "site": site,
+                "generation": saved.generation,
+                "object": saved.object_key,
+                "digest": saved.digest,
+                "origins": [body["origins"][0]],
+            }
+            fixture.reviews.grants.add(
+                fixture.reviews.identity(task.binding, "session_restore", terms)
+            )
+            for origin in body["origins"]:
+                with pytest.raises(pod_browser.BrowserRefused, match="FORGET_PENDING"):
+                    await asyncio.wait_for(
+                        runtime.session(
+                            access, task.binding.task_id, "restore", origin, body["sec_id"]
+                        ),
+                        3,
+                    )
+            with pytest.raises(pod_browser.BrowserRefused, match="FORGET_PENDING"):
+                await runtime.session(
+                    access, task.binding.task_id, "remember", body["origins"][0], body["sec_id"]
+                )
+            assert not imported
+            release[0].set()
+            receipt = await asyncio.wait_for(erasing, 2)
+            assert receipt.status_code == 200 and receipt.json()["fenced"]
+            assert await pod["objects"].get(saved.object_key) is None
+            if overlapping is not None:
+                assert not overlapping.done()
+                with pytest.raises(pod_browser.BrowserRefused, match="FORGET_PENDING"):
+                    await runtime.session(
+                        access, task.binding.task_id, "restore", body["origins"][0], body["sec_id"]
+                    )
+                release[1].set()
+                second_receipt = await asyncio.wait_for(overlapping, 2)
+                assert second_receipt.status_code == 200 and second_receipt.json()["fenced"]
+            # Completion releases the temporary fence; an explicit new save
+            # and review can create a new generation without a permanent drain.
+            if task.closed:
+                fixture.request = fixture.request.model_copy(update={"request_id": "new_request"})
+                fixture.model.entered.clear()
+                launches = fixture.launcher.calls
+                snapshot = await runtime.start(access, fixture.request)
+                await runtime._tasks[snapshot.binding.task_id].worker
+                snapshot = await runtime.read(access, snapshot.binding.task_id)
+                assert snapshot.phase == "needs_owner" and fixture.launcher.calls == launches
+                await runtime.confirm_review(
+                    access,
+                    snapshot.binding.task_id,
+                    snapshot.review.review_id,
+                    "synthetic-owner-receipt-" + "x" * 32,
+                )
+                await asyncio.wait_for(fixture.model.entered.wait(), 3)
+                assert fixture.launcher.calls == launches + 1
+                snapshot = await runtime.read(access, snapshot.binding.task_id)
+                task = runtime._tasks[snapshot.binding.task_id]
+                await runtime.control(
+                    access, task.binding.task_id, "takeover", snapshot.control_epoch
+                )
+            state = _remembered()
+            remember_terms = {
+                "site": site,
+                "generation": 1,
+                "origins": [body["origins"][0]],
+                "state": state.model_dump(mode="json"),
+            }
+            fixture.reviews.grants.add(
+                fixture.reviews.identity(task.binding, "session_remember", remember_terms)
+            )
+            current = await task.sessions.remember(
+                task.binding, site, state, approved_origins=frozenset({body["origins"][0]})
+            )
+            assert current.generation == 1 and current.object_key != saved.object_key
+        finally:
+            for event in release:
+                event.set()
+            await asyncio.gather(
+                erasing, *([overlapping] if overlapping is not None else []), return_exceptions=True
+            )
+            await asyncio.wait_for(runtime.drain(), 3)
 
 
 # -- revocation -----------------------------------------------------------------------

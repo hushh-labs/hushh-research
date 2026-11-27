@@ -407,7 +407,7 @@ async def test_owner_erasure_joins_inflight_put_before_deleting_its_inventoried_
                 log=log,
                 store=store,
                 site=site,
-                lock=sessions._lock,
+                mutations=sessions._mutations,
                 check=lambda: auth.check_binding(binding()),
                 fence=fence,
             )
@@ -416,14 +416,15 @@ async def test_owner_erasure_joins_inflight_put_before_deleting_its_inventoried_
         done, _ = await asyncio.wait({erasing}, timeout=0.1)
         assert not done, "owner erasure must join the existing session writer lock"
         store.release.set()
-        written = await asyncio.wait_for(saving, 1)
+        with pytest.raises(BrowserRefused, match="FORGET_PENDING"):
+            await asyncio.wait_for(saving, 1)
         receipt = await asyncio.wait_for(erasing, 1)
         assert receipt.fenced and receipt.persisted and receipt.deletion_requested
-        assert await store.get(written.object_key) is None
+        records = await log.replay()
+        assert await store.get(records[0]["payload"]["object"]) is None
         assert await sessions.recovery_inventory() == ()
-        assert [record["payload"]["operation"] for record in await log.replay()] == [
+        assert [record["payload"]["operation"] for record in records] == [
             "intent",
-            "publish",
             "forget",
         ]
     finally:
@@ -463,7 +464,7 @@ async def test_owner_erasure_retains_honest_partial_receipts_and_rechecks_each_d
             log=log,
             store=store,
             site=site,
-            lock=sessions._lock,
+            mutations=sessions._mutations,
             check=lambda: auth.check_binding(binding()),
             fence=fence,
         )

@@ -26,7 +26,7 @@ from hushh_mcp.services.pod_commit_log import (
 from .consent import BrowserConsentPort
 from .contracts import BrowserBinding, BrowserReadiness, BrowserRefused
 from .session_cipher import BrowserSessionCipher
-from .session_erasure import erase_session_site
+from .session_erasure import SessionMutationState, erase_session_site
 from .session_projection import _SITE, KIND, SessionProjection, refresh_projection
 from .session_projection import ForgetReceipt as ForgetReceipt
 from .session_projection import SiteRevision as SiteRevision
@@ -51,6 +51,7 @@ class BrowserSessions:
         clock: Callable[[], float] = time.time,
         check_session_allowed: Callable[[], Awaitable[None]] | None = None,
         mutation_lock: asyncio.Lock | None = None,
+        mutations: SessionMutationState | None = None,
     ) -> None:
         readiness.require_ready()
         if len(custody_key) != 32 or not owner_id:
@@ -62,7 +63,16 @@ class BrowserSessions:
         self._check_session_allowed = check_session_allowed
         self._projection = SessionProjection()
         self._cursor: PodLogCursor | None = None
-        self._lock = mutation_lock if mutation_lock is not None else asyncio.Lock()
+        if (
+            mutations is not None
+            and mutation_lock is not None
+            and mutations.lock is not mutation_lock
+        ):
+            raise BrowserRefused("BROWSER_SESSION_FENCE_UNAVAILABLE")
+        self._mutations = (
+            mutations if mutations is not None else SessionMutationState(mutation_lock)
+        )
+        self._lock = self._mutations.lock
         self._blocked: set[str] = set()
         self._forget_epochs: dict[str, int] = {}
         self._forgetting: set[str] = set()
@@ -83,10 +93,14 @@ class BrowserSessions:
             await cleanup(binding)
         else:
             await self._consent.check_binding(binding)
-        if not erasing and self._check_session_allowed is not None:
-            await self._check_session_allowed()
         if site in self._blocked and not forgetting:
             raise BrowserRefused("BROWSER_SESSION_FORGOTTEN")
+        if not erasing:
+            self._mutations.require_available(site)
+        if not erasing and self._check_session_allowed is not None:
+            await self._check_session_allowed()
+        if not erasing:
+            self._mutations.require_available(site)
 
     async def _refresh(self) -> int:
         self._projection, self._cursor = await refresh_projection(
@@ -259,7 +273,7 @@ class BrowserSessions:
             log=self._log,
             store=self._store,
             site=site,
-            lock=self._lock,
+            mutations=self._mutations,
             check=lambda: self._check(binding, site, forgetting=True, erasing=True),
             fence=self._fence,
         )

@@ -33,6 +33,7 @@ from .contracts import (
 )
 from .delivery import BrowserDelivery, BrowserDeliveryPort
 from .information import ConsentedProjectionPort
+from .session_erasure import SessionMutationState
 from .sessions import BrowserSessions
 from .task_authority import owner_review, prepare_task
 from .task_contracts import (
@@ -75,6 +76,7 @@ class BrowserTaskRuntime:
         environment: Literal["development", "uat"] = "development",
         credential_source=None,
         session_context_check: Callable[[], Awaitable[None]] | None = None,
+        session_mutations: SessionMutationState | None = None,
     ) -> None:
         self._owner, self._pod, self._incarnation = owner_id, pod_id, incarnation
         self._environment: Literal["development", "uat"] = (
@@ -90,6 +92,7 @@ class BrowserTaskRuntime:
         self._delivery = delivery
         self._credential_source = credential_source
         self._session_context_check = session_context_check
+        self._session_mutations = session_mutations
         self._tasks: dict[str, _Task] = {}
         self._request_key = os.urandom(32)
         self._requests: dict[str, str] = {}
@@ -451,8 +454,11 @@ class BrowserTaskRuntime:
 
         # This is the canonical config's active projection, updated only after
         # its durable write. Public tasks do not acquire session restrictions.
-        if self._has_private_context(task) and active_pod_config().session_only_lockdown:
-            raise BrowserRefused("BROWSER_SESSION_ONLY")
+        if self._has_private_context(task):
+            if self._session_mutations is not None:
+                self._session_mutations.require_available()
+            if active_pod_config().session_only_lockdown:
+                raise BrowserRefused("BROWSER_SESSION_ONLY")
 
     async def _check_private_context_current(self, task: _Task) -> None:
         self._check_private_context(task)
