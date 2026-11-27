@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { CalendarDateNavigation } from "@/components/calendar/calendar-date-navigation";
-import { calendarDate, shiftCalendarDate } from "@/components/calendar/calendar-schedule-presentation";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   areScheduledTasksAvailable,
+  FILE_ORGANIZATION_TEMPLATE,
   MAIL_FOLLOWUP_TEMPLATE,
   PodScheduledTasksClient,
   SCHEDULE_WEEKDAYS,
@@ -32,8 +31,7 @@ import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { MediumRowLabel, SectionLabel } from "@/components/app-ui/typography";
-import { CalendarClock, RefreshCw } from "@/components/icons";
-import { cn } from "@/lib/utils";
+import { CalendarClock, ChevronRight, RefreshCw } from "@/components/icons";
 
 export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
   pending_delivery: "Scheduling",
@@ -62,9 +60,6 @@ const controlLabels: Record<ScheduleControl, { pending: string; success: string 
   skip_next: { pending: "Skipping next run…", success: "Next run skipped" },
   run_now: { pending: "Requesting a run…", success: "Run requested" },
 };
-
-const scheduleViews = ["Agenda", "Day", "Week", "Month"] as const;
-type ScheduleView = (typeof scheduleViews)[number];
 
 function runSummary(run: ScheduledRun): string {
   const when = new Date((run.finished_at ?? run.started_at) * 1000).toLocaleString();
@@ -222,30 +217,75 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <ScheduledTasksPanelBody model={useScheduledTasksModel(ownerId)} />;
 }
 
-export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, inline = false }: {
+function scheduledStateLabel(task: ScheduledTask) {
+  return task.run_now_pending ? "Run requested" : scheduledTaskLabels[task.state];
+}
+
+export function ScheduledRunInformation({ task }: { task: ScheduledTask }) {
+  const earlierRuns = task.recent_runs?.filter(run => run.id !== task.last_run?.id);
+  const repeat = task.weekdays?.map(day => SCHEDULE_WEEKDAYS[day]).join(", ") ?? repeatLabels[task.repeat];
+  return (
+    <div className="space-y-1">
+      <p role="status">{scheduledStateLabel(task)}</p>
+      {task.state === "scheduled" && (
+        <p>Next run: {new Date(task.next_run_at * 1000).toLocaleString()}</p>
+      )}
+      <p>{repeat}</p>
+      <p>{scheduledRunSummary(task)}</p>
+      {task.last_run?.state === "outcome_uncertain" && <p>Check the result before scheduling again.</p>}
+      {earlierRuns?.length ? (
+        <details>
+          <summary className="min-h-8 w-fit cursor-pointer content-center">Run history</summary>
+          <ul className="space-y-1 ps-3">
+            {earlierRuns.map(run => <li key={run.id}>{runSummary(run)}</li>)}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+export function ScheduledRunActions({ task, model }: {
+  task: ScheduledTask;
+  model: ReturnType<typeof useScheduledTasksModel>;
+}) {
+  const { busy, checking, control, status } = model;
+  const disabled = checking || Boolean(busy);
+  const scheduled = task.state === "scheduled" && !task.run_now_pending;
+  return (
+    <div className="flex max-w-full flex-wrap items-center gap-1 empty:hidden">
+      {["scheduled", "pending_delivery"].includes(task.state) && (
+        <Button variant="ghost" size="compact" disabled={disabled} onClick={() => void control(task, "pause")}>Pause</Button>
+      )}
+      {task.state === "paused" && (
+        <Button variant="ghost" size="compact" disabled={disabled || !status?.available} onClick={() => void control(task, "resume")}>Resume</Button>
+      )}
+      {scheduled && status?.run_now_available && task.capability !== MAIL_FOLLOWUP_TEMPLATE && (
+        <Button variant="ghost" size="compact" disabled={disabled || task.next_run_at < Date.now() / 1000 + 60} onClick={() => void control(task, "run_now")}>Run now</Button>
+      )}
+      {scheduled && task.repeat !== "once" && status?.repeat_modes?.includes("monthly") && (
+        <Button variant="ghost" size="compact" disabled={disabled || !status?.available} onClick={() => void control(task, "skip_next")}>Skip next run</Button>
+      )}
+      {!["cancelled", "completed", "cancelling"].includes(task.state) && (
+        <Button variant="ghost" size="compact" disabled={disabled} onClick={() => void control(task, "cancel")}>Cancel</Button>
+      )}
+    </div>
+  );
+}
+
+export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, inline = false, onOpen }: {
   model: ReturnType<typeof useScheduledTasksModel>;
   selectedId?: string | null;
   inTasks?: boolean;
   inline?: boolean;
+  onOpen?: (id: string) => void;
 }) {
-  const [view, setView] = useState<ScheduleView>("Agenda");
-  const [date, setDate] = useState("");
   if (!areScheduledTasksAvailable()) return null;
-  const { open, changeOpen, close, status, message, checking, busy, placementMessage, control, refresh } = model;
+  const { open, changeOpen, close, status, message, checking, busy, placementMessage, refresh } = model;
   const title = inTasks ? "Scheduled runs" : "Scheduled tasks";
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const today = calendarDate(Date.now(), zone);
-  const selectedDate = date || today;
-  const weekStart = view === "Week" ? shiftCalendarDate(selectedDate, -new Date(`${selectedDate}T12:00:00Z`).getUTCDay()) : "";
-  const weekEnd = weekStart ? shiftCalendarDate(weekStart, 6) : "";
   const ordered = [...(status?.tasks ?? [])].sort((a, b) => a.next_run_at - b.next_run_at);
-  const tasks = view === "Agenda" ? preferredScheduledTasks(ordered, selectedId) : ordered.filter(task => {
-    if (task.state !== "scheduled") return false;
-    const runDate = calendarDate(task.next_run_at * 1000, zone);
-    if (view === "Day") return runDate === selectedDate;
-    if (view === "Week") return runDate >= weekStart && runDate <= weekEnd;
-    return runDate.slice(0, 7) === selectedDate.slice(0, 7);
-  });
+  const tasks = preferredScheduledTasks(ordered, selectedId);
+  const canScheduleFile = status?.available && status.templates.includes(FILE_ORGANIZATION_TEMPLATE);
 
   const actions = (
     <div className="flex flex-wrap items-center gap-1">
@@ -268,7 +308,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
             if (busy) event.preventDefault();
           }}
         >
-          {placementMessage ? "Hosting" : "Open Files"}
+          {placementMessage ? "Hosting" : inline && canScheduleFile ? "Schedule in Files" : "Open Files"}
         </Link>
       </Button>
     </div>
@@ -276,84 +316,29 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
 
   const rows = tasks.length > 0 && (
     <ul className="divide-y divide-border/60" aria-busy={checking}>
-      {tasks.map((task) => (
-        <li
-          key={task.id}
-          className={cn(
-            "flex min-w-0 flex-wrap gap-x-3 gap-y-1",
-            inline ? "items-start px-3 py-2.5" : "items-center py-3",
-          )}
-        >
-          <div className="min-w-0 flex-1 basis-48 space-y-0.5">
-            <div className={cn(inline && "flex flex-wrap items-baseline gap-x-2")}>
-              <MediumRowLabel as="p" className="min-w-0 break-words [overflow-wrap:anywhere]">{task.title}</MediumRowLabel>
-              <p className="text-xs text-muted-foreground">
-                {task.run_now_pending ? "Run requested" : scheduledTaskLabels[task.state]}
-                {!inline && task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
-              </p>
+      {tasks.map(task => (
+        <li key={task.id}>
+          {onOpen ? (
+            <button
+              type="button"
+              className="grid min-h-11 w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-2.5 text-left"
+              onClick={() => onOpen(task.id)}
+            >
+              <span className="min-w-0">
+                <MediumRowLabel as="span" className="block break-words [overflow-wrap:anywhere]">{task.title}</MediumRowLabel>
+                <span className="block text-xs text-muted-foreground">Scheduled run · {scheduledStateLabel(task)}</span>
+              </span>
+              <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+            </button>
+          ) : (
+            <div className="flex min-w-0 flex-wrap items-center gap-3 py-3">
+              <div className="min-w-0 flex-1 basis-48">
+                <MediumRowLabel as="h3" className="break-words [overflow-wrap:anywhere]">{task.title}</MediumRowLabel>
+                <div className="text-xs text-muted-foreground"><ScheduledRunInformation task={task} /></div>
+              </div>
+              <ScheduledRunActions task={task} model={model} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              <span>{task.weekdays?.map(day => SCHEDULE_WEEKDAYS[day]).join(", ") ?? repeatLabels[task.repeat]}</span>
-              {inline && task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
-            </p>
-            <p className="text-xs text-muted-foreground">{scheduledRunSummary(task)}</p>
-            {task.last_run?.state === "outcome_uncertain" && (
-              <p className="text-xs text-muted-foreground">
-                Check the result before scheduling again.
-              </p>
-            )}
-            {task.recent_runs?.length ? (
-              <details className="text-xs text-muted-foreground">
-                <summary className="min-h-8 w-fit cursor-pointer content-center">Run history</summary>
-                <ul className="space-y-1 ps-3">
-                  {task.recent_runs.map(run => <li key={run.id}>{runSummary(run)}</li>)}
-                </ul>
-              </details>
-            ) : null}
-          </div>
-          <div className="flex max-w-full flex-wrap items-center gap-1 empty:hidden">
-            {["scheduled", "pending_delivery"].includes(task.state) && (
-              <Button
-                variant="ghost"
-                size="compact"
-                disabled={checking || Boolean(busy)}
-                onClick={() => void control(task, "pause")}
-              >
-                Pause
-              </Button>
-            )}
-            {task.state === "paused" && (
-              <Button
-                variant="ghost"
-                size="compact"
-                disabled={checking || Boolean(busy) || !status?.available}
-                onClick={() => void control(task, "resume")}
-              >
-                Resume
-              </Button>
-            )}
-            {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && task.capability !== MAIL_FOLLOWUP_TEMPLATE && (
-              <Button variant="ghost" size="compact"
-                disabled={checking || Boolean(busy) || task.next_run_at < Date.now() / 1000 + 60}
-                onClick={() => void control(task, "run_now")}>Run now</Button>
-            )}
-            {task.state === "scheduled" && !task.run_now_pending && task.repeat !== "once" && status?.repeat_modes?.includes("monthly") && (
-              <Button variant="ghost" size="compact" disabled={checking || Boolean(busy) || !status?.available}
-                onClick={() => void control(task, "skip_next")}>Skip next run</Button>
-            )}
-            {!["cancelled", "completed", "cancelling"].includes(
-              task.state,
-            ) && (
-              <Button
-                variant="ghost"
-                size="compact"
-                disabled={checking || Boolean(busy)}
-                onClick={() => void control(task, "cancel")}
-              >
-                Cancel
-              </Button>
-            )}
-          </div>
+          )}
         </li>
       ))}
     </ul>
@@ -379,49 +364,16 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
       )}
       {status?.available && status.tasks.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No scheduled tasks. Choose a file in Files to schedule organization.
+          No scheduled runs yet.
         </p>
       )}
       {selectedId && status && !status.tasks.some(task => task.id === selectedId) ? (
         <p role="status" className="text-sm text-muted-foreground">This schedule wasn’t found on your current Pod.</p>
       ) : null}
-      {inTasks && status?.tasks.length ? (
-        <div className="space-y-2">
-          <div
-            className={cn(
-              "flex flex-wrap",
-              inline ? "w-fit gap-0.5 rounded-2xl bg-muted/40 p-0.5" : "gap-2",
-            )}
-            role="group"
-            aria-label="Schedule view"
-          >
-            {scheduleViews.map(option => (
-              <Button
-                key={option}
-                variant={view === option ? "secondary" : "ghost"}
-                size="compact"
-                className={cn(inline && "rounded-xl", inline && view !== option && "text-muted-foreground")}
-                aria-pressed={view === option}
-                onClick={() => setView(option)}
-              >
-                {option}
-              </Button>
-            ))}
-          </div>
-          {view !== "Agenda" && <CalendarDateNavigation date={selectedDate} today={today}
-            disabled={Boolean(busy)} onChange={next => {
-              if (/^\d{4}-\d{2}-\d{2}$/.test(next)) setDate(next);
-            }} label="Schedule date" />}
-          {view !== "Agenda" && tasks.length === 0 && (
-            <p role="status" className="text-sm text-muted-foreground">No scheduled runs in this period.</p>
-          )}
-        </div>
-      ) : null}
       {inline && rows ? <SurfaceInset className="p-0">{rows}</SurfaceInset> : rows}
     </>
   );
   if (inline) {
-    if (status?.available && status.tasks.length === 0 && !selectedId) return null;
     return (
       <section aria-labelledby="scheduled-runs-heading" className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -433,13 +385,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
     );
   }
   return (
-    <Dialog
-      open={open}
-      onOpenChange={next => {
-        if (next) { setView("Agenda"); setDate(""); }
-        changeOpen(next);
-      }}
-    >
+    <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <ShellActionSurface
           variant="pill"

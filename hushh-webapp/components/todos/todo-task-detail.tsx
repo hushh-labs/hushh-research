@@ -2,8 +2,12 @@
 
 import { useCallback, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ChevronLeft, ClipboardList } from "@/components/icons";
+import { ScheduledRunActions, ScheduledRunInformation, type useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
+import { CalendarClock, CalendarDays, ChevronLeft, ClipboardList, RefreshCw } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
+import type { ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
 import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { groupByDate } from "./todo-list-presentation";
@@ -46,4 +50,53 @@ export function TodoTaskDetail({ task, busy, error, onBack, onToggle, onRemove, 
       <button type="button" className={styles.remove} disabled={busy} onClick={() => onRemove(task)}>Remove task</button>
     </footer>
   </section>;
+}
+
+export function TodoScheduledRunDetail({ task, model, onBack }: {
+  task: ScheduledTask | undefined;
+  model: ReturnType<typeof useScheduledTasksModel>;
+  onBack: () => void;
+}) {
+  const busy = Boolean(model.busy);
+  const back = useCallback(() => {
+    if (!busy) onBack();
+    return true;
+  }, [busy, onBack]);
+  useBackLayer(ROUTES.ONE_TASKS, 2, back);
+
+  return (
+    <section aria-label="Scheduled run details" className={styles.detail}>
+      <header className={styles.detailHeader}>
+        <button type="button" className={styles.back} disabled={busy} onClick={onBack} aria-label="Back to tasks">
+          <ChevronLeft aria-hidden /> Tasks
+        </button>
+        <Button
+          variant="plain"
+          size="icon-touch"
+          className="ml-auto"
+          aria-label="Refresh scheduled run"
+          title="Refresh scheduled run"
+          disabled={busy || model.checking}
+          onClick={model.refresh}
+        >
+          <RefreshCw className="size-4" aria-hidden="true" />
+        </Button>
+      </header>
+      <div className={styles.detailBody}>
+        <h3 className={styles.detailTitle}>{task?.title ?? "Scheduled run"}</h3>
+        {task ? (
+          <>
+            <div className={styles.sourceLabels}><span><CalendarClock aria-hidden /> Scheduled run</span></div>
+            <div className={styles.divider} />
+            <div className={styles.detailMeta}><ScheduledRunInformation task={task} /></div>
+          </>
+        ) : (
+          <p role="status" className={styles.detailMeta}>
+            {model.message || model.placementMessage || (model.status ? "This scheduled run is unavailable." : "Checking your agent…")}
+          </p>
+        )}
+      </div>
+      {task && <footer className={styles.detailFooter}><ScheduledRunActions task={task} model={model} /></footer>}
+    </section>
+  );
 }

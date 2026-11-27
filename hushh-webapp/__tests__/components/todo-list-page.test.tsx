@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { FILE_ORGANIZATION_TEMPLATE, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 
 import {
@@ -179,34 +180,47 @@ describe("TodoListPage row actions", () => {
       vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(native ? null : mocks.user as ReturnType<typeof AuthService.getCurrentUser>);
       vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "hussh_pods" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
       const run = { id: "b".repeat(32), state: "completed", started_at: 1100, finished_at: 1150 };
+      const earlierRun = { id: "c".repeat(32), state: "failed", started_at: 1000, finished_at: 1050 };
       vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
         available: true, code: null, authorization_limit_at: 3000, templates: [FILE_ORGANIZATION_TEMPLATE],
         run_now_available: true,
         tasks: [{ id, title: "Organize Minutes.txt", capability: FILE_ORGANIZATION_TEMPLATE,
           revision: 3, state: "scheduled", repeat: "monthly", timezone: "UTC",
           next_run_at: Math.floor(new Date(2030, 0, 15, 12).getTime() / 1000),
-          authorization_expires_at: 2_000_000_000, last_run: run, recent_runs: [run] }],
+          authorization_expires_at: 2_000_000_000, last_run: run, recent_runs: [run, earlierRun] }],
       });
       const control = vi.spyOn(PodScheduledTasksClient.prototype, "control")
         .mockImplementation(async task => ({ ...task, revision: task.revision + 1, run_now_pending: true }));
       render(<TodoListPage />);
       const panel = await screen.findByRole(native ? "dialog" : "region", { name: "Scheduled runs" });
       expect(await within(panel).findByText("Organize Minutes.txt")).toBeVisible();
+      let details = panel;
       if (!native) {
         expect(screen.queryByRole("dialog", { name: "Scheduled runs" })).not.toBeInTheDocument();
         expect(screen.getByText(/Some agent tasks couldn’t refresh/)).toBeVisible();
+        expect(within(panel).getByRole("link", { name: "Schedule in Files" })).toHaveAttribute("href", "/one/files");
+        expect(within(panel).queryByText(/^Latest run:/)).not.toBeInTheDocument();
+        fireEvent.click(within(panel).getByRole("button", { name: /Organize Minutes.txt Scheduled run/ }));
+        details = screen.getByRole("region", { name: "Scheduled run details" });
+        fireEvent.click(within(details).getByRole("button", { name: "Refresh scheduled run" }));
+        expect(details).toBeVisible();
+        expect(await within(details).findByText(/^Latest run: Completed/)).toBeVisible();
       }
-      expect(within(panel).getByText("Monthly")).toBeVisible();
-      expect(within(panel).getByText("Run history")).toBeVisible();
-      fireEvent.click(within(panel).getByRole("button", { name: "Day" }));
-      const date = within(panel).getByLabelText("Schedule date");
-      fireEvent.change(date, { target: { value: "2030-01-14" } });
-      expect(within(panel).queryByText("Organize Minutes.txt")).not.toBeInTheDocument();
-      fireEvent.change(date, { target: { value: "2030-01-15" } });
-      expect(within(panel).getByText("Organize Minutes.txt")).toBeVisible();
-      fireEvent.click(within(panel).getByRole("button", { name: "Run now" }));
-      expect(await within(panel).findByText(/^Run requested/)).toBeVisible();
+      expect(within(panel).queryByRole("group", { name: "Schedule view" })).not.toBeInTheDocument();
+      expect(within(details).getByText("Monthly")).toBeVisible();
+      expect(within(details).getByText(/^Latest run: Completed/)).toBeVisible();
+      const history = within(details).getByText("Run history").closest("details")!;
+      expect(within(history).getByText(/^Failed/)).toBeInTheDocument();
+      expect(within(history).queryByText(/^Completed/)).not.toBeInTheDocument();
+      fireEvent.click(within(details).getByRole("button", { name: "Run now" }));
+      expect(await within(details).findByText(/^Run requested/)).toBeVisible();
       expect(control).toHaveBeenCalledWith(expect.objectContaining({ id, revision: 3 }), "run_now", expect.any(AbortSignal));
+      if (!native) {
+        expect(within(details).getByRole("button", { name: "Back to tasks" })).toBeVisible();
+        act(() => { expect(unwindBackLayer("/one/tasks")).toBe(true); });
+        expect(within(await screen.findByRole("region", { name: "Scheduled runs" }))
+          .getByRole("button", { name: /Organize Minutes.txt Scheduled run/ })).toBeVisible();
+      }
     } finally {
       vi.unstubAllEnvs();
     }
