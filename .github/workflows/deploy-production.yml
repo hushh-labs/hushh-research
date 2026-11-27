@@ -2727,7 +2727,7 @@ jobs:
 
       - name: Post-deploy backend runtime health gate
         id: health-backend
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2736,25 +2736,33 @@ jobs:
           # (passes TCP startup probe, then dies serving requests, flapping
           # 200<->503) can never reach a stable streak, so this fails and the
           # rollback step below reverts traffic to the predeploy revision.
+          target_backend_url="${{ steps.backend-url.outputs.url }}"
+          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+            target_backend_url="https://stage.api.hussh.ai"
+          fi
           bash scripts/ci/cloudrun-http-health.sh \
-            "${{ steps.backend-url.outputs.url }}" "/health" 5 30 5 200
+            "${target_backend_url}" "/health" 5 30 5 200
 
       - name: Post-deploy frontend runtime health gate
         id: health-frontend
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          target_frontend_url="${{ steps.frontend-url.outputs.url }}"
+          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+            target_frontend_url="https://stage.one.hussh.ai"
+          fi
           bash scripts/ci/cloudrun-http-health.sh \
-            "${{ steps.frontend-url.outputs.url }}" "/" 3 30 5 200
+            "${target_frontend_url}" "/" 3 30 5 200
           if [ "${{ inputs.frontend_auth_domain_refresh }}" = true ]; then
             python3 "${RUNNER_TEMP}/release-tools/production_auth_domain_refresh.py" verify --receipt /tmp/prod-emergency-admission.json --candidate "${{ steps.candidate-state.outputs.frontend_revision }}"
           fi
 
       - name: Verify production account-session contract
         id: health-account-session-contract
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (steps.promote-traffic.outcome == 'success')
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.promote-traffic.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2764,8 +2772,12 @@ jobs:
           # must reject the request as 401. A 404 proves frontend/backend version
           # skew and must roll the selected release back instead of stranding users
           # behind the fail-closed reconnect screen.
+          target_session_origin="${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+          if [ "${{ env.TRAFFIC_POSTURE }}" = "stage_dark" ]; then
+            target_session_origin="https://stage.api.hussh.ai"
+          fi
           bash scripts/ci/cloudrun-http-health.sh \
-            "${{ env.CONSENT_API_PUBLIC_ORIGIN }}" "/api/account/session-status" 3 30 5 401
+            "${target_session_origin}" "/api/account/session-status" 3 30 5 401
 
       - name: Verify production native passkey domain associations
         id: verify-passkey-associations
@@ -2780,7 +2792,7 @@ jobs:
 
       - name: Classify production release outcome
         id: classify
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
         env:
           RECOVERY_MODE: ${{ inputs.restoration_validation_run != '' && 'true' || 'false' }}
@@ -2850,7 +2862,7 @@ jobs:
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$CONNECTED_SYSTEMS_OUTCOME" != "success" ]; then
             connected_systems_failed=true
           fi
-          if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
+          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
              && [ "$CONNECTED_SYSTEMS_OUTCOME" = "success" ] && [ "$PROMOTE_OUTCOME" = "success" ]; then
             if { [ "$DRIVE_ENABLED" = "true" ] || [ "$DOCUMENT_DELIVERY_CONFIGURED" = "true" ]; } && [ "$DRIVE_WORKER_OUTCOME" != "success" ]; then
               drive_worker_failed=true
@@ -2873,17 +2885,17 @@ jobs:
               frontend_failure=true
             fi
           fi
-          if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
              && [ "$BACKEND_PROVENANCE_OUTCOME" != "success" ]; then
             backend_provenance_failed=true
             backend_failure=true
           fi
-          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
              && [ "$FRONTEND_PROVENANCE_OUTCOME" != "success" ]; then
             frontend_provenance_failed=true
             frontend_failure=true
           fi
-          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+          if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
              && [ "$PASSKEY_ASSOCIATIONS_OUTCOME" != "success" ]; then
             passkey_associations_failed=true
             frontend_failure=true
@@ -3119,7 +3131,7 @@ jobs:
 
       - name: Resolve final Cloud Run state
         id: final-state
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && always() && steps.gcp-auth.outcome == 'success'
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && always() && steps.gcp-auth.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -3153,28 +3165,28 @@ jobs:
 
       - name: Write production release status artifact
         id: release-status
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
         run: |
           set -euo pipefail
           STATUS="blocked"
           if [ "${{ steps.classify.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
-            if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && [ "${{ steps.final-state.outputs.backend_serving }}" != "${{ steps.candidate-state.outputs.backend_revision }}" ]; then
               STATUS="blocked"
             fi
-            if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
                && [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ steps.candidate-state.outputs.frontend_revision }}" ]; then
               STATUS="blocked"
             fi
             # A backend release is healthy only once tombstone-aware deletion is
             # activated; until then the fence keeps account deletion fail-closed.
-            if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && [ "${{ steps.activate-account-deletion.outcome }}" != "success" ]; then
               STATUS="blocked"
             fi
-            if [ "$STATUS" = healthy ] && [ "${{ steps.scope.outputs.deploy_backend }}" = true ]; then
+            if [ "${{ env.TRAFFIC_POSTURE }}" != "stage_dark" ] && [ "$STATUS" = healthy ] && [ "${{ steps.scope.outputs.deploy_backend }}" = true ]; then
               if [ "${{ steps.activate-account-deletion.outputs.activated }}" = true ]; then
                 :
               elif [ "${{ steps.activate-account-deletion.outputs.pending }}" = true ]; then
@@ -3327,7 +3339,7 @@ jobs:
           esac
 
       - name: Deployment Summary
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
         run: |
           {
@@ -3421,7 +3433,7 @@ jobs:
           bash "${RUNNER_TEMP}/release-tools/tag-last-known-good.sh"
 
       - name: Upload production deploy artifacts
-        if: env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         uses: actions/upload-artifact@v6
         with:
           name: prod-release-${{ github.run_id }}
