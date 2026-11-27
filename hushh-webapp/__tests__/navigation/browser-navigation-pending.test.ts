@@ -1,9 +1,11 @@
+import { Capacitor } from "@capacitor/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  prefetchInternalRoute,
   requestInternalAppNavigation,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
@@ -53,5 +55,21 @@ describe("pending internal app navigation", () => {
     expect(consumePendingInternalAppNavigation()).toMatchObject({
       href: "/one/feed?latest=1",
     });
+  });
+});
+
+describe("internal route prefetch", () => {
+  it("requests exported segments on iOS and keeps full prefetch on a web host", () => {
+    const platform = vi.spyOn(Capacitor, "getPlatform");
+    const router = { prefetch: vi.fn() };
+    try {
+      platform.mockReturnValue("ios");
+      prefetchInternalRoute(router, "/one");
+      platform.mockReturnValue("web");
+      prefetchInternalRoute(router, "/one");
+      expect(router.prefetch.mock.calls).toEqual([["/one"], ["/one", { kind: "full" }]]);
+    } finally {
+      platform.mockRestore();
+    }
   });
 });

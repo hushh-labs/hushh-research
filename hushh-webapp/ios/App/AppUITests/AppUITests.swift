@@ -2376,19 +2376,32 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(hosts.count, 1, "Tabs must use one identified Capacitor WebView")
         XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
                        "Every WebView accessibility node must belong to the same Capacitor host")
-        let history = webView.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open chat history")).firstMatch
-        XCTAssertTrue(history.waitForExistence(timeout: 30), "Chat did not settle without another vault unlock")
+        let history = app.buttons["chat-history-toggle"].firstMatch
+        XCTAssertTrue(history.waitForExistence(timeout: 10), "Chat did not present its native History control")
         history.tap()
         let close = app.buttons["Close chat history"]
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         XCTAssertFalse(bar.exists && bar.isHittable, "Native tabs escaped the web overlay")
         close.tap()
-        tap("One")
+        let launcher = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label == %@", "native-launcher-agent-", "Open Mail"
+        )).firstMatch
+        let circles = app.segmentedControls["native-workspace-tabs"].buttons["Circles"].firstMatch
+        let feed = app.descendants(matching: .any).matching(identifier: "native-route-workspace").firstMatch
+        for _ in 0..<2 {
+            for (label, body) in [("One", launcher), ("Connect", circles), ("Feed", feed), ("Chat", history)] {
+                let previous = bar.buttons.matching(NSPredicate(format: "selected == true")).firstMatch.identifier
+                tap(label)
+                let destination = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    tab(label).isSelected && tab(label).identifier != previous && body.exists &&
+                        (label != "Feed" || !circles.exists)
+                }, object: bar)
+                guard XCTWaiter.wait(for: [destination], timeout: 8) == .completed else {
+                    return XCTFail("One native tap did not reach the selected \(label) screen")
+                }
+            }
+        }
         XCTAssertFalse(webView.buttons["Unlock"].exists, "A tab switch lost the unlocked session")
-        tap("Connect")
-        tap("Feed")
-        tap("Chat")
-        XCTAssertTrue(history.waitForExistence(timeout: 30))
         XCTAssertEqual(hosts.count, 1)
         XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
                        "Tab switching introduced another WebView host")
