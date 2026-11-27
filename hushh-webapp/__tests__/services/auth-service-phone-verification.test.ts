@@ -213,6 +213,7 @@ describe("AuthService phone proof integration", () => {
     ["auth/operation-not-allowed", "operation-not-allowed", /temporarily unavailable/i],
     ["auth/sms-region-not-allowed", "sms-region-not-allowed", /country or region/i],
     ["auth/invalid-phone-number", "invalid-phone-number", /valid phone number/i],
+    ["auth/internal-error", "recaptcha-incomplete", /security verification did not complete/i],
   ])("maps %s to a clear user-facing phone verification error", async (rawCode, expectedCode, pattern) => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     mockAuth.currentUser = { uid: "web-user", phoneNumber: null };
@@ -244,5 +245,43 @@ describe("AuthService phone proof integration", () => {
     await pending;
     expect(clear).toHaveBeenCalledOnce();
     expect(caught).toMatchObject({ code: "phone-verification-start-timeout" });
+  });
+
+  it("keeps verifyPhoneNumber alive past 25s while an interactive Google reCAPTCHA challenge iframe is visible", async () => {
+    vi.useFakeTimers();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: null };
+    const clear = vi.fn();
+    const challenge = deferred<string>();
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return { verifyPhoneNumber: vi.fn().mockReturnValue(challenge.promise) };
+    });
+
+    const wrapper = document.createElement("div");
+    const frame = document.createElement("iframe");
+    frame.src = "https://www.google.com/recaptcha/api2/bframe?hl=en";
+    frame.title = "recaptcha challenge expires in two minutes";
+    frame.getBoundingClientRect = () =>
+      ({ width: 400, height: 580, top: 20, left: 20, bottom: 600, right: 420, x: 20, y: 20, toJSON: () => ({}) }) as DOMRect;
+    wrapper.appendChild(frame);
+    document.body.appendChild(wrapper);
+
+    try {
+      const pending = AuthService.startPhoneLinkVerification("+916379764854", {
+        recaptchaVerifier: { type: "recaptcha", verify: vi.fn(), clear } as any,
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(clear).not.toHaveBeenCalled();
+
+      challenge.resolve("interactive-captcha-verification-id");
+      await expect(pending).resolves.toEqual({
+        autoVerified: false,
+        verificationId: "interactive-captcha-verification-id",
+      });
+      expect(clear).not.toHaveBeenCalled();
+    } finally {
+      wrapper.remove();
+    }
   });
 });

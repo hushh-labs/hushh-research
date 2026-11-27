@@ -27,7 +27,8 @@
     ".agents/skills/pr-governance-review/references/comment-and-report-contract.md",
     ".agents/skills/pr-governance-review/references/pr-train-review-sop.md",
     ".agents/skills/repo-operations/SKILL.md",
-    ".agents/skills/repo-operations/references/admin-release-sop.md"
+    ".agents/skills/repo-operations/references/admin-release-sop.md",
+    ".agents/skills/repo-operations/references/maintainer-branch-freshness.md"
   ],
   "required_commands": [
     "python3 .agents/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"<user request>\" --paths \"<changed paths>\" --text",

@@ -3524,6 +3524,13 @@ body:has(.profile-pane-sheet[data-state="open"]) > iframe[id^="plaid-link-iframe
   pointer-events: auto;
 }
 
+/* Google reCAPTCHA mounts its interactive challenge container directly under
+ * document.body. Keep it clickable above modal sheets and dialogs that set
+ * pointer-events: none on body. */
+body > div:has(iframe[src*="google.com/recaptcha"], iframe[src*="recaptcha.net/recaptcha"], iframe[title*="recaptcha challenge" i]) {
+  pointer-events: auto !important;
+}
+
 /* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
  * inline, so on the native shell (whose WebView runs under the status bar)
  * the Link card and its close control sat under the clock and the battery
