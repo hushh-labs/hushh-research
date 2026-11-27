@@ -1,7 +1,7 @@
 """Viewer-permitted profile names and portraits for referral standings.
 
-Chosen public aliases retain priority. Other names use Connect's existing
-visibility and account-lifecycle checks. Display names are not verified legal names.
+Names come from Firebase after Connect's visibility and account-lifecycle checks.
+Display names are not verified legal names.
 """
 
 import logging
@@ -22,10 +22,14 @@ def _directory_profiles(viewer_user_id: str, user_ids: list[str]) -> list[dict]:
     )["items"]
 
 
-def _own_profile(user_id: str) -> dict:
+def _firebase_profiles(user_ids: list[str]) -> dict:
     from hushh_mcp.services.directory_identity_service import directory_auth_profiles
 
-    return directory_auth_profiles([user_id]).get(user_id, {})
+    return directory_auth_profiles(user_ids, include_provider_names=False)
+
+
+def _own_profile(user_id: str) -> dict:
+    return _firebase_profiles([user_id]).get(user_id, {})
 
 
 class LeaderboardProfile(TypedDict):
@@ -52,11 +56,17 @@ def get_leaderboard_profiles(
     profiles: dict[str, LeaderboardProfile] = {}
     try:
         for offset in range(0, len(peers), 100):
-            for profile in _directory_profiles(viewer_user_id, peers[offset : offset + 100]):
-                uid = str(profile.get("userId") or "")
+            permitted = {
+                str(profile.get("userId") or ""): profile
+                for profile in _directory_profiles(viewer_user_id, peers[offset : offset + 100])
+                if str(profile.get("userId") or "") in candidates
+                and str(profile.get("userId") or "") != viewer_user_id
+            }
+            fresh = _firebase_profiles(sorted(permitted)) if permitted else {}
+            for uid, profile in permitted.items():
                 if uid in candidates and uid != viewer_user_id:
                     label = label_from_identity_row(
-                        {"user_id": uid, "display_name": profile.get("displayName")},
+                        {"user_id": uid, "display_name": fresh.get(uid, {}).get("display_name")},
                         allow_email_handle=False,
                     )
                     if label:

@@ -3,8 +3,8 @@
 Reads the LATEST published leaderboard snapshot (migration 271) rather than
 aggregating `one_referral_score_events` live on every request -- "use shared
 snapshots, bounded refresh, and suitable invalidation" is a product
-requirement, not an optimization afterthought. Public aliases retain priority;
-other profile names are resolved through the viewer-permitted directory.
+requirement, not an optimization afterthought. Permitted names come from Firebase;
+public aliases remain available when a profile name cannot be shared.
 """
 
 from __future__ import annotations
@@ -155,7 +155,7 @@ def get_individual_leaderboard(
         active_members = set()
     handles = get_display_handles([uid for uid in page_user_ids if uid in active_members])
     profiles = get_leaderboard_profiles(
-        [uid for uid in page_user_ids if uid in active_members and not handles.get(uid)],
+        [uid for uid in page_user_ids if uid in active_members],
         viewer_user_id=viewer_user_id,
     )
     if active_members:

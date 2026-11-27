@@ -1,6 +1,18 @@
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from hushh_mcp.services import one_referral_identity_service as identities
+
+
+@pytest.fixture(autouse=True)
+def fresh_firebase_names(monkeypatch):
+    monkeypatch.setattr(
+        identities,
+        "_firebase_profiles",
+        lambda ids: {uid: {"display_name": "Priya Rao" if uid == "peer" else uid} for uid in ids},
+    )
 
 
 def test_names_use_viewer_scoped_directory_and_omit_private_or_unknown_fields(monkeypatch):
@@ -99,3 +111,36 @@ def test_unavailable_or_oversized_portraits_are_omitted(monkeypatch):
     assert identities.get_leaderboard_profiles(["peer"], viewer_user_id="viewer") == {
         "peer": {"display_name": "Priya Rao", "photo_url": None},
     }
+
+
+def test_firebase_name_is_current_and_lookup_is_limited_to_permitted_members(monkeypatch):
+    monkeypatch.setattr(
+        identities,
+        "_directory_profiles",
+        lambda *args: [
+            {"userId": "peer", "displayName": "Stale cached name"},
+            {"userId": "outside", "displayName": "Outside"},
+        ],
+    )
+    fresh = Mock(return_value={"peer": {"display_name": "Current Firebase Name"}})
+    monkeypatch.setattr(identities, "_firebase_profiles", fresh)
+    assert identities.get_leaderboard_display_names(
+        ["peer", "private"], viewer_user_id="viewer"
+    ) == {"peer": "Current Firebase Name"}
+    fresh.assert_called_once_with(["peer"])
+
+
+def test_missing_firebase_name_does_not_use_cached_or_provider_names(monkeypatch):
+    from hushh_mcp.services import directory_identity_service as directory
+
+    monkeypatch.setattr(directory, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(directory, "firebase_uids_for_owner_reads", lambda ids: {"peer": "peer"})
+    provider = SimpleNamespace(display_name="Provider Only", photo_url=None)
+    record = SimpleNamespace(
+        uid="peer", disabled=False, display_name=None, photo_url=None, provider_data=[provider]
+    )
+    monkeypatch.setattr(
+        directory.auth, "get_users", lambda *args, **kwargs: SimpleNamespace(users=[record])
+    )
+    assert directory.directory_auth_profiles(["peer"], include_provider_names=False) == {}
+    assert directory.directory_auth_profiles(["peer"])["peer"]["display_name"] == "Provider Only"
