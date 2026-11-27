@@ -1,7 +1,9 @@
 import { apiJson } from "@/lib/services/api-client";
 import { OneLocationService } from "@/lib/one-location/service";
+import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
+import { settleMainLocationBatch } from "./main-chat-location-batch";
 import type {
-  OneLocationAccessRequest, OneLocationEncryptedEnvelope, OneLocationGrant, OneLocationState,
+  OneLocationAccessRequest, OneLocationCircleSummary, OneLocationEncryptedEnvelope, OneLocationGrant, OneLocationState,
 } from "@/lib/one-location/types";
 
 import type { LocationRecoveryAction, LocationSafetyAction, LocationWorkspaceAction, MainLocationAction, MainLocationProposal } from "./main-chat-location-contract";
@@ -19,7 +21,14 @@ export type MainLocationTarget = {
   grant?: OneLocationGrant;
   request?: OneLocationAccessRequest;
 };
-export type MainLocationChoice = { label: string; targets: MainLocationTarget[]; requiresSelection?: boolean };
+export type MainLocationChoice = {
+  label: string;
+  targets: MainLocationTarget[];
+  requiresSelection?: boolean;
+  /** True only when a complete directory search found exactly one matching full label. */
+  exactMatch?: boolean;
+  unavailableReason?: string;
+};
 export type MainLocationPlan = {
   planId: string;
   attemptId?: string | null;
@@ -85,6 +94,10 @@ export function executeMainLocationPlan(token: string, planId: string, envelope?
   return request<MainLocationPlan>(token, `${PATH}/${encodeURIComponent(planId)}/execute`, { envelope });
 }
 
+export function inspectMainLocationPlan(token: string, planId: string) {
+  return request<MainLocationPlan>(token, `${PATH}/${encodeURIComponent(planId)}`);
+}
+
 const normalize = (name: string) => name.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 
 function matching<T extends { label: string }>(targets: T[], query: string): T[] {
@@ -93,6 +106,75 @@ function matching<T extends { label: string }>(targets: T[], query: string): T[]
   return exact.length ? exact : targets.filter((target) =>
     normalize(target.label).split(" ").some((word) => word === term) ||
     normalize(target.label).startsWith(`${term} `));
+}
+
+function audienceChoice(
+  name: string,
+  targets: MainLocationTarget[],
+  complete: boolean,
+): MainLocationChoice {
+  const matches = [
+    ...matching(targets.filter((target) => target.personUserId), name),
+    ...matching(targets.filter((target) => target.circleId), name),
+  ];
+  const only = matches.length === 1 ? matches[0] : undefined;
+  // A single given name is enough to offer the full connection name for final
+  // confirmation. A surname, partial Circle name or incomplete page stays a choice.
+  const label = only && normalize(only.label);
+  const term = normalize(name);
+  const identified = label === term || (!!only?.personUserId && label?.split(" ")[0] === term);
+  const requiresSelection = !complete || !identified;
+  const exactMatch = complete && label === term;
+  // A masked phone tail disambiguates duplicate names. A unique recipient needs only their name.
+  if (only?.personUserId && !requiresSelection) {
+    return { label: name, targets: [{ ...only, detail: "Connection" }], requiresSelection, exactMatch };
+  }
+  return { label: name, targets: matches, requiresSelection, exactMatch };
+}
+
+async function distinguishDuplicateCircles(choices: MainLocationChoice[], circles: OneLocationCircleSummary[], token: string, ownerId: string) {
+  const summaries = new Map(circles.map(circle => [circle.id, circle]));
+  const duplicates = new Map<string, OneLocationCircleSummary>();
+  for (const { targets } of choices) {
+    const seen = new Map<string, OneLocationCircleSummary>();
+    for (const target of targets) {
+      const circle = target.circleId && summaries.get(target.circleId);
+      if (!circle) continue;
+      const name = normalize(circle.name);
+      const prior = seen.get(name);
+      if (prior && prior.id !== circle.id) { duplicates.set(prior.id, prior); duplicates.set(circle.id, circle); }
+      else seen.set(name, circle);
+    }
+  }
+  if (!duplicates.size) return choices;
+  const descriptions = new Map<string, string>();
+  for (const circle of duplicates.values()) {
+    const count = Number.isInteger(circle.memberCount) ? `${circle.memberCount} member${circle.memberCount === 1 ? "" : "s"}` : "";
+    descriptions.set(circle.id, ["Circle", circle.role === "owner" ? "you own it" : "", count, circle.customTypeLabel].filter(Boolean).join(" · "));
+  }
+  const identical = [...duplicates.values()].filter(circle => [...duplicates.values()].some(other =>
+    other.id !== circle.id && normalize(other.name) === normalize(circle.name) && descriptions.get(other.id) === descriptions.get(circle.id)));
+  // Read only a small named group; large or indistinguishable lists must be
+  // renamed by the owner before a numbered reply can identify an audience.
+  if (identical.length <= 10) await settleMainLocationBatch(identical, async circle => {
+    const page = await OneLocationService.listCircleMembersPage({ vaultOwnerToken: token, circleId: circle.id, page: 1, limit: 5 });
+    const names = page.items.filter(member => member.userId !== ownerId && member.displayName.trim())
+      .map(member => member.displayName.trim()).sort().slice(0, 3);
+    if (names.length) descriptions.set(circle.id, `${descriptions.get(circle.id)} · includes ${names.join(", ")}`);
+  });
+  return choices.map(choice => {
+    const known = new Set<string>();
+    const targets = choice.targets.map(target => target.circleId && descriptions.has(target.circleId)
+      ? { ...target, detail: descriptions.get(target.circleId) } : target);
+    for (const item of targets) {
+      if (!item.circleId) continue;
+      const display = JSON.stringify([normalize(item.label), normalize(item.detail ?? "")]);
+      if (known.has(display)) return { ...choice, targets: [], requiresSelection: true, exactMatch: false,
+        unavailableReason: `I found several Circles named ${item.label} with the same visible details. Which connection or differently named Circle did you mean?` };
+      known.add(display);
+    }
+    return { ...choice, targets };
+  });
 }
 
 function active(grant: OneLocationGrant) {
@@ -132,29 +214,34 @@ export async function resolveMainLocationChoices(params: {
   const names = proposal.people ?? [];
   const circles = proposal.circles ?? [];
   if (["share_live", "share_pin", "ask"].includes(proposal.action)) {
-    const lookup = async (name?: string) => {
-      const result = await OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 50, query: name });
-      const found = result.items.filter((item) => item.userId !== ownerId).map((item) => ({
+    const queries = names.length || circles.length ? names : [undefined];
+    const [allCircles, pages] = await Promise.all([
+      OneLocationService.listCircles(token),
+      Promise.all(queries.map((query) =>
+        OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 50, query }))),
+    ]);
+    const circleTargets: MainLocationTarget[] = allCircles.filter((circle) => !isForeignSmsSystemCircle(circle))
+      .map((circle) => ({ label: circle.name, circleId: circle.id, detail: "Circle" }));
+    const choices = pages.map((page, index) => {
+      const query = queries[index];
+      const people = page.items.filter((item) => item.userId !== ownerId).map((item) => ({
         label: item.displayName, personUserId: item.userId,
-        ...(item.maskedPhone ? { detail: item.maskedPhone } : {}),
+        detail: item.maskedPhone ? `Connection · ${item.maskedPhone}` : "Connection",
       }));
-      if (!name) return { label: "Who would you like to choose?", targets: found, requiresSelection: true };
-      const exact = matching(found, name);
-      return { label: name, targets: exact.length ? exact : found,
-        requiresSelection: exact.length !== 1 || normalize(exact[0]?.label ?? "") !== normalize(name) };
-    };
-    const people = names.length ? await Promise.all(names.map(lookup)) : [];
-    if (!circles.length) return people.length ? people : [await lookup()];
-    const allCircles = await OneLocationService.listCircles(token);
-    const circleChoices = circles.map((name) => ({
-      label: name,
-      targets: (() => {
-        const available = allCircles.map((circle) => ({ label: circle.name, circleId: circle.id }));
-        const exact = matching(available, name);
-        return exact.length ? exact : matching(available, name.replace(/\s+circle$/i, ""));
-      })(),
-    }));
-    return [...people, ...circleChoices];
+      const targets = [...people, ...circleTargets];
+      if (!query) return { label: "Who would you like to choose?", targets, requiresSelection: true };
+      // Bare names from Chat can name either a connection or a Circle.
+      const choice = audienceChoice(query, targets, !page.hasMore);
+      if (!choice.targets.length) choice.targets = people;
+      return choice;
+    });
+    for (const name of circles) {
+      const qualified = name.replace(/\s+circle$/i, "");
+      const exact = circleTargets.filter(target => normalize(target.label) === normalize(name) || normalize(target.label) === normalize(qualified));
+      if (exact.length > 1) choices.push({ label: name, targets: exact, requiresSelection: true, exactMatch: false });
+      else choices.push({ ...audienceChoice(exact[0]?.label || qualified, circleTargets, true), label: name });
+    }
+    return distinguishDuplicateCircles(choices, allCircles, token, ownerId);
   }
   const state = await loadState();
   const incoming = grantTargets(state.receivedGrants ?? [], true);

@@ -192,7 +192,7 @@ describe("One Location CTA latency contract", () => {
     expect(source).toContain('if (permission?.state !== "granted") return;');
   });
 
-  it("live publishing never serves a recipient a remembered fix", () => {
+  it("the Location workspace and Chat use the same measured heartbeat fix", () => {
     const source = page();
     // The rule is unchanged; its evidence moved. Forcing an acquisition per
     // tick used to be how the publisher stayed current, and it stopped being
@@ -203,19 +203,9 @@ describe("One Location CTA latency contract", () => {
     // rejects anything not measured this session, by provenance rather than
     // by clock.
     expect(source).toContain("const point = await liveHeartbeatPoint();");
-    expect(source).toContain("return publishPointFrom(LocationBus.getState());");
+    expect(read("components/location/location-publisher-bridge.tsx")).toContain("const point = await liveHeartbeatPoint();");
     expect(source).not.toContain(
       "const point = await OneLocationService.captureCurrentPosition({\n          maxAgeMs: 0,\n        });",
-    );
-  });
-
-  it("the heartbeat's reuse window is one tick, not a hand-picked number", () => {
-    const source = page();
-    // A recipient calls a share stale at three publish periods, so a ceiling
-    // of one period keeps the published point inside the window the receiving
-    // side is already written against.
-    expect(source).toContain(
-      "const LIVE_HEARTBEAT_MAX_AGE_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS;",
     );
   });
 

@@ -1,6 +1,9 @@
 "use client";
 import dynamic from "next/dynamic";
 import { locationReviewActionForLegacyDirective, MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
+import { directLocationShareTerms, ownsLocationTranscript, typedLocationEnableAuthority, usesLocationChildConversation, usesLocationConversation, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
+import { LocationChatConversationText } from "@/components/agent/location-chat-action/location-chat-conversation-text";
+import { beginLocationChatSetup, consumeLocationChatSetup, getPendingLocationChatSetupId } from "@/lib/agent/location-chat-setup-handoff";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
@@ -2823,14 +2826,110 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const appendMessage = appendWorkspaceMessage;
   const receivedVoiceLocationProposals = useRef(new Set<string>());
   const openedNearbyCheckIns = useRef(new Set<string>());
-  function openLiveNearbyCheckIn(proposal: { id: string; action: string }) {
+  const openLiveNearbyCheckIn = useCallback((proposal: { id: string; action: string }) => {
     if (proposal.action !== "nearby_check_in" || !locationChatScreenActive.current || !isOneLocationNearbyCheckInAvailable() ||
         !isWorkspaceMountedRef.current || window.location.pathname !== ROUTES.HOME ||
         !isVaultSessionEpochCurrent(vaultSessionEpoch) || openedNearbyCheckIns.current.has(proposal.id)) return;
     openedNearbyCheckIns.current.add(proposal.id);
     router.push(ROUTES.ONE_LOCATION_CHECK_IN);
-  }
+  }, [router, vaultSessionEpoch]);
   const locationChatContinuation = useRef<{ proposalId: string; context: MainLocationContinuation } | null>(null);
+  const locationReply = useRef<{ proposalId: string; handle: LocationConversationReply } | null>(null);
+  const rememberLocationReply = useCallback((proposalId: string, handle: LocationConversationReply | null) => {
+    if (handle) locationReply.current = { proposalId, handle };
+    else if (locationReply.current?.proposalId === proposalId) locationReply.current = null;
+  }, []);
+  const liveLocationEnable = useRef<{ proposalId: string; current: () => boolean } | null>(null);
+  const shareSubmission = useRef<{ id: symbol; proposed: boolean } | null>(null);
+  const liveDirectShare = useRef<{ id: string; share: DirectLocationShare } | null>(null);
+  useEffect(() => {
+    const revoke = () => { if (document.visibilityState === "hidden") shareSubmission.current = null; };
+    document.addEventListener("visibilitychange", revoke);
+    return () => document.removeEventListener("visibilitychange", revoke);
+  }, []);
+  const claimDirectShare = useCallback((proposal: NonNullable<AgentMessage["locationChatProposal"]>) => {
+    const ticket = liveDirectShare.current;
+    if (ticket?.id !== proposal.id) return null;
+    liveDirectShare.current = null;
+    return ticket.share.current() ? ticket.share : null;
+  }, []);
+  const liveLocationOrigin = useRef<{ id: string; current: () => boolean } | null>(null);
+  const openingLocationSetup = useRef<symbol | null>(null);
+  const [locationSetupReturn, setLocationSetupReturn] = useState<{
+    ownerId: string; epoch: number; chatEpoch: number; conversationId: string; messageId: string;
+    proposal: NonNullable<AgentMessage["locationChatProposal"]>; outcome: "completed" | "cancelled";
+  } | null>(null);
+  const handlingLocationReply = useRef<string | null>(null);
+  const claimLocationEnable = useCallback((proposalId: string) => {
+    const ticket = liveLocationEnable.current;
+    if (ticket?.proposalId !== proposalId) return false;
+    liveLocationEnable.current = null;
+    return ticket.current();
+  }, []);
+  const writeLocationConversationText = useCallback((proposalId: string, text: string) => {
+    if (!locationChatScreenActive.current || !isVaultSessionEpochCurrent(vaultSessionEpoch) ||
+        workspaceOwnerIdRef.current !== applicationOwnerId) return;
+    const thread = conversationIdRef.current;
+    const origin = liveLocationOrigin.current;
+    const scope = applicationOwnerId && thread && origin?.id === proposalId && origin.current()
+      ? { ownerId: applicationOwnerId, vaultEpoch: vaultSessionEpoch, conversationId: thread } : undefined;
+    if (handlingLocationReply.current === proposalId) handlingLocationReply.current = null;
+    setMessages(current => {
+      const answer = current.findLast(message => message.role === "assistant" &&
+        (message.locationReplyFor === proposalId || message.locationChatProposal?.id === proposalId));
+      if (!answer || answer.locationChatText === text || answer.receiptRedacted) return current;
+      return current.map(message => message === answer ? { ...message, locationChatText: text,
+        locationTextScope: scope,
+        ...(message.locationReplyFor ? { text } : {}) } : message);
+    });
+  }, [applicationOwnerId, vaultSessionEpoch]);
+  const lastCachedLocationText = useRef("");
+  const openLocationHub = useCallback(() => router.push(ROUTES.ONE_LOCATION), [router]);
+  const openFirstLocationSetup = useCallback(async (proposal: NonNullable<AgentMessage["locationChatProposal"]>) => {
+    const origin = liveLocationOrigin.current;
+    const thread = conversationIdRef.current;
+    const anchor = messagesRef.current.findLast(message => message.locationChatProposal?.id === proposal.id);
+    if (!applicationOwnerId || !thread || !vaultKey || !anchor || anchor.receiptRedacted ||
+        !anchor.locationComposerProposal || anchor.restoredFromHistory || origin?.id !== proposal.id || !origin.current() ||
+        window.location.pathname !== ROUTES.HOME || document.visibilityState === "hidden") return false;
+    if (openingLocationSetup.current) return true;
+    const attempt = Symbol();
+    openingLocationSetup.current = attempt;
+    try {
+      const url = await beginLocationChatSetup({ ownerId: applicationOwnerId, vaultKey, vaultEpoch: vaultSessionEpoch,
+        conversationId: thread, messageId: anchor.id, proposal: { ...proposal, conversation: true } });
+      if (!url || openingLocationSetup.current !== attempt || !origin.current() || window.location.pathname !== ROUTES.HOME) return false;
+      writeLocationConversationText(proposal.id, "Opening Location setup…");
+      upsertAgentChatHistoryConversation({ userId: applicationOwnerId, conversationId: thread, vaultKey,
+        messages: agentMessagesToStoredMessages(messagesRef.current, thread) });
+      liveLocationOrigin.current = null;
+      liveLocationEnable.current = null;
+      liveDirectShare.current = null;
+      shareSubmission.current = null;
+      locationReply.current = null;
+      locationChatContinuation.current = null;
+      router.push(url);
+      return true;
+    } finally {
+      if (liveLocationOrigin.current === origin && openingLocationSetup.current === attempt) openingLocationSetup.current = null;
+    }
+  }, [applicationOwnerId, router, vaultKey, vaultSessionEpoch, writeLocationConversationText]);
+  useEffect(() => {
+    if (!isCanonicalChatRoute) openingLocationSetup.current = null;
+  }, [isCanonicalChatRoute]);
+  useEffect(() => {
+    const last = messages.at(-1);
+    const authored = last?.locationTextScope;
+    if (!last?.locationChatText || (!last.locationReplyFor && !last.locationChatProposal) || isStreaming || isChatLoading || !conversationId || !applicationOwnerId ||
+        !vaultKey || !isVaultUnlocked || !isVaultSessionEpochCurrent(vaultSessionEpoch) ||
+        !ownsLocationTranscript(authored, applicationOwnerId, vaultSessionEpoch, conversationId) ||
+        conversationIdRef.current !== conversationId || workspaceOwnerIdRef.current !== applicationOwnerId) return;
+    const stamp = JSON.stringify([applicationOwnerId, vaultSessionEpoch, conversationId, last.id, last.locationChatText]);
+    if (lastCachedLocationText.current === stamp) return;
+    lastCachedLocationText.current = stamp;
+    upsertAgentChatHistoryConversation({ userId: applicationOwnerId, conversationId, vaultKey,
+      messages: agentMessagesToStoredMessages(messages, conversationId) });
+  }, [applicationOwnerId, conversationId, isChatLoading, isStreaming, isVaultUnlocked, messages, vaultKey, vaultSessionEpoch]);
   const rememberLocationContinuation = useCallback((proposalId: string, context: MainLocationContinuation | null) => {
     if (context) locationChatContinuation.current = { proposalId, context };
     else if (locationChatContinuation.current?.proposalId === proposalId) locationChatContinuation.current = null;
@@ -4870,6 +4969,77 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ],
   );
 
+  // Location returns only a reviewable request to its original Chat.
+  const setupReturnRead = useRef<{ id: string; owner: string; epoch: number; chatEpoch: number; value: ReturnType<typeof consumeLocationChatSetup> } | null>(null);
+  const handledSetupReturn = useRef<string | null>(null);
+  const setupReturnParam = searchParams?.get("locationSetupReturn") ?? null;
+  useEffect(() => {
+    if (!isCanonicalChatRoute || !isVaultUnlocked || !applicationOwnerId || !vaultKey || !vaultOwnerToken ||
+        isLoadingHistory || isChatLoading || !historyReadyForSlot || (!setupReturnParam && openingLocationSetup.current)) return;
+    const handoffId = setupReturnParam || getPendingLocationChatSetupId();
+    if (!handoffId || handledSetupReturn.current === handoffId) return;
+    let active = true;
+    const owner = applicationOwnerId;
+    const epoch = vaultSessionEpoch;
+    const requestEpoch = chatSessionRef.current.value;
+    const current = () => active && isWorkspaceMountedRef.current && workspaceOwnerIdRef.current === owner &&
+      chatSessionRef.current.isCurrent(requestEpoch) && isVaultSessionEpochCurrent(epoch) &&
+      vaultKeyRef.current === vaultKey && window.location.pathname === ROUTES.HOME;
+    const prior = setupReturnRead.current;
+    if (prior?.id === handoffId && prior.chatEpoch !== requestEpoch) {
+      handledSetupReturn.current = handoffId;
+      return;
+    }
+    const value = prior?.id === handoffId && prior.owner === owner && prior.epoch === epoch ? prior.value :
+      consumeLocationChatSetup({ ownerId: owner, vaultKey, vaultEpoch: epoch, handoffId });
+    setupReturnRead.current = { id: handoffId, owner, epoch, chatEpoch: requestEpoch, value };
+    void value.then(async result => {
+      if (!current()) return;
+      const saved = result ? storedMessagesToAgentMessages(peekAgentChatConversationMessages(owner, result.conversationId) ?? [])
+        .find(row => row.id === result.messageId && row.role === "assistant" && !row.receiptRedacted && !row.consentAccessEnded &&
+          row.locationChatProposal?.id === result.proposal.id) : undefined;
+      if (result && conversationIdRef.current !== result.conversationId) {
+        await restoreConversationMessages(result.conversationId, vaultOwnerToken, current);
+        if (!current() || conversationIdRef.current !== result.conversationId) return;
+      }
+      handledSetupReturn.current = handoffId;
+      openingLocationSetup.current = null;
+      if (setupReturnParam) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("locationSetupReturn");
+        window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+      }
+      if (!result) return;
+      const chatEpoch = chatSessionRef.current.value;
+      const sameRoom = () => isWorkspaceMountedRef.current && locationChatScreenActive.current &&
+        chatSessionRef.current.isCurrent(chatEpoch) && isVaultSessionEpochCurrent(epoch) && workspaceOwnerIdRef.current === owner &&
+        conversationIdRef.current === result.conversationId && window.location.pathname === ROUTES.HOME;
+      if (!sameRoom()) return;
+      const statusId = `location-setup-return-${handoffId}`;
+      setMessages(rows => {
+        if (!sameRoom() || rows.some(row => row.id === statusId || !row.receiptRedacted && row.locationChatProposal?.id === result.proposal.id)) return rows;
+        // A just-created chat can return before the server has indexed its last
+        // turn. Recover only its matching owner-cached row, never a removed or
+        // redacted row in an otherwise current server transcript.
+        if (saved?.sentAtMs && !rows.some(row => row.id === result.messageId || row.receiptRedacted || row.consentAccessEnded ||
+            (row.sentAtMs ?? 0) >= saved.sentAtMs!)) {
+          return [...rows, { ...saved, status: "done", restoredFromHistory: true }];
+        }
+        return [...rows, { id: statusId, role: "assistant", status: "done", ...stampNow(),
+          text: result.outcome === "completed" ? "Location setup is complete. Please send your Location request again." : "Location setup was cancelled." }];
+      });
+      liveLocationOrigin.current = { id: result.proposal.id, current: sameRoom };
+      setLocationSetupReturn({ ...result, ownerId: owner, epoch, chatEpoch });
+      if (result.outcome === "cancelled") {
+        writeLocationConversationText(result.proposal.id, "Location setup was cancelled.");
+        liveLocationOrigin.current = null;
+        locationReply.current = null;
+      }
+    }).catch(() => { if (current()) toast.error("Could not reopen the Location request."); });
+    return () => { active = false; };
+  }, [applicationOwnerId, historyReadyForSlot, isCanonicalChatRoute, isChatLoading, isLoadingHistory, isVaultUnlocked,
+    restoreConversationMessages, setupReturnParam, vaultKey, vaultOwnerToken, vaultSessionEpoch, writeLocationConversationText]);
+
   // A turn this chat stopped reading has written its answer: show it in place.
   useEffect(() => {
     return subscribeAgentTurnSettled((turn) => {
@@ -6121,8 +6291,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             openMainChatLocationReview: (proposal) => {
               if (!isWorkspaceMountedRef.current || !isTurnSessionActive() || streamAbortController.signal.aborted ||
                   workspaceOwnerIdRef.current !== userId || conversationIdRef.current !== turnConversationId) return false;
-              updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
-              openLiveNearbyCheckIn(proposal);
+              receiveLocationProposal(proposal);
               return true;
             },
           } : {}),
@@ -6370,6 +6539,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     let nameTurnCompleted = false;
     let turnStopped = false;
     let settledTurnCacheAndNotice = false;
+    let locationEnableIssued = false;
+    const receiveLocationProposal = (proposal: NonNullable<AgentMessage["locationChatProposal"]>) => {
+      if (!locationChatReviewEnabled || turnStopped || streamAbortController.signal.aborted || !isTurnSessionActive() ||
+          !isVaultSessionEpochCurrent(vaultSessionEpoch) || workspaceOwnerIdRef.current !== userId) return;
+      const sameChat = () => locationChatScreenActive.current && isWorkspaceMountedRef.current &&
+        chatSessionRef.current.isCurrent(chatEpoch) && isVaultSessionEpochCurrent(vaultSessionEpoch) &&
+        workspaceOwnerIdRef.current === userId && conversationIdRef.current === turnConversationId &&
+        !streamAbortController.signal.aborted && !turnStopped;
+      const current = () => sameChat() && document.visibilityState !== "hidden";
+      if (options.directLocationComposer && sameChat()) liveLocationOrigin.current = { id: proposal.id, current: sameChat };
+      const submission = shareSubmission.current;
+      if (options.directLocationComposer && submission && submission.id === options.locationShareSubmission && !submission.proposed) {
+        submission.proposed = true;
+        const terms = directLocationShareTerms(text, proposal);
+        if (terms && current()) liveDirectShare.current = { id: proposal.id, share: { ...terms, current: () =>
+          current() && shareSubmission.current === submission && liveLocationOrigin.current?.id === proposal.id &&
+          latestVisibleTurnIdRef.current === debugTurnId } };
+      }
+      if (options.directLocationComposer && !locationEnableIssued && typedLocationEnableAuthority(text) === proposal.action && current()) {
+        locationEnableIssued = true;
+        liveLocationEnable.current = { proposalId: proposal.id, current };
+      }
+      updateMessage(assistantMessageId, message => ({ ...message, locationChatProposal: proposal,
+        locationComposerProposal: Boolean(options.directLocationComposer) }));
+      if (!options.directLocationComposer && conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
+    };
     const updateTurnConversationId = (nextId: string) => {
       if (activeSessionBinding) {
         activeSessionBinding.conversationId = nextId;
@@ -6751,6 +6946,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         })() as unknown as Record<string, unknown>,
         mainChat: isMainChatTurn,
         locationChatReview: locationChatReviewEnabled,
+        locationChatConversation: Boolean(locationChatReviewEnabled && options.directLocationComposer),
         locationChatContinuation: (() => {
           const current = locationChatContinuation.current;
           if (!locationChatReviewEnabled || !isVaultUnlocked || !current) return undefined;
@@ -6758,7 +6954,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             message.role === "assistant" && message.id !== assistantMessageId &&
             (message.locationChatProposal || message.text.trim()),
           );
-          return previousAnswer?.locationChatProposal?.id === current.proposalId ? current.context : undefined;
+          return (previousAnswer?.locationChatProposal?.id ?? previousAnswer?.locationReplyFor) === current.proposalId ? current.context : undefined;
         })(),
         signal: streamAbortController.signal,
         handlers: {
@@ -6933,12 +7129,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             setGoalPlanReview(current => current?.assistantId === assistantMessageId ? current :
               { proposal, assistantId: assistantMessageId, ownerId: applicationOwnerId, epoch: vaultSessionEpoch });
           },
-          onLocationProposal: (proposal) => {
-            if (!locationChatReviewEnabled || streamAbortController.signal.aborted || !isTurnSessionActive() ||
-                !isVaultSessionEpochCurrent(vaultSessionEpoch) || workspaceOwnerIdRef.current !== userId) return;
-            updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
-            if (conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
-          },
+          onLocationProposal: receiveLocationProposal,
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
@@ -7104,6 +7295,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
+            if (options.directLocationComposer && locationChatReviewEnabled &&
+                locationReviewActionForLegacyDirective(directive) === "enable_device_location") {
+              receiveLocationProposal({ id: crypto.randomUUID(), action: "enable_device_location" });
+              return;
+            }
             if (openPreparedGmailReview(directive, assistantMessageId)) return;
             setPendingSpecialistDirective({ ...directive, sourceAssistantMessageId: assistantMessageId });
             if (directive.delegateAgentId === "agent_calendar" && directive.directive.payload.type === "calendar.invitations") setCalendarInvitationContext(current => current ? { ...current, needsContext: false } : null);
@@ -8098,7 +8294,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     personSelectionHandle?: string,
     options: Pick<
       AgentRunTurnOptions,
-      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride"
+      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride" | "directLocationComposer" | "locationShareSubmission"
     > & { offerToLiveTurn?: boolean } = {},
   ) => {
     const chatEpoch = chatSessionRef.current.value;
@@ -8149,6 +8345,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             const together = [current, ...taken.flatMap((item) => (item.prompt ? [item.prompt] : []))];
             await runAgentTurn(combineQueuedPromptText(together), {
               source: "typed",
+              directLocationComposer: options.directLocationComposer && together.length === 1 && current.id === prompt.id && current.text === text,
+              locationShareSubmission: options.locationShareSubmission,
               deferPkmContext: together.some((item) => item.deferPkmContext),
               ...(together.length > 1 ? { queuedPrompts: together } : {}),
             });
@@ -8156,6 +8354,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           }
           await runAgentTurn(current.text, {
             source: "typed",
+            directLocationComposer: options.directLocationComposer && current.id === prompt.id && current.text === text && !attachments.length,
+            locationShareSubmission: options.locationShareSubmission,
             personSelectionHandle,
             calendarMeeting: options.calendarMeeting,
             attachments: current.attachments,
@@ -8893,6 +9093,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const submitComposerText = async (
     nativeText?: string,
     submitOptions?: {
+      trustedComposer?: boolean;
       awaitGuard?: boolean;
       offerToLiveTurn?: boolean;
       onSettled?: (accepted: boolean) => void;
@@ -8908,6 +9109,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       submitOptions?.onSettled?.(false);
       return;
     }
+    const locationShareSubmission = Symbol("location-composer");
+    shareSubmission.current = { id: locationShareSubmission, proposed: false };
     // Only after the person chose "Something else" for their name, and only
     // when it is name-shaped; anything else is an ordinary turn to One.
     if (!attachment && chatOnboarding.captureComposerText(typedText)) {
@@ -8934,6 +9137,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpanded(false);
     const guard = enqueueGuardedTurn({
       typedText,
+      directLocationComposer: Boolean(submitOptions?.trustedComposer && !attachment && !driveSearchSelection),
+      locationShareSubmission,
       // The paste leaves as its own attachment part: a chip in the transcript
       // and a separate document for One, never text folded into the message.
       attachments: attachmentText?.trim()
@@ -9001,6 +9206,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     attachments,
     fromPaste,
     driveSearchSelection,
+    directLocationComposer,
+    locationShareSubmission,
     offerToLiveTurn,
     onRefused,
   }: {
@@ -9008,6 +9215,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     attachments: AgentTextAttachment[];
     fromPaste: boolean;
     driveSearchSelection?: AgentRunTurnOptions["driveSearchSelection"];
+    directLocationComposer?: boolean;
+    locationShareSubmission?: symbol;
     offerToLiveTurn?: boolean;
     onRefused?: () => void;
   }) => {
@@ -9019,6 +9228,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
+    const activeLocation = locationReply.current;
+    const lastLocationAnswer = messagesRef.current.findLast(message => message.role === "assistant");
+    if (directLocationComposer && submittedText === typedText && !attachments.length && locationChatScreenActive.current &&
+        !isStreaming && !isChatLoading && !pendingSpecialistDirective && !pendingMcpReviewsRef.current.length &&
+        isVaultSessionEpochCurrent(vaultSessionEpoch) && workspaceOwnerIdRef.current === applicationOwnerId &&
+        lastLocationAnswer && activeLocation && liveLocationOrigin.current?.id === activeLocation.proposalId && liveLocationOrigin.current.current() &&
+        (lastLocationAnswer.locationReplyFor ?? lastLocationAnswer.locationChatProposal?.id) === activeLocation.proposalId &&
+        (lastLocationAnswer.locationChatText || lastLocationAnswer.locationReplyFor)) {
+      const proposalId = activeLocation.proposalId;
+      if (handlingLocationReply.current === proposalId) { onRefused?.(); return false; }
+      if (activeLocation.handle(submittedText, lastLocationAnswer.locationChatText)) {
+        handlingLocationReply.current = proposalId;
+        setMessages(current => [...current,
+          { id: crypto.randomUUID(), role: "user", ...stampNow(), text: submittedText, locationReplyFor: proposalId, status: "done" },
+          { id: crypto.randomUUID(), role: "assistant", ...stampNow(), text: "Checking Location…",
+            locationReplyFor: proposalId, status: "done", renderAsPlainAssistantMessage: true },
+        ]);
+        return true;
+      }
+    }
     // Hands-free voice & free-text confirmation for a mounted AskProposalCard:
     // replying "yes send" / "send it" / "confirm" submits the visible proposal
     // directly instead of forcing a manual tap on the card.
@@ -9060,6 +9289,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       attachmentTexts[index] === item.text ? item : createAgentTextAttachment(attachmentTexts[index] ?? "", item.name),
     );
     enqueuePrompt(submittedText, undefined, {
+      directLocationComposer: directLocationComposer && submittedText === typedText,
+      locationShareSubmission,
       deferPkmContext: fromPaste,
       driveSearchSelection,
       attachments: submittedAttachments,
@@ -9082,7 +9313,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await submitComposerText();
+    await submitComposerText(undefined, { trustedComposer: event.nativeEvent.isTrusted });
   };
 
   const captureComposerPaste = (pasted: string, selectionStart: number, selectionEnd: number) => {
@@ -9290,6 +9521,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const legacyLocationReviewAction = locationChatReviewEnabled && pendingSpecialistDirective
     ? locationReviewActionForLegacyDirective(pendingSpecialistDirective) : null;
   const latestLocationProposalMessageId = visibleMessages.findLast((message) => message.locationChatProposal)?.id;
+  const latestLocationAnswer = visibleMessages.findLast(message => message.role === "assistant");
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns
       controller={chatOnboarding}
@@ -9760,7 +9992,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     const stack = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
     const transcript = transcriptRef.current;
-    if (!stack || !transcript || typeof ResizeObserver === "undefined") return;
+    if (!stack || !transcript || isPuppySurface || typeof ResizeObserver === "undefined") return;
     const publish = () => {
       const atEnd =
         transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 120 ||
@@ -9773,18 +10005,50 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (nativeLayout && nativeLayout.viewport.width === window.innerWidth && nativeLayout.viewport.height === window.innerHeight)
         transcript.style.setProperty("--agent-chat-native-occlusion", `${Math.max(0, Math.ceil(transcript.getBoundingClientRect().bottom - nativeLayout.frame.y + 16))}px`);
       else transcript.style.removeProperty("--agent-chat-native-occlusion");
-      if (atEnd) transcript.scrollTop = transcript.scrollHeight;
+      // A keyboard can move the dock without changing its measured height.
+      // Follow the displayed turn only while the composer owns the keyboard
+      // and the reader was following the end before the viewport changed.
+      const composerFocused = stack.contains(document.activeElement) ||
+        (nativeDockPorts?.owned && document.documentElement.classList.contains("kb-open"));
+      const end = messagesEndRef.current;
+      if (isCanonicalChatRoute && end && composerFocused &&
+          !transcriptUserScrollRef.current && transcriptStuckToEndRef.current) {
+        const top = transcriptRevealScrollTop(measureTranscriptReveal(transcript, end, agentDockOccluder));
+        if (top > transcript.scrollTop + 1) {
+          beginTranscriptProgrammaticScroll(top);
+          transcript.scrollTop = top;
+        }
+      } else if (atEnd && !transcriptUserScrollRef.current) {
+        transcript.scrollTop = transcript.scrollHeight;
+      }
       scheduleMessagesBelowCount();
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(stack);
     let layoutFrame = 0;
-    const unsubscribe = nativeDockPorts?.subscribeLayout(() => {
+    const scheduleLayout = () => {
       if (!layoutFrame) layoutFrame = requestAnimationFrame(() => { layoutFrame = 0; publish(); });
-    });
-    return () => { observer.disconnect(); unsubscribe?.(); cancelAnimationFrame(layoutFrame); };
-  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface, nativeDockPorts, scheduleMessagesBelowCount]);
+    };
+    const unsubscribe = nativeDockPorts?.subscribeLayout(scheduleLayout);
+    const keyboardSlot = stack.closest("[data-bottom-shell-agent-slot]");
+    const onDockTransition = (event: Event) => {
+      if (event.target === keyboardSlot) scheduleLayout();
+    };
+    if (isCanonicalChatRoute) {
+      keyboardSlot?.addEventListener("transitionend", onDockTransition);
+      window.visualViewport?.addEventListener("resize", scheduleLayout);
+      window.addEventListener("resize", scheduleLayout);
+    }
+    return () => {
+      observer.disconnect();
+      unsubscribe?.();
+      keyboardSlot?.removeEventListener("transitionend", onDockTransition);
+      window.visualViewport?.removeEventListener("resize", scheduleLayout);
+      window.removeEventListener("resize", scheduleLayout);
+      cancelAnimationFrame(layoutFrame);
+    };
+  }, [agentDockFrame, agentDockOccluder, beginTranscriptProgrammaticScroll, isCanonicalChatRoute, isPuppySurface, nativeDockPorts, scheduleMessagesBelowCount]);
   const openGetApp = useCallback((trigger: HTMLButtonElement) => {
     // The drawer is modal at every width. Close it before raising the sheet.
     getAppReturnFocusRef.current =
@@ -9995,7 +10259,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     onAction: event => {
       if (["attachment-edit", "attachment-remove", "collapse"].includes(event.action ?? "")) nativeEditor.current.revision++;
-      if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text);
+      if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text, { trustedComposer: true });
       else if (event.action === "send-now") return sendImmediately(event.text);
       else if (event.action === "mic" && canToggleVoice) void startConversationalVoice();
       else if (event.action === "cancel" && stoppableTurn) void (stopActiveTurnRef.current ?? peekActiveAgentTurnSession<AgentMessage>(isVaultUnlocked ? applicationOwnerId : null, vaultSessionEpoch)?.stop)?.();
@@ -10092,7 +10356,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // A real pointer click can otherwise release without dispatching
               // submit while the control is visibly enabled.
               event.preventDefault();
-              void submitComposerText();
+              void submitComposerText(undefined, { trustedComposer: event.nativeEvent.isTrusted });
             }}
           >
             <Send className="h-4 w-4" />
@@ -10517,8 +10781,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
                   // When the reader scrolls up, immediately clear any programmatic lock
                   // and mark active reader control. Content growth alone must not
-                  // be misread as an upward scroll gesture.
-                  if (scrollTop < previousScrollTop - 2) {
+                  // be misread as an upward scroll gesture, and when a keyboard closes
+                  // the browser clamping scrollTop to the new maximum is layout, not gesture.
+                  const clampedToEnd = previousScrollTop > maxScrollTop + 2 && distanceFromBottom <= 2;
+                  if (scrollTop < previousScrollTop - 2 && !clampedToEnd) {
                     clearTranscriptProgrammaticScroll();
                     transcriptUserScrollRef.current = true;
                   } else if (distanceFromBottom <= 96) {
@@ -10693,6 +10959,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : null}
 
               {visibleMessages.map((message) => {
+                const locationAction = message.locationChatProposal?.action;
+                const locationConversation = locationChatReviewEnabled && Boolean(locationAction &&
+                  (usesLocationConversation(locationAction) || usesLocationChildConversation(locationAction)) &&
+                  (message.locationComposerProposal || message.locationChatProposal?.conversation || message.locationChatText));
+                const returnedLocation = locationSetupReturn && locationSetupReturn.ownerId === applicationOwnerId &&
+                  locationSetupReturn.epoch === vaultSessionEpoch && locationSetupReturn.conversationId === conversationId &&
+                  chatSessionRef.current.isCurrent(locationSetupReturn.chatEpoch) && !message.receiptRedacted &&
+                  (message.id === locationSetupReturn.messageId || message.restoredFromHistory) &&
+                  message.locationChatProposal?.id === locationSetupReturn.proposal.id &&
+                  (latestLocationAnswer?.id === message.id || latestLocationAnswer?.locationReplyFor === locationSetupReturn.proposal.id) &&
+                  message.id === latestLocationProposalMessageId ? locationSetupReturn : null;
+                const resumedLocation = returnedLocation?.outcome === "completed";
+                const freshLocation = locationSetupReturn?.proposal.id !== message.locationChatProposal?.id &&
+                  message.locationComposerProposal && !message.restoredFromHistory &&
+                  liveLocationOrigin.current?.id === message.locationChatProposal?.id && liveLocationOrigin.current?.current();
+                const liveLocationConversation = (locationConversation || resumedLocation) && (freshLocation || resumedLocation);
                 if (
                   message.role === "user" &&
                   !message.attachments?.length &&
@@ -10718,6 +11000,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         outcome={consentChipOutcome(message)}
                       />
                     )
+                  ) : message.locationChatText || locationConversation ? (
+                    <LocationChatConversationText message={message} text={message.locationChatText || (message.restoredFromHistory
+                      ? message.text || "This Location request was proposed in an earlier turn." : "Checking Location…")} />
                   ) : (
                     <AgentBubble
                       message={message}
@@ -11155,16 +11440,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
-                  {locationChatReviewEnabled && message.locationChatProposal ? (
+                  {locationChatReviewEnabled && message.locationChatProposal && returnedLocation?.outcome !== "cancelled" && !(locationConversation &&
+                    usesLocationChildConversation(message.locationChatProposal.action) &&
+                    (message.restoredFromHistory && !resumedLocation || message.id !== latestLocationProposalMessageId)) ? (
                     <LocationChatActionPanel
-                      key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}`}
+                      key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}:${resumedLocation ? "after-setup" : "original"}`}
                       ownerId={applicationOwnerId}
                       token={isVaultUnlocked ? vaultOwnerToken ?? null : null}
                       vaultKey={isVaultUnlocked ? vaultKey ?? null : null}
-                      proposal={message.locationChatProposal}
+                      proposal={resumedLocation ? returnedLocation.proposal : message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
-                      allowReview={message.id === latestLocationProposalMessageId}
+                      allowReview={message.id === latestLocationProposalMessageId && (!locationConversation || Boolean(liveLocationConversation))}
                       onContinuationChange={rememberLocationContinuation}
+                      claimEnable={resumedLocation ? undefined : claimLocationEnable}
+                      claimDirectShare={freshLocation && !resumedLocation ? claimDirectShare : undefined}
+                      afterSetup={resumedLocation}
+                      onFirstUse={freshLocation && !resumedLocation ? openFirstLocationSetup : undefined}
+                      onOpenLocation={openLocationHub}
+                      onNearbyReady={openLiveNearbyCheckIn}
+                      onConversationReply={liveLocationConversation ? rememberLocationReply : undefined}
+                      onConversationText={locationConversation || resumedLocation ? writeLocationConversationText : undefined}
                     />
                   ) : null}
                   {calendarConnectDirective && message.id === calendarConnectAnchorId

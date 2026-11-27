@@ -26,11 +26,14 @@ import {
   evictInMemoryAgentChatHistoryForTests,
   hydrateAgentChatHistoryFromEncryptedCache,
   loadAgentChatConversationHistory,
+  loadOlderAgentChatConversationHistory,
   peekAgentChatHistoryCache,
+  upsertAgentChatHistoryConversation,
   warmAgentChatHistoryCache,
   isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
+import { ownsLocationTranscript } from "@/lib/agent/main-chat-location-conversation";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   deleteEncryptedOwnerUiRecords,
@@ -62,6 +65,37 @@ const messages = [
 ];
 
 describe("agent chat history memory cache", () => {
+  it("retains device-confirmed replies only for a Location origin still present in this owner's server history", async () => {
+    const input = { userId: "owner", conversationId: conversation.id, vaultOwnerToken: "owner-token", vaultKey: "c2".repeat(32), force: true };
+    const proposal = { id: "origin", action: "share_live" as const, conversation: true as const };
+    const review = { id: "review", conversation_id: conversation.id, role: "assistant" as const, status: "complete" as const,
+      content: "Share with Maya for 30 min?", metadata: { locationChatProposal: proposal, locationConversationText: true } };
+    const receipt = { ...review, id: "receipt", content: "Shared with Maya for 30 min.", metadata: { locationReplyFor: proposal.id, locationConversationText: true } };
+    upsertAgentChatHistoryConversation({ ...input, messages: [review, receipt] });
+    const remote = { ...review, content: "Review Location.", metadata: { locationChatProposal: proposal } };
+    mocks.history.mockResolvedValueOnce([remote]);
+    expect(await loadAgentChatConversationHistory(input)).toEqual([review, receipt]);
+    const page = Object.assign([...messages], { _pageMeta: { hasMore: true, oldestCursor: "next" } });
+    mocks.history.mockResolvedValueOnce(page);
+    expect(await loadAgentChatConversationHistory(input)).toEqual([...page]);
+    await flushEncryptedOwnerUiWritesForTests();
+    evictInMemoryAgentChatHistoryForTests();
+    await hydrateAgentChatHistoryFromEncryptedCache(input);
+    mocks.history.mockResolvedValueOnce([remote]);
+    expect(await loadOlderAgentChatConversationHistory(input)).toEqual([review, receipt]);
+    mocks.history.mockResolvedValueOnce(page);
+    await loadAgentChatConversationHistory(input);
+    const redacted = { ...remote, content: "", metadata: { ...remote.metadata, consentAccessEnded: true } };
+    mocks.history.mockResolvedValueOnce([redacted]);
+    expect(await loadOlderAgentChatConversationHistory(input)).toEqual([redacted]);
+    mocks.history.mockResolvedValueOnce([]);
+    expect(await loadAgentChatConversationHistory(input)).toEqual([]);
+    const authored = { ownerId: "owner", vaultEpoch: 7, conversationId: input.conversationId };
+    expect(ownsLocationTranscript(authored, "other-owner", 7, input.conversationId)).toBe(false);
+    expect(ownsLocationTranscript(authored, "owner", 8, input.conversationId)).toBe(false);
+    expect(ownsLocationTranscript(authored, "owner", 7, "other-chat")).toBe(false);
+  });
+
   beforeEach(() => {
     clearAgentChatHistoryCache();
     vi.clearAllMocks();

@@ -130,6 +130,7 @@ from hushh_mcp.one_adk.history_projection import (
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONTINUATION,
+    STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
     admit_location_chat_continuation,
     admit_location_chat_review,
@@ -677,11 +678,12 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
+    location_review = admit_location_chat_review(forwarded, owner_admitted=bool(token and user_id))
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
-        STATE_LOCATION_CHAT_REVIEW: admit_location_chat_review(
-            forwarded, owner_admitted=bool(token and user_id)
-        ),
+        STATE_LOCATION_CHAT_REVIEW: location_review,
+        STATE_LOCATION_CHAT_CONVERSATION: location_review
+        and forwarded.get("locationChatConversation") is True,
         STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
             forwarded, owner_admitted=bool(token and user_id)
         ),

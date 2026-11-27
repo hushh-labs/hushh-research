@@ -17,28 +17,8 @@
  */
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { agentRecipientFromBinding, type AiSelectionSealContext } from "./ai-selection-recipient";
+import { isHostedWebOAuthOrigin, UAT_MAIL_ORIGIN } from "./hosted-web-oauth-origins";
 import { base64AnyDecode, base64UrlEncode, type AiSelectionRecipient } from "./ai-selection-seal";
-
-export const UAT_MAIL_ORIGIN = "https://uat.one.hussh.ai";
-
-export const HOSTED_WEB_OAUTH_ORIGINS = new Set<string>([
-  "https://one.hussh.si",
-  "https://one.hushh.si",
-  "https://one.hussh.ai",
-  "https://one.hushh.ai",
-  "https://uat.one.hussh.si",
-  "https://uat.one.hushh.si",
-  "https://uat.one.hussh.ai",
-  "https://uat.one.hushh.ai",
-  "https://dev.one.hussh.si",
-  "https://dev.one.hushh.si",
-  "https://dev.one.hussh.ai",
-  "https://dev.one.hushh.ai",
-]);
-
-export function isHostedWebOAuthOrigin(origin: string): boolean {
-  return HOSTED_WEB_OAUTH_ORIGINS.has(origin);
-}
 
 export const CONNECTOR_SEAL_ALG = "X25519-HKDF-SHA256-AES256GCM" as const;
 const HKDF_INFO = "hussh/connector-credential/v1";

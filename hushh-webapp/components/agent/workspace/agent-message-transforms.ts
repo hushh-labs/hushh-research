@@ -62,9 +62,14 @@ export const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 export const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 
 import type { MainLocationProposal } from "@/lib/agent/main-chat-location-contract";
+import type { LocationConversationScope } from "@/lib/agent/main-chat-location-conversation";
 
 export type AgentMessage = {
   locationChatProposal?: MainLocationProposal;
+  locationChatText?: string;
+  locationTextScope?: LocationConversationScope;
+  locationReplyFor?: string;
+  locationComposerProposal?: boolean;
   id: string;
   calendarMeeting?: MeetingSelection;
   presentation?: "calendar";
@@ -421,6 +426,8 @@ export type AgentWalletWidget =
 export type AgentTurnSource = "typed";
 export type AgentRunTurnOptions = {
   source: AgentTurnSource;
+  directLocationComposer?: boolean;
+  locationShareSubmission?: symbol;
   calendarMeeting?: MeetingSelection;
   timeZoneOverride?: string;
   personSelectionHandle?: string;
@@ -1513,6 +1520,9 @@ export function storedMessageToAgentMessage(
     serverMessageId: message.role === "assistant" ? message.id : undefined,
     role: message.role,
     text: displayText,
+    ...(message.metadata?.locationChatProposal ? { locationChatProposal: message.metadata.locationChatProposal } : {}),
+    ...(message.metadata?.locationReplyFor ? { locationReplyFor: message.metadata.locationReplyFor } : {}),
+    ...(message.metadata?.locationConversationText ? { locationChatText: displayText } : {}),
     ...(restoredThinkingSummary ? { thinkingSummary: restoredThinkingSummary } : {}),
     ...(attachments.length ? { attachments } : {}),
     structuredExperience: connectorRead,
@@ -1590,6 +1600,8 @@ export function agentMessagesToStoredMessages(
   for (const message of messages) {
     if (message.id === "agent-greeting") continue;
     const hasMetadata =
+      Boolean(message.locationChatProposal) ||
+      Boolean(message.locationChatText || message.locationReplyFor) ||
       Boolean(message.attachments?.length) ||
       message.kind === "selection" ||
       Boolean(message.consentBundleId) ||
@@ -1598,6 +1610,9 @@ export function agentMessagesToStoredMessages(
       message.queuedPlacement === "joined";
     const metadata: StoredAgentChatMessage["metadata"] = hasMetadata
       ? {
+          ...(message.locationChatProposal ? { locationChatProposal: message.locationChatProposal } : {}),
+          ...(message.locationChatText ? { locationConversationText: true } : {}),
+          ...(message.locationReplyFor ? { locationReplyFor: message.locationReplyFor } : {}),
           ...(message.kind === "selection" ? { kind: "selection", display: message.text } : {}),
           ...(message.attachments?.length ? { attachments: message.attachments } : {}),
           ...(message.consentBundleId ? { consentBundleId: message.consentBundleId } : {}),
@@ -1615,7 +1630,7 @@ export function agentMessagesToStoredMessages(
       conversation_id: conversationId,
       role: message.role,
       status: message.status === "error" ? "error" : "complete",
-      content: message.text,
+      content: message.locationChatText ?? message.text,
       created_at: timestampIso,
       completed_at:
         message.status === "done" || message.status === "error" ? timestampIso : null,

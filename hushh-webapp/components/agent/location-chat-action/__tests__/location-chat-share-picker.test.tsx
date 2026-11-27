@@ -30,11 +30,11 @@ test("carry exact typed suggestions into the editable private audience without g
   fireEvent.click(await screen.findByRole("button", { name: "Find Priya" }));
   expect(await screen.findAllByRole("button", { name: "Priya", exact: true })).toHaveLength(2);
   fireEvent.click(screen.getByRole("button", { name: "Remove Maya from the audience" }));
-  fireEvent.click(screen.getByRole("radio", { name: "Current pin" }));
+  expect(screen.queryByRole("radio")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  expect(onContinue).toHaveBeenCalledWith("share_pin", [{ label: "Family", circleId: "circle-1" }]);
+  expect(onContinue).toHaveBeenCalledWith("share_live", [{ label: "Family", circleId: "circle-1" }]);
   await waitFor(() => expect(onSelectionChange).toHaveBeenLastCalledWith({
-    mode: "share_pin", targets: [{ label: "Family", circleId: "circle-1" }],
+    mode: "share_live", targets: [{ label: "Family", circleId: "circle-1" }],
   }));
 });
 
@@ -45,9 +45,8 @@ test("carries a unique first-name Connection into review without sharing", async
 
   await screen.findByRole("button", { name: "Remove Neelesh Meena from the audience" });
   expect(onContinue).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("radio", { name: "Current pin" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  expect(onContinue).toHaveBeenCalledWith("share_pin", [{ label: "Neelesh Meena", personUserId: "neelesh" }]);
+  expect(onContinue).toHaveBeenCalledWith("share_live", [{ label: "Neelesh Meena", personUserId: "neelesh" }]);
 });
 
 test("requests can page to a person without a receiving key and include a Circle without offering sharing", async () => {

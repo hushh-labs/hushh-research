@@ -1,7 +1,10 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LocationBusState } from "@/lib/one-location/location-bus";
+import { LIVE_LOCATION_UPDATE_INTERVAL_MS } from "@/lib/one-location/live-heartbeat";
 
 const mocks = vi.hoisted(() => ({
+  heartbeat: { state: { permission: "granted" } as Partial<LocationBusState>, ensure: vi.fn() },
   sharing: {
     value: {
       os: "granted" as const,
@@ -63,6 +66,7 @@ const mocks = vi.hoisted(() => ({
     requestLocationPermission: vi.fn(),
     captureCurrentPosition: vi.fn(),
     storeEnvelope: vi.fn(),
+    refreshPublicInviteLocation: vi.fn(),
     getState: vi.fn(),
     openAppSettings: vi.fn(async () => ({
       opened: true,
@@ -91,7 +95,8 @@ vi.mock("@/lib/one-location/sos-trigger", async (importOriginal) => {
   return { ...actual, runSosPanic: mocks.runSosPanic };
 });
 
-vi.mock("@capacitor/core", () => ({
+vi.mock("@capacitor/core", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@capacitor/core")>(),
   Capacitor: { isNativePlatform: () => false, getPlatform: () => "web" },
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "u1" }) }));
@@ -160,7 +165,8 @@ vi.mock("@/lib/one-location/location-bus", () => ({
     syncPermission: vi.fn(async () => "granted"),
     invalidate: vi.fn(),
     subscribe: () => () => undefined,
-    getState: () => ({ permission: "granted" }),
+    getState: () => mocks.heartbeat.state,
+    ensure: mocks.heartbeat.ensure,
   },
 }));
 vi.mock("@/lib/one-location/background-share-runtime", () => ({
@@ -209,6 +215,89 @@ afterEach(() => {
 });
 
 describe("LocationPublisherBridge", () => {
+  describe("the public link in Chat", () => {
+    const originalState = mocks.state.value;
+    const point = () => ({ latitude: 12.97194, longitude: 77.59456, accuracyM: 1200, capturedAt: new Date().toISOString() });
+    beforeEach(() => {
+      vi.useFakeTimers();
+      mocks.heartbeat.ensure.mockReset();
+      mocks.state.value = { ownerGrants: [], recipients: [], publicInvites: [{ id: "link", ownerUserId: "u1", status: "active", expiresAt: new Date(Date.now() + 300_000).toISOString() }] };
+      mocks.heartbeat.state = { permission: "granted", snapshot: point(), snapshotOrigin: "fresh" };
+    });
+    afterEach(() => {
+      mocks.state.value = originalState;
+      mocks.heartbeat.state = { permission: "granted" };
+      vi.useRealTimers();
+    });
+
+    it("refreshes a public link without private grants and refuses restored or stale fixes", async () => {
+      const view = render(<LocationPublisherBridge pathname="/" />);
+      await act(async () => {});
+      const publish = mocks.service.refreshPublicInviteLocation;
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish.mock.calls[0]?.[0]).toMatchObject({ vaultOwnerToken: "vot", inviteId: "link", locationSnapshot: { precision: "approximate" } });
+      const dispatchAuthorized = publish.mock.calls[0]![0].isEffectCurrent;
+      expect(dispatchAuthorized()).toBe(true);
+      expect(publish.mock.calls[0]?.[0].locationSnapshot.latitude).not.toBe(mocks.heartbeat.state.snapshot?.latitude);
+      expect(mocks.heartbeat.ensure).not.toHaveBeenCalled();
+      expect(mocks.service.watchCurrentPosition).not.toHaveBeenCalled();
+      expect(mocks.service.storeEnvelope).not.toHaveBeenCalled();
+
+      mocks.heartbeat.state = { snapshot: point(), snapshotOrigin: "restored" };
+      await act(async () => { await vi.advanceTimersByTimeAsync(LIVE_LOCATION_UPDATE_INTERVAL_MS); });
+      expect(mocks.heartbeat.ensure).toHaveBeenCalledWith({ maxAgeMs: LIVE_LOCATION_UPDATE_INTERVAL_MS });
+      expect(publish).toHaveBeenCalledTimes(1);
+      mocks.heartbeat.state.snapshotOrigin = "fresh";
+      await act(async () => { await vi.advanceTimersByTimeAsync(LIVE_LOCATION_UPDATE_INTERVAL_MS); });
+      expect(publish).toHaveBeenCalledTimes(1);
+      mocks.heartbeat.ensure.mockImplementationOnce(async () => { mocks.heartbeat.state.snapshot = point(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(LIVE_LOCATION_UPDATE_INTERVAL_MS); });
+      expect(publish).toHaveBeenCalledTimes(2);
+      view.rerender(<LocationPublisherBridge pathname="/one/location" />);
+      expect(dispatchAuthorized()).toBe(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(LIVE_LOCATION_UPDATE_INTERVAL_MS); });
+      expect(publish).toHaveBeenCalledTimes(2);
+      view.unmount();
+    });
+
+    it("discards a device fix that arrives after the public link was revoked", async () => {
+      let finish!: () => void;
+      mocks.heartbeat.state.snapshot = null;
+      mocks.heartbeat.ensure.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+      const view = render(<LocationPublisherBridge pathname="/" />);
+      expect(mocks.heartbeat.ensure).toHaveBeenCalledOnce();
+      await act(async () => { await vi.advanceTimersByTimeAsync(LIVE_LOCATION_UPDATE_INTERVAL_MS); });
+      expect(mocks.heartbeat.ensure).toHaveBeenCalledOnce();
+      mocks.state.value = { ownerGrants: [], recipients: [], publicInvites: [] };
+      view.rerender(<LocationPublisherBridge pathname="/" />);
+      mocks.heartbeat.state = { snapshot: point(), snapshotOrigin: "fresh" };
+      await act(async () => { finish(); });
+      expect(mocks.service.refreshPublicInviteLocation).not.toHaveBeenCalled();
+      view.unmount();
+    });
+
+    it("withdraws a precise public update during transport preparation when the owner reduces accuracy", async () => {
+      const { OneLocationService } = await vi.importActual<typeof import("@/lib/one-location/service")>("@/lib/one-location/service");
+      const api = await import("@/lib/services/api-client");
+      const request = vi.spyOn(api, "apiJson").mockResolvedValue({ invite: {} });
+      mocks.service.refreshPublicInviteLocation.mockImplementationOnce(OneLocationService.refreshPublicInviteLocation);
+      mocks.heartbeat.state.snapshot = { ...point(), accuracyM: 5 };
+      const view = render(<LocationPublisherBridge pathname="/" />);
+      try {
+        await act(async () => {});
+        const dispatchAuthorized = request.mock.calls.find(([path]) => path.endsWith("/public-invites/link/location"))?.[1]?.isEffectCurrent;
+        expect(dispatchAuthorized?.()).toBe(true);
+        setSharing({ osPrecise: false });
+        view.rerender(<LocationPublisherBridge pathname="/" />);
+        expect(dispatchAuthorized?.()).toBe(false);
+      } finally {
+        setSharing({ osPrecise: true });
+        view.unmount();
+        request.mockRestore();
+      }
+    });
+  });
+
   it("starts the watch while sharing and stops it the moment app sharing turns off", async () => {
     const { rerender } = render(<LocationPublisherBridge />);
     await waitFor(() =>
