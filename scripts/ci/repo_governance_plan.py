@@ -175,6 +175,7 @@ RiskSnapshot.load(str(manifest))
     _check("branch-governance-docs-selftest", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", "--self-test", diagnostic=True),
     _check("deployment-environment-governance", "python3", "scripts/ci/test_verify_deployment_environment_governance.py", groups=("controller", "release", "operations")),
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
+    _check("release-version-control", "python3", "scripts/ci/test_release_version_control.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
     _check("production-recovery-ci", "python3", "scripts/ci/test_production_recovery_ci.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),

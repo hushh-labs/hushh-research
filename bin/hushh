@@ -953,6 +953,9 @@ EOF
   rollback)
     run_rollback "$@"
     ;;
+  release)
+    exec python3 "$REPO_ROOT/scripts/ci/release_version_control.py" "$@"
+    ;;
   *)
     main_usage
     exit 1

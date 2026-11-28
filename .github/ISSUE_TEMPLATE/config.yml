@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Hussh Action Items Board (Project 79)
+    url: https://github.com/orgs/hushh-labs/projects/79
+    about: Active cross-platform intake, triage, and milestone tracking board
+  - name: Live Release Status (hussh Matrix Metrics)
+    url: https://metrics.hussh.si/releases
+    about: Real-time YY.M.N version and ring health across Dev, UAT, Dark Stage, Production, and Mobile Stores

@@ -1,0 +1,60 @@
+name: Bug / Environment Regression
+description: Report a verified defect with its exact environment, observed YY.M.N release version, and severity on Project 79.
+title: "[Bug]: "
+labels: ["bug"]
+projects: ["hushh-labs/79"]
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0 Critical
+        - P1 High
+        - P2 Medium
+        - P3 Low
+      default: 2
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment Where Observed
+      options:
+        - Production (one.hussh.si)
+        - Cold Dark Stage (stage.one.hussh.ai)
+        - UAT (uat.one.hussh.ai)
+        - Dev (dev.one.hussh.ai)
+        - iOS TestFlight / App Store
+        - Android Google Play
+        - Local / GitHub CI
+      default: 2
+    validations:
+      required: true
+  - type: input
+    id: observed_version
+    attributes:
+      label: Observed YY.M.N Version
+      description: Exact release version serving on that ring (check metrics.hussh.si/releases or the Release Control Center issue).
+      placeholder: "26.11.50"
+    validations:
+      required: true
+  - type: dropdown
+    id: sector
+    attributes:
+      label: Sector
+      options:
+        - Hussh One
+        - Hussh AI
+        - HusshTech
+        - Hussh Research
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What Happened & Steps to Reproduce
+      description: Describe the expected behavior, actual behavior, and exact steps to reproduce without exposing private keys or tokens.
+    validations:
+      required: true

@@ -1,0 +1,53 @@
+name: Engineering Task / Capability
+description: Scoped engineering or documentation task linked to Hussh Action Items (Project 79) and a YY.M.N milestone.
+title: "[Task]: "
+labels: ["enhancement"]
+projects: ["hushh-labs/79"]
+body:
+  - type: input
+    id: parent_plan
+    attributes:
+      label: Parent Plan Issue (Optional)
+      description: Link the owning Product Plan issue if this task is one step of a multi-PR wave (for example #10200).
+      placeholder: "#10200 or Standalone"
+  - type: dropdown
+    id: sector
+    attributes:
+      label: Sector
+      options:
+        - Hussh One
+        - Hussh AI
+        - HusshTech
+        - Hussh Research
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: milestone
+    attributes:
+      label: Target YY.M.N Release Milestone
+      placeholder: "26.11.50"
+    validations:
+      required: true
+  - type: checkboxes
+    id: platforms
+    attributes:
+      label: Affected Surfaces (Tri-Flow)
+      options:
+        - label: Web
+        - label: Backend / Private Pod
+        - label: iOS (Capacitor / Swift)
+        - label: Android (Capacitor / Kotlin)
+        - label: Documentation / Operations
+  - type: textarea
+    id: summary
+    attributes:
+      label: For Humans (Goal & Acceptance)
+      description: Plain-language summary of what this task delivers and how we verify it works.
+    validations:
+      required: true
+  - type: textarea
+    id: agent_notes
+    attributes:
+      label: For Coding Agents (Contracts & Verification)
+      description: Optional module boundaries, invariants, and targeted verification commands.

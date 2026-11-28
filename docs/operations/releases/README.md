@@ -4,6 +4,7 @@
 
 Validate, admit and explicitly release a selected application revision.
 
+- [Uniform YY.M.N Release Control and Ring Visibility](release-control-and-versioning.md)
 - [Branch Governance](branch-governance.md)
 - [CI Configuration Reference](ci.md)
 - [CI Gates, Branch Lanes & Local Checks](ci-gates-and-checks.md)

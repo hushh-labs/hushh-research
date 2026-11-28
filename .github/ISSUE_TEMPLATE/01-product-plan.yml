@@ -1,0 +1,65 @@
+name: Product Plan (Multi-Step Initiative)
+description: Define a multi-PR product wave with a plain-English outcome, target YY.M.N milestone, and On/Off switch contract.
+title: "[Plan]: "
+labels: ["plan"]
+projects: ["hushh-labs/79"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for multi-step initiatives spanning more than one pull request. Every new plan attaches to **Hussh Action Items (Project 79)** in `Inbox` status.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: For Humans (Plain-English Outcome)
+      description: Explain what changes for the person using One, why it matters, and what done looks like without internal code jargon.
+      placeholder: Owners can connect multiple Gmail and Google Calendar accounts in place and switch accounts cleanly inside One.
+    validations:
+      required: true
+  - type: dropdown
+    id: sector
+    attributes:
+      label: Sector
+      options:
+        - Hussh One
+        - Hussh AI
+        - HusshTech
+        - Hussh Research
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: milestone
+    attributes:
+      label: Target YY.M.N Release Milestone
+      description: Unified release train version (for example 26.11.50, 26.12.1, or 27.1.1).
+      placeholder: "26.11.50"
+    validations:
+      required: true
+  - type: dropdown
+    id: switch_posture
+    attributes:
+      label: Multi-Step On/Off Switch Contract
+      description: Unfinished multi-step features must stay switched OFF in UAT and Production so release bundles can cut anytime without leaking half-built screens.
+      options:
+        - Multi-step (switched ON in Dev, switched OFF in UAT and Production until all steps finish)
+        - Single-step or backend-only internal preparation (no user-facing switch required)
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: switch_name
+    attributes:
+      label: Runtime Switch Identifier (if multi-step)
+      description: Name of the runtime capability switch kept OFF outside Dev until every step below is complete.
+      placeholder: "one_multi_account_connectors"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Planned Delivery Steps (Sub-Issues)
+      description: Ordered checklist of bounded pull requests or sub-issues that complete this plan.
+      value: |
+        - [ ] Step 1:
+        - [ ] Step 2:
+    validations:
+      required: true

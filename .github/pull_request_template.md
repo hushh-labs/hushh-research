@@ -9,6 +9,10 @@ production-code proof, and a title/body that match the diff.
 
 ## 📌 Impact Map (Required)
 
+- Release milestone & multi-step switch (Project 79 `Hussh Action Items`):
+  - [ ] Standalone change targeting `YY.M.N` milestone / issue listed below:
+  - [ ] Multi-step plan PR; runtime capability switch kept OFF in UAT and Production until plan completion (switch name & parent plan listed below):
+
 - Routes touched:
   - [ ] None
   - [ ] Listed below:

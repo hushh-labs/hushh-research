@@ -1,7 +1,7 @@
 # Hussh Action Items board (Project 79)
 
-Second board profile supported by `board_ops.py` via `--board action-items`.
-Initial profile verified on 2026-10-12; Environment options rechecked on 2026-11-11.
+Default active board profile in `board_ops.py` (`--board action-items`, default). Closed Project 73 (`--board engineering-core`) is retired for new work.
+Initial profile verified on 2026-10-12; Environment options and default intake promoted on 2026-11-27.
 
 ## Identity
 

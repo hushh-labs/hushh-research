@@ -1,6 +1,6 @@
 ---
 name: planning-board
-description: Use when inspecting, summarizing, creating, triaging, or updating work on the Hussh Engineering Core (Project 73) or Hussh Action Items (Project 79) GitHub boards.
+description: Use when inspecting, summarizing, creating, triaging, or updating work on the active Hussh Action Items (Project 79) GitHub board or reading historical Project 73 records.
 ---
 
 # Hussh Planning Board Skill
@@ -8,8 +8,8 @@ description: Use when inspecting, summarizing, creating, triaging, or updating w
 ## Purpose and Trigger
 
 - Primary scope: `planning-board-intake`
-- Trigger on `Hussh Engineering Core` or `Hussh Action Items` board summaries, issue-backed board item creation, triage, and field updates.
-- Board selection: `board_ops.py --board engineering-core` (default, Project 73) or `--board action-items` (Project 79, the `Inbox → Accepted → In Progress → Ready for QA → Done` lifecycle). Resolve statuses and fields against the live catalog; see the per-board references.
+- Trigger on `Hussh Action Items` (Project 79) board summaries, issue-backed board item creation, `YY.M.N` milestone binding, triage, and field updates.
+- Board selection: `board_ops.py --board action-items` (default, active Project 79, `Inbox -> Accepted -> In Progress -> Ready for QA -> Done` lifecycle). Closed Project 73 (`--board engineering-core`) is retired for new intake and kept strictly for historical read-only queries. Resolve statuses and fields against the live catalog; see the per-board references.
 - Avoid overlap with `repo-operations` and `repo-context`.
 
 ## Coverage and Ownership

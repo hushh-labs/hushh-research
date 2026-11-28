@@ -52,6 +52,7 @@
 
 - [docs/operations/README.md](docs/operations/README.md): Operations index
 - [docs/operations/environments.md](docs/operations/environments.md): Local, Dev, UAT, and Production profiles
+- [docs/operations/releases/release-control-and-versioning.md](docs/operations/releases/release-control-and-versioning.md): Uniform YY.M.N versioning (26.11.50+), Project 79 intake, immutable bundle promotion, cold dark staging, and metrics.hussh.si release visibility
 - [docs/operations/releases/ci.md](docs/operations/releases/ci.md): CI validation and release governance
 - [docs/operations/releases/branch-governance.md](docs/operations/releases/branch-governance.md): Branch promotion and Merge Queue rules
 - [docs/operations/acceptance/private-agents.md](docs/operations/acceptance/private-agents.md): Source truth versus installed acceptance
