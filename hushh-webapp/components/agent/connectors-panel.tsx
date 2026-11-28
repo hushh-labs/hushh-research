@@ -1679,7 +1679,12 @@ function OwnerConnectorsPanel({
    */
   const connectCalendar = (
     accessLevel: "read" | "manage" = "manage",
-    options?: { forceSelectAccount?: boolean; additional?: boolean; accountId?: string },
+    options?: {
+      forceSelectAccount?: boolean;
+      additional?: boolean;
+      accountId?: string;
+      includeMailAccess?: boolean;
+    },
   ) => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || calendarLock.current) return;
@@ -1693,7 +1698,7 @@ function OwnerConnectorsPanel({
       ...(options?.forceSelectAccount ? { forceSelectAccount: true } : {}),
       includeCalendarList: true,
       includeMeetingFiles: true,
-      includeMailAccess: !options?.additional,
+      includeMailAccess: options?.includeMailAccess ?? true,
       signal,
       cancelSignal: attemptCancel.signal,
     });
@@ -1717,7 +1722,10 @@ function OwnerConnectorsPanel({
       if (outcome === "stale" || signal.aborted) return;
       setCalendarPopupPending(false);
       setCalendarBusy(false);
-      if (outcome === "connected") calendar.refresh();
+      if (outcome === "connected") {
+        calendar.refresh();
+        void gmail.refreshStatus({ force: true, reconcile: false });
+      }
       setCalendarMessage(
         outcome === "window_blocked"
           ? OAUTH_WINDOW_BLOCKED_COPY
@@ -1966,7 +1974,10 @@ function OwnerConnectorsPanel({
         });
       return;
     }
-    if (target === "calendar") {
+    if (target === "calendar" || target.startsWith("calendar:")) {
+      const targetAccountId = target.startsWith("calendar:")
+        ? target.slice("calendar:".length)
+        : "default";
       const ownerId = applicationOwnerId;
       const ownerToken = vaultOwnerToken;
       const signal = controller.current?.signal;
@@ -1977,13 +1988,21 @@ function OwnerConnectorsPanel({
       void user.getIdToken()
         .then((idToken) => {
           if (signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return null;
-          return GoogleCalendarService.disconnect(idToken, ownerId);
+          return GoogleCalendarService.disconnect(idToken, ownerId, targetAccountId);
         })
         .then((result) => {
           if (!result || signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return;
-          setCalendarMessage("Calendar disconnected.");
+          setCalendarMessage(
+            targetAccountId === "default"
+              ? "Calendar disconnected."
+              : "Additional Google account disconnected.",
+          );
+          if (activeConnectorRef.current === "gmail" && targetAccountId !== "default") {
+            setMailMessage("Additional Google account disconnected.");
+          }
           endDisconnect("calendar");
           calendar.refresh();
+          void gmail.refreshStatus({ force: true, reconcile: false });
         })
         .catch(() => {
           if (!signal.aborted && currentToken.current === ownerToken) {
@@ -2074,14 +2093,29 @@ function OwnerConnectorsPanel({
   const confirmBusy =
     confirm === "mail"
       ? mailBusy
-      : confirm === "calendar"
+      : confirm === "calendar" || confirm?.startsWith("calendar:")
         ? calendarBusy
         : confirm?.startsWith("curated:")
           ? curatedBusy
         : confirm?.startsWith("plaid:")
           ? plaidBusy
           : driveBusy;
-  const mailConnected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
+  const additionalMailAccounts = useMemo(
+    () =>
+      (calendar.status?.accounts ?? []).filter(
+        (item) =>
+          item.account_id !== "default" &&
+          (item.gmail_read_enabled === true ||
+            (typeof item.scope_csv === "string" &&
+              item.scope_csv.includes("gmail.readonly"))),
+      ),
+    [calendar.status?.accounts],
+  );
+  const connectedMailAccountsCount =
+    (gmail.status?.connected && !gmail.status?.needs_reauth ? 1 : 0) +
+    additionalMailAccounts.filter((item) => item.connected && item.status !== "needs_reauth")
+      .length;
+  const mailConnected = connectedMailAccountsCount > 0;
   const driveConnected = ["connected", "verifying"].includes(drive?.status ?? "");
   const calendarNeedsReconnect = calendar.status?.status === "needs_reauth";
   const mailAccountDetail = !gmail.loadingStatus && !gmail.statusError &&
@@ -2154,7 +2188,10 @@ function OwnerConnectorsPanel({
       id: "gmail",
       name: "Gmail",
       detail: gmail.status?.needs_reauth ? "Sign-in needed" : undefined,
-      accountDetail: mailAccountDetail,
+      accountDetail:
+        connectedMailAccountsCount > 1
+          ? `${connectedMailAccountsCount} connected accounts`
+          : mailAccountDetail,
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
       pending: disconnecting.gmail ? "disconnect" : mailPopupPending ? "connect" : undefined,
@@ -2857,23 +2894,76 @@ function OwnerConnectorsPanel({
                     </p>
                   </div>
                 </div>
-                {gmail.status?.connected && !gmail.status?.needs_reauth ? (
-                  <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
-                    <p
-                      role="status"
-                      className="min-w-0 break-all text-sm font-medium text-foreground"
-                    >
-                      {connectorAccountDetail(gmail.status.google_email, "connected")}
-                    </p>
-                    <Button
-                      className={touch}
-                      size="compact"
-                      variant="outline"
-                      disabled={mailBusy}
-                      onClick={() => setConfirm("mail")}
-                    >
-                      Disconnect Mail
-                    </Button>
+                {(gmail.status?.connected && !gmail.status?.needs_reauth) || additionalMailAccounts.length > 0 ? (
+                  <div className="space-y-2">
+                    {gmail.status?.connected && !gmail.status?.needs_reauth ? (
+                      <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <p
+                            role="status"
+                            className="min-w-0 break-all text-sm font-medium text-foreground"
+                          >
+                            {connectorAccountDetail(gmail.status.google_email, "connected")}
+                          </p>
+                          <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                            Primary
+                          </span>
+                        </div>
+                        <Button
+                          className={touch}
+                          size="compact"
+                          variant="outline"
+                          disabled={mailBusy}
+                          onClick={() => setConfirm("mail")}
+                        >
+                          Disconnect Mail
+                        </Button>
+                      </div>
+                    ) : null}
+                    {additionalMailAccounts.map((acct) => (
+                      <div
+                        key={acct.account_id}
+                        className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3"
+                      >
+                        <p
+                          role="status"
+                          className="min-w-0 break-all text-sm font-medium text-foreground"
+                        >
+                          {connectorAccountDetail(
+                            acct.google_email,
+                            acct.status === "needs_reauth" ? "needs_reauth" : "connected",
+                          )}
+                        </p>
+                        {acct.status === "needs_reauth" ? (
+                          <Button
+                            size="compact"
+                            variant="outline"
+                            className={touch}
+                            disabled={calendarBusy || mailBusy}
+                            onClick={() =>
+                              connectCalendar("manage", {
+                                accountId: acct.account_id,
+                                additional: true,
+                                includeMailAccess: true,
+                              })
+                            }
+                          >
+                            Reconnect
+                          </Button>
+                        ) : (
+                          <Button
+                            size="compact"
+                            variant="outline"
+                            className={touch}
+                            aria-label={`Disconnect ${acct.google_email || "additional Mail account"}`}
+                            disabled={calendarBusy || mailBusy}
+                            onClick={() => setConfirm(`calendar:${acct.account_id}`)}
+                          >
+                            Disconnect
+                          </Button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 ) : gmail.status?.needs_reauth ? (
                   <p role="status" className="text-sm font-medium text-amber-600 dark:text-amber-400">
@@ -2909,6 +2999,24 @@ function OwnerConnectorsPanel({
                       </Button>
                     </>
                   )}
+                  {(gmail.status?.connected && !gmail.status?.needs_reauth) &&
+                    connectedCalendarAccounts.length < (calendar.status?.account_limit ?? 5) && (
+                      <Button
+                        size="compact"
+                        className={`${touch} rounded-full`}
+                        variant="outline"
+                        disabled={mailBusy || calendarBusy}
+                        onClick={() =>
+                          connectCalendar("manage", {
+                            additional: true,
+                            forceSelectAccount: true,
+                            includeMailAccess: true,
+                          })
+                        }
+                      >
+                        Add another account
+                      </Button>
+                    )}
                   {gmail.status?.connected && !gmail.status?.needs_reauth && (
                     <Button
                       size="compact"
@@ -3279,15 +3387,22 @@ function OwnerConnectorsPanel({
                           key={acct.account_id}
                           className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3"
                         >
-                          <p
-                            role="status"
-                            className="min-w-0 break-all text-sm font-medium text-foreground"
-                          >
-                            {connectorAccountDetail(
-                              acct.google_email,
-                              acct.status === "needs_reauth" ? "needs_reauth" : "connected",
-                            )}
-                          </p>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <p
+                              role="status"
+                              className="min-w-0 break-all text-sm font-medium text-foreground"
+                            >
+                              {connectorAccountDetail(
+                                acct.google_email,
+                                acct.status === "needs_reauth" ? "needs_reauth" : "connected",
+                              )}
+                            </p>
+                            {acct.account_id === "default" ? (
+                              <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                Primary
+                              </span>
+                            ) : null}
+                          </div>
                           {acct.status === "needs_reauth" ? (
                             <Button
                               size="compact"
@@ -3313,7 +3428,18 @@ function OwnerConnectorsPanel({
                             >
                               Disconnect Calendar
                             </Button>
-                          ) : null}
+                          ) : (
+                            <Button
+                              className={touch}
+                              size="compact"
+                              variant="outline"
+                              aria-label={`Disconnect ${acct.google_email || "additional Calendar account"}`}
+                              disabled={calendarBusy}
+                              onClick={() => setConfirm(`calendar:${acct.account_id}`)}
+                            >
+                              Disconnect
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -3346,7 +3472,8 @@ function OwnerConnectorsPanel({
                           Use another account
                         </Button>
                       </>
-                    ) : (
+                    ) : connectedCalendarAccounts.length <
+                      (calendar.status?.account_limit ?? 5) ? (
                       <Button
                         size="compact"
                         className={`${touch} rounded-full`}
@@ -3356,12 +3483,13 @@ function OwnerConnectorsPanel({
                           connectCalendar("manage", {
                             additional: true,
                             forceSelectAccount: true,
+                            includeMailAccess: true,
                           })
                         }
                       >
                         Add another account
                       </Button>
-                    )}
+                    ) : null}
                   </div>
 
                   {calendarDetail.permissions.length > 0 && (

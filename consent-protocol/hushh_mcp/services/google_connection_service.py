@@ -933,11 +933,11 @@ class GoogleConnectionService:
                     AND provider_subject <> :subject"""),
                     {"user_id": user_id, "subject": subject},
                 ).scalar_one()
-                if count + int(bool(legacy and legacy_calendar)) >= 3 and not (
+                if count + int(bool(legacy and legacy_calendar)) >= 5 and not (
                     current and current["status"] != "disconnected"
                 ):
                     raise GoogleConnectionError(
-                        "Calendar supports up to three connected accounts.", status_code=409
+                        "Calendar supports up to five connected accounts.", status_code=409
                     )
                 upsert_additional_calendar_account(
                     connection,
@@ -1170,9 +1170,9 @@ class GoogleConnectionService:
                             WHERE user_id = :user_id AND status IN ('connected', 'needs_reauth')"""),
                             {"user_id": user_id},
                         ).scalar_one()
-                        if additional_count >= 3:
+                        if additional_count >= 5:
                             raise GoogleConnectionError(
-                                "Calendar supports up to three connected accounts.", status_code=409
+                                "Calendar supports up to five connected accounts.", status_code=409
                             )
                 attempt = connection.execute(
                     text(

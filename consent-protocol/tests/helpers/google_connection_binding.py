@@ -66,7 +66,7 @@ def _service(monkeypatch, db, *, subject="google-a"):
                 "connected": True,
                 "status": "connected",
                 "accounts": [{"account_id": "default", "connected": True}],
-                "account_limit": 3,
+                "account_limit": 5,
             }
         ),
     )

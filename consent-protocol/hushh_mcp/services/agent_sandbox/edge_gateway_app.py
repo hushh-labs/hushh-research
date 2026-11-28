@@ -355,6 +355,8 @@ class SandboxEdgeGatewayManager:
             "openidconnect.googleapis.com": "allow",
             "gmail.googleapis.com": "allow",
             "www.googleapis.com": "allow",
+            "docs.googleapis.com": "allow",
+            "sheets.googleapis.com": "allow",
         }
         extra_domains = str(os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or "").strip()
         for extra in extra_domains.split(","):
