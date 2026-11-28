@@ -501,7 +501,7 @@ export function webFetchTimeoutMsForPath(path: string): number {
     : path.split("?", 1)[0] ?? "";
   // Memory inference has a 90-second backend budget; allow its response to arrive.
   if (isMemoryRewritePath(path)) return 100_000;
-  if (/^\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
+  if (/^(?:\/u\/[^/]+)?\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
     return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
   }
   if (pathname === "/api/one/agent-chat/proposals") return LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS;

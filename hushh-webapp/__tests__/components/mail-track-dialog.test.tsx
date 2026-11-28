@@ -103,6 +103,22 @@ describe("confirming", () => {
     expect(onTracked).toHaveBeenCalledWith({ tasks: [{ id: "task-1" }] });
   });
 
+  it("keeps the source and expectation available to retry a timed-out check", async () => {
+    const mail = services();
+    mail.track.mockRejectedValueOnce(new DOMException("Request timed out after 60000ms", "TimeoutError"));
+    mount(mail);
+    fireEvent.click(await screen.findByRole("button", { name: /Proposal approved/ }));
+    const input = screen.getByLabelText("What are you waiting for?");
+    fireEvent.change(input, { target: { value: "The signed proposal" } });
+    const check = screen.getByRole("button", { name: "Check with Mail AI" });
+    fireEvent.click(check);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Try the check again.");
+    expect(input).toHaveValue("The signed proposal");
+    fireEvent.click(check);
+    await screen.findByRole("button", { name: "Track in Tasks" });
+    expect(todos.trackMail).not.toHaveBeenCalled();
+  });
+
   it("refuses a finding that belongs to another mailbox, and saves nothing", async () => {
     const mail = services();
     mail.track.mockResolvedValue(finding({ account: "acct-b" }));

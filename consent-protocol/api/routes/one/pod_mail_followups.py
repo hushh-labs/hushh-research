@@ -49,15 +49,15 @@ async def mail_followups(
     authorization: str | None = Header(default=None),
     x_consent_token: str | None = Header(default=None, alias="X-Consent-Token"),
 ):
-    door = await _door(x_consent_token, authorization)
-    owner = await _admit(door)
-
-    async def check():
-        if await _admit(door) != owner:
-            raise _refuse(403, "POD_OWNER_CHANGED")
-
     try:
         async with asyncio.timeout(45):
+            door = await _door(x_consent_token, authorization)
+            owner = await _admit(door)
+
+            async def check():
+                if await _admit(door) != owner:
+                    raise _refuse(403, "POD_OWNER_CHANGED")
+
             data = bytearray()
             async for chunk in request.stream():
                 if len(data) + len(chunk) > 32768:
