@@ -52,6 +52,8 @@ async def test_two_google_mailboxes_keep_separate_custody_and_targeted_disconnec
     token_calls = len(google.calls)
     assert client.put(PATH, json=second, headers=OWNER_SESSION).status_code == 200
     assert len(google.calls) == token_calls
+    # A worker can have a healthy but older projection than the durable log.
+    pod_connector_credentials.set_active_connector_credentials({"gmail": original})
     duplicate = client.put(
         PATH, json=_mail_envelope(issued + 2, {"mode": "add"}), headers=OWNER_SESSION
     )
@@ -59,6 +61,8 @@ async def test_two_google_mailboxes_keep_separate_custody_and_targeted_disconnec
         duplicate.status_code == 422
         and duplicate.json()["code"] == "MAIL_ACCOUNT_ALREADY_CONNECTED"
     )
+    assert duplicate.json()["accountId"] == personal["accountId"]
+    assert client.get(accounts_path, headers=OWNER_SESSION).json()["accounts"] == accounts
     wrong = client.put(
         PATH,
         json=_mail_envelope(

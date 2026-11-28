@@ -29,7 +29,12 @@ from hushh_mcp.services.pod_connector_credential_seal import (
     ConnectorCredentialRefused,
     OpenedConnectorCredential,
 )
-from hushh_mcp.services.pod_mail_accounts import connection_slot, credential_key, find_account
+from hushh_mcp.services.pod_mail_accounts import (
+    connection_slot,
+    credential_key,
+    find_account,
+    public_account_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +172,19 @@ async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Build) -> 
     if log is None:
         raise ConnectorStoreMissing("this pod has no durable store for connector logins")
     for _ in range(_APPEND_ATTEMPTS):
+        projection_version = _ACTIVE_VERSION
         current, floors, last_seq = await _snapshot(log, hushh_id=hushh_id)
-        kind, payload, result = build(current, floors)
+        try:
+            kind, payload, result = build(current, floors)
+        except MailAccountAlreadyConnected as exc:
+            if projection_version != _ACTIVE_VERSION:
+                continue
+            existing = find_account(current, exc.account_id)
+            if existing is not None:
+                _refresh_active(
+                    connector=credential_key("gmail", existing.account_id), credential=existing
+                )
+            raise
         if kind is None or payload is None:
             return result
         try:
@@ -208,6 +224,12 @@ def _payload(hushh_id: str, credential: ConnectorCredential) -> dict[str, Any]:
     }
 
 
+class MailAccountAlreadyConnected(ConnectorCredentialRefused):
+    def __init__(self, account_id: str):
+        super().__init__("MAIL_ACCOUNT_ALREADY_CONNECTED")
+        self.account_id = account_id
+
+
 async def record_connector_credential(
     log: Any,
     *,
@@ -227,6 +249,13 @@ async def record_connector_credential(
         try:
             account_id, previous = connection_slot(current, opened, account_subject)
         except ValueError as exc:
+            if str(exc) == "MAIL_ACCOUNT_ALREADY_CONNECTED":
+                existing = next(
+                    item
+                    for item in current.values()
+                    if item.connector_id == "gmail" and item.account_subject == account_subject
+                )
+                raise MailAccountAlreadyConnected(public_account_id(existing)) from None
             raise ConnectorCredentialRefused(str(exc)) from None
         credential = ConnectorCredential(
             credential_id=opened.credential_id,
@@ -341,11 +370,14 @@ async def clear_connector_credential(
 # -- process-wide active copy --------------------------------------------------------
 
 _ACTIVE: dict[str, ConnectorCredential] = {}
+_ACTIVE_VERSION = 0
 _KNOWN_CONNECTORS: set[str] = set()
 _LOAD_FAILED = True
 
 
 def _refresh_active(*, connector: str, credential: Optional[ConnectorCredential]) -> None:
+    global _ACTIVE_VERSION
+    _ACTIVE_VERSION += 1
     _KNOWN_CONNECTORS.add(connector)
     if credential is None:
         _ACTIVE.pop(connector, None)
@@ -356,7 +388,8 @@ def _refresh_active(*, connector: str, credential: Optional[ConnectorCredential]
 def set_active_connector_credentials(
     credentials: Mapping[str, ConnectorCredential], *, known_connector_ids: Iterable[str] = ()
 ) -> None:
-    global _LOAD_FAILED
+    global _ACTIVE_VERSION, _LOAD_FAILED
+    _ACTIVE_VERSION += 1
     _ACTIVE.clear()
     _ACTIVE.update(credentials)
     _KNOWN_CONNECTORS.clear()

@@ -66,13 +66,15 @@ it("reuses existing access before showing a consent prompt", async () => {
   expect(requestCode).not.toHaveBeenCalled();
 });
 
-it("asks for one more click only when the browser refuses the Google window", async () => {
+it("resumes a blocked Mail popup directly from the next click without another dialog", async () => {
   const pending = connectGoogleConnector("gmail", opts);
   await popup();
   refused({ type: "popup_failed_to_open" });
-  await vi.waitFor(() => expect(document.querySelector("dialog[open] button")).toBeTruthy());
-  document.querySelector<HTMLButtonElement>("dialog button")!.click();
+  expect(await pending).toEqual({ ok: false, code: "GOOGLE_POPUP_BLOCKED" });
+  expect(document.querySelector("dialog")).toBeNull();
+  const retry = connectGoogleConnector("gmail", opts);
   expect(requestCode).toHaveBeenCalledTimes(2);
+  expect(prepare).toHaveBeenCalledTimes(1);
   callback({ code: "example-code" });
-  expect(await pending).toMatchObject({ ok: true });
+  expect(await retry).toMatchObject({ ok: true });
 });

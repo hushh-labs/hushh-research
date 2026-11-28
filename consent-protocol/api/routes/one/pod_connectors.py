@@ -237,6 +237,16 @@ async def run_connector_put(
             )
     except TransitionRefused as exc:
         return JSONResponse(status_code=exc.status, content={"code": exc.code})
+    except store.MailAccountAlreadyConnected as exc:
+        # The slot was matched against Google's verified subject in the owner's sealed log.
+        duplicate: dict[str, Any] = {"code": exc.code, "accountId": exc.account_id}
+        if getattr(exc, "provider_revoked", None) is False:
+            duplicate["providerRevoked"] = False
+        return JSONResponse(
+            status_code=422,
+            content=duplicate,
+            headers={"Cache-Control": "no-store"},
+        )
     except (ConnectorCredentialRefused, connect.ConnectRefused) as exc:
         logger.info("pod_connectors.refused code=%s", exc.code)
         return _refused(exc.code, provider_revoked=getattr(exc, "provider_revoked", None))

@@ -1315,7 +1315,10 @@ function MailPageContent({
         isCurrent: () => gmailOwnerIdRef.current === operationOwner,
       });
       if (gmailOwnerIdRef.current !== operationOwner) return;
-      if (outcome.ok) mailSession?.refresh();
+      if (outcome.ok || (outcome.code === "MAIL_ACCOUNT_ALREADY_CONNECTED" && outcome.accountId)) {
+        if (outcome.accountId) mailSession?.choose(outcome.accountId);
+        mailSession?.refresh();
+      }
       else if (outcome.code === "PHONE_HANDOFF_REQUIRED") requestGoogleConnectorPhoneHandoff("gmail", undefined, false, intent.mode === "add");
       else toast.error(connectRefusalMessage(outcome.code, "Mail"));
     } catch {
@@ -1986,11 +1989,11 @@ function MailPageContent({
   const privateMailState = privateMail && mailSession ? (
     <PrivateMailState
       cause={mailSession.inventoryFailed ? "failed" : mailSession.resolving ? "checking"
-        : mailSession.expired.length && !mailSession.accounts.some(row => row.capabilities.read) ? "expired"
+        : mailSession.reconnectMailbox ? "expired"
         : mailSession.accounts.some(row => row.capabilities.read) ? "choose" : "none"}
-      email={mailSession.expired[0]?.email}
+      email={mailSession.reconnectMailbox?.email}
       busy={gmailActionBusy !== null}
-      onReconnect={() => reconnectPrivateMailbox(mailSession.expired[0])}
+      onReconnect={() => reconnectPrivateMailbox(mailSession.reconnectMailbox)}
       onAdd={addPrivateMailbox}
       onRetry={mailSession.refresh}
     />

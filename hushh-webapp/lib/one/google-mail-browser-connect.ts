@@ -37,7 +37,7 @@ export async function requestHostedBrowserGoogleCode(
   current: () => boolean,
   connector = "gmail",
 ): Promise<string> {
-  await preloadGoogleIdentityServices();
+  if (!getGoogleIdentityServices()?.accounts?.oauth2) await preloadGoogleIdentityServices();
   const oauth = getGoogleIdentityServices()?.accounts?.oauth2 as
     | { initCodeClient?: (options: CodeClientOptions) => { requestCode(): void } }
     | undefined;
@@ -49,14 +49,14 @@ export async function requestHostedBrowserGoogleCode(
   return new Promise((resolve, reject) => {
     let dialog: HTMLDialogElement | undefined;
     let settled = false;
-    function finish(code?: string) {
+    function finish(code?: string, errorCode = "SIGN_IN_CANCELLED") {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       clearInterval(sessionCheck);
       dialog?.remove();
       if (code && current()) resolve(code);
-      else reject(new Error("SIGN_IN_CANCELLED"));
+      else reject(new Error(errorCode));
     }
     const timeout = setTimeout(() => finish(), 5 * 60_000);
     const sessionCheck = setInterval(() => {
@@ -108,7 +108,7 @@ export async function requestHostedBrowserGoogleCode(
         finish();
       }
     }
-    open(askToContinue);
+    open(connector === "gmail" ? () => finish(undefined, "GOOGLE_POPUP_BLOCKED") : askToContinue);
   });
 }
 
