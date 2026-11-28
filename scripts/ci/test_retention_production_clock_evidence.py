@@ -23,6 +23,7 @@ import retention_production_clock_records as records  # noqa: E402
 import retention_production_evidence as evidence  # noqa: E402
 import retention_production_profile_evidence as profile_evidence  # noqa: E402
 import retention_publication_source as publication_source  # noqa: E402
+import retention_publication as publication  # noqa: E402
 import retention_uat_guard_evidence as uat_guard  # noqa: E402
 from test_retention_production_evidence import clock_bound_fixture  # noqa: E402
 
@@ -1037,6 +1038,13 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                 }
         case[5].clear()
         case[5].update(copy.deepcopy(anchors[source]))
+        command = profile_evidence.STATIC_GUARD_PREPARE_COMMANDS.get(source)
+        if command is not None:
+            following = evidence.PREPARE_COMMAND[5]
+            lines = case[4].splitlines()
+            position = next(i for i, line in enumerate(lines) if following in line)
+            lines.insert(position, lines[position].replace(following, command[5]))
+            case[4] = "\n".join(lines)
         return case, anchors
 
     def _qualify_static(self, case, anchor):
@@ -1068,6 +1076,42 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                     allow_clock_records=True,
                 ))
                 case[0].api.assert_not_called()
+
+    def test_partitioned_history_refusal_clears_only_no_mutation_custody(self):
+        # Capacity Maintenance 46064638714 stopped in publication admission
+        # without a checkpoint after the history and restoration readers changed.
+        source = "b1d5470f175876aaf349fb43aaecad99dc923150"
+        case, anchor = self._static_refusal(source)
+        owner, _, run, job = case[:4]
+        owner.api.side_effect = None
+        owner.api.return_value = {"total_count": 1, "jobs": [job]}
+        owner.guard_only_preflight_proof.side_effect = (
+            lambda *_: self._qualify_static(case, anchor)
+        )
+        proofs = []
+        self.assertFalse(publication._attempt(
+            owner, base.REPOSITORY, run, 1, "production", proof_lines=proofs,
+        ))
+        self.assertEqual([proof["qualification"] for proof in proofs],
+                         ["no_provider_mutation"])
+        self.assertEqual(proofs[0]["checkout_sha"], run["head_sha"])
+        command = profile_evidence.STATIC_GUARD_PREPARE_COMMANDS[source][5]
+        for changed in ("", command + "; unexpected-provider-command"):
+            with self.subTest(command=changed):
+                drifted = copy.deepcopy(case)
+                drifted[4] = drifted[4].replace(command, changed)
+                try:
+                    proof = self._qualify_static(drifted, anchor)
+                except _UnsafeProfileState:
+                    proof = None
+                self.assertIsNone(proof)
+        # Removing the exact source approval reproduces the original refusal;
+        # another reviewed tuple cannot authorize this changed execution source.
+        with mock.patch.object(profile_evidence, "STATIC_GUARD_SOURCES", tuple(
+            ref for ref in profile_evidence.STATIC_GUARD_SOURCES if ref != source
+        )):
+            with self.assertRaises(_UnsafeProfileState):
+                self._qualify_static(case, anchor)
 
     def test_static_refusal_rejects_source_and_execution_changes(self):
         for source, mutation in product(profile_evidence.STATIC_GUARD_SOURCES,
