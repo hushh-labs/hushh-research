@@ -108,9 +108,10 @@ async def test_two_google_mailboxes_keep_separate_custody_and_targeted_disconnec
     assert client.get(accounts_path, headers=HUB).status_code == 403
 
 
-async def test_three_mailboxes_resolve_separate_refresh_grants_after_disconnect(request):
+async def test_three_mailboxes_resolve_separate_refresh_grants_after_disconnect(
+    request, monkeypatch
+):
     from hushh_mcp.services.pod_connector_tokens import PodGoogleTokenSource
-    from hushh_mcp.services.pod_gmail_local import PodGmailConnection
 
     log, google = request.getfixturevalue("pod")
     client = _client()
@@ -140,12 +141,39 @@ async def test_three_mailboxes_resolve_separate_refresh_grants_after_disconnect(
     }
     assert set(accounts) == set(addresses)
 
+    from hushh_mcp.services import pod_gmail_local, pod_mail_followups
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+
+    monkeypatch.setattr(pod_gmail_local, "_hosted_ace_brokered_gmail", lambda: True)
+    monkeypatch.setattr(pod_gmail_local, "google_token_source", lambda: tokens)
+
+    def unexpected_broker(*args, **kwargs):
+        raise AssertionError("a verified pod mailbox must use its own grant")
+
+    monkeypatch.setattr(PodHubClient, "broker_google_connector_token", unexpected_broker)
+
+    async def assess(operation, selection, *, delivery_context, **kwargs):
+        connection, held = delivery_context
+        row = connection._fetch_connection_row(user_id=OWNER)
+        assert row["credential_id"] == selection.connection == held.credential_id
+        return await connection._token(OWNER, "read")
+
+    monkeypatch.setattr(pod_mail_followups, "assess_mail", assess)
+
+    async def admitted():
+        pass
+
     async def verify(address):
         row = accounts[address]
         held = pod_connector_credentials.active_mail_account(row["accountId"])
         assert held.credential_id == row["credentialId"]
-        gmail = PodGmailConnection(OWNER, account_id=held.account_id, token_source=tokens)
-        assert await gmail._token(OWNER, "read") == "access-fixture-" + address
+        selection = pod_mail_followups.Selection(
+            account=row["accountId"], connection=row["credentialId"]
+        )
+        result = await pod_mail_followups.run_mail(
+            "brief", selection, owner=OWNER, check=admitted, consent_token="", model_factory=None
+        )
+        assert result == "access-fixture-" + address
 
     for address in addresses:
         await verify(address)

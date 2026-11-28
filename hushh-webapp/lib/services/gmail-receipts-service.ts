@@ -802,7 +802,7 @@ async function privateReceiptRead(mailbox: PrivateReceiptMailbox, owner: string,
   }, false, undefined, undefined, current);
   if (!response.ok) {
     const error = await extractLiveReceiptError(response, "Your private agent could not read the selected mailbox.");
-    if (current() && (error.code === "GMAIL_CONNECTION_CHANGED" || isReceiptConnectionLostError(error))) notifyMailGrantsChanged();
+    if (current() && (error.code === "GMAIL_CONNECTION_CHANGED" || isReceiptConnectionLostError(error))) notifyMailGrantsChanged("recheck");
     throw error;
   }
   const result: unknown = await response.json();

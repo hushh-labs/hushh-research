@@ -56,13 +56,21 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const failures = useRef(0);
+  const checkingInventory = useRef(false);
   const checkedAt = useRef(new Map<string, number>());
   // The owner's own retry starts the automatic ones over.
   const retryNow = useCallback(() => { failures.current = 0; setRevision(value => value + 1); }, []);
   useEffect(() => {
     if (!owner) return;
     const wake = () => { if (document.visibilityState === "visible") refresh(); };
-    const grantsChanged = () => { setInventory(undefined); refresh(); };
+    const grantsChanged = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === "recheck") {
+        if (checkingInventory.current) return;
+      } else {
+        setInventory(undefined);
+      }
+      refresh();
+    };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
     window.addEventListener(PRIVATE_MAIL_GRANTS_CHANGED, grantsChanged);
@@ -77,6 +85,7 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     if (!owner) { setInventory(undefined); return; }
     const controller = new AbortController();
     const current = ++sequence.current;
+    checkingInventory.current = true;
     const valid = () => current === sequence.current && !controller.signal.aborted && snapshotVaultSessionEpoch() === epoch;
     async function load() {
       const privatePlacement = await ownerContentIsPrivate();
@@ -95,10 +104,21 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
           return row;
         }
       }));
-      if (valid()) setInventory({ scope, mode: "private", accounts });
+      if (valid()) {
+        setInventory(previous => {
+          // Keep subscribers and their background reads stable when the grant check agrees.
+          if (previous?.scope === scope && previous.mode === "private" && !previous.failed &&
+              JSON.stringify(previous.accounts) === JSON.stringify(accounts)) return previous;
+          return { scope, mode: "private", accounts };
+        });
+      }
     }
-    void load().catch(() => { if (valid()) setInventory({ scope, mode: "private", accounts: [], failed: true }); });
-    return () => controller.abort();
+    void load().catch(() => {
+      if (valid()) setInventory({ scope, mode: "private", accounts: [], failed: true });
+    }).finally(() => {
+      if (current === sequence.current) checkingInventory.current = false;
+    });
+    return () => { controller.abort(); checkingInventory.current = false; };
   }, [scope, owner, epoch, revision]);
 
   const current = inventory?.scope === scope ? inventory : null;
