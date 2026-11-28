@@ -19,7 +19,7 @@
  * (a stored envelope, a registered key, the OS's own answer).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
 
 import {
@@ -37,6 +37,10 @@ import {
   resolvePublishPrecision,
   type LocationPublishPrecision,
 } from "@/lib/location/coarsen";
+import {
+  createGeofenceMonitor,
+  type GeofenceMonitorController,
+} from "@/lib/location/geofence-monitor";
 import {
   indexRecipientsByUserId,
   publishPointToGrants,
@@ -267,11 +271,60 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
   stateRef.current = state;
 
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
-  const grants = activeOwnerGrants(state).filter((grant) =>
-    !isFixedLocationGrant(grant) && !hasQueuedLocationStop(uid, grant.id) &&
-    (isSmsTriggeredGrant(grant)
-      ? sharing.os === "granted" && !sharing.paused
-      : sharing.effective === "sharing"));
+  const [scheduleTick, setScheduleTick] = useState(0);
+  const [armedGeofenceCount, setArmedGeofenceCount] = useState(0);
+  const nowMs = Date.now();
+  const serverTimedPaused = Boolean(
+    settings.settings?.paused_until &&
+      Date.parse(settings.settings.paused_until) > nowMs,
+  );
+  const ownerGrants = activeOwnerGrants(state);
+  const nextScheduledStartMs = ownerGrants.reduce<number | null>((earliest, grant) => {
+    if (!grant.startsAt) return earliest;
+    const ms = Date.parse(grant.startsAt);
+    if (!Number.isFinite(ms) || ms <= nowMs) return earliest;
+    return earliest === null ? ms : Math.min(earliest, ms);
+  }, null);
+  useEffect(() => {
+    if (nextScheduledStartMs === null) return;
+    const remainingMs = nextScheduledStartMs - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      setScheduleTick((n) => n + 1);
+      return;
+    }
+    const delayMs = Math.min(remainingMs + 500, 24 * 60 * 60 * 1000);
+    const timer = window.setTimeout(() => {
+      setScheduleTick((n) => n + 1);
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [nextScheduledStartMs, scheduleTick]);
+  const grants = ownerGrants.filter((grant) => {
+    if (grant.startsAt) {
+      const startsMs = Date.parse(grant.startsAt);
+      if (Number.isFinite(startsMs) && startsMs > nowMs) return false;
+    }
+    return (
+      !isFixedLocationGrant(grant) &&
+      !hasQueuedLocationStop(uid, grant.id) &&
+      (isSmsTriggeredGrant(grant)
+        ? sharing.os === "granted" && !sharing.paused
+        : sharing.effective === "sharing" && !serverTimedPaused)
+    );
+  });
+  // Auto-refresh settings when a server-side timed pause expires (US-030).
+  useEffect(() => {
+    const pausedUntil = settings.settings?.paused_until;
+    if (!uid || !vaultOwnerToken || !pausedUntil) return;
+    const remainingMs = Date.parse(pausedUntil) - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) return;
+    const delayMs = Math.min(remainingMs + 500, 24 * 60 * 60 * 1000);
+    const timer = window.setTimeout(() => {
+      void LocationAccountSettingsResource.load(uid, vaultOwnerToken, {
+        force: true,
+      }).catch(() => undefined);
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [uid, vaultOwnerToken, settings.settings?.paused_until]);
   useEffect(() => {
     if (!uid || !vaultOwnerToken) return;
     const retry = () => {
@@ -300,6 +353,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
   // Refs the watch loop reads without re-subscribing.
   const watchIdRef = useRef<string | null>(null);
+  const geofenceMonitorRef = useRef<GeofenceMonitorController | null>(null);
   const lastPublishedRef = useRef<PlainLocationPoint | null>(null);
   const lastPublishedAtRef = useRef(0);
   const inFlightRef = useRef(false);
@@ -375,9 +429,94 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     };
   }, [approval?.enabled, approval?.expiresAt, approval?.ruleVersion, invalidateState, pathname, sharing.effective, uid, vaultKey, vaultOwnerToken]);
 
+  // Resilient geofence monitor for armed arrival rules (US-027, US-034).
+  useEffect(() => {
+    if (!uid || !vaultOwnerToken) {
+      geofenceMonitorRef.current?.dispose();
+      geofenceMonitorRef.current = null;
+      setArmedGeofenceCount(0);
+      return;
+    }
+    const monitor = createGeofenceMonitor({
+      userId: uid,
+      getVaultOwnerToken: () => tokenRef.current,
+      getVaultKey: () => vaultKeyRef.current,
+      getDefaultPrecision: () => sharingRef.current.precision,
+      onArmedCountChange: setArmedGeofenceCount,
+    });
+    geofenceMonitorRef.current = monitor;
+    void monitor.refreshRules().catch(() => undefined);
+    return () => {
+      monitor.dispose();
+      if (geofenceMonitorRef.current === monitor) {
+        geofenceMonitorRef.current = null;
+      }
+    };
+  }, [uid, vaultOwnerToken]);
+
+  // Keep a lightweight foreground watch while armed geofence rules exist without
+  // an active outgoing share (when `publishing` is true, the main watch loop
+  // already feeds every fix into `geofenceMonitorRef.current.evaluatePoint`).
+  const geofenceStandaloneWatch = Boolean(
+    uid &&
+      vaultOwnerToken &&
+      armedGeofenceCount > 0 &&
+      !publishing &&
+      sharing.os !== "denied",
+  );
+  useEffect(() => {
+    if (!geofenceStandaloneWatch) return;
+    let cancelled = false;
+    let watchId: string | null = null;
+    void (async () => {
+      try {
+        const started = await OneLocationService.watchCurrentPosition(
+          (point) => {
+            if (cancelled) return;
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "hidden"
+            ) {
+              return;
+            }
+            void geofenceMonitorRef.current
+              ?.evaluatePoint(point)
+              .catch(() => undefined);
+          },
+          (error) => {
+            console.warn(
+              "[LocationPublisherBridge] Geofence watch error:",
+              error.message,
+            );
+          },
+        );
+        if (cancelled) {
+          void OneLocationService.clearLocationWatch(started).catch(
+            () => undefined,
+          );
+          return;
+        }
+        watchId = started;
+      } catch (error) {
+        console.warn(
+          "[LocationPublisherBridge] Could not start geofence watch:",
+          error,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (watchId) {
+        void OneLocationService.clearLocationWatch(watchId).catch(
+          () => undefined,
+        );
+      }
+    };
+  }, [geofenceStandaloneWatch]);
+
   // The Location workspace maintains its own public link while it is open.
   // In Chat an active link needs updates even when there are no private grants.
-  const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing"
+  const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing" && !serverTimedPaused
     ? state?.publicInvites?.find((invite) => invite.ownerUserId === uid && invite.status === "active" &&
       invite.expiresAt && Date.parse(invite.expiresAt) > Date.now()) : undefined;
   const publicId = publicLink?.id;
@@ -391,7 +530,12 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     const expiresAt = Date.parse(publicEnd);
     let closed = false;
     let pending = false;
+    const isTimedPaused = () => {
+      const until = settingsRef.current.settings?.paused_until;
+      return Boolean(until && Date.parse(until) > Date.now());
+    };
     const current = () => !closed && uidRef.current === uid && tokenRef.current === ownerToken &&
+      !isTimedPaused() &&
       publicLinkRef.current?.id === inviteId && publicLinkRef.current.expiresAt === publicEnd &&
       document.visibilityState === "visible" && expiresAt > Date.now();
     async function publishPublicPosition() {
@@ -408,9 +552,14 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
           isEffectCurrent: () => current() && (!precise || allowsPrecise()),
         });
       } catch (error) {
-        if (current() && apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
+        const code = apiErrorCode(error);
+        if (current() && code === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
           closed = true;
           invalidateState();
+        } else if (code === "LOCATION_UPDATES_PAUSED" && uidRef.current && tokenRef.current) {
+          void LocationAccountSettingsResource.load(uidRef.current, tokenRef.current, {
+            force: true,
+          }).catch(() => undefined);
         }
       } finally {
         pending = false;
@@ -432,6 +581,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
     const publishMovement = async (point: PlainLocationPoint) => {
       if (cancelled) return;
+      void geofenceMonitorRef.current?.evaluatePoint(point).catch(() => undefined);
       const token = tokenRef.current;
       const owner = uidRef.current;
       if (!token || !owner || !grantsRef.current.length) return;

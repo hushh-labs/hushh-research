@@ -18,7 +18,7 @@ import asyncio
 import logging
 import re
 from collections import Counter
-from email.utils import getaddresses
+from datetime import datetime, timezone
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -51,6 +51,15 @@ from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
     get_gmail_receipts_service,
+)
+from hushh_mcp.services.gmail_sensitive_content import (
+    normalize_sensitive_masking,
+    redact_sensitive_mail_items,
+)
+from hushh_mcp.services.owner_time import (
+    ScheduleTimeError,
+    format_schedule_echo,
+    resolve_send_at,
 )
 
 logger = logging.getLogger(__name__)
@@ -345,6 +354,23 @@ def _error_payload(code: str, tool_context: ToolContext) -> dict[str, Any]:
     return payload
 
 
+def resolve_owner_gmail_address(user_id: str) -> str | None:
+    """Return the owner's connected Gmail address (for explicit to_self drafts), or None."""
+    cleaned = str(user_id or "").strip()
+    if not cleaned:
+        return None
+    try:
+        row = get_gmail_receipts_service()._fetch_connection_row(user_id=cleaned)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(row, dict):
+        return None
+    if row.get("status") != "connected" or row.get("revoked") is not False:
+        return None
+    addr = str(row.get("google_email") or "").strip()
+    return addr if "@" in addr else None
+
+
 async def gmail_search_mail(
     intent: str,
     tool_context: ToolContext,
@@ -354,6 +380,8 @@ async def gmail_search_mail(
     before_date: str = "",
     limit: int = 12,
     read_top_bodies: int = 3,
+    include_spam: bool = False,
+    sensitive_masking: str = "none",
 ) -> dict[str, Any]:
     """Search or list the owner's Gmail directly over REST with hybrid semantic re-ranking.
 
@@ -384,6 +412,12 @@ async def gmail_search_mail(
         limit: Number of ranked messages to return (1 to 25, default 12).
         read_top_bodies: Number of top-ranked messages whose full sanitized
             body text is returned immediately in this call (0 to 5, default 3).
+        include_spam: Set True ONLY when the owner explicitly asks to check
+            their Spam folder (metadata-only; bodies are never hydrated from Spam).
+        sensitive_masking: Pass ``"otp"`` when searching for verification/OTP
+            codes or ``"credentials"`` when checking password/security emails so
+            sensitive codes are masked before entering chat history and shown
+            via a 1-tap ephemeral reveal card.
     """
     owner = await _admitted_owner(tool_context)
     if owner is None:
@@ -437,6 +471,7 @@ async def gmail_search_mail(
             mailbox=target_mailbox,
             limit=bounded_limit,
             read_top_bodies=bounded_bodies,
+            include_spam=bool(include_spam),
             embedding_client=_loaded_embedding_client(),
         )
     except GmailMetadataError as exc:
@@ -517,7 +552,8 @@ async def gmail_search_mail(
         if len(items) > bounded_limit:
             items.sort(key=lambda x: int(x.get("internal_date_ms") or 0), reverse=True)
             items = items[:bounded_limit]
-    if not items:
+    raw_items = items
+    if not raw_items:
         return {
             "status": "no_match",
             "mailbox": target_mailbox,
@@ -536,6 +572,13 @@ async def gmail_search_mail(
             ),
         }
 
+    items, reveal_experience, _ = redact_sensitive_mail_items(
+        raw_items,
+        owner_user_id=user_id,
+        conversation_id=conversation_id,
+        sensitive_masking=normalize_sensitive_masking(sensitive_masking),
+    )
+
     _remember_mail_offer(
         tool_context,
         reader=reader,
@@ -543,7 +586,7 @@ async def gmail_search_mail(
         conversation_id=conversation_id,
         mailbox=target_mailbox,
     )
-    return {
+    response_payload: dict[str, Any] = {
         "status": "ok",
         "mailbox": target_mailbox,
         "semantic_reranked": bool(result.get("semantic_reranked")),
@@ -557,6 +600,9 @@ async def gmail_search_mail(
             metadata_only=bool(result.get("metadata_only")),
         ),
     }
+    if reveal_experience is not None:
+        response_payload["sensitive_code_reveal"] = reveal_experience
+    return response_payload
 
 
 async def gmail_read_thread(
@@ -567,6 +613,7 @@ async def gmail_read_thread(
     mailbox: str = "anywhere",
     limit: int = 2,
     include_headers: bool = False,
+    sensitive_masking: str = "none",
 ) -> dict[str, Any]:
     """Read full chronological email thread(s) or specific offered messages.
 
@@ -651,7 +698,13 @@ async def gmail_read_thread(
             logger.exception("one_adk.gmail_read_thread_failed reason=unexpected")
             return _error_payload("retryable", tool_context)
 
-        items = list(result.get("untrusted_external_content") or [])
+        raw_items = list(result.get("untrusted_external_content") or [])
+        items, reveal_experience, _ = redact_sensitive_mail_items(
+            raw_items,
+            owner_user_id=user_id,
+            conversation_id=conversation_id,
+            sensitive_masking=normalize_sensitive_masking(sensitive_masking),
+        )
         _remember_mail_offer(
             tool_context,
             reader=reader,
@@ -660,7 +713,7 @@ async def gmail_read_thread(
             mailbox=offer.mailbox,
             selected_ordinal=clean_ordinals[0] if len(clean_ordinals) == 1 else None,
         )
-        return {
+        out_payload: dict[str, Any] = {
             "status": "ok",
             "mailbox": offer.mailbox,
             "untrusted_external_content": items,
@@ -673,6 +726,9 @@ async def gmail_read_thread(
                 metadata_only=False,
             ),
         }
+        if reveal_experience is not None:
+            out_payload["sensitive_code_reveal"] = reveal_experience
+        return out_payload
 
     cleaned_query = str(query or "").strip()
     try:
@@ -746,7 +802,13 @@ async def gmail_read_thread(
         logger.exception("one_adk.gmail_read_thread_hydrate_failed reason=unexpected")
         return _error_payload("retryable", tool_context)
 
-    items = list(result.get("untrusted_external_content") or [])
+    raw_items = list(result.get("untrusted_external_content") or [])
+    items, reveal_experience, _ = redact_sensitive_mail_items(
+        raw_items,
+        owner_user_id=user_id,
+        conversation_id=conversation_id,
+        sensitive_masking=normalize_sensitive_masking(sensitive_masking),
+    )
     _remember_mail_offer(
         tool_context,
         reader=thread_reader,
@@ -754,7 +816,7 @@ async def gmail_read_thread(
         conversation_id=conversation_id,
         mailbox=target_mailbox if pinned else "inbox",
     )
-    return {
+    out_payload = {
         "status": "ok",
         "mailbox": target_mailbox if pinned else "inbox",
         "untrusted_external_content": items,
@@ -767,6 +829,9 @@ async def gmail_read_thread(
             metadata_only=False,
         ),
     }
+    if reveal_experience is not None:
+        out_payload["sensitive_code_reveal"] = reveal_experience
+    return out_payload
 
 
 _DEFAULT_RECEIPT_QUERY = (
@@ -1142,6 +1207,9 @@ async def gmail_mailbox_insights(
     - ``"status"``: Exact connection state, connected email, granted permissions
       (Read, Send, Drafts/Compose, Organize/Modify, Settings), watch status,
       plus live mailbox profile totals & current ``historyId``.
+    - ``"counts"``: Exact unread counts (total unread messages/threads, inbox
+      unread messages/threads, and unread messages received today in the
+      owner's local timezone).
     - ``"history"``: Current ``historyId`` and (when ``start_history_id`` is
       provided or saved) incremental mailbox changes (``messagesAdded``,
       ``messagesDeleted``, ``labelsAdded``, ``labelsRemoved``).
@@ -1157,6 +1225,36 @@ async def gmail_mailbox_insights(
     tz_name = str(tool_context.state.get(_STATE_TIMEZONE) or "UTC").strip() or "UTC"
     cleaned_mode = str(mode or "status").strip().lower()
     gmail = get_gmail_receipts_service()
+
+    if cleaned_mode == "counts":
+        reader = GmailMetadataReader(
+            gmail=gmail,
+            user_id=user_id,
+            require_access=_make_require_access(tool_context, user_id),
+            timezone_name=tz_name,
+        )
+        try:
+            counts = await reader.mailbox_counts()
+        except GmailMetadataError as exc:
+            return _error_payload(exc.code, tool_context)
+        except GmailApiError as exc:
+            code = "connect_required" if exc.code == "GMAIL_NOT_CONNECTED" else "reconnect_required"
+            return _error_payload(code, tool_context)
+        except PermissionError:
+            return {"status": "unavailable", "message": "Mail insights are not available here."}
+        except Exception:  # noqa: BLE001
+            logger.exception("one_adk.gmail_mailbox_insights_counts_failed")
+            return _error_payload("retryable", tool_context)
+        return {
+            **counts,
+            "mode": "counts",
+            "structured": _build_structured(
+                status="ok",
+                items=[],
+                truncated=False,
+                metadata_only=True,
+            ),
+        }
 
     if cleaned_mode == "status":
         try:
@@ -1401,12 +1499,14 @@ async def gmail_mailbox_insights(
 async def gmail_list_needs_reply(
     tool_context: ToolContext,
     limit: int = 10,
+    min_age_days: int = 0,
 ) -> dict[str, Any]:
     """List recent inbound Gmail conversations that likely need the owner's reply.
 
     This is a bounded heuristic over recent primary inbox threads (not proof of
-    obligation). Mints ``STATE_MAIL_READ_OFFER`` so the owner can immediately
-    say "read the second one" or "reply to the first one".
+    obligation). Pass ``min_age_days`` (e.g. ``3``) to filter to threads waiting
+    at least that many days. Mints ``STATE_MAIL_READ_OFFER`` so the owner can
+    immediately say "read the second one" or "reply to the first one".
     """
     owner = await _admitted_owner(tool_context)
     if owner is None:
@@ -1414,6 +1514,7 @@ async def gmail_list_needs_reply(
     user_id, conversation_id = owner
     tz_name = str(tool_context.state.get(_STATE_TIMEZONE) or "UTC").strip() or "UTC"
     bounded_limit = limit if type(limit) is int and 1 <= limit <= 25 else 10
+    bounded_age = min_age_days if type(min_age_days) is int and 0 <= min_age_days <= 30 else 0
 
     reader = GmailMetadataReader(
         gmail=get_gmail_receipts_service(),
@@ -1421,8 +1522,11 @@ async def gmail_list_needs_reply(
         require_access=_make_require_access(tool_context, user_id),
         timezone_name=tz_name,
     )
+    read_args: dict[str, Any] = {"limit": bounded_limit, "mailbox": "inbox"}
+    if bounded_age > 0:
+        read_args["min_age_days"] = bounded_age
     try:
-        result = await reader.read("list_needs_reply", {"limit": bounded_limit, "mailbox": "inbox"})
+        result = await reader.read("list_needs_reply", read_args)
     except GmailMetadataError as exc:
         return _error_payload(exc.code, tool_context)
     except GmailApiError as exc:
@@ -1462,21 +1566,28 @@ async def open_gmail_reply_draft(
     body: str,
     tool_context: ToolContext,
     reply_all: bool = False,
+    follow_up: bool = False,
+    primary_action: str = "send",
+    scheduled_send_at: str = "",
 ) -> dict[str, Any]:
-    """Open a source-bound editable reply (or reply-all) draft to an email shown in chat.
+    """Open a source-bound editable reply, reply-all, or Sent follow-up draft to an email shown in chat.
 
     Security boundary: accepts ONLY ``ordinal`` (1-based position from the
-    latest Mail list/read in this conversation), ``body``, and ``reply_all``.
-    Recipient (``Reply-To`` / ``From``), ``Re:`` subject, ``threadId``,
+    latest Mail list/read in this conversation), ``body``, ``reply_all``,
+    ``follow_up``, ``primary_action`` (``"send"`` | ``"save_draft"`` |
+    ``"schedule"``), and optional ``scheduled_send_at`` (owner local ISO-8601).
+    Recipient (``Reply-To`` / ``From``, or ``To`` when ``follow_up=True`` on a
+    Sent email), Reply-All ``Cc``, ``Re:`` subject, ``threadId``,
     ``In-Reply-To``, and ``References`` are re-read and cryptographically sealed
     server-side via ``gmail_reply_source_service`` so untrusted email text can
     NEVER retarget a reply to another address. Nothing sends until the owner
-    taps Send reply.
+    taps Send, Save draft, or Schedule.
     """
     owner = await _admitted_owner(tool_context)
     if owner is None:
         return {"status": "unavailable", "message": "Mail replies are available in chat only."}
     user_id, conversation_id = owner
+    tz_name = str(tool_context.state.get(_STATE_TIMEZONE) or "UTC").strip() or "UTC"
     if type(ordinal) is not int or not 1 <= ordinal <= 25:
         return {
             "status": "invalid_argument",
@@ -1490,6 +1601,22 @@ async def open_gmail_reply_draft(
             "status": "invalid_reply",
             "message": "Keep the reply within the supported size and try again.",
         }
+
+    action_mode = str(primary_action or "send").strip().lower()
+    if action_mode not in {"send", "save_draft", "schedule"}:
+        action_mode = "send"
+    cleaned_schedule = str(scheduled_send_at or "").strip()
+    scheduled_iso = ""
+    scheduled_display = ""
+    if cleaned_schedule:
+        now_utc = datetime.now(timezone.utc)
+        try:
+            send_at_utc = resolve_send_at(cleaned_schedule, owner_zone=tz_name, now=now_utc)
+        except ScheduleTimeError as exc:
+            return {"status": "invalid_schedule_time", "message": exc.message}
+        scheduled_iso = send_at_utc.isoformat()
+        scheduled_display = format_schedule_echo(send_at_utc, tz_name, now=now_utc)
+        action_mode = "schedule"
 
     offer = current_mail_read_offer(
         tool_context.state.get(_STATE_MAIL_READ_OFFER),
@@ -1511,15 +1638,37 @@ async def open_gmail_reply_draft(
             ),
         }
 
+    reply_mode: reply_source_service.ReplyMode = (
+        "reply_all" if reply_all else ("follow_up" if follow_up else "reply")
+    )
     try:
-        source = await reply_source_service.read_reply_source(
-            gmail=get_gmail_receipts_service(),
-            user_id=user_id,
-            message_id=message_id,
-            expected_account=offer.account,
-            require_access=_make_require_access(tool_context, user_id),
+        try:
+            source = await reply_source_service.read_reply_source(
+                gmail=get_gmail_receipts_service(),
+                user_id=user_id,
+                message_id=message_id,
+                expected_account=offer.account,
+                require_access=_make_require_access(tool_context, user_id),
+                mode=reply_mode,
+            )
+        except GmailDeliveryError as first_exc:
+            if reply_mode == "reply" and first_exc.code == reply_source_service.TARGET_IS_OWNER:
+                source = await reply_source_service.read_reply_source(
+                    gmail=get_gmail_receipts_service(),
+                    user_id=user_id,
+                    message_id=message_id,
+                    expected_account=offer.account,
+                    require_access=_make_require_access(tool_context, user_id),
+                    mode="follow_up",
+                )
+                reply_mode = "follow_up"
+            else:
+                raise
+        sealed_ref = reply_source_service.seal_reply_source_ref(
+            source,
+            owner_user_id=user_id,
+            surface="typed_chat",
         )
-        sealed_ref = reply_source_service.seal_reply_source_ref(source, owner_user_id=user_id)
     except GmailDeliveryError as exc:
         return {
             "status": "unavailable",
@@ -1533,42 +1682,36 @@ async def open_gmail_reply_draft(
             "message": "I couldn't verify that email's reply details just now. Try again.",
         }
 
-    cc_list: list[str] = []
-    if reply_all:
-        try:
-            reader = GmailMetadataReader(
-                gmail=get_gmail_receipts_service(),
-                user_id=user_id,
-                require_access=_make_require_access(tool_context, user_id),
-                expect_account=offer.account,
-            )
-            raw_hdr = await reader.reply_source(message_id, include_cc=True)
-            hdrs = get_gmail_receipts_service()._extract_headers(raw_hdr)
-            status_row = await get_gmail_receipts_service().get_status(user_id=user_id)
-            own_email = str(status_row.get("google_email") or "").strip().lower()
-            primary_to = source.recipient_email.strip().lower()
-            for _, addr in getaddresses([hdrs.get("to", ""), hdrs.get("cc", "")]):
-                cleaned_addr = addr.strip()
-                low = cleaned_addr.lower()
-                if (
-                    cleaned_addr
-                    and low not in {own_email, primary_to}
-                    and low not in {c.lower() for c in cc_list}
-                ):
-                    cc_list.append(cleaned_addr)
-        except Exception:  # noqa: BLE001
-            cc_list = []
-
+    cc_list = list(source.cc_list)
     payload: dict[str, Any] = {
         "kind": "gmail_reply_draft",
         "source_mail_ref": sealed_ref,
     }
     if cc_list:
-        payload["cc"] = ", ".join(cc_list[:20])
+        payload["cc"] = ", ".join(cc_list)
+    if action_mode != "send":
+        payload["primary_action"] = action_mode
+    if scheduled_iso:
+        payload["scheduled_send_at"] = scheduled_iso
+        payload["scheduled_send_display"] = scheduled_display
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:gmail_reply_draft"] = {
         "kind": "prompt",
         "payload": payload,
     }
+    mode_label = (
+        "reply-all"
+        if reply_mode == "reply_all"
+        else ("follow-up" if reply_mode == "follow_up" else "reply")
+    )
+    if action_mode == "save_draft":
+        action_note = "It will not send or save until the person reviews it and presses Save draft."
+    elif action_mode == "schedule" and scheduled_display:
+        action_note = (
+            f"It is ready to schedule for {scheduled_display}, and will not schedule or "
+            "send until the person reviews it and presses Schedule."
+        )
+    else:
+        action_note = "It will not send until the person reviews it and presses Send reply."
     result_out: dict[str, Any] = {
         "status": "draft_opened",
         "source_mail_ref": sealed_ref,
@@ -1577,12 +1720,17 @@ async def open_gmail_reply_draft(
         "subject": source.subject,
         "prefilled": True,
         "message": (
-            f"An editable {'reply-all' if reply_all else 'reply'} to {source.recipient_display} "
-            f"({source.subject}) is open. It will not send until the person reviews it and presses Send reply."
+            f"An editable {mode_label} to {source.recipient_display} "
+            f"({source.subject}) is open. {action_note}"
         ),
     }
     if cc_list:
-        result_out["cc"] = ", ".join(cc_list[:20])
+        result_out["cc"] = ", ".join(cc_list)
+    if action_mode != "send":
+        result_out["primary_action"] = action_mode
+    if scheduled_iso:
+        result_out["scheduled_send_at"] = scheduled_iso
+        result_out["scheduled_send_display"] = scheduled_display
     return result_out
 
 

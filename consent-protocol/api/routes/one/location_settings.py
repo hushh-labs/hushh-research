@@ -52,6 +52,14 @@ class AdvanceSetupProgressRequest(_CamelModel):
     precision: Literal["precise", "approximate"] | None = None
 
 
+class PauseLocationUpdatesRequest(_CamelModel):
+    """Timed pause or immediate resume for outgoing Location publishing (US-030)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    duration_hours: float | None = Field(default=None, alias="durationHours", ge=0.25, le=24.0)
+    clear: bool = False
+
+
 def _account_settings_service():
     from hushh_mcp.services.one_location_account_settings_service import (
         OneLocationAccountSettingsService,
@@ -154,6 +162,36 @@ def advance_location_setup_progress(
         else:
             progress = service.complete(user_id=user_id)
         return {"progress": progress.as_payload()}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/account-settings/pause")
+def pause_location_updates(
+    payload: PauseLocationUpdatesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Temporarily pause outgoing Location updates without revoking shares, or resume now."""
+    user_id = _user_id(token_data)
+    service = _account_settings_service()
+    try:
+        if payload.clear:
+            settings = service.clear_timed_pause(user_id=user_id)
+        else:
+            if payload.duration_hours is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "LOCATION_PAUSE_DURATION_REQUIRED",
+                        "message": "durationHours is required unless clear=true.",
+                    },
+                )
+            settings = service.set_timed_pause(
+                user_id=user_id, duration_hours=payload.duration_hours
+            )
+        return {"settings": settings.as_payload()}
     except HTTPException:
         raise
     except Exception as exc:

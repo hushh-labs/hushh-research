@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 466,
+  "expected_migration_version": 467,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -3155,6 +3155,7 @@
       "created_at",
       "os_permission_reported",
       "os_permission_reported_at",
+      "paused_until",
       "precision",
       "sharing_consent_accepted_at",
       "sharing_consent_version",
@@ -3271,6 +3272,26 @@
       "recipient_user_id",
       "sender_ephemeral_public_key_jwk",
       "source_platform"
+    ],
+    "one_location_geofence_rules": [
+      "created_at",
+      "expires_at",
+      "id",
+      "metadata",
+      "owner_user_id",
+      "place_kind",
+      "place_label",
+      "precision",
+      "public_lat",
+      "public_lng",
+      "public_place_id",
+      "radius_meters",
+      "recipient_user_ids",
+      "share_duration_hours",
+      "status",
+      "trigger_type",
+      "triggered_at",
+      "updated_at"
     ],
     "one_location_map_preferences": [
       "created_at",
@@ -3436,6 +3457,12 @@
       "visit_count",
       "visited_at"
     ],
+    "one_location_request_blocks": [
+      "blocked_user_id",
+      "created_at",
+      "owner_user_id",
+      "reason"
+    ],
     "one_location_setup_progress": [
       "completed_at",
       "consent_accepted_at",
@@ -3449,6 +3476,7 @@
       "user_id"
     ],
     "one_location_share_grants": [
+      "calendar_event_id",
       "capability_scopes",
       "ceiling_expires_at",
       "consent_scope",
@@ -3460,12 +3488,16 @@
       "latest_envelope_id",
       "metadata",
       "owner_user_id",
+      "precision",
       "recipient_cleared_at",
       "recipient_key_id",
       "recipient_user_id",
       "revoked_at",
+      "share_mode",
       "source_circle_id",
+      "starts_at",
       "status",
+      "task_label",
       "updated_at"
     ],
     "one_location_sms_contacts": [
@@ -5069,5 +5101,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 466
+  "expected_schema_head": 467
 }

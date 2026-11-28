@@ -1994,3 +1994,207 @@ async def test_new_input_during_post_claim_wait_never_submits_to_gmail(monkeypat
         await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
     assert repeated.value.code == "ACTION_NOT_SENDABLE"
     assert posts == []
+
+
+@pytest.mark.asyncio
+async def test_prepare_and_execute_save_draft_uses_compose_authority_without_send_scope(
+    monkeypatch,
+):
+    """Compose-only Gmail connections can prepare & save drafts while send remains blocked."""
+    from hushh_mcp.services import gmail_delivery_service as module
+    from hushh_mcp.services.gmail_receipts_service import (
+        _GMAIL_COMPOSE_SCOPE,
+        _GMAIL_READONLY_SCOPE,
+        GmailApiError,
+        GmailReceiptsService,
+    )
+
+    compose_row = {
+        "user_id": "owner",
+        "status": "connected",
+        "revoked": False,
+        "google_sub": "sub-compose-only",
+        "google_email": "owner@example.com",
+        "scope_csv": f"{_GMAIL_READONLY_SCOPE} {_GMAIL_COMPOSE_SCOPE}",
+        "send_enabled": False,
+        "send_grant_generation": 2,
+    }
+    gmail = GmailReceiptsService()
+    monkeypatch.setattr(gmail, "is_configured", lambda: True)
+    monkeypatch.setattr(gmail, "_fetch_connection_row", lambda *, user_id: dict(compose_row))
+
+    async def _fake_ensure_token(*, user_id):
+        return "compose-access-token", dict(compose_row)
+
+    monkeypatch.setattr(gmail, "_ensure_access_token", _fake_ensure_token)
+    service = GmailDeliveryService(gmail_service=gmail)
+
+    # Negative control: intent="send" must still reject compose-only / send_enabled=False.
+    with pytest.raises(GmailApiError) as send_refused:
+        await service.prepare(
+            user_id="owner",
+            draft_payload={"to": ["a@example.com"], "subject": "Hi", "body": "Body"},
+            idempotency_key="send-key-1234567890",
+            intent="send",
+        )
+    assert send_refused.value.code == "GMAIL_SEND_PERMISSION_REQUIRED"
+
+    # Positive control: intent="save_draft" succeeds with compose authority only.
+    conn = _PrepareConn()
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    monkeypatch.setattr(
+        module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    prepared = await service.prepare(
+        user_id="owner",
+        draft_payload={"to": ["a@example.com"], "subject": "Hi", "body": "Body"},
+        idempotency_key="draft-key-1234567890",
+        intent="save_draft",
+    )
+    assert prepared["state"] == "prepared"
+    assert prepared["sender_label"] == "owner@example.com"
+
+    # Execute save_draft verifies compose identity and creates the Gmail draft.
+    insert_call = next(
+        args for query, args in conn.calls if "INSERT INTO gmail_owner_send_actions" in query
+    )
+    stored_hmac = insert_call[2]
+    exec_conn = _ActionConn(
+        [
+            {
+                "action_id": prepared["action_id"],
+                "state": "prepared",
+                "expires_at": prepared["expires_at"],
+                "envelope_hmac": stored_hmac,
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(exec_conn))
+    )
+
+    class _DraftResp:
+        status_code = 200
+        content = b'{"id":"draft-compose-1"}'
+
+        def json(self):
+            return {"id": "draft-compose-1"}
+
+    class _DraftClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            assert headers == {"Authorization": "Bearer compose-access-token"}
+            return _DraftResp()
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", _DraftClient)
+    saved = await service.execute_save_draft(
+        user_id="owner",
+        action_id=prepared["action_id"],
+        draft_payload={
+            "to": ["a@example.com"],
+            "subject": "Hi",
+            "body": "Body",
+            "sender_token": prepared["sender_token"],
+        },
+    )
+    assert saved == {"status": "saved", "draft_id": "draft-compose-1"}
+
+    # Negative control: missing compose scope refuses prepare(intent="save_draft") with GMAIL_COMPOSE_PERMISSION_REQUIRED.
+    compose_row["scope_csv"] = _GMAIL_READONLY_SCOPE
+    with pytest.raises(GmailApiError) as compose_refused:
+        await service.prepare(
+            user_id="owner",
+            draft_payload={"to": ["a@example.com"], "subject": "Hi", "body": "Body"},
+            idempotency_key="draft-key-2-1234567890",
+            intent="save_draft",
+        )
+    assert compose_refused.value.code == "GMAIL_COMPOSE_PERMISSION_REQUIRED"
+
+
+def test_ephemeral_otp_reveal_works_across_workers_and_single_consumes(monkeypatch):
+    from hushh_mcp.services import gmail_sensitive_content as gsc
+
+    monkeypatch.setattr(
+        gsc,
+        "get_core_security_settings",
+        lambda: type(
+            "Settings", (), {"app_signing_key": "test-cross-worker-otp-signing-key-32c"}
+        )(),
+    )
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    gsc.clear_ephemeral_store_for_tests()
+    try:
+        ref = gsc._store_ephemeral(
+            owner_user_id="owner-worker-test",
+            conversation_id="conv-1",
+            kind="otp",
+            codes=["482913"],
+            sender="security@example.com",
+            subject="Sign-in code",
+            received_at="2026-11-28T00:00:00Z",
+        )
+        # Simulate the reveal hitting a DIFFERENT uvicorn worker with an empty in-memory dict.
+        gsc._EPHEMERAL_STORE.clear()
+
+        # Negative control: foreign user cannot reveal or consume the owner's ref.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="other-user") is None
+
+        # Owner reveals cleanly from the second worker.
+        revealed = gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-worker-test")
+        assert revealed is not None
+        assert revealed["codes"] == ["482913"]
+
+        # Single-consume invariant: second reveal on any worker returns None.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-worker-test") is None
+    finally:
+        gsc.clear_ephemeral_store_for_tests()
+
+
+def test_scheduled_send_v2_preserves_sanitized_html_body(monkeypatch):
+    from hushh_mcp.services import gmail_delivery_service as module
+
+    monkeypatch.setattr(
+        module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    service = GmailDeliveryService()
+    sealed = service.seal_schedule_payload(
+        user_id="owner",
+        action_id="action-html-1",
+        version=2,
+        payload={
+            "to": ["alice@example.com"],
+            "cc": [],
+            "bcc": [],
+            "subject": "Formatted update",
+            "body": "Hello Alice",
+            "html_body": '<p><strong>Hello</strong> <a href="https://example.com">link</a><script>alert(1)</script></p>',
+            "recipient_kind": "explicit_address",
+            "recipient_user_id": "",
+            "sender_sub": "sub-1",
+            "reply_context": None,
+        },
+    )
+    opened = service.open_schedule_payload(
+        user_id="owner", action_id="action-html-1", sealed=sealed
+    )
+    draft_payload = service.scheduled_draft_payload(opened)
+    assert "html_body" in draft_payload
+    assert "<strong>Hello</strong>" in draft_payload["html_body"]
+    assert "<script>" not in draft_payload["html_body"]
+    normalized = normalize_draft(draft_payload)
+    assert normalized.html_body is not None and "<strong>Hello</strong>" in normalized.html_body

@@ -33,12 +33,18 @@ export type EmailDraftToolStatus = (typeof EMAIL_DRAFT_TOOL_STATUSES)[number];
 /** Comma-separated recipients as editable draft fields; empty when none. */
 export type EmailDraftEnvelope = { to: string; cc: string; bcc: string };
 
+export type EmailDraftPrimaryAction = "send" | "save_draft" | "schedule";
+
 export type EmailDraftToolResult = {
   /** Null for a status this client does not know; that is never `draft_opened`. */
   status: EmailDraftToolStatus | null;
   /** Null when absent or malformed; then the model's arguments stay the draft. */
   envelope: EmailDraftEnvelope | null;
   gmailSend: GmailSendReadiness | null;
+  primaryAction?: EmailDraftPrimaryAction | null;
+  scheduledSendAt?: string | null;
+  scheduledSendDisplay?: string | null;
+  credentialWarning?: boolean;
 };
 
 /** The bound the tool itself applies to each of to, cc and bcc. */
@@ -98,9 +104,22 @@ export function parseEmailDraftToolResult(value: unknown): EmailDraftToolResult 
       .map(parseRecord)
       .find((candidate) => typeof candidate?.status === "string");
   if (!result) return null;
+  const rawPrimary = oneOf(["send", "save_draft", "schedule"] as const, result.primary_action);
+  const scheduledSendAt =
+    typeof result.scheduled_send_at === "string" && result.scheduled_send_at.trim().length <= 64
+      ? result.scheduled_send_at.trim()
+      : null;
+  const scheduledSendDisplay =
+    typeof result.scheduled_send_display === "string" && result.scheduled_send_display.trim().length <= 120
+      ? result.scheduled_send_display.trim()
+      : null;
   return {
     status: oneOf(EMAIL_DRAFT_TOOL_STATUSES, result.status),
     envelope: parseEnvelope(result.envelope),
     gmailSend: oneOf(GMAIL_SEND_READINESS, result.gmail_send),
+    ...(rawPrimary ? { primaryAction: rawPrimary } : {}),
+    ...(scheduledSendAt ? { scheduledSendAt } : {}),
+    ...(scheduledSendDisplay ? { scheduledSendDisplay } : {}),
+    ...(result.credential_warning === true ? { credentialWarning: true } : {}),
   };
 }

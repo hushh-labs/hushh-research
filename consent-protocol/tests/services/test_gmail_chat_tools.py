@@ -158,6 +158,25 @@ class _FakeGmailService:
             return datetime.fromtimestamp(int(raw) / 1000.0, tz=UTC)
         return None
 
+    def _nudge_thread_from_payload(self, payload: dict[str, Any]) -> Any:
+        from hushh_mcp.services.gmail_nudges import NudgeMessage, NudgeThread
+
+        messages = payload.get("messages") or []
+        parsed_msgs = []
+        for msg in messages:
+            hdrs = self._extract_headers(msg)
+            name, addr = self._parse_from_header(hdrs.get("from", ""))
+            parsed_msgs.append(
+                NudgeMessage(
+                    message_id=str(msg.get("id") or ""),
+                    from_email=addr or "",
+                    from_name=name or "",
+                    subject=hdrs.get("subject", ""),
+                    received_at=self._message_received_at(msg, hdrs),
+                )
+            )
+        return NudgeThread(thread_id=str(payload.get("id") or ""), messages=tuple(parsed_msgs))
+
 
 # ---------------------------------------------------------------------------
 # 1. Pure gene tests: gmail_semantic_ranker & gmail_message_text
@@ -1502,3 +1521,295 @@ async def test_mailbox_insights_forward_draft_and_friendly_mailbox_aliases(monke
     assert spam_res["status"] == "confirmation_required"
     assert captured_propose[-1]["action"] == "add_label"
     assert captured_propose[-1]["label"] == "SPAM"
+
+
+# ---------------------------------------------------------------------------
+# Core E2E & negative-control tests for 100-story Gmail coverage (US-041..100)
+# ---------------------------------------------------------------------------
+
+
+async def test_otp_shield_redacts_codes_and_refuses_foreign_or_replay_reveal(monkeypatch):
+    from hushh_mcp.services.gmail_sensitive_content import (
+        OTP_PLACEHOLDER,
+        clear_ephemeral_store_for_tests,
+        reveal_ephemeral_code,
+    )
+
+    clear_ephemeral_store_for_tests()
+    gmail = _FakeGmailService()
+    raw_body = _b64("Your Google verification code is G-482913. Do not share it.")
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/messages"):
+            return _json_response({"messages": [{"id": "m_otp_1", "threadId": "t_otp_1"}]})
+        if request.url.path.endswith("/messages/m_otp_1"):
+            return _json_response(
+                {
+                    "id": "m_otp_1",
+                    "threadId": "t_otp_1",
+                    "internalDate": "1760000009000",
+                    "labelIds": ["INBOX", "UNREAD"],
+                    "snippet": "Your Google verification code is G-482913",
+                    "payload": {
+                        "mimeType": "text/plain",
+                        "headers": [
+                            {"name": "From", "value": "Google <no-reply@accounts.google.com>"},
+                            {"name": "Subject", "value": "Security alert: G-482913"},
+                            {"name": "Date", "value": "Thu, 26 Nov 2026 10:00:00 +0000"},
+                        ],
+                        "body": {"data": raw_body},
+                    },
+                }
+            )
+        raise AssertionError(f"Unexpected Gmail request: {request.url}")
+
+    transport = httpx.MockTransport(respond)
+    orig_init = GmailMetadataReader.__init__
+
+    def patched_init(self, *args, **kwargs):
+        kwargs.setdefault("transport", transport)
+        orig_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(chat_tools, "get_gmail_receipts_service", lambda: gmail)
+    monkeypatch.setattr(GmailMetadataReader, "__init__", patched_init)
+
+    ctx = _make_ctx(_owner_state("conv-otp"))
+    res = await chat_tools.gmail_search_mail(
+        intent="latest Google OTP",
+        tool_context=ctx,
+        queries=["verification code"],
+        sensitive_masking="otp",
+    )
+
+    assert res["status"] == "ok"
+    assert "482913" not in json.dumps(res)
+    assert OTP_PLACEHOLDER in res["untrusted_external_content"][0]["body"]
+    exp = res["sensitive_code_reveal"]
+    assert exp["type"] == "one.sensitive_code_reveal.v1"
+    ref = exp["reveal_ref"]
+    assert ref.startswith("otp1.")
+
+    # Negative control: foreign owner cannot reveal or consume the ref
+    assert reveal_ephemeral_code(reveal_ref=ref, owner_user_id="attacker-uid") is None
+    # Legitimate owner reveals once, then second consume returns None
+    revealed = reveal_ephemeral_code(reveal_ref=ref, owner_user_id=OWNER)
+    assert revealed is not None
+    assert revealed["codes"] == ["G-482913"]
+    assert reveal_ephemeral_code(reveal_ref=ref, owner_user_id=OWNER) is None
+
+
+async def test_spam_search_counts_and_min_age_days_contracts(monkeypatch):
+    gmail = _FakeGmailService()
+    seen_queries: list[dict[str, str]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen_queries.append(dict(request.url.params))
+        if request.url.path.endswith("/labels/UNREAD"):
+            return _json_response({"id": "UNREAD", "messagesUnread": 17, "threadsUnread": 12})
+        if request.url.path.endswith("/labels/INBOX"):
+            return _json_response({"id": "INBOX", "messagesUnread": 9, "threadsUnread": 7})
+        if request.url.path.endswith("/messages"):
+            return _json_response({"messages": [{"id": "m_1", "threadId": "t_1"}]})
+        if request.url.path.endswith("/messages/m_1"):
+            return _json_response(
+                {
+                    "id": "m_1",
+                    "threadId": "t_1",
+                    "internalDate": "1760000001000",
+                    "labelIds": ["SPAM"],
+                    "snippet": "Promo",
+                    "payload": {
+                        "headers": [
+                            {"name": "From", "value": "Promo <promo@example.com>"},
+                            {"name": "Subject", "value": "Spam check"},
+                            {"name": "Date", "value": "Thu, 26 Nov 2026 09:00:00 +0000"},
+                        ]
+                    },
+                }
+            )
+        if request.url.path.endswith("/threads/t_1"):
+            return _json_response(
+                {
+                    "id": "t_1",
+                    "messages": [
+                        {
+                            "id": "m_1",
+                            "threadId": "t_1",
+                            "internalDate": "1759000001000",
+                            "labelIds": ["INBOX", "UNREAD"],
+                            "payload": {
+                                "headers": [
+                                    {"name": "From", "value": "Priya <priya@example.com>"},
+                                    {"name": "Subject", "value": "Waiting on reply"},
+                                    {"name": "Date", "value": "Mon, 20 Nov 2026 09:00:00 +0000"},
+                                ]
+                            },
+                        }
+                    ],
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {request.url}")
+
+    transport = httpx.MockTransport(respond)
+    orig_init = GmailMetadataReader.__init__
+
+    def patched_init(self, *args, **kwargs):
+        kwargs.setdefault("transport", transport)
+        orig_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(chat_tools, "get_gmail_receipts_service", lambda: gmail)
+    monkeypatch.setattr(GmailMetadataReader, "__init__", patched_init)
+
+    ctx = _make_ctx(_owner_state("conv-counts"))
+    spam_res = await chat_tools.gmail_search_mail(
+        intent="check spam",
+        tool_context=ctx,
+        queries=["in:spam"],
+        include_spam=True,
+        read_top_bodies=3,
+    )
+    assert spam_res["status"] == "ok"
+    assert spam_res["structured"]["metadata_only"] is True
+    assert any(p.get("includeSpamTrash") == "true" for p in seen_queries)
+
+    counts_res = await chat_tools.gmail_mailbox_insights(ctx, mode="counts")
+    assert counts_res["status"] == "ok"
+    assert counts_res["total_unread_messages"] == 17
+    assert counts_res["inbox_unread_messages"] == 9
+    assert counts_res["today_unread_count"] == 1
+    assert counts_res["today_unread_exact"] is True
+
+    seen_queries.clear()
+    needs = await chat_tools.gmail_list_needs_reply(ctx, limit=5, min_age_days=3)
+    assert needs["status"] == "ok"
+    assert any("older_than:3d" in p.get("q", "") for p in seen_queries)
+
+
+async def test_reply_all_and_sent_followup_seal_typed_chat_surface_and_cc(monkeypatch):
+    gmail = _FakeGmailService()
+    msg_headers = [
+        {"name": "From", "value": "Ravi <ravi@example.com>"},
+        {"name": "To", "value": f"{OWNER_EMAIL}, Maya <maya@example.com>"},
+        {"name": "Cc", "value": "Sam <sam@example.com>"},
+        {"name": "Subject", "value": "Launch plan"},
+        {"name": "Message-ID", "value": "<launch-1@example.com>"},
+    ]
+    msg_labels = ["INBOX"]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        return _json_response(
+            {
+                "id": "m_grp_1",
+                "threadId": "t_grp_1",
+                "internalDate": "1760000001000",
+                "labelIds": list(msg_labels),
+                "payload": {"headers": list(msg_headers)},
+            }
+        )
+
+    transport = httpx.MockTransport(respond)
+    orig_read_reply = reply_source.read_reply_source
+
+    async def patched_read_reply(**kwargs: Any):
+        kwargs.setdefault(
+            "reader_factory", lambda **rk: GmailMetadataReader(transport=transport, **rk)
+        )
+        return await orig_read_reply(**kwargs)
+
+    monkeypatch.setattr(chat_tools, "get_gmail_receipts_service", lambda: gmail)
+    monkeypatch.setattr(reply_source, "read_reply_source", patched_read_reply)
+
+    state = _owner_state("conv-reply-all")
+    state["hussh:mail_read_offer"] = make_mail_read_offer(
+        {
+            "account": "sub-owner-1",
+            "mailbox": "inbox",
+            "message_ids": ["m_grp_1"],
+            "thread_ids": ["t_grp_1"],
+        },
+        owner_id=OWNER,
+        conversation_id="conv-reply-all",
+    )
+    ctx = _make_ctx(state)
+
+    opened = await chat_tools.open_gmail_reply_draft(
+        ordinal=1,
+        body="Sounds good everyone!",
+        tool_context=ctx,
+        reply_all=True,
+        primary_action="save_draft",
+    )
+    assert opened["status"] == "draft_opened"
+    assert opened["primary_action"] == "save_draft"
+    assert "maya@example.com" in opened["cc"] and "sam@example.com" in opened["cc"]
+    assert (
+        reply_source.inspect_reply_source_surface(opened["source_mail_ref"], owner_user_id=OWNER)
+        == "typed_chat"
+    )
+
+    # Re-resolving sealed ref preserves Cc server-side
+    resolved_draft, _ = await reply_source.resolve_source_bound_reply(
+        gmail=gmail,
+        user_id=OWNER,
+        source_mail_ref=opened["source_mail_ref"],
+        body="Sounds good everyone!",
+        html_body=None,
+        require_access=AsyncMock(),
+        reader_factory=lambda **rk: GmailMetadataReader(transport=transport, **rk),
+    )
+    assert set(resolved_draft["cc"]) == {"maya@example.com", "sam@example.com"}
+
+    # Auto-follow-up on a SENT message succeeds instead of failing TARGET_IS_OWNER
+    msg_headers[:] = [
+        {"name": "From", "value": OWNER_EMAIL},
+        {"name": "To", "value": "Ravi <ravi@example.com>"},
+        {"name": "Subject", "value": "Proposal"},
+        {"name": "Message-ID", "value": "<sent-1@example.com>"},
+    ]
+    msg_labels[:] = ["SENT"]
+    fu = await chat_tools.open_gmail_reply_draft(
+        ordinal=1,
+        body="Following up on this.",
+        tool_context=ctx,
+    )
+    assert fu["status"] == "draft_opened"
+    assert fu["to"] == "ravi@example.com"
+
+
+async def test_open_gmail_email_draft_to_self_schedule_and_credential_warning(monkeypatch):
+    gmail = _FakeGmailService()
+    monkeypatch.setattr(chat_tools, "get_gmail_receipts_service", lambda: gmail)
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.email_draft_readiness.gmail_send_readiness",
+        AsyncMock(return_value="ready"),
+    )
+
+    state = _owner_state("conv-compose")
+    ctx = _make_ctx(state)
+    res_self = await agent_tree.open_gmail_email_draft(
+        request="Email myself a packing list",
+        tool_context=ctx,
+        to_self=True,
+        subject="Packing list",
+        body="Passport, charger",
+        primary_action="save_draft",
+    )
+    assert res_self["status"] == "draft_opened"
+    assert res_self["envelope"]["to"] == OWNER_EMAIL
+    assert res_self["primary_action"] == "save_draft"
+    assert "credential_warning" not in res_self
+
+    # Outbound credential detection warning + schedule send mode
+    res_warn = await agent_tree.open_gmail_email_draft(
+        request="Send credentials tomorrow",
+        tool_context=ctx,
+        to="dev@example.com",
+        subject="Access",
+        body="Here is password: SuperSecret99!",
+        scheduled_send_at="2026-12-01T09:00:00",
+    )
+    assert res_warn["status"] == "draft_opened"
+    assert res_warn["primary_action"] == "schedule"
+    assert res_warn["scheduled_send_at"].startswith("2026-12-01T03:30:00")
+    assert res_warn["credential_warning"] is True
+    assert "password" in res_warn["credential_categories"]

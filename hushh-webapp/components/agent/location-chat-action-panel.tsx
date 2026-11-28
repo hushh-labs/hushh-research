@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LocationChatActionCard, type LocationChatActionModel } from "@/components/agent/location-chat-action/location-chat-action-card";
+import { LocationChatE2eActions, isE2eLocationAction } from "@/components/agent/location-chat-action/location-chat-e2e-actions";
 import { LocationChatSharePicker, type PrivateLocationSelection } from "@/components/agent/location-chat-action/location-chat-share-picker";
 import { LocationChatPublicShare } from "@/components/agent/location-chat-action/location-chat-public-share";
 import { LocationChatPublicLinks } from "@/components/agent/location-chat-action/location-chat-public-links";
@@ -14,7 +15,7 @@ import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { flushLocationStops, hasQueuedLocationStop, locationStopQueueRevision, queueLocationStop, subscribeLocationStopQueue } from "@/lib/location/pending-stops";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { coarsenPoint } from "@/lib/location/coarsen";
+import { coarsenPoint, type LocationPublishPrecision } from "@/lib/location/coarsen";
 import { getLocationAccountSettings, LocationAccountSettingsResource, updateLocationAccountSettings } from "@/lib/location/account-settings";
 import { decryptLocationEnvelope, encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import { liveFreshness } from "@/lib/one-location/freshness";
@@ -56,11 +57,13 @@ const titles: Record<MainLocationAction, string> = {
   stop: "Stop sharing", set_duration: "Change end time", extend: "Add time",
   ask_extension: "Request extra time", approve: "Approve request", decline: "Decline request",
   setup_location: "Set up Location", enable_location: "Turn on Location sharing", enable_device_location: "Enable device location",
-  resume_updates: "Resume location updates", sos_review: "Save My Soul", sos_stop: "Stop Save My Soul", sms_contacts: "Emergency contacts",
+  resume_updates: "Resume location updates", pause_updates: "Pause location updates",
+  sos_review: "Save My Soul", sos_stop: "Stop Save My Soul", emergency_share: "Emergency location sharing", sms_contacts: "Emergency contacts",
   manage_circles: "Location Circles", manage_places: "Saved places", manage_ratings: "Place ratings", manage_contacts: "Find contacts", manage_settings: "Location settings", manage_links: "Public location links",
   enable_auto_approve: "Turn on automatic approval", disable_auto_approve: "Turn off automatic approval",
   check_in: "Private check-in", nearby_check_in: "Nearby check-in",
   view_self: "Your current location",
+  sharing_history: "Location sharing history", set_geofence: "Arrival rule", manage_geofences: "Arrival rules", block_location_peer: "Remove from Location",
 };
 const initialDurations = [15, 60, 480];
 const editDurations = [15, 30, 60, 120, 480];
@@ -81,7 +84,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Couldn’t complete this Location action. Try again.";
 }
 
-async function capturePoint(token: string, forSharing = false): Promise<PlainLocationPoint> {
+async function capturePoint(
+  token: string,
+  forSharing = false,
+  requestedPrecision?: LocationPublishPrecision | null,
+): Promise<PlainLocationPoint> {
   const [{ point: position, reducedAccuracy }, settings] = await Promise.all([
     captureChatLocation(),
     getLocationAccountSettings(token),
@@ -91,8 +98,12 @@ async function capturePoint(token: string, forSharing = false): Promise<PlainLoc
       !Number.isFinite(position.longitude) || Math.abs(position.longitude) > 180) {
     throw new Error("Couldn’t get a current position. Try again.");
   }
-  return coarsenPoint(position, settings.precision === "approximate" || reducedAccuracy || (position.accuracyM ?? 0) >= 1000
-    ? "approximate" : "precise");
+  const effectivePrecision: LocationPublishPrecision = requestedPrecision
+    ? requestedPrecision
+    : settings.precision === "approximate" || reducedAccuracy || (position.accuracyM ?? 0) >= 1000
+      ? "approximate"
+      : "precise";
+  return coarsenPoint(position, effectivePrecision);
 }
 
 function freshLocation(capturedAt: string) {
@@ -211,11 +222,16 @@ export function LocationChatActionPanel(props: PanelProps) {
   if (firstUse && props.token && checkedSetup?.proposal !== proposal)
     return <div ref={node} hidden={props.paused}>{!onConversationText && setupError ? <p role="status">{setupError}</p> : null}</div>;
   const safety = action === "sos_review" || action === "sos_stop" || action === "sms_contacts";
+  const e2e = isE2eLocationAction(proposal);
   return <div ref={node} hidden={props.paused}>{activated ? safety
     ? props.ownerId && props.token
       ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} sendHost={props.sendHost} hidden={props.paused} onFinished={reportSafetyFinished} {...childConversation} />
       : props.allowReview ? <UnlockLocationCard onUnlock={props.onUnlock} /> : null
-    : <LocationChatActionContent {...props} firstObservation={firstUse ? checkedSetup : null} nearViewport={nearViewport} childConversation={childConversation} /> : null}</div>;
+    : e2e
+      ? props.ownerId && props.token
+        ? <LocationChatE2eActions proposal={proposal} ownerId={props.ownerId} token={props.token} vaultKey={props.vaultKey} allowReview={props.allowReview} onConversationText={onConversationText ? publish : undefined} />
+        : props.allowReview ? <UnlockLocationCard onUnlock={props.onUnlock} /> : null
+      : <LocationChatActionContent {...props} firstObservation={firstUse ? checkedSetup : null} nearViewport={nearViewport} childConversation={childConversation} /> : null}</div>;
 }
 
 function UnlockLocationCard({ onUnlock }: { onUnlock: () => void }) {
@@ -236,7 +252,11 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
   function preparationSettings(currentToken: string) {
     const observed = initialPosture.current;
     initialPosture.current = null;
-    return observed && Date.now() - observed.observedAt < 5_000 ? Promise.resolve(observed.settings) : getLocationAccountSettings(currentToken);
+    const promise = observed && Date.now() - observed.observedAt < 5_000 ? Promise.resolve(observed.settings) : getLocationAccountSettings(currentToken);
+    return promise.then((settings) => {
+      if (alive.current) setAccountPrecision(settings.precision);
+      return settings;
+    });
   }
   const now = useCoarseClock(15_000);
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
@@ -264,6 +284,7 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
   const [points, setPoints] = useState<Record<string, PlainLocationPoint>>({});
   const [failedLabels, setFailedLabels] = useState<string[]>([]);
   const [online, setOnline] = useState(true);
+  const [accountPrecision, setAccountPrecision] = useState<"precise" | "approximate">("precise");
   const encryptedAttempts = useRef(new Map<string, OneLocationEncryptedEnvelope>());
   const busyRef = useRef(false);
   const exactReview = useRef<ExactShareReview | undefined>(undefined);
@@ -726,7 +747,14 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
     setIntent(next);
     setSelected(targets);
     setFailedLabels([]);
-    if (next.action !== "ask" && needsTime(next.action) && !next.durationHours && next.durationMode !== "until_stopped") {
+    if (
+      next.action !== "ask" &&
+      needsTime(next.action) &&
+      !next.durationHours &&
+      next.durationMode !== "until_stopped" &&
+      next.shareMode !== "static_pin" &&
+      !next.endsAt
+    ) {
       setStage("terms");
     } else {
       await prepare(next, targets, version);
@@ -772,14 +800,19 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
       if (!current()) throw new Error("The chat changed before this action could be sent.");
       if (!plan.recipientKey) throw new Error("The recipient’s secure location key is unavailable.");
       if (cached && state.permission === "denied") throw new Error("Location permission was denied.");
+      const requestedPrecision = (plan.precision ?? intent.precision ?? null) as LocationPublishPrecision | null;
+      const targetPrecision: LocationPublishPrecision = requestedPrecision
+        ? requestedPrecision
+        : state.approximate ? "approximate" : "precise";
       if (cached && state.permission === "granted" && freshLocation(cached.capturedAt) &&
-          cached.recipientKeyId === plan.recipientKey.keyId && (!state.approximate || cached.metadata?.precision === "approximate")) return cached;
+          cached.recipientKeyId === plan.recipientKey.keyId &&
+          (cached.metadata?.precision === targetPrecision || (!requestedPrecision && (!state.approximate || cached.metadata?.precision === "approximate")))) return cached;
       // WebKit can report 'prompt' even immediately after a successful fix.
       // Only a live measurement in this confirmation can prove that permission.
       const validPreview = !cached && state.permission === "granted" && preview && freshLocation(preview.capturedAt) &&
-        (!state.approximate || preview.precision === "approximate");
-      const measured = validPreview ? preview : await (measurement ??= capturePoint(token!, true));
-      const point = state.approximate ? coarsenPoint(measured, "approximate") : measured;
+        (preview.precision === targetPrecision || (!requestedPrecision && (!state.approximate || preview.precision === "approximate")));
+      const measured = validPreview ? preview : await (measurement ??= capturePoint(token!, true, targetPrecision));
+      const point = coarsenPoint(measured, targetPrecision);
       if (!freshLocation(point.capturedAt)) throw new Error("The location measurement expired. Try again for a fresh position.");
       const encrypted = await encryptLocationForRecipient({
         point, recipientKeyId: plan.recipientKey.keyId, recipientPublicKeyJwk: plan.recipientKey.publicKeyJwk,
@@ -788,9 +821,12 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
       if (!validPreview) measuredEnvelopes.add(envelope);
       return envelope;
     }
+    const isFutureScheduled = (plan: MainLocationPlan): boolean =>
+      Boolean(plan.startsAt && Number.isFinite(Date.parse(plan.startsAt)) && Date.parse(plan.startsAt) > Date.now());
     if (direct) {
       // Prepare all encryption locally before the first grant can be created.
-      const envelopes = await settleMainLocationBatch(pending, async plan => prepared.set(plan.planId, await envelopeFor(plan)));
+      const immediatePending = pending.filter((plan) => !isFutureScheduled(plan));
+      const envelopes = await settleMainLocationBatch(immediatePending, async plan => prepared.set(plan.planId, await envelopeFor(plan)));
       const failure = envelopes.find(result => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;
       if (!current()) return;
@@ -833,7 +869,7 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
         plan = existing;
       }
       let envelope: OneLocationEncryptedEnvelope | undefined;
-      if (isPublish(plan.action)) {
+      if (isPublish(plan.action) && !isFutureScheduled(plan)) {
         envelope = prepared.get(plan.planId) ?? await envelopeFor(plan, cached);
         const state = await posture();
         if (state.permission !== "granted" && !(state.permission === "prompt" && measuredEnvelopes.has(envelope)))
@@ -841,6 +877,9 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
         if (state.approximate && envelope.metadata?.precision !== "approximate" || !freshLocation(envelope.capturedAt))
           throw new Error("The location accuracy or measurement changed. Try again for a fresh position.");
         if (readOneLocationControlState(ownerId).paused) throw new Error("Location updates are paused on this device.");
+        if (plan.expiresAt && !(Date.parse(plan.expiresAt) > Date.now()))
+          throw new LocationReviewChanged("This Location review expired. Please send the request again.");
+      } else if (isPublish(plan.action) && isFutureScheduled(plan)) {
         if (plan.expiresAt && !(Date.parse(plan.expiresAt) > Date.now()))
           throw new LocationReviewChanged("This Location review expired. Please send the request again.");
       }
@@ -1226,6 +1265,21 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
     const group = currentChoice ?? choices[0];
     if (!group) return null;
     const items = group.targets;
+    if (!items.length && intent.shareMode === "task_bound") {
+      return <LocationChatActionCard model={{
+        phase: "recovery",
+        title: "Not a Hussh connection",
+        subject: { label: group.label },
+        description: `${group.label} isn’t in your Hussh connections. You can create a revocable 4-hour public link to share for this pickup instead.`,
+        actions: [{ id: "public_fallback", label: "Create 4-hour revocable link", variant: "primary" }, { id: "cancel", label: "Cancel" }],
+      }} busy={busy} onRecover={(actionId, event) => {
+        if (actionId === "cancel") { dismiss(); return; }
+        if (!event.nativeEvent.isTrusted) return;
+        setPublicDraftHours(4);
+        setIntent({ ...intent, action: "share_public", durationHours: 4 });
+        setStage("public-share");
+      }} />;
+    }
     if (!items.length && intent.action === "view" && intent.people?.length) {
       return <LocationChatActionCard model={{
         phase: "recovery", title: "No active share", subject: { label: group.label },
@@ -1277,9 +1331,26 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
     const label = selected.map((item) => item.label).join(", ") || first.personDisplayLabel || "Location";
     const end = plans.length === 1 ? first.nextExpiresAt ?? undefined : undefined;
     const oldEnd = plans.length === 1 ? first.currentExpiresAt : null;
+    const effectiveShareMode = first.shareMode ?? intent.shareMode ?? "live";
+    const effectivePrecision = first.precision ?? intent.precision ?? null;
+    const isExactOverride = effectivePrecision === "precise" && accountPrecision === "approximate";
     const facts = [
+      ...(effectiveShareMode === "static_pin"
+        ? [{ label: "Mode", value: "One-time static pin · No live tracking" }]
+        : effectiveShareMode === "task_bound"
+          ? [{ label: "Mode", value: first.taskLabel || intent.taskLabel ? `Task-bound · ${first.taskLabel ?? intent.taskLabel}` : "Task-bound (max 6h)" }]
+          : []),
+      ...(effectivePrecision === "city"
+        ? [{ label: "Precision", value: "City-level only (~10 km)" }]
+        : effectivePrecision === "approximate"
+          ? [{ label: "Precision", value: "Approximate (~1 km)" }]
+          : isExactOverride
+            ? [{ label: "Precision override", value: "Exact location for this share only (your default stays approximate)" }]
+            : []),
+      ...(first.startsAt ? [{ label: "Starts", value: new Date(first.startsAt).toLocaleString() }] : []),
+      ...(intent.includeEta ? [{ label: "ETA", value: "Live arrival ETA included" }] : []),
       ...(first.durationMode === "until_stopped" ? [{ label: "Duration", value: "Until you stop" }]
-        : first.durationHours ? [{ label: intent.action === "extend" || intent.action === "ask_extension" ? "Extra time" : "Duration",
+        : effectiveShareMode !== "static_pin" && first.durationHours ? [{ label: intent.action === "extend" || intent.action === "ask_extension" ? "Extra time" : "Duration",
           value: `${Math.round(first.durationHours * 60)} minutes` }] : []),
       ...(plans.length > 1 ? [{ label: "Recipients", value: plans.map((item) => item.personDisplayLabel ||
         selected.find((target) => target.personUserId === item.personUserId)?.label || "Circle member").join(", ") }] : []),
@@ -1288,11 +1359,15 @@ function LocationChatActionContent({ sendHost, paused, onReviewFinished, proposa
     return <>
       {results}
       <LocationChatActionCard key={first.planId} model={{
-        phase: "review", title: titles[intent.action], subject: { label }, facts, endAt: end, currentEndAt: oldEnd || undefined,
-        mode: intent.action === "share_live" ? "live" : undefined,
-        description: error ?? (intent.action === "share_live"
-          ? Capacitor.isNativePlatform() ? "Background updates depend on this device’s Location permissions." : "Keep this page visible to publish live updates."
-          : intent.action === "ask_extension" ? "The current end time stays in effect while approval is pending." : undefined),
+        phase: "review", title: effectiveShareMode === "static_pin" ? "Send one-time pin" : titles[intent.action], subject: { label }, facts, endAt: end, currentEndAt: oldEnd || undefined,
+        mode: intent.action === "share_live" ? (effectiveShareMode === "static_pin" ? "current" : "live") : undefined,
+        description: error ?? (isExactOverride
+          ? "Confirming shares your exact coordinates for this share only; your account default remains approximate."
+          : effectiveShareMode === "static_pin"
+            ? "Sends one static snapshot of where you are right now. It will not update as you move."
+            : intent.action === "share_live"
+              ? Capacitor.isNativePlatform() ? "Background updates depend on this device’s Location permissions." : "Keep this page visible to publish live updates."
+              : intent.action === "ask_extension" ? "The current end time stays in effect while approval is pending." : undefined),
         confirmLabel: staleReview ? "Review again" : titles[intent.action],
         confirmTone: intent.action === "stop" || intent.action === "decline" ? "destructive" : "default",
         error: !online && intent.action !== "stop" ? "You’re offline." : undefined,

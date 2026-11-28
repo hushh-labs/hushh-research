@@ -204,6 +204,10 @@ POST /api/one/email/information-requests/{workflow_id}/send-reply
 GET /api/one/email/information-requests/{workflow_id}/source-preview
 POST /api/one/email/mailbox/execute
 POST /api/one/email/prepare
+POST /api/one/email/reveal-ephemeral
+POST /api/one/email/schedule
+GET /api/one/email/scheduled
+POST /api/one/email/scheduled/{action_id}/cancel
 POST /api/one/email/send
 POST /api/one/first-connect-insights
 POST /api/one/information/chat
@@ -409,6 +413,7 @@ GET,PATCH /api/one/connect/voice-preferences
 GET,PATCH /api/one/email/information-requests/preference
 POST /api/one/insurance-agents/search
 GET,PATCH /api/one/location/account-settings
+POST /api/one/location/account-settings/pause
 GET,PATCH /api/one/location/setup-progress
 GET,PUT /api/one/models/preference
 GET /api/one/runtime/providers

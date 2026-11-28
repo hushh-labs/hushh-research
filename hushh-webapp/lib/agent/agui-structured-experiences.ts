@@ -26,6 +26,12 @@ import {
 import { parseCustomConnectorProbe, type CustomConnectorProbeExperience } from "./custom-connector-probe";
 import { parseOwnerStyleProposal, type OwnerStyleProposal } from "./owner-style-settings";
 import { parseMailBriefExperience, type MailBriefExperience, type ReceiptSetupExperience } from "./mail-chat-experiences";
+import {
+  parseSensitiveCodeRevealExperience,
+  type SensitiveCodeRevealExperience,
+} from "./sensitive-code-reveal";
+
+export const SENSITIVE_CODE_REVEAL_EXPERIENCE_TYPE = "one.sensitive_code_reveal.v1" as const;
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
@@ -283,7 +289,8 @@ export type AgentStructuredExperience =
   | TurnLocationPermissionExperience
   | FinanceCardExperience
   | MailBriefExperience
-  | ReceiptSetupExperience;
+  | ReceiptSetupExperience
+  | SensitiveCodeRevealExperience;
 
 export type AgentStructuredExperienceWithPresentation = AgentStructuredExperience & {
   presentation?: AgentExperiencePresentation;
@@ -821,6 +828,7 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
   [WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE]: parseWorkspaceConnectorSetupDescriptor,
   [TURN_LOCATION_PERMISSION_EXPERIENCE_TYPE]: parseTurnLocationPermissionDescriptor,
+  [SENSITIVE_CODE_REVEAL_EXPERIENCE_TYPE]: parseSensitiveCodeRevealExperience,
 };
 
 export function parseAgentActivityExperience(
@@ -864,6 +872,12 @@ export function parseAgentToolResultExperience(
     toolName === "gmail_list_needs_reply";
   if (toolName === "ask_email_agent" || directMailReadTool || toolName === "ask_documents_agent") {
     const unwrapped = unwrapToolResult(content);
+    if (directMailReadTool || toolName === "ask_email_agent") {
+      const sensitiveReveal = parseSensitiveCodeRevealExperience(
+        unwrapped?.sensitive_code_reveal,
+      );
+      if (sensitiveReveal) return sensitiveReveal;
+    }
     const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapped) : null;
     if (brief) return brief;
     const receipt = parseConnectorReadReceipt(unwrapped?.structured);

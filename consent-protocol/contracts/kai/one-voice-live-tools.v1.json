@@ -2267,8 +2267,10 @@
               "enable_location",
               "enable_device_location",
               "resume_updates",
+              "pause_updates",
               "sos_review",
               "sos_stop",
+              "emergency_share",
               "sms_contacts",
               "manage_circles",
               "manage_places",
@@ -2280,7 +2282,11 @@
               "manage_links",
               "check_in",
               "nearby_check_in",
-              "view_self"
+              "view_self",
+              "sharing_history",
+              "set_geofence",
+              "manage_geofences",
+              "block_location_peer"
             ],
             "title": "Action",
             "type": "string"
@@ -2341,6 +2347,90 @@
             "default": null,
             "title": "Durationmode"
           },
+          "endsAt": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Endsat"
+          },
+          "geofencePlace": {
+            "anyOf": [
+              {
+                "maxLength": 140,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Geofenceplace"
+          },
+          "geofencePlaceKind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "public_place",
+                  "saved_home"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Geofenceplacekind"
+          },
+          "geofenceTrigger": {
+            "anyOf": [
+              {
+                "enum": [
+                  "share_on_arrival",
+                  "stop_on_arrival"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Geofencetrigger"
+          },
+          "historyDays": {
+            "anyOf": [
+              {
+                "maximum": 30,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Historydays"
+          },
+          "includeEta": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Includeeta"
+          },
           "people": {
             "description": "Named people",
             "items": {
@@ -2349,6 +2439,78 @@
             "maxItems": 20,
             "title": "People",
             "type": "array"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "precise",
+                  "approximate",
+                  "city"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Precision"
+          },
+          "shareMode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "live",
+                  "static_pin",
+                  "task_bound"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sharemode"
+          },
+          "startsAt": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Startsat"
+          },
+          "stopAll": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stopall"
+          },
+          "taskLabel": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tasklabel"
           }
         },
         "required": [

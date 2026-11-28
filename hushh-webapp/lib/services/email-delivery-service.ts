@@ -61,6 +61,32 @@ export type EmailSendStatus = {
   state: "prepared" | "sending" | "sent" | "failed" | "outcome_unknown" | "expired" | "cancelled";
 };
 
+export type RevealedEphemeralCode = {
+  kind: "otp" | "credentials";
+  codes: string[];
+  sender: string;
+  subject: string;
+  receivedAt: string | null;
+  autoClearSeconds: number;
+};
+
+export type ScheduledEmailSummary = {
+  actionId: string;
+  state: string;
+  sendAt: string;
+  sendAtDisplay?: string;
+  recipientDisplay: string;
+  subject: string;
+  created?: boolean;
+};
+
+export type CancelledScheduledEmail = {
+  actionId: string;
+  cancelled: boolean;
+  state: string | null;
+  sentAt: string | null;
+};
+
 const PENDING_SEND_STORAGE_PREFIX = "one-email-pending-send-actions:v1:";
 const PENDING_SEND_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_PENDING_SEND_ACTIONS = 8;
@@ -163,6 +189,10 @@ export class EmailDeliveryError extends Error {
   get needsGmailSendingEnabled(): boolean {
     return this.code === "GMAIL_SEND_DISABLED";
   }
+
+  get needsGmailComposePermission(): boolean {
+    return this.code === "GMAIL_COMPOSE_PERMISSION_REQUIRED";
+  }
 }
 
 type EmailDeliveryAuth = {
@@ -216,7 +246,13 @@ function safeErrorMessage(code: string | null, status: number): string {
     return "Reconnect Mail to continue. Your draft is still here.";
   }
   if (code === "GMAIL_COMPOSE_PERMISSION_REQUIRED") {
-    return "Enable Gmail drafts in Connectors, then review this draft again.";
+    return "Enable Gmail drafts to save drafts directly to Gmail.";
+  }
+  if (code === "EPHEMERAL_CODE_UNAVAILABLE" || code === "EPHEMERAL_CODE_EXPIRED") {
+    return "This verification code expired or was already viewed. Ask One to check again.";
+  }
+  if (code === "SCHEDULE_TIME_UNPARSEABLE" || code === "SCHEDULE_TIME_TOO_SOON" || code === "SCHEDULE_TIME_TOO_FAR" || code === "INVALID_SEND_AT") {
+    return "Choose a future time at least 2 minutes from now (up to 30 days ahead).";
   }
   if (code === "GMAIL_NOT_CONNECTED") {
     return "Connect Gmail to continue. Your draft is still here.";
@@ -414,6 +450,7 @@ export class EmailDeliveryService {
 
   static async saveGmailDraft(input: EmailDeliveryAuth & {
     draft: EmailDraft;
+    idempotencyKey?: string;
   }): Promise<void> {
     if (await ownerRequiresByocIsolation()) {
       const prepared = await preparePrivateEmail(input.draft, 'save_draft');
@@ -424,20 +461,148 @@ export class EmailDeliveryService {
     if (input.draft.driveFileId) {
       throw new EmailDeliveryError("Gmail draft attachments are not available yet.", 400);
     }
+    const idempotencyKey =
+      input.idempotencyKey ||
+      (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `draft-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
+    const prepared = await EmailDeliveryService.prepare({
+      firebaseIdToken: input.firebaseIdToken,
+      vaultOwnerToken: input.vaultOwnerToken,
+      draft: input.draft,
+      idempotencyKey,
+      intent: "save_draft",
+    });
     const payload = await postJson<unknown>("/api/one/email/draft/save", input, {
+      action_id: prepared.actionId,
+      ...(prepared.senderToken ? { sender_token: prepared.senderToken } : {}),
       to: input.draft.to,
       cc: input.draft.cc,
       bcc: input.draft.bcc,
       subject: input.draft.subject,
       body: input.draft.body,
       html_body: input.draft.htmlBody,
+      ...sourceBinding(input.draft),
     });
     const record = asRecord(payload);
-    if (record?.status !== "saved" || !stringValue(record, "draft_id")) {
+    const draftId = stringValue(record, "draft_id");
+    if (record?.status !== "saved" || !draftId) {
       throw new EmailDeliveryError(
         "Gmail may have saved this draft. Check Gmail Drafts before trying again.", 502,
       );
     }
+  }
+
+  static async revealEphemeralCode(
+    input: EmailDeliveryAuth & { revealRef: string },
+  ): Promise<RevealedEphemeralCode> {
+    const payload = await postJson<unknown>("/api/one/email/reveal-ephemeral", input, {
+      reveal_ref: input.revealRef,
+    });
+    const record = asRecord(payload);
+    const codes = stringList(record, "codes");
+    if (!record || !codes.length) {
+      throw new EmailDeliveryError(
+        safeErrorMessage("EPHEMERAL_CODE_UNAVAILABLE", 404),
+        404,
+        "EPHEMERAL_CODE_UNAVAILABLE",
+      );
+    }
+    return {
+      kind: record.kind === "credentials" ? "credentials" : "otp",
+      codes,
+      sender: stringValue(record, "sender"),
+      subject: stringValue(record, "subject"),
+      receivedAt: stringValue(record, "received_at") || null,
+      autoClearSeconds:
+        typeof record.auto_clear_seconds === "number" && Number.isFinite(record.auto_clear_seconds)
+          ? record.auto_clear_seconds
+          : 60,
+    };
+  }
+
+  static async scheduleSend(
+    input: EmailDeliveryAuth & {
+      draft: EmailDraft;
+      sendAt: string;
+      timezone?: string;
+      recipientDisplay?: string;
+    },
+  ): Promise<ScheduledEmailSummary> {
+    const payload = await postJson<unknown>("/api/one/email/schedule", input, {
+      to: input.draft.to,
+      cc: input.draft.cc,
+      bcc: input.draft.bcc,
+      subject: input.draft.subject,
+      body: input.draft.body,
+      html_body: input.draft.htmlBody,
+      send_at: input.sendAt,
+      ...(input.timezone ? { timezone: input.timezone } : {}),
+      ...(input.recipientDisplay ? { recipient_display: input.recipientDisplay } : {}),
+      ...sourceBinding(input.draft),
+    });
+    const record = asRecord(payload);
+    const actionId = stringValue(record, "action_id");
+    if (!record || !actionId) {
+      throw new EmailDeliveryError("Could not confirm scheduled email. Try again.", 502);
+    }
+    return {
+      actionId,
+      state: stringValue(record, "state") || "scheduled",
+      sendAt: stringValue(record, "send_at") || input.sendAt,
+      sendAtDisplay: stringValue(record, "send_at_display") || undefined,
+      recipientDisplay: stringValue(record, "recipient_display") || input.draft.to,
+      subject: stringValue(record, "subject") || input.draft.subject,
+      created: record.created === true,
+    };
+  }
+
+  static async listScheduledSends(
+    input: EmailDeliveryAuth & { limit?: number },
+  ): Promise<ScheduledEmailSummary[]> {
+    if (await ownerRequiresByocIsolation()) return [];
+    const limit = Math.max(1, Math.min(input.limit ?? 10, 25));
+    const response = await ApiService.apiFetch(`/api/one/email/scheduled?limit=${limit}`, {
+      method: "GET",
+      headers: emailHeaders(input),
+    });
+    if (!response.ok) throw await readFailure(response);
+    const payload = asRecord(await response.json().catch(() => null));
+    const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+    return rawItems
+      .map((entry) => {
+        const row = asRecord(entry);
+        const actionId = stringValue(row, "action_id");
+        if (!row || !actionId) return null;
+        return {
+          actionId,
+          state: "scheduled",
+          sendAt: stringValue(row, "send_at"),
+          recipientDisplay: stringValue(row, "recipient_display"),
+          subject: stringValue(row, "subject"),
+        };
+      })
+      .filter((item): item is ScheduledEmailSummary => item !== null);
+  }
+
+  static async cancelScheduledSend(
+    input: EmailDeliveryAuth & { actionId: string },
+  ): Promise<CancelledScheduledEmail> {
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(input.actionId)) {
+      throw new EmailDeliveryError("That scheduled email is unavailable.", 404, "ACTION_NOT_FOUND");
+    }
+    const payload = await postJson<unknown>(
+      `/api/one/email/scheduled/${encodeURIComponent(input.actionId)}/cancel`,
+      input,
+      {},
+    );
+    const record = asRecord(payload);
+    return {
+      actionId: stringValue(record, "action_id") || input.actionId,
+      cancelled: record?.cancelled === true,
+      state: stringValue(record, "state") || null,
+      sentAt: stringValue(record, "sent_at") || null,
+    };
   }
   /** Apply the exact reviewed mailbox change; the server holds its messages and labels. */
   static async executeMailboxProposal(
@@ -490,11 +655,12 @@ export class EmailDeliveryService {
   static async prepare(input: EmailDeliveryAuth & {
     draft: EmailDraft;
     idempotencyKey: string;
+    intent?: "send" | "save_draft";
     draftRef?: string;
     revision?: number;
   }): Promise<PreparedEmailSend> {
     if (await ownerRequiresByocIsolation()) {
-      const prepared = await preparePrivateEmail(input.draft, 'send_email');
+      const prepared = await preparePrivateEmail(input.draft, input.intent === "save_draft" ? "save_draft" : "send_email");
       for (const [id, held] of privateSends) if (held.expiresAt <= Date.now() || held.owner !== prepared.owner) privateSends.delete(id);
       privateSends.set(prepared.proposalId, { owner: prepared.owner, draftHash: await reviewedDraftHash(input.draft), expiresAt: Date.parse(prepared.expiresAt) });
       return { actionId: prepared.proposalId, expiresAt: prepared.expiresAt, driveAttachment: null, attachmentToken: null };
@@ -507,6 +673,7 @@ export class EmailDeliveryService {
       body: input.draft.body,
       html_body: input.draft.htmlBody,
       idempotency_key: input.idempotencyKey,
+      ...(input.intent && input.intent !== "send" ? { intent: input.intent } : {}),
       ...(input.draftRef ? { draft_ref: input.draftRef, revision: input.revision } : {}),
       ...(input.draft.driveFileId
         ? { drive_attachment: { file_id: input.draft.driveFileId } }

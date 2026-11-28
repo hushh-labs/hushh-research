@@ -774,3 +774,124 @@ def test_withdrawing_voice_mail_reads_also_stops_offered_mail_replies():
     h.resolve.assert_not_awaited()
     h.delivery.execute.assert_not_awaited()
     assert kyc_reply.status_code == 200
+
+
+def test_typed_chat_reply_ref_succeeds_even_when_voice_reply_switch_is_off(monkeypatch):
+    monkeypatch.setattr(
+        reply_source,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="test-signing-key"),
+    )
+    source = reply_source.GmailReplySource(
+        account="google-account-1",
+        message_id="18f1c2d3e4a5b6c7",
+        thread_id=_REPLY_CONTEXT.thread_id,
+        recipient_email="sender@example.com",
+        recipient_display="Sender",
+        subject="Re: Quarterly numbers",
+        reply_context=_REPLY_CONTEXT,
+        fingerprint="f" * 64,
+        cc_list=("maya@example.com",),
+        mode="reply_all",
+    )
+    typed_ref = reply_source.seal_reply_source_ref(
+        source, owner_user_id="firebase-user", surface="typed_chat"
+    )
+    voice_ref = reply_source.seal_reply_source_ref(
+        source, owner_user_id="firebase-user", surface="voice"
+    )
+    with (
+        _reply_routes(enabled=False) as h,
+        patch.object(module, "connector_feature_enabled", return_value=True),
+    ):
+        typed_ok = h.client.post(
+            "/api/one/email/prepare",
+            json={**_envelope(), **_request("prepare"), "source_mail_ref": typed_ref},
+        )
+        # Negative control: voice-sealed ref stays blocked when voice reply switch is off.
+        voice_blocked = h.client.post(
+            "/api/one/email/prepare",
+            json={**_envelope(), **_request("prepare"), "source_mail_ref": voice_ref},
+        )
+
+    assert typed_ok.status_code == 200
+    assert voice_blocked.status_code == 403
+    assert voice_blocked.json()["detail"]["code"] == "MAIL_REPLY_UNAVAILABLE"
+
+
+def test_reveal_ephemeral_and_schedule_routes_enforce_owner_and_single_consume():
+    from datetime import datetime, timezone
+
+    from hushh_mcp.services.gmail_sensitive_content import (
+        clear_ephemeral_store_for_tests,
+        redact_sensitive_mail_items,
+    )
+
+    clear_ephemeral_store_for_tests()
+    _, exp, _ = redact_sensitive_mail_items(
+        [{"sender": "Google", "subject": "Code", "body": "Your verification code is 771234"}],
+        owner_user_id="firebase-user",
+        conversation_id="conv-route",
+        sensitive_masking="otp",
+    )
+    assert exp is not None
+    ref = exp["reveal_ref"]
+
+    client = TestClient(_app())
+    first = client.post("/api/one/email/reveal-ephemeral", json={"reveal_ref": ref})
+    assert first.status_code == 200
+    assert first.json()["codes"] == ["771234"]
+    assert first.headers["cache-control"] == "private, no-store"
+    # Negative control: single-consume rejects replay
+    replay = client.post("/api/one/email/reveal-ephemeral", json={"reveal_ref": ref})
+    assert replay.status_code == 404
+
+    service = MagicMock()
+    service.current_sender_sub = AsyncMock(return_value="sub-owner-1")
+    service.schedule_send = AsyncMock(
+        return_value={
+            "action_id": "sched-1",
+            "state": "scheduled",
+            "send_at": datetime(2026, 12, 5, 3, 30, tzinfo=timezone.utc),
+            "created": True,
+        }
+    )
+    service.list_scheduled_sends = AsyncMock(
+        return_value=[
+            {
+                "action_id": "sched-1",
+                "recipient_display": "ext@example.com",
+                "subject": "Reminder",
+                "send_at": datetime(2026, 12, 5, 3, 30, tzinfo=timezone.utc),
+                "created_at": datetime(2026, 11, 27, 12, 0, tzinfo=timezone.utc),
+            }
+        ]
+    )
+    service.cancel_scheduled_send = AsyncMock(
+        return_value={"cancelled": True, "state": "cancelled", "sent_at": None}
+    )
+    opportunistic_drain = AsyncMock(return_value={"success": True, "fired": 0})
+    with (
+        patch.object(module, "get_gmail_delivery_service", return_value=service),
+        patch.object(module, "drain_scheduled_mail", opportunistic_drain),
+    ):
+        sched = client.post(
+            "/api/one/email/schedule",
+            json={
+                **_envelope(),
+                "to": "ext@example.com",
+                "send_at": "2026-12-05T09:00:00",
+                "timezone": "Asia/Kolkata",
+            },
+        )
+        listed = client.get("/api/one/email/scheduled")
+        cancelled = client.post("/api/one/email/scheduled/sched-1/cancel")
+
+    assert sched.status_code == 200
+    assert sched.json()["action_id"] == "sched-1"
+    assert listed.status_code == 200
+    assert len(listed.json()["items"]) == 1
+    opportunistic_drain.assert_awaited_once()
+    assert opportunistic_drain.await_args.kwargs["owner_user_id"] == "firebase-user"
+    assert cancelled.status_code == 200
+    assert cancelled.json()["cancelled"] is True

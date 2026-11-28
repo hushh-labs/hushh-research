@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 MAX_LOCATION_SHARE_HOURS = 24.0
+MAX_CHAT_LOCATION_SHARE_HOURS = 8.0
+MAX_TASK_BOUND_SHARE_HOURS = 6.0
+MAX_SCHEDULED_TRIP_SHARE_DAYS = 30
+MAX_SCHEDULED_TRIP_SHARE_HOURS = float(MAX_SCHEDULED_TRIP_SHARE_DAYS * 24)
+EMERGENCY_OVERRIDE_DURATION_HOURS = 2.0
+EMERGENCY_OVERRIDE_MAX_RECIPIENTS = 25
 MIN_LOCATION_SHARE_HOURS = 0.25
 TIMED_LOCATION_SHARE_DURATION_MODE = "timed"
 UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE = "until_stopped"
@@ -12,6 +19,8 @@ LOCATION_SHARE_DURATION_MODES = {
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
 }
+GRANT_PRECISIONS = ("precise", "approximate", "city")
+SHARE_MODES = ("live", "static_pin", "task_bound")
 
 LOCATION_PEER_UNAVAILABLE = "LOCATION_PEER_UNAVAILABLE"
 LOCATION_PEER_UNAVAILABLE_MESSAGE = (
@@ -84,3 +93,41 @@ def format_duration_label(duration_hours: Any) -> str:
 def normalize_source_platform(value: Any) -> str:
     platform = str(value or "unknown").strip().lower()
     return platform if platform in _ALLOWED_SOURCE_PLATFORMS else "unknown"
+
+
+def normalize_grant_precision(value: Any) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip().lower()
+    if not cleaned:
+        return None
+    if cleaned not in GRANT_PRECISIONS:
+        raise ValueError("Location precision must be precise, approximate, or city.")
+    return cleaned
+
+
+def normalize_share_mode(value: Any) -> str:
+    cleaned = str(value or "live").strip().lower()
+    if cleaned not in SHARE_MODES:
+        raise ValueError("Location share mode must be live, static_pin, or task_bound.")
+    return cleaned
+
+
+def resolve_fixed_end_hours(
+    *,
+    ends_at: datetime,
+    now: datetime | None = None,
+    max_hours: float = MAX_CHAT_LOCATION_SHARE_HOURS,
+) -> tuple[float, datetime]:
+    """Convert an aware end timestamp into bounded hours relative to ``now``."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    target = ends_at.astimezone(timezone.utc)
+    delta_hours = (target - current).total_seconds() / 3600.0
+    if delta_hours < MIN_LOCATION_SHARE_HOURS:
+        raise ValueError("End time must be at least 15 minutes from now.")
+    if delta_hours > max_hours:
+        # Clamp gracefully if within a few minutes of boundary or reject clearly.
+        if delta_hours <= max_hours + 0.05:
+            return round(max_hours, 2), current + timedelta(hours=max_hours)
+        raise ValueError(f"Location sharing end time cannot exceed {int(max_hours)} hours.")
+    return round(delta_hours, 2), target

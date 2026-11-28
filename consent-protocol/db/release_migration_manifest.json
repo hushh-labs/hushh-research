@@ -398,7 +398,8 @@
     "463_control_plane_kyc_redaction_and_call_indexes.sql",
     "464_one_location_chat_plans.sql",
     "465_one_product_activity_event_result.sql",
-    "466_location_auto_approve_window.sql"
+    "466_location_auto_approve_window.sql",
+    "467_one_location_chat_e2e.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -576,7 +577,8 @@
       "364_one_private_text_processing_approvals.sql",
       "425_account_phone_transfers.sql",
       "427_workos_generation_memberships.sql",
-      "466_location_auto_approve_window.sql"
+      "466_location_auto_approve_window.sql",
+      "467_one_location_chat_e2e.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -848,6 +850,7 @@
     "463_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/463_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
     "464_one_location_chat_plans.sql": "rollback/464_one_location_chat_plans.rollback.sql",
     "465_one_product_activity_event_result.sql": "rollback/465_one_product_activity_event_result.rollback.sql",
-    "466_location_auto_approve_window.sql": "rollback/466_location_auto_approve_window.rollback.sql"
+    "466_location_auto_approve_window.sql": "rollback/466_location_auto_approve_window.rollback.sql",
+    "467_one_location_chat_e2e.sql": "rollback/467_one_location_chat_e2e.rollback.sql"
   }
 }
