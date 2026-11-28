@@ -17,7 +17,9 @@ from hushh_mcp.services.pod_commit_log import PodLogCursor, PodLogTampered
 from hushh_mcp.services.pod_memory_replay import _location
 from hushh_mcp.services.pod_object_version import ABSENT
 
-KEY = "projections/owner-recovery-v1.bin"
+# A v1 cursor can be past mailbox records that v1 never retained.
+LEGACY_KEY = "projections/owner-recovery-v1.bin"
+KEY = "projections/owner-recovery-v2.bin"
 MAX_RECORDS = 10_000
 MAX_BYTES = 8 * 1024 * 1024
 INTERVAL = 64
@@ -31,14 +33,17 @@ def record_kinds() -> set[str]:
         AUTHORITY_TRUST_KIND,
     )
     from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
-    from hushh_mcp.services.pod_connector_credentials import CLEARED_KIND, RECORD_KIND
+    from hushh_mcp.services.pod_connector_credentials import (
+        CREDENTIAL_CLEARED_KINDS,
+        CREDENTIAL_RECORD_KINDS,
+    )
     from hushh_mcp.services.pod_memory_service import MEMORY_RECORD_KINDS
 
     return {
         POD_CONFIG_RECORD_KIND,
         POD_AI_SELECTION_RECORD_KIND,
-        RECORD_KIND,
-        CLEARED_KIND,
+        *CREDENTIAL_RECORD_KINDS,
+        *CREDENTIAL_CLEARED_KINDS,
         AUTHORITY_TRUST_KIND,
         AUTHORITY_TOMBSTONE_KIND,
         *MEMORY_RECORD_KINDS,
