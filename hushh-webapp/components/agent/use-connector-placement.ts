@@ -6,6 +6,35 @@ import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionPrincip
 import { ownerRequiresByocIsolation } from "@/lib/one/byoc-isolation";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
+const MAX_SETTLED_PLACEMENTS = 8;
+const settledPlacements = new Map<string, "shared" | "private">();
+
+function placementCacheKey(
+  firebaseUid: string | null,
+  ownerId: string | null,
+  generation: number | undefined,
+  epoch: number,
+): string | null {
+  if (!firebaseUid || !ownerId || generation === undefined) return null;
+  return `${firebaseUid}:${ownerId}:${generation}:${epoch}`;
+}
+
+export function rememberConnectorPlacement(
+  firebaseUid: string | null,
+  ownerId: string | null,
+  value: "shared" | "private",
+): void {
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || principal.firebaseUid !== firebaseUid || principal.ownerId !== ownerId) return;
+  const key = placementCacheKey(firebaseUid, ownerId, principal.generation, snapshotVaultSessionEpoch());
+  if (!key) return;
+  if (!settledPlacements.has(key) && settledPlacements.size >= MAX_SETTLED_PLACEMENTS) {
+    const oldest = settledPlacements.keys().next().value;
+    if (oldest !== undefined) settledPlacements.delete(oldest);
+  }
+  settledPlacements.set(key, value);
+}
+
 class ConnectorPlacementVisit {
   live = false;
   pending = false;
@@ -19,6 +48,11 @@ export function useConnectorPlacement(open: boolean, firebaseUid: string | null,
   const principal = snapshotValidatedAuthSessionPrincipal();
   const generation = principal?.generation;
   const epoch = snapshotVaultSessionEpoch();
+  const cacheKey = placementCacheKey(firebaseUid, ownerId, generation, epoch);
+  const warmPlacement = useMemo(
+    () => (cacheKey ? settledPlacements.get(cacheKey) ?? null : null),
+    [cacheKey],
+  );
   // Settled renderer identity survives ordinary renewal and close/reopen.
   // Request eligibility has a shorter lifetime and cannot publish after either.
   const identity = useMemo(() => ({ live: false, firebaseUid, ownerId }), [firebaseUid, ownerId]);
@@ -26,7 +60,10 @@ export function useConnectorPlacement(open: boolean, firebaseUid: string | null,
   const visit = useMemo(() => new ConnectorPlacementVisit(open, firebaseUid, ownerId, generation, epoch),
     [open, firebaseUid, ownerId, generation, epoch]);
   useLayoutEffect(() => { visit.live = open; return () => { visit.live = false; }; }, [visit, open]);
-  const [placement, setPlacement] = useOwnerPresentationState<"shared" | "private" | "unavailable" | null>(identity, null);
+  const [placement, setPlacement] = useOwnerPresentationState<"shared" | "private" | "unavailable" | null>(
+    identity,
+    warmPlacement,
+  );
   const refresh = useCallback(async () => {
     const owner = snapshotValidatedAuthSessionPrincipal();
     const current = () => visit.live && !!owner && owner.firebaseUid === firebaseUid && owner.ownerId === ownerId &&
@@ -37,7 +74,9 @@ export function useConnectorPlacement(open: boolean, firebaseUid: string | null,
     try {
       const privateAgent = await ownerRequiresByocIsolation();
       if (!current()) return false;
-      setPlacement(privateAgent ? "private" : "shared");
+      const next = privateAgent ? "private" : "shared";
+      rememberConnectorPlacement(firebaseUid, ownerId, next);
+      setPlacement(next);
       return true;
     } catch {
       if (current()) setPlacement("unavailable");

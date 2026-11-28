@@ -30,7 +30,8 @@ import { Switch } from "@/components/ui/switch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { HushhAuth } from "@/lib/capacitor";
 import {
   NATIVE_CONNECTOR_RETURN_EVENT,
@@ -364,20 +365,102 @@ function selectedNativePickerFiles(
   return files;
 }
 
+const MAX_SETTLED_CATALOG_SNAPSHOTS = 8;
+const settledCatalogSnapshots = new Map<
+  string,
+  { overview: ConnectorOverview; documents: DriveDocument[] }
+>();
+
+function catalogCacheKey(ownerId: string | null | undefined, hasOwnerToken: boolean): string | null {
+  if (!ownerId || !hasOwnerToken) return null;
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || principal.ownerId !== ownerId) return null;
+  return `${ownerId}:${principal.generation}:${snapshotVaultSessionEpoch()}`;
+}
+
+function purgeOwnerCatalogSnapshots(ownerId: string | null | undefined): void {
+  if (!ownerId) return;
+  for (const key of settledCatalogSnapshots.keys()) {
+    if (key.startsWith(`${ownerId}:`)) settledCatalogSnapshots.delete(key);
+  }
+}
+
+export function seedConnectorCatalogSnapshot(
+  ownerId: string | null | undefined,
+  hasOwnerToken: boolean,
+  next: { overview?: ConnectorOverview; documents?: DriveDocument[] },
+): void {
+  const key = catalogCacheKey(ownerId, hasOwnerToken);
+  if (!key) return;
+  const existing = settledCatalogSnapshots.get(key);
+  const overview = next.overview ?? existing?.overview;
+  if (!overview) return;
+  if (!existing && settledCatalogSnapshots.size >= MAX_SETTLED_CATALOG_SNAPSHOTS) {
+    const oldest = settledCatalogSnapshots.keys().next().value;
+    if (oldest !== undefined) settledCatalogSnapshots.delete(oldest);
+  }
+  settledCatalogSnapshots.set(key, {
+    overview,
+    documents: next.documents ?? existing?.documents ?? [],
+  });
+}
+
+function ConnectorsCatalogSkeleton({
+  statusText,
+  inProfile,
+}: {
+  statusText: string;
+  inProfile: boolean;
+}) {
+  return (
+    <div className={inProfile ? "space-y-4" : "space-y-4 py-1"}>
+      <p role="status" aria-live="polite" className="sr-only">
+        {statusText}
+      </p>
+      <div
+        aria-hidden="true"
+        className="overflow-hidden rounded-2xl border border-border/50 bg-card/50 divide-y divide-border/40"
+      >
+        {[0, 1, 2, 3].map((row) => (
+          <div key={row} className="flex min-h-14 items-center gap-3 px-4 py-2.5">
+            <span className="size-9 shrink-0 rounded-xl bg-foreground/[0.06] motion-safe:animate-pulse" />
+            <span className="min-w-0 flex-1 space-y-1.5">
+              <span className="block h-3.5 w-28 rounded-full bg-foreground/[0.07] motion-safe:animate-pulse" />
+              <span className="block h-2.5 w-40 rounded-full bg-foreground/[0.045] motion-safe:animate-pulse" />
+            </span>
+            <span className="h-8 w-20 shrink-0 rounded-full bg-foreground/[0.055] motion-safe:animate-pulse" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ConnectorsPanel(props: Props) {
   const { user, userId: applicationOwnerId } = useAuth();
   // Discard all local state on account switch or lock; don't display the prior
   // owner's account labels, pending selection or status on the new session.
   const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
+  useLayoutEffect(() => {
+    if (!vaultOwnerToken) purgeOwnerCatalogSnapshots(applicationOwnerId);
+  }, [applicationOwnerId, vaultOwnerToken]);
   const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
     getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
   const { placement, refresh: retryPlacement } = useConnectorPlacement(props.open, user?.uid ?? null, applicationOwnerId ?? null);
   if (placement !== 'shared') {
     if (!props.open) return null;
     if (placement === null || placement === 'unavailable') {
-      const webBody = <div className="p-4 text-sm"><p role="status">{placement === null
-        ? "Checking where your agent runs…" : "Your agent's hosting could not be verified. Try again."}</p>
-        {placement === 'unavailable' ? <Button variant="outline" onClick={() => void retryPlacement()}>Retry</Button> : null}</div>;
+      const webBody = placement === null ? (
+        <ConnectorsCatalogSkeleton
+          statusText="Checking where your agent runs…"
+          inProfile={props.surface === "profile"}
+        />
+      ) : (
+        <div className="p-4 text-sm">
+          <p role="status">Your agent&apos;s hosting could not be verified. Try again.</p>
+          <Button variant="outline" onClick={() => void retryPlacement()}>Retry</Button>
+        </div>
+      );
       // The retained owner is hidden; every state must reach its authored
       // presentation port rather than disappearing inside that hidden subtree.
       return props.render ? props.render({ nativeComplete: true, selectedConnector: null, detail: null, custom: null,
@@ -437,8 +520,10 @@ function OwnerConnectorsPanel({
     liveUnlockOwner.current = unlockOwner;
     return () => { if (liveUnlockOwner.current === unlockOwner) liveUnlockOwner.current = null; };
   }, [unlockOwner]);
-  const [overview, setOverview] = useState<ConnectorOverview | null>(null);
-  const [documents, setDocuments] = useState<DriveDocument[]>([]);
+  const warmCatalogKey = catalogCacheKey(applicationOwnerId, hasOwnerToken);
+  const warmCatalog = warmCatalogKey ? settledCatalogSnapshots.get(warmCatalogKey) : undefined;
+  const [overview, setOverview] = useState<ConnectorOverview | null>(() => warmCatalog?.overview ?? null);
+  const [documents, setDocuments] = useState<DriveDocument[]>(() => warmCatalog?.documents ?? []);
   const [allowBackground, setAllowBackground] = useState(false);
   const [liveBackground, setLiveBackground] = useState<boolean | null>(null);
   const [liveBackgroundError, setLiveBackgroundError] = useState(false);
@@ -447,7 +532,7 @@ function OwnerConnectorsPanel({
   const [liveBackgroundRead, retryLiveBackground] = useState(0);
   const [loading, setLoading] = useState(false);
   const [catalogLoadFailed, setCatalogLoadFailed] = useState(false);
-  const [statusChecked, setStatusChecked] = useState(false);
+  const [statusChecked, setStatusChecked] = useState(() => Boolean(warmCatalog));
   const [driveMessage, setDriveMessage] = useState("");
   const [mailMessage, setMailMessage] = useState("");
   const [plaidMessage, setPlaidMessage] = useState("");
@@ -550,7 +635,7 @@ function OwnerConnectorsPanel({
   // The connector the open sign-in window belongs to, so only its detail view
   // offers Cancel.
   const [curatedPopupFor, setCuratedPopupFor] = useState<string | null>(null);
-  const latestOverview = useRef<ConnectorOverview | null>(null);
+  const latestOverview = useRef<ConnectorOverview | null>(warmCatalog?.overview ?? null);
   const ownerUid = applicationOwnerId;
   useEffect(
     () => () => curatedPopupSession.current?.abort(),
@@ -659,10 +744,10 @@ function OwnerConnectorsPanel({
       return false;
     }
     const request = ++overviewRead.current;
-    setStatusChecked(false);
+    if (!latestOverview.current) setStatusChecked(false);
     setCatalogLoadFailed(false);
     setLoading(true);
-    onCatalogStateChange?.("loading");
+    if (!latestOverview.current) onCatalogStateChange?.("loading");
     try {
       let result = await ExternalConnectorService.overview(token);
       const isEffectCurrent = () => !signal?.aborted &&
@@ -689,6 +774,7 @@ function OwnerConnectorsPanel({
       )
         return false;
       latestOverview.current = result;
+      seedConnectorCatalogSnapshot(ownerUid, true, { overview: result });
       setOverview(result);
       setCatalogLoadFailed(false);
       setStatusChecked(true);
@@ -700,6 +786,9 @@ function OwnerConnectorsPanel({
         currentToken.current === token &&
         request === overviewRead.current
       ) {
+        latestOverview.current = null;
+        purgeOwnerCatalogSnapshots(ownerUid);
+        setStatusChecked(false);
         setCatalogLoadFailed(true);
         setDriveMessage(
           "Could not check Drive. Retry before starting another connection.",
@@ -717,7 +806,7 @@ function OwnerConnectorsPanel({
       )
         setLoading(false);
     }
-  }, [onCatalogStateChange]);
+  }, [onCatalogStateChange, ownerUid]);
   const refreshDocuments = useCallback(async (signal: AbortSignal) => {
     const token = currentToken.current;
     if (!token) return;
@@ -727,9 +816,11 @@ function OwnerConnectorsPanel({
       !signal.aborted &&
       currentToken.current === token &&
       request === documentRead.current
-    )
+    ) {
+      seedConnectorCatalogSnapshot(ownerUid, true, { documents: next });
       setDocuments(next);
-  }, []);
+    }
+  }, [ownerUid]);
   useLayoutEffect(() => {
     if (!open) return;
     const lifetime = new AbortController();
@@ -2698,10 +2789,12 @@ function OwnerConnectorsPanel({
     ["Connected", connectedEntries],
     ["Available", availableEntries],
   ] as const;
-  const catalogState = !overview && loading ? (
-    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-      Loading connector catalog…
-    </p>
+  const initialCatalogLoading = !overview && loading && !catalogLoadFailed;
+  const catalogState = initialCatalogLoading ? (
+    <ConnectorsCatalogSkeleton
+      statusText="Loading connector catalog…"
+      inProfile={inProfile}
+    />
   ) : catalogLoadFailed ? (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-foreground/10 px-3 py-2">
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
@@ -2783,26 +2876,32 @@ function OwnerConnectorsPanel({
         ) : !activeConnector && inProfile ? (
           <>
             {catalogState}
-            {googleClearanceBanner}
-            {listSections.map(([heading, items]) =>
-              items.length === 0 ? null : (
-                <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
-                  {items.map((entry) => (
-                    <ProfileConnectorRow
-                      key={entry.id}
-                      entry={entry}
-                      showAccessDetails={showAccessDetails}
-                    />
-                  ))}
-                </SettingsGroup>
-              ),
+            {initialCatalogLoading ? null : (
+              <>
+                {googleClearanceBanner}
+                {listSections.map(([heading, items]) =>
+                  items.length === 0 ? null : (
+                    <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
+                      {items.map((entry) => (
+                        <ProfileConnectorRow
+                          key={entry.id}
+                          entry={entry}
+                          showAccessDetails={showAccessDetails}
+                        />
+                      ))}
+                    </SettingsGroup>
+                  ),
+                )}
+              </>
             )}
-            {customPresentation ? customPresentation.body : open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
-              key={applicationOwnerId}
-              access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
-              isAccessCurrent={customAccessIsCurrent}
-              onPrepareRecovery={onPrepareRecovery}
-            /> : null}
+            <div hidden={initialCatalogLoading}>
+              {customPresentation ? customPresentation.body : open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+                key={applicationOwnerId}
+                access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
+                isAccessCurrent={customAccessIsCurrent}
+                onPrepareRecovery={onPrepareRecovery}
+              /> : null}
+            </div>
           </>
         ) : !activeConnector ? (
           <>
@@ -2820,30 +2919,36 @@ function OwnerConnectorsPanel({
               />
             </label>
             {catalogState}
-            {googleClearanceBanner}
-            {listSections.map(([heading, items]) =>
-              query && items.length === 0 ? null : (
-                <section key={heading} aria-label={heading} className="space-y-2">
-                  <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
-                  <ul className="overflow-hidden rounded-2xl bg-foreground/10">
-                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} leading={<ConnectorGlyph id={entry.id} />} status={connectorRowStatus(entry)} actionLabel={<ConnectorActionLabel entry={entry} />} accessPurpose={showAccessDetails ? connectorAccessPurpose(entry.id) : undefined} />) : (
-                      <li className="px-4 py-4 text-sm text-muted-foreground">
-                        {heading === "Connected" ? "No connected connectors" : "No available connectors"}
-                      </li>
-                    )}
-                  </ul>
-                </section>
-              ),
+            {initialCatalogLoading ? null : (
+              <>
+                {googleClearanceBanner}
+                {listSections.map(([heading, items]) =>
+                  query && items.length === 0 ? null : (
+                    <section key={heading} aria-label={heading} className="space-y-2">
+                      <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
+                      <ul className="overflow-hidden rounded-2xl bg-foreground/10">
+                        {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} leading={<ConnectorGlyph id={entry.id} />} status={connectorRowStatus(entry)} actionLabel={<ConnectorActionLabel entry={entry} />} accessPurpose={showAccessDetails ? connectorAccessPurpose(entry.id) : undefined} />) : (
+                          <li className="px-4 py-4 text-sm text-muted-foreground">
+                            {heading === "Connected" ? "No connected connectors" : "No available connectors"}
+                          </li>
+                        )}
+                      </ul>
+                    </section>
+                  ),
+                )}
+                {query && matchingEntries.length === 0 ? (
+                  <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
+                ) : null}
+              </>
             )}
-            {query && matchingEntries.length === 0 ? (
-              <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
-            ) : null}
-            {!query && customPresentation ? customPresentation.body : !query && open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
-              key={applicationOwnerId}
-              access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
-              isAccessCurrent={customAccessIsCurrent}
-              onPrepareRecovery={onPrepareRecovery}
-            /> : null}
+            <div hidden={initialCatalogLoading || Boolean(query)}>
+              {!query && customPresentation ? customPresentation.body : !query && open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+                key={applicationOwnerId}
+                access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
+                isAccessCurrent={customAccessIsCurrent}
+                onPrepareRecovery={onPrepareRecovery}
+              /> : null}
+            </div>
           </>
         ) : (
           <div
