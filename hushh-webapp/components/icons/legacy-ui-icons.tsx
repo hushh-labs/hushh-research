@@ -248,6 +248,7 @@ export const ShoppingBag = createCanonicalIcon(Phosphor.ShoppingBag);
 export const Siren = createCanonicalIcon(Phosphor.Siren);
 export const SlidersHorizontal = createCanonicalIcon(Phosphor.SlidersHorizontal);
 export const Smartphone = createCanonicalIcon(Phosphor.DeviceMobile);
+export const Sparkle = createCanonicalIcon(Phosphor.Sparkle, "regular");
 export const Star = createCanonicalIcon(Phosphor.Star);
 export const Store = createCanonicalIcon(Phosphor.Storefront);
 export const Target = createCanonicalIcon(Phosphor.Target);

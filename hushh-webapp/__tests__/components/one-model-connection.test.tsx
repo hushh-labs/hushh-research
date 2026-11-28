@@ -49,6 +49,23 @@ describe("OneModelConnection", () => {
         connection={{
           user_id: "owner",
           selected_model: null,
+          effective_model: "gemini-4-hydrogen",
+          source: "owner_pod",
+          choices: [],
+          effective_provider: "gemini",
+          verification: "previously_verified",
+        }}
+      />,
+    );
+    expect(screen.getByText("Gemini 4")).toBeVisible();
+    expect(screen.queryByText(/hydrogen/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Gemini · 4/)).not.toBeInTheDocument();
+
+    rerender(
+      <OneModelConnection
+        connection={{
+          user_id: "owner",
+          selected_model: null,
           effective_model: "model",
           source: "owner_pod",
           choices: [],
