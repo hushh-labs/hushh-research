@@ -57,16 +57,155 @@ def _pod_owner() -> str:
 class PodGoogleConnections:
     """``GoogleConnectionService.access_token``'s contract, from the agent's own login."""
 
-    def __init__(self, *, token_source: Any = None, owner_user_id: str = "") -> None:
+    db = None
+
+    def __init__(
+        self,
+        *,
+        token_source: Any = None,
+        owner_user_id: str = "",
+        account_id: str = "default",
+        expected_email: str | None = None,
+    ) -> None:
         self._source = token_source
         self._owner = owner_user_id
+        self._account_id = (account_id or "default").strip() or "default"
+        self._expected_email = expected_email.strip().casefold() if expected_email else None
         self.credential_id: Optional[str] = None
 
-    def require_current(self, service: str = "calendar") -> credentials.ConnectorCredential:
+    @staticmethod
+    def _hosted_ace_brokered() -> bool:
+        from hushh_mcp.services.pod_hub_client import hub_base_url  # noqa: PLC0415
+        from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+            hosted_ace_runtime,
+            owner_cloud_agent,
+        )
+
+        return bool(hosted_ace_runtime() and not owner_cloud_agent() and hub_base_url())
+
+    def for_calendar_account(
+        self, account_id: str, *, expected_email: str | None = None
+    ) -> PodGoogleConnections:
+        return PodGoogleConnections(
+            token_source=self._source,
+            owner_user_id=self._owner,
+            account_id=account_id,
+            expected_email=expected_email,
+        )
+
+    async def calendar_accounts_status(
+        self, *, user_id: str, include_pictures: bool = False
+    ) -> dict[str, Any]:
+        del include_pictures
+        if not user_id or user_id != (self._owner or _pod_owner()):
+            return {"accounts": [], "account_limit": 5}
+        if not self._hosted_ace_brokered():
+            st = await self.status(user_id=user_id, service="calendar")
+            accounts = (
+                [
+                    {
+                        "account_id": "default",
+                        "google_email": None,
+                        "status": st.get("status", "disconnected"),
+                        "connected": bool(st.get("connected")),
+                    }
+                ]
+                if st.get("status") != "disconnected"
+                else []
+            )
+            return {**st, "accounts": accounts, "account_limit": 1}
+        import asyncio  # noqa: PLC0415
+
+        from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+            PodHubClient,
+            PodHubUnavailable,
+        )
+
         try:
-            held = credentials.active_connector_credential(service)
-        except credentials.ConnectorCredentialsUnavailable:
-            raise GoogleConnectionError("Google connection unavailable", status_code=503) from None
+            body = await asyncio.to_thread(
+                PodHubClient().broker_google_connector_token,
+                service="calendar",
+                action="accounts",
+            )
+        except PodHubUnavailable as exc:
+            raise GoogleConnectionError(
+                "Google Calendar accounts unavailable", status_code=503
+            ) from exc
+        accounts = [a for a in (body.get("accounts") or []) if isinstance(a, dict)]
+        default_acc = next((a for a in accounts if a.get("account_id") == "default"), None)
+        return {
+            "configured": True,
+            "connected": bool(default_acc and default_acc.get("connected")),
+            "status": str((default_acc or {}).get("status") or "disconnected"),
+            "google_email": (default_acc or {}).get("google_email"),
+            "accounts": accounts,
+            "account_limit": int(body.get("accountLimit") or 5),
+        }
+
+    def _brokered_additional_grant(self, service: str) -> credentials.ConnectorCredential | None:
+        if self._account_id == "default" or not self._hosted_ace_brokered():
+            return None
+        from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+            PodHubClient,
+            PodHubUnavailable,
+        )
+
+        try:
+            body = PodHubClient().broker_google_connector_token(
+                service=service,
+                action="grant",
+                account_id=self._account_id,
+            )
+        except PodHubUnavailable:
+            return None
+        status = str(body.get("status") or credentials.STATUS_ABSENT)
+        if status not in {credentials.STATUS_CONNECTED, credentials.STATUS_NEEDS_REAUTH}:
+            return None
+        email = str(body.get("accountEmail") or "")
+        if self._expected_email and email.casefold() != self._expected_email:
+            raise GoogleConnectionError(
+                "Calendar connection changed",
+                status_code=409,
+                reason_code="calendar_account_mismatch",
+            )
+        return credentials.ConnectorCredential(
+            credential_id=str(body.get("credentialId") or f"hub-{service}:{self._account_id}"),
+            connector_id=service,
+            provider="google",
+            account_subject=str(body.get("accountSubject") or ""),
+            granted_scopes=tuple(str(s) for s in (body.get("grantedScopes") or ())),
+            client_profile=credentials.HUB_BRIDGED_PROFILE,
+            client_id="",
+            generation=max(1, int(body.get("generation") or 1)),
+            status=status,
+            connected_at_ms=int(body.get("connectedAtMs") or 1),
+            issued_at_ms=0,
+            refresh_token="",
+            account_id=self._account_id,
+            account_email=email,
+        )
+
+    def require_current(self, service: str = "calendar") -> credentials.ConnectorCredential:
+        if self._account_id != "default":
+            held = self._brokered_additional_grant(service)
+        else:
+            try:
+                held = credentials.active_connector_credential(service)
+            except credentials.ConnectorCredentialsUnavailable:
+                raise GoogleConnectionError(
+                    "Google connection unavailable", status_code=503
+                ) from None
+            if (
+                held is not None
+                and self._expected_email
+                and held.account_email
+                and held.account_email.casefold() != self._expected_email
+            ):
+                raise GoogleConnectionError(
+                    "Calendar connection changed",
+                    status_code=409,
+                    reason_code="calendar_account_mismatch",
+                )
         if held is None or held.status != credentials.STATUS_CONNECTED:
             raise GoogleConnectionError(
                 "Connect Google first",
@@ -87,6 +226,8 @@ class PodGoogleConnections:
     ) -> credentials.ConnectorCredential | None:
         if not user_id or user_id != (self._owner or _pod_owner()) or service not in _SERVICES:
             return None
+        if self._account_id != "default":
+            return self._brokered_additional_grant(service)
         try:
             return credentials.active_connector_credential(service)
         except credentials.ConnectorCredentialsUnavailable:
@@ -129,13 +270,63 @@ class PodGoogleConnections:
         return {"connected": connected, "status": held.status if held else "disconnected"}
 
     async def access_token(
-        self, *, user_id: str, service: Any, access_level: Literal["read", "manage"]
+        self,
+        *,
+        user_id: str,
+        service: Any,
+        access_level: Literal["read", "manage"],
+        account_id: str | None = None,
     ) -> str:
         if not user_id or user_id != (self._owner or _pod_owner()):
             raise GoogleConnectionError("Google connection owner mismatch", status_code=403)
         if service not in _SERVICES:
             # Contacts never borrow this door; they have their own in-agent reader.
             raise GoogleConnectionError("Google service unavailable here", status_code=403)
+        target_account = (account_id or self._account_id or "default").strip() or "default"
+        if target_account != "default":
+            if not self._hosted_ace_brokered():
+                raise GoogleConnectionError(
+                    "Additional Calendar accounts are unavailable in this runtime.",
+                    status_code=422,
+                    reason_code="calendar_account_unavailable",
+                )
+            import asyncio  # noqa: PLC0415
+
+            from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+                PodHubClient,
+                PodHubUnavailable,
+            )
+
+            self.require_current(service)
+            try:
+                bridged = await asyncio.to_thread(
+                    PodHubClient().broker_google_connector_token,
+                    service=service,
+                    action="access_token",
+                    level=access_level,
+                    account_id=target_account,
+                )
+            except PodHubUnavailable as exc:
+                msg = str(exc)
+                reason = (
+                    "google_permission_required"
+                    if "SCOPE_NOT_GRANTED" in msg or "google_permission_required" in msg
+                    else "google_reauthorization_required"
+                    if "reauth" in msg or "status=401" in msg
+                    else None
+                )
+                raise GoogleConnectionError(
+                    "Google connection is not ready on your agent",
+                    status_code=403 if reason == "google_permission_required" else 401,
+                    reason_code=reason,
+                ) from None
+            token = str(bridged.get("accessToken") or "").strip()
+            if not token:
+                raise GoogleConnectionError(
+                    "Connect Google first", status_code=401, reason_code="google_not_connected"
+                )
+            self.require_current(service)
+            return token
         source = self._source if self._source is not None else google_token_source()
         self.require_current(service)
         try:
@@ -153,6 +344,13 @@ class PodGoogleConnections:
     async def calendar_list_access_token(self, *, user_id: str) -> str:
         if user_id != (self._owner or _pod_owner()):
             raise GoogleConnectionError("Google connection owner mismatch", status_code=403)
+        if self._account_id != "default":
+            return await self.access_token(
+                user_id=user_id,
+                service="calendar",
+                access_level="read",
+                account_id=self._account_id,
+            )
         self.require_current("calendar")
         source = self._source if self._source is not None else google_token_source()
         try:

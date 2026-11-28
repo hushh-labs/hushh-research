@@ -92,11 +92,20 @@ def _validate_account_reference(account_id: str) -> None:
         )
 
 
+def _hosted_ace_multi_account_enabled() -> bool:
+    from hushh_mcp.services.pod_hub_client import hub_base_url
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime, owner_cloud_agent
+
+    return bool(hosted_ace_runtime() and not owner_cloud_agent() and hub_base_url())
+
+
 def _require_shared_calendar_accounts() -> None:
     from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
     from hushh_mcp.services.pod_google_connections import calendar_runs_locally
     from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
 
+    if _hosted_ace_multi_account_enabled() and not calendar_reads_via_door():
+        return
     if private_pod_runtime() or calendar_reads_via_door() or calendar_runs_locally():
         raise GoogleConnectionError(
             "Additional Calendar accounts are unavailable in this runtime.",
@@ -111,6 +120,17 @@ def _calendar_service(account_id: str, *, expected_email: str | None = None) -> 
         return get_google_calendar_service()
 
     _require_shared_calendar_accounts()
+    if _hosted_ace_multi_account_enabled():
+        from hushh_mcp.services.pod_google_connections import (
+            PodCalendarProposalStore,
+            PodCalendarService,
+            PodGoogleConnections,
+        )
+
+        conns = PodGoogleConnections(account_id=account_id, expected_email=expected_email)
+        return PodCalendarService(
+            connections=conns, proposals=PodCalendarProposalStore(connections=conns)
+        )
     from hushh_mcp.services.calendar_account_board_service import account_schedule
 
     if expected_email is not None:
@@ -338,16 +358,27 @@ def _handle_connection_error(
             include_calendar_list=True,
             account_id=account_id,
         )
-    label = "scheduling and editing events" if access_level == "manage" else "reading events"
     if exc.reason_code in {"google_permission_required", "calendar_permission_required"}:
-        message = f"Allow Google Calendar permission for {label} to continue."
+        message = (
+            "Allow Google Calendar scheduling to continue."
+            if access_level == "manage"
+            else "Allow Google Calendar access to check your schedule."
+        )
     elif exc.reason_code in {
         "google_reauthorization_required",
         "calendar_reauthorization_required",
     }:
-        message = f"Renew Google Calendar permission for {label} to continue."
+        message = (
+            "Reconnect Google Calendar to schedule or edit events."
+            if access_level == "manage"
+            else "Reconnect Google Calendar to check your schedule."
+        )
     else:
-        message = f"Connect Google Calendar with permission for {label} to continue."
+        message = (
+            "Connect Google Calendar to schedule or edit events."
+            if access_level == "manage"
+            else "Connect Google Calendar to check your schedule."
+        )
     return _connection_directive(
         tool_context,
         access_level=access_level,
@@ -459,8 +490,10 @@ async def _run_calendar_read(
                 from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
                 from hushh_mcp.services.pod_google_connections import calendar_runs_locally
 
-                # Shared account inventory is never a fallback for a private port.
-                if calendar_reads_via_door() or calendar_runs_locally():
+                # Shared account inventory is never a fallback for an owner-cloud private port.
+                if calendar_reads_via_door() or (
+                    calendar_runs_locally() and not _hosted_ace_multi_account_enabled()
+                ):
                     return {
                         "status": "unavailable",
                         "message": "Cross-account Calendar reads are unavailable in this runtime.",
@@ -483,7 +516,12 @@ async def _run_calendar_read(
                     CalendarAccountBoardService,
                 )
 
-                service = CalendarAccountBoardService()
+                if _hosted_ace_multi_account_enabled():
+                    from hushh_mcp.services.pod_google_connections import PodGoogleConnections
+
+                    service = CalendarAccountBoardService(connections=PodGoogleConnections())  # type: ignore[arg-type]
+                else:
+                    service = CalendarAccountBoardService()
                 account_id = ""
             else:
                 service, account_id = await _read_service(

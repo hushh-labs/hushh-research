@@ -333,6 +333,13 @@ for (const viewport of [CASES[0], CASES[3]]) {
     ).toHaveValue(
       "Join me on One so we can connect.\nhttps://one.example/r/fixture",
     );
+    const preview = page.getByRole("textbox", { name: "Invitation message" });
+    const previewSize = await preview.evaluate((element) => ({
+      visible: element.clientHeight,
+      content: element.scrollHeight,
+    }));
+    expect(previewSize.content).toBeLessThanOrEqual(previewSize.visible + 1);
+    await expect(page.getByText(/Opens one Messages draft/)).toHaveCount(0);
     const open = page.getByRole("button", {
       name: "Open Messages · 15 contacts",
     });

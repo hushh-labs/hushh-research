@@ -120,12 +120,12 @@ import {
   AudioLines,
   ChevronDown,
   Cloud,
-  Cpu,
   FileText,
   KeyRound,
   Laptop,
   LogIn,
   Send,
+  Sparkle,
   StopSquare,
   User,
   X,
@@ -937,6 +937,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired,
   );
   const [isTurnWaking, setIsTurnWaking] = useState(false);
+  const [isQueueWarmingWait, setIsQueueWarmingWait] = useState(false);
+  const chatWakeRef = useRef(chatWake);
+  chatWakeRef.current = chatWake;
+  const queueWarmingSignalRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (
+      !chatWake.isWarmingUp ||
+      chatWake.livePresence === "awake" ||
+      chatWake.livePresence === "gone" ||
+      chatWake.state === "failed"
+    ) {
+      queueWarmingSignalRef.current?.();
+    }
+  }, [chatWake.isWarmingUp, chatWake.livePresence, chatWake.state]);
   // Puppy One is mounted on FIRST use and hidden thereafter, never unmounted.
   // Unmounting it destroyed the whole on-device conversation and its Hermes
   // session on every glance at One, which is exactly what the comment beside
@@ -2034,9 +2048,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (isVoiceConnecting) return "Voice connecting";
     if (isToolWorking) return "Working";
     if (isVisiblePkmMemoryWorking) return "Saving to Memory";
+    if (queuedPrompts.length > 0 && isQueueWarmingWait)
+      return `Starting up · ${queuedPrompts.length} queued`;
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
-    if (isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking")
-      return "Waking up…";
+    if (isQueueWarmingWait || isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking")
+      return "Starting up…";
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
     if (chatWake.livePresence === "gone") return "Not responding";
@@ -2048,6 +2064,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     chatWake.isWaking,
     chatWake.livePresence,
     isChatLoading,
+    isQueueWarmingWait,
     isTurnWaking,
     isVisiblePkmMemoryWorking,
     emailDraftOpen,
@@ -2068,7 +2085,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (isPuppySurface || authLoading || !applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) {
       return null;
     }
-    if (isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking") {
+    if (isQueueWarmingWait || isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking") {
       return "waking" as const;
     }
     if (chatWake.livePresence === "gone") {
@@ -2089,6 +2106,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     chatWake.livePresence,
     isChatLoading,
     isPuppySurface,
+    isQueueWarmingWait,
     isStreaming,
     isToolWorking,
     isTurnWaking,
@@ -3178,7 +3196,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * cancellable while Google's window is open; on success it is cleared, as
    * the old redirect-return did, and the person stays in this chat.
    */
-  const runDirectiveConnect = (kind: "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar", accountId = "default") => {
+  const runDirectiveConnect = (kind: "gmail_read" | "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar", accountId = "default") => {
     const owner = user;
     if (!owner?.uid || !applicationOwnerId) return;
     const ownerId = applicationOwnerId;
@@ -3197,6 +3215,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
               isCurrent,
             })
+          : kind === "gmail_read"
+            ? connectGmailInPlace({
+                owner,
+                purpose: "read",
+                ...controls,
+                vaultOwnerCapability: vaultOwnerToken ?? undefined,
+                confirmLegacyTransition: confirmTransition,
+                isCurrent,
+              })
           : kind === "gmail_compose"
             ? connectGmailInPlace({
                 owner,
@@ -8232,11 +8259,115 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
   };
 
+  const waitForAgentReadyBeforeDequeue = async () => {
+    if (
+      !hasChatAccess ||
+      isPuppySurface ||
+      isStreaming ||
+      isChatLoading ||
+      !chatWakeRef.current.isWarmingUp
+    ) {
+      return;
+    }
+    const snapshot = operationQueueRef.current.snapshot();
+    if (!snapshot.some((item) => Boolean(item.prompt))) return;
+    const waitEpoch = chatSessionRef.current.value;
+    setIsQueueWarmingWait(true);
+    chatWakeRef.current.wakeNow("queued_prompt");
+    const deadline = Date.now() + 30_000;
+    try {
+      while (Date.now() < deadline) {
+        if (!chatSessionRef.current.isCurrent(waitEpoch)) return;
+        if (!operationQueueRef.current.snapshot().some((item) => Boolean(item.prompt))) {
+          return;
+        }
+        if (!chatWakeRef.current.isWarmingUp || chatWakeRef.current.livePresence === "awake") {
+          return;
+        }
+        if (chatWakeRef.current.state === "failed" || chatWakeRef.current.livePresence === "gone") {
+          break;
+        }
+        try {
+          if (
+            chatWakeRef.current.state === "active" &&
+            typeof ApiService.wakePod === "function"
+          ) {
+            const wakeRes = await ApiService.wakePod({
+              isEffectCurrent: () => chatSessionRef.current.isCurrent(waitEpoch),
+            });
+            if (wakeRes?.state === "awake") return;
+            if (wakeRes?.state === "gone") break;
+          } else if (typeof ApiService.getPersonalAgentStatusForRouting === "function") {
+            const status = await ApiService.getPersonalAgentStatusForRouting();
+            if (
+              status.state === "active" &&
+              status.health !== "sleeping" &&
+              status.health !== "hibernated" &&
+              status.health !== "scaled_to_zero"
+            ) {
+              return;
+            }
+            if (status.state === "failed") break;
+          }
+        } catch {
+          // Best-effort readiness poll while queued prompts wait cleanly.
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            if (queueWarmingSignalRef.current === nudge) {
+              queueWarmingSignalRef.current = null;
+            }
+            resolve();
+          }, 1_500);
+          const nudge = () => {
+            clearTimeout(timer);
+            if (queueWarmingSignalRef.current === nudge) {
+              queueWarmingSignalRef.current = null;
+            }
+            resolve();
+          };
+          queueWarmingSignalRef.current = nudge;
+        });
+      }
+      if (!chatSessionRef.current.isCurrent(waitEpoch)) return;
+      const stillBlocked =
+        chatWakeRef.current.state === "failed" ||
+        chatWakeRef.current.livePresence === "gone" ||
+        chatWakeRef.current.state === "reserved" ||
+        chatWakeRef.current.state === "provisioning";
+      if (stillBlocked) {
+        const remaining = operationQueueRef.current
+          .snapshot()
+          .flatMap((item) => (item.prompt ? [item.prompt] : []));
+        if (remaining.length > 0) {
+          const savedText = combineQueuedPromptText(remaining);
+          operationQueueRef.current.replace(
+            operationQueueRef.current.snapshot().filter((item) => !item.prompt),
+          );
+          syncQueuedPrompts();
+          if (savedText) {
+            setInput((current) =>
+              current.trim() ? `${savedText}\n\n${current.trim()}` : savedText,
+            );
+          }
+          toast.info("One is still starting up. Your message is saved in the composer.");
+        }
+      }
+    } finally {
+      if (chatSessionRef.current.isCurrent(waitEpoch)) {
+        setIsQueueWarmingWait(false);
+      }
+    }
+  };
+
   const drainOperationQueue = async () => {
-    await operationQueueRef.current.drain(async (operation) => {
-      syncQueuedPrompts();
-      await operation.run(operation);
-    });
+    await operationQueueRef.current.drain(
+      async (operation) => {
+        syncQueuedPrompts();
+        await operation.run(operation);
+      },
+      waitForAgentReadyBeforeDequeue,
+    );
   };
 
   const enqueueWorkspaceOperation = (operation: QueuedWorkspaceOperation) => {
@@ -8531,15 +8662,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const removeQueuedPrompt = async (id: string) => {
     if (!(await reclaimQueuedPrompt(id))) return;
-    operationQueueRef.current.replace(
-      operationQueueRef.current
-        .snapshot()
-        .filter((operation) => operation.prompt?.id !== id),
-    );
+    const nextOps = operationQueueRef.current
+      .snapshot()
+      .filter((operation) => operation.prompt?.id !== id);
+    operationQueueRef.current.replace(nextOps);
     setQueuedPrompts((current) => removeQueuedAgentPrompt(current, id));
     if (editingQueuedPromptId === id) {
       setEditingQueuedPromptId(null);
       setEditingQueuedPromptText("");
+    }
+    if (!nextOps.some((operation) => Boolean(operation.prompt))) {
+      setIsQueueWarmingWait(false);
+      queueWarmingSignalRef.current?.();
     }
   };
 
@@ -10627,7 +10761,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   >
                     {/* The verified catalog owns labels; a short Gemini label
                         saves space without assuming the provider of other rows. */}
-                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-3.5 shrink-0 text-muted-foreground" />
+                    <Sparkle aria-hidden="true" className="agent-chat-model-icon size-3.5 shrink-0 text-foreground/60 dark:text-foreground/70" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(
@@ -12253,11 +12387,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       if (type === "gmail.connect") {
                         const connectPurpose = String(payload.purpose ?? "modify");
                         runDirectiveConnect(
-                          connectPurpose === "compose"
-                            ? "gmail_compose"
-                            : connectPurpose === "settings"
-                              ? "gmail_settings"
-                              : "gmail_modify",
+                          connectPurpose === "read"
+                            ? "gmail_read"
+                            : connectPurpose === "compose"
+                              ? "gmail_compose"
+                              : connectPurpose === "settings"
+                                ? "gmail_settings"
+                                : "gmail_modify",
                         );
                         return;
                       }
@@ -12611,6 +12747,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             >
               <AgentQueuedStack
                 prompts={queuedPrompts}
+                warmingUp={
+                  isQueueWarmingWait ||
+                  (queuedPrompts.length > 0 &&
+                    !isStreaming &&
+                    !isChatLoading &&
+                    chatWake.isWarmingUp)
+                }
                 deliveryUnconfirmed={queuedDeliveryUnconfirmed}
                 sendingImmediately={sendingImmediately}
                 hasComposerDraft={composerHasDraft}

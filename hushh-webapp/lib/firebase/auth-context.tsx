@@ -1946,7 +1946,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         const prepareRecaptchaWithTimeout = async () => {
-          const timeoutMs = 15_000;
+          const timeoutMs = 30_000;
           return new Promise<Awaited<ReturnType<typeof prepareRecaptchaVerifier>>>((resolve, reject) => {
             if (signal?.aborted) {
               reject(Object.assign(new Error("Phone verification was cancelled."), { code: "aborted" }));
@@ -2024,7 +2024,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const localFixture = !isNative && AuthService.shouldUseLocalDevPhoneVerification(phone);
         let verificationId: string | undefined;
-        if (intent === "link" && !localFixture && options?.transport !== "sms") {
+        if ((intent === "link" || !phoneNumberRef.current) && !localFixture && options?.transport !== "sms") {
           const test = await AccountIdentityService.startUatTestPhoneVerification(currentUser, phone);
           requirePhoneVerificationOwner(uid, epoch);
           requireUsablePhoneTestStart(test);
@@ -2161,9 +2161,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phoneRecovery.cancelNativeStart();
     phoneTransferProofRef.current = null;
     setPhoneVerificationAttempt(null);
+    applyAuthUser(currentUser, principalRef.current);
     phoneVerificationOwnerRef.current = null;
     return currentUser;
-  }, [phoneRecovery, requirePhoneVerificationOwner]);
+  }, [applyAuthUser, phoneRecovery, requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean = () => true) => {
     const principal = principalRef.current;
     const owner = snapshotValidatedAuthSessionOwner();

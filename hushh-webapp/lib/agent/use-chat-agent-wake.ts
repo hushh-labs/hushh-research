@@ -1,6 +1,7 @@
 "use client";
 
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { isAgentAsleep } from "@/lib/feed/agent-presence-policy";
 import { useProactiveAgentWake, type WakeState } from "@/lib/feed/use-proactive-agent-wake";
 import { isOwnerCloudTarget } from "@/lib/one/owner-cloud";
 import { hasRecentAgentAnswer } from "@/lib/services/pod-chat-turn-transport";
@@ -24,6 +25,8 @@ export function useChatAgentWake(
   enabled: boolean,
 ): {
   isWaking: boolean;
+  isWarmingUp: boolean;
+  wakeNow: (reason: string) => void;
   livePresence: WakeState | "unknown" | null;
   state: string | null;
   health: string | null;
@@ -46,15 +49,30 @@ export function useChatAgentWake(
   if (localOverride || recentAnswer) {
     return {
       isWaking: false,
+      isWarmingUp: false,
+      wakeNow: () => undefined,
       livePresence: "awake",
       state: (deployment.state as string | null) ?? null,
       health: "healthy",
     };
   }
+  const state = (deployment.state as string | null) ?? null;
+  const isWarmingUp =
+    deployment.update.presentationState !== "blocked" &&
+    (state === "reserved" ||
+      state === "provisioning" ||
+      state === "connecting" ||
+      wake.isWaking ||
+      wake.livePresence === "waking" ||
+      (state === "active" &&
+        isAgentAsleep(deployment.health) &&
+        wake.livePresence !== "awake"));
   return {
     isWaking: wake.isWaking,
+    isWarmingUp,
+    wakeNow: wake.wakeNow,
     livePresence: wake.livePresence,
-    state: (deployment.state as string | null) ?? null,
+    state,
     health: deployment.health,
   };
 }

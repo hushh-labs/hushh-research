@@ -3524,6 +3524,13 @@ body:has(.profile-pane-sheet[data-state="open"]) > iframe[id^="plaid-link-iframe
   pointer-events: auto;
 }
 
+/* Google reCAPTCHA mounts its interactive challenge container directly under
+ * document.body. Keep it clickable above modal sheets and dialogs that set
+ * pointer-events: none on body. */
+body > div:has(iframe[src*="google.com/recaptcha"], iframe[src*="recaptcha.net/recaptcha"], iframe[title*="recaptcha challenge" i]) {
+  pointer-events: auto !important;
+}
+
 /* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
  * inline, so on the native shell (whose WebView runs under the status bar)
  * the Link card and its close control sat under the clock and the battery
@@ -11019,20 +11026,20 @@ html:has([data-profile-type-scale]),
 [data-one-chat-split-section="true"][data-agent-surface-mode="one"][data-one-scrolled="true"]:has(> .agent-chat-header[data-one-centered-header="true"]) [data-one-transcript-viewport="true"] {
   -webkit-mask-image: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.04) 0px,
-    rgba(0, 0, 0, 0.16) calc(24px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.48) calc(48px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.84) calc(68px + var(--agent-chat-header-safe-top)),
-    #000 calc(86px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) calc(54px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.38) calc(70px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.82) calc(86px + var(--agent-chat-header-safe-top)),
+    #000 calc(100px + var(--agent-chat-header-safe-top)),
     #000 100%
   );
   mask-image: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.04) 0px,
-    rgba(0, 0, 0, 0.16) calc(24px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.48) calc(48px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.84) calc(68px + var(--agent-chat-header-safe-top)),
-    #000 calc(86px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) calc(54px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.38) calc(70px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.82) calc(86px + var(--agent-chat-header-safe-top)),
+    #000 calc(100px + var(--agent-chat-header-safe-top)),
     #000 100%
   );
 }

@@ -174,3 +174,157 @@ def test_edge_gateway_sentinel_allowlist_includes_oidc_and_excludes_people() -> 
     assert '"gmail.googleapis.com": "allow"' in src
     assert '"www.googleapis.com": "allow"' in src
     assert "people.googleapis.com" not in src
+
+
+@pytest.mark.asyncio
+async def test_personal_sandbox_bridges_hub_short_lived_token_while_byoc_stays_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services import pod_connector_credentials as creds
+    from hushh_mcp.services.pod_connector_tokens import PodGoogleTokenSource
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+
+    _activate_personal_sandbox(monkeypatch)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", "https://hub.example.test")
+    creds.set_active_connector_credentials({})
+    creds.clear_hub_bridged_credential_cache()
+
+    hub_calls: list[tuple[str, str, str]] = []
+
+    def fake_broker(
+        self: object,
+        *,
+        service: str,
+        action: str = "access_token",
+        level: str = "read",
+        account_id: str = "default",
+        force_refresh: bool = False,
+    ) -> dict[str, object]:
+        hub_calls.append((service, action, level))
+        return {
+            "status": "connected",
+            "connected": True,
+            "credentialId": f"hub-{service}:abc123",
+            "generation": 1,
+            "accountSubject": "jhumma@hushh.ai",
+            "accountEmail": "jhumma@hushh.ai",
+            "grantedScopes": [
+                "https://www.googleapis.com/auth/calendar.events",
+                "https://www.googleapis.com/auth/calendar.freebusy",
+            ],
+            "connectedAtMs": 1,
+            **(
+                {"accessToken": "ya29.short-lived-pod-token", "expiresInS": 900}
+                if action == "access_token"
+                else {}
+            ),
+        }
+
+    monkeypatch.setattr(PodHubClient, "broker_google_connector_token", fake_broker)
+
+    held = creds.active_connector_credential("calendar")
+    assert held is not None
+    assert held.client_profile == creds.HUB_BRIDGED_PROFILE
+    assert held.refresh_token == ""
+    assert held.account_email == "jhumma@hushh.ai"
+
+    token = await PodGoogleTokenSource().access_token("calendar", "read")
+    assert token == "ya29.short-lived-pod-token"
+    assert ("calendar", "grant", "read") in hub_calls
+    assert ("calendar", "access_token", "read") in hub_calls
+
+    # Switch to external customer-owned cloud (BYOC): Hub bridge must never fire.
+    creds.clear_hub_bridged_credential_cache()
+    hub_calls.clear()
+    monkeypatch.delenv("HUSSH_SANDBOX_PROFILE", raising=False)
+    monkeypatch.delenv("HUSSH_LEASE_ID", raising=False)
+    monkeypatch.setenv(
+        "HUSSH_POD_KMS_KEY",
+        "projects/cust-proj/locations/us-central1/keyRings/r/cryptoKeys/k",
+    )
+    assert owner_cloud_agent() is True
+    assert creds.active_connector_credential("calendar") is None
+    assert hub_calls == []
+
+
+@pytest.mark.asyncio
+async def test_personal_sandbox_multi_account_calendar_and_inline_mail_directive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+    from typing import Any
+
+    from hushh_mcp.agents.email.chat_tools import _error_payload
+    from hushh_mcp.services.pod_google_connections import PodGoogleConnections
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+
+    _activate_personal_sandbox(monkeypatch)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", "https://hub.example.test")
+
+    def fake_broker(
+        self: Any,
+        *,
+        service: str,
+        action: str = "access_token",
+        level: str = "read",
+        account_id: str = "default",
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        del self, force_refresh
+        if action == "accounts" and service == "calendar":
+            return {
+                "status": "ok",
+                "accountLimit": 5,
+                "accounts": [
+                    {
+                        "account_id": "default",
+                        "google_email": "primary@hussh.si",
+                        "status": "connected",
+                        "connected": True,
+                    },
+                    {
+                        "account_id": "acct-work-2",
+                        "google_email": "work@hussh.si",
+                        "status": "connected",
+                        "connected": True,
+                        "gmail_read_enabled": True,
+                    },
+                ],
+            }
+        return {
+            "status": "connected",
+            "connected": True,
+            "credentialId": f"hub-{service}:{account_id}",
+            "generation": 1,
+            "accountSubject": f"sub-{account_id}",
+            "accountEmail": "work@hussh.si" if account_id == "acct-work-2" else "primary@hussh.si",
+            "grantedScopes": [
+                "https://www.googleapis.com/auth/calendar.events",
+                "https://www.googleapis.com/auth/calendar.freebusy",
+                "https://www.googleapis.com/auth/gmail.readonly",
+            ],
+            "connectedAtMs": 1,
+            **(
+                {"accessToken": f"ya29.{account_id}.{level}", "expiresInS": 900}
+                if action == "access_token"
+                else {}
+            ),
+        }
+
+    monkeypatch.setattr(PodHubClient, "broker_google_connector_token", fake_broker)
+
+    conns = PodGoogleConnections(owner_user_id="user_sandbox_1")
+    inv = await conns.calendar_accounts_status(user_id="user_sandbox_1", include_pictures=False)
+    assert inv["account_limit"] == 5
+    assert len(inv["accounts"]) == 2
+    work_conn = conns.for_calendar_account("acct-work-2", expected_email="work@hussh.si")
+    work_tok = await work_conn.access_token(
+        user_id="user_sandbox_1", service="calendar", access_level="read"
+    )
+    assert work_tok == "ya29.acct-work-2.read"
+
+    ctx = SimpleNamespace(state={"temp:one_execution_surface": "typed_chat"})
+    err = _error_payload("connect_required", ctx)  # type: ignore[arg-type]
+    assert err["status"] == "connect_required"
+    assert ctx.state["hussh:pending_directive:gmail_mailbox"]["payload"]["type"] == "gmail.connect"
+    assert ctx.state["hussh:pending_directive:gmail_mailbox"]["payload"]["purpose"] == "read"

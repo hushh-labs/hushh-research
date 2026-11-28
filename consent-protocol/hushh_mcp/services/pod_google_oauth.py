@@ -84,8 +84,8 @@ def native_client_id(profile: str) -> str:
     if profile == "hussh_web":
         for env_key in (
             "GOOGLE_WEB_OAUTH_CLIENT_ID",
-            "GOOGLE_UAT_MAIL_WEB_CLIENT_ID",
             "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_UAT_MAIL_WEB_CLIENT_ID",
         ):
             val = os.getenv(env_key, "").strip()
             if _CLIENT_ID.fullmatch(val):

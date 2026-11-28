@@ -93,6 +93,7 @@ class PodGoogleTokenSource:
 
     def forget(self, connector_id: str, *, account_id: Optional[str] = None) -> None:
         """Drop every cached token for a connector (disconnect, reconnect)."""
+        store.clear_hub_bridged_credential_cache(connector_id, account_id=account_id)
         target = credential_key(connector_id, account_id or "")
         for key in [
             key
@@ -108,7 +109,9 @@ class PodGoogleTokenSource:
             raise ConnectorTokenError(CREDENTIALS_UNAVAILABLE) from None
         if credential is None:
             raise ConnectorTokenError(NOT_CONNECTED)
-        if credential.status != store.STATUS_CONNECTED or not credential.refresh_token:
+        if credential.status != store.STATUS_CONNECTED or (
+            not credential.refresh_token and credential.client_profile != store.HUB_BRIDGED_PROFILE
+        ):
             raise ConnectorTokenError(NEEDS_REAUTH)
         return credential
 
@@ -143,7 +146,7 @@ class PodGoogleTokenSource:
                 and cached[3] - SKEW_S > now
             ):
                 return cached[2]
-            return await self._refresh(credential, service, scopes, now)
+            return await self._refresh(credential, service, scopes, now, level=level)
 
     async def validate_current(
         self, credential: store.ConnectorCredential, *, post: Optional[google.Post] = None
@@ -183,8 +186,44 @@ class PodGoogleTokenSource:
         scopes: tuple,
         now: float,
         *,
+        level: str = "read",
         post: Optional[google.Post] = None,
     ) -> str:
+        if credential.client_profile == store.HUB_BRIDGED_PROFILE:
+            from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+                PodHubClient,
+                PodHubUnavailable,
+            )
+
+            try:
+                bridged = await asyncio.to_thread(
+                    PodHubClient().broker_google_connector_token,
+                    service=service,
+                    action="access_token",
+                    level=level,
+                    account_id=credential.account_id or "default",
+                )
+            except PodHubUnavailable as exc:
+                msg = str(exc)
+                if "SCOPE_NOT_GRANTED" in msg or "google_permission_required" in msg:
+                    raise ConnectorTokenError(SCOPE_NOT_GRANTED) from None
+                if "NEEDS_REAUTH" in msg or "reauth" in msg or "status=401" in msg:
+                    self.forget(service, account_id=credential.account_id)
+                    raise ConnectorTokenError(NEEDS_REAUTH) from None
+                raise ConnectorTokenError(PROVIDER_UNREACHABLE) from None
+            token_val = str(bridged.get("accessToken") or "").strip()
+            if not token_val:
+                self.forget(service, account_id=credential.account_id)
+                raise ConnectorTokenError(NOT_CONNECTED)
+            expires_at = now + max(int(bridged.get("expiresInS") or 900), 120)
+            self._cache[(credential_key(service, credential.account_id), scopes)] = (
+                credential.credential_id,
+                credential.generation,
+                token_val,
+                expires_at,
+            )
+            return token_val
+
         try:
             grant = await google.refresh(
                 client_id=credential.client_id,

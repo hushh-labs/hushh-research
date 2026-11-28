@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import hmac
 import inspect
+import logging
 import os
 import re
 import secrets
@@ -35,6 +36,8 @@ from hushh_mcp.services.agent_sandbox.k8s_claim_allocator import (
     SandboxClaimPort,
     SentinelControlClient,
 )
+
+logger = logging.getLogger(__name__)
 
 SANDBOX_INTERNAL_PATH_FORBIDDEN = "SANDBOX_INTERNAL_PATH_FORBIDDEN"
 SANDBOX_OWNER_ID_INVALID = "SANDBOX_OWNER_ID_INVALID"
@@ -352,6 +355,8 @@ class SandboxEdgeGatewayManager:
             "openidconnect.googleapis.com": "allow",
             "gmail.googleapis.com": "allow",
             "www.googleapis.com": "allow",
+            "docs.googleapis.com": "allow",
+            "sheets.googleapis.com": "allow",
         }
         extra_domains = str(os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or "").strip()
         for extra in extra_domains.split(","):
@@ -1133,7 +1138,11 @@ def create_sandbox_edge_gateway_app(
                     phase=exc.phase,
                     message="Personal sandbox could not finish starting. Try again shortly.",
                 )
-            except (TimeoutError, httpx.HTTPError, RuntimeError):
+            except (TimeoutError, httpx.HTTPError, RuntimeError) as exc:
+                logger.warning(
+                    "sandbox_edge.proxy_waking phase=ensure_lease error_type=%s",
+                    type(exc).__name__,
+                )
                 return _waking_response(request)
 
             lease.active_http_count += 1
@@ -1148,11 +1157,15 @@ def create_sandbox_edge_gateway_app(
                     headers=req_headers,
                 )
                 upstream = await client.send(built, stream=True)
-            except (httpx.ConnectError, httpx.ConnectTimeout):
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 lease.active_http_count = max(0, lease.active_http_count - 1)
                 await manager.invalidate_lease(hushh_id, expected_lease_id=lease.lease_id)
                 if attempt == 0:
                     continue
+                logger.warning(
+                    "sandbox_edge.proxy_waking phase=upstream_connect error_type=%s",
+                    type(exc).__name__,
+                )
                 return _waking_response(request)
             except httpx.RemoteProtocolError:
                 lease.active_http_count = max(0, lease.active_http_count - 1)

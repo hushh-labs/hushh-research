@@ -12,7 +12,7 @@ import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCu
 import { beginCustomConnectorSignIn, ConnectorSetupError, newCustomConnectorConfiguration, verifyAndSaveCustomConnector } from "@/lib/connections/custom-connector-setup";
 import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import type { CustomConnectorRecoveryReference, DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
 
@@ -22,6 +22,49 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
   authenticationKind: CustomConnectorConfiguration["authentication"]["kind"];
   hasOAuthRegistration: boolean;
 };
+
+const MAX_SETTLED_CUSTOM_SNAPSHOTS = 8;
+const settledCustomSnapshots = new Map<string, { items: SavedConnector[]; invalid: InvalidCustomConnector[] }>();
+
+function customSnapshotCacheKey(userId: string | null | undefined, hasToken: boolean, vaultKey: string | null | undefined): string | null {
+  if (!userId || !hasToken || !vaultKey) return null;
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || principal.ownerId !== userId) return null;
+  return `${userId}:${principal.generation}:${snapshotVaultSessionEpoch()}`;
+}
+
+function rememberCustomSnapshot(
+  userId: string,
+  hasToken: boolean,
+  vaultKey: string,
+  value: { items: SavedConnector[]; invalid: InvalidCustomConnector[] },
+): void {
+  const key = customSnapshotCacheKey(userId, hasToken, vaultKey);
+  if (!key) return;
+  if (!settledCustomSnapshots.has(key) && settledCustomSnapshots.size >= MAX_SETTLED_CUSTOM_SNAPSHOTS) {
+    const oldest = settledCustomSnapshots.keys().next().value;
+    if (oldest !== undefined) settledCustomSnapshots.delete(oldest);
+  }
+  settledCustomSnapshots.set(key, value);
+}
+
+export async function warmCustomConnectorsSnapshot(access: Access): Promise<void> {
+  const key = customSnapshotCacheKey(access.userId, Boolean(access.vaultOwnerToken), access.vaultKey);
+  if (!key || settledCustomSnapshots.has(key)) return;
+  const epoch = snapshotVaultSessionEpoch();
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  try {
+    const { configurations, invalid } = await loadCustomConnectorSnapshot(access, true);
+    const current = snapshotValidatedAuthSessionPrincipal();
+    if (!principal || !current || current.ownerId !== access.userId || current.generation !== principal.generation || !isVaultSessionEpochCurrent(epoch)) return;
+    rememberCustomSnapshot(access.userId, true, access.vaultKey, {
+      items: configurations.map(savedConnector),
+      invalid,
+    });
+  } catch {
+    // Warm-up is opportunistic; the mounted view owns error presentation.
+  }
+}
 export type CustomConnectorDraft = {
   name: string; endpoint: string; credential: string; oauthIssuer: string;
   oauthClientId: string; oauthClientSecret: string;
@@ -53,15 +96,17 @@ function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
 
 /** Vault-backed definitions only. Saving is never provider authentication or tool approval. */
 export function useCustomConnectorSettings({ access, enabled = true, isAccessCurrent, onPrepareRecovery }: CustomConnectorSettingsProps) {
-  const [items, setItems] = useState<SavedConnector[]>([]);
+  const initialWarmKey = customSnapshotCacheKey(access.userId, Boolean(access.vaultOwnerToken), access.vaultKey);
+  const initialWarm = initialWarmKey ? settledCustomSnapshots.get(initialWarmKey) : undefined;
+  const [items, setItems] = useState<SavedConnector[]>(() => initialWarm?.items ?? []);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
-  const [invalid, setInvalid] = useState<InvalidCustomConnector[]>([]);
+  const [invalid, setInvalid] = useState<InvalidCustomConnector[]>(() => initialWarm?.invalid ?? []);
   const [removingInvalid, setRemovingInvalid] = useState<InvalidCustomConnector | null>(null);
   const [catalogs, setCatalogs] = useState<Record<string, CatalogTool[]>>({});
   const [authRequired, setAuthRequired] = useState<Record<string, boolean>>({});
   const [checkFailed, setCheckFailed] = useState<Record<string, boolean>>({});
   const refreshAbort = useRef<AbortController | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">(() => initialWarm ? "ready" : "loading");
   const [editing, setEditing] = useState(false);
   const editorVisit = useRef<object | null>(null);
   const [draft, setDraft] = useState(emptyDraft);
@@ -98,8 +143,11 @@ export function useCustomConnectorSettings({ access, enabled = true, isAccessCur
   useLayoutEffect(() => {
     scope.active = true; readSerial.current += 1; deferredRead.current = false;
     inFlight.current = false;
+    const warmKey = customSnapshotCacheKey(scope.userId, scope.hasToken, scope.key);
+    const warm = warmKey ? settledCustomSnapshots.get(warmKey) : undefined;
     setBusy(false); setError(null); setCatalogs({}); setAuthRequired({}); setCheckFailed({}); setRemoving(null);
-    setItems([]); setInvalid([]); setRemovingInvalid(null); updateDraft(emptyDraft()); editorVisit.current = null; setEditing(false); setStatus("loading");
+    setItems(warm?.items ?? []); setInvalid(warm?.invalid ?? []); setRemovingInvalid(null);
+    updateDraft(emptyDraft()); editorVisit.current = null; setEditing(false); setStatus(warm ? "ready" : "loading");
     return () => { scope.active = false; readSerial.current += 1; refreshAbort.current?.abort(); };
   }, [scope]);
   const epoch = snapshotVaultSessionEpoch();
@@ -110,10 +158,13 @@ export function useCustomConnectorSettings({ access, enabled = true, isAccessCur
     const accessForLoad = { userId: access.userId, vaultKey: access.vaultKey, vaultOwnerToken: access.vaultOwnerToken }, attempt = ++readSerial.current;
     const current = () => active && latestEnabled.current && currentOwner() && attempt === readSerial.current &&
       latestAccess.current.vaultOwnerToken === accessForLoad.vaultOwnerToken && isVaultSessionEpochCurrent(epoch);
-    setStatus("loading");
+    const warmKey = customSnapshotCacheKey(accessForLoad.userId, true, accessForLoad.vaultKey);
+    if (!warmKey || !settledCustomSnapshots.has(warmKey)) setStatus("loading");
     void loadCustomConnectorSnapshot(accessForLoad, true).then(({ configurations: records, invalid: invalidRecords }) => {
       if (!current()) return;
-      setItems(records.map(savedConnector));
+      const nextItems = records.map(savedConnector);
+      rememberCustomSnapshot(accessForLoad.userId, true, accessForLoad.vaultKey, { items: nextItems, invalid: invalidRecords });
+      setItems(nextItems);
       setInvalid(invalidRecords);
       const handoff = takeRefreshedMcpCatalog({ ownerUserId: accessForLoad.userId, vaultEpoch: epoch, configurations: records });
       if (handoff) setCatalogs({ [handoff.connectorId]: handoff.tools });
@@ -153,7 +204,11 @@ export function useCustomConnectorSettings({ access, enabled = true, isAccessCur
         confirmation: { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" },
       });
       if (!current()) return;
-      setItems(previous => [...previous, savedConnector(saved)]);
+      setItems(previous => {
+        const next = [...previous, savedConnector(saved)];
+        rememberCustomSnapshot(access.userId, hasToken, access.vaultKey, { items: next, invalid });
+        return next;
+      });
       if (discovered) setCatalogs(previous => ({ ...previous, [saved.connectorId]: discovered }));
       if (signInNeeded) setAuthRequired(previous => ({ ...previous, [saved.connectorId]: true }));
       updateDraft(emptyDraft()); editorVisit.current = null; setEditing(false);
@@ -250,7 +305,11 @@ export function useCustomConnectorSettings({ access, enabled = true, isAccessCur
     try {
       await operation;
       if (current()) {
-        setItems(items => items.filter(item => item.connectorId !== selected.connectorId)); setRemoving(null);
+        setItems(previous => {
+          const next = previous.filter(item => item.connectorId !== selected.connectorId);
+          rememberCustomSnapshot(access.userId, hasToken, access.vaultKey, { items: next, invalid });
+          return next;
+        }); setRemoving(null);
         setCatalogs(previous => { const next = { ...previous }; delete next[selected.connectorId]; return next; });
         setAuthRequired(previous => { const next = { ...previous }; delete next[selected.connectorId]; return next; });
       }
@@ -268,7 +327,13 @@ export function useCustomConnectorSettings({ access, enabled = true, isAccessCur
     morphyToast.promise(operation, { loading: "Removing saved connector…", success: "Saved connector removed.", error: "Could not remove this connector. Reopen connectors and try again." });
     try {
       await operation;
-      if (current()) { setInvalid(previous => previous.filter(item => item.connectorId !== selected.connectorId)); setRemovingInvalid(null); }
+      if (current()) {
+        setInvalid(previous => {
+          const next = previous.filter(item => item.connectorId !== selected.connectorId);
+          rememberCustomSnapshot(access.userId, hasToken, access.vaultKey, { items, invalid: next });
+          return next;
+        }); setRemovingInvalid(null);
+      }
     } catch { /* Shared toast owns the failure. */ }
     finally { finish(current); }
   };

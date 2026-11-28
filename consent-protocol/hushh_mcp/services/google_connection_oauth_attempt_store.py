@@ -100,10 +100,10 @@ def _include_guest_photos(
             + int(
                 bool(provider_row and provider_row["status"] != "disconnected" and default_calendar)
             )
-            >= 3
+            >= 5
         ):
             raise GoogleConnectionError(
-                "Calendar supports up to three connected accounts.", status_code=409
+                "Calendar supports up to five connected accounts.", status_code=409
             )
     return service == "calendar" and (
         additional_photo_access

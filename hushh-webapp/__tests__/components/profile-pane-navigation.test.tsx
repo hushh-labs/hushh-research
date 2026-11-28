@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render } from "@testing-library/react";
+import { createEvent, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
@@ -160,7 +160,16 @@ describe("Profile pane touch navigation", () => {
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
     const view = render(<><AppProfileEdgeGesture enabled /><a data-profile-body-swipe="" href="/one/calendar" onClick={clicked}>Calendar<button type="button"><svg data-testid="nested-control" /></button></a></>);
     const link = view.getByText("Calendar");
-    fireEvent.click(link);
+    // A quick, slightly drifting tap on an agent is still a link activation.
+    const start = createEvent.touchStart(link, { touches: [{ identifier: 1, clientX: 320, clientY: 160 }] });
+    const end = createEvent.touchEnd(link, { changedTouches: [{ identifier: 1, clientX: 311, clientY: 161 }] });
+    Object.defineProperty(start, "timeStamp", { value: 100 });
+    Object.defineProperty(end, "timeStamp", { value: 116 });
+    fireEvent(link, start);
+    fireEvent.touchMove(link, { touches: [{ identifier: 1, clientX: 311, clientY: 161 }] });
+    fireEvent(link, end);
+    fireEvent.click(link, { detail: 1 });
+    expect(opened).not.toHaveBeenCalled();
     expect(clicked).toHaveBeenCalledTimes(1);
     clicked.mockClear();
     const swipe = (target: Element) => {
