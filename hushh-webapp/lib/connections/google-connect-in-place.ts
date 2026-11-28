@@ -193,11 +193,15 @@ export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
     purpose: "read" | "send" | "compose" | "modify" | "settings" | "full";
+    forceSelectAccount?: boolean;
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
   if (!input) return started("unsupported", async () => "stale");
   const { owner, purpose } = input;
+  const resolvedLoginHint = input.forceSelectAccount
+    ? undefined
+    : owner.email?.trim() || undefined;
   const granted = (status: {
     connected?: boolean;
     scope_csv?: string;
@@ -257,6 +261,7 @@ export function connectGmailInPlace(
             serverClientId: start.server_client_id,
             purpose: start.purpose,
             preserveModify: before?.modify_permission_granted === true,
+            ...(resolvedLoginHint ? { loginHint: resolvedLoginHint } : {}),
           });
         } catch (error) {
           GmailReceiptsService.recordConsentFailure(error, input.applicationOwnerId);
@@ -296,15 +301,10 @@ export function connectGmailInPlace(
         if (privateAgent) { popup.close(); const result = await connectPrivate('gmail', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
-        const loginHint = owner.providerData?.some(
-          (provider) => provider.providerId === "google.com",
-        )
-          ? owner.email ?? null
-          : null;
         const start = await GmailReceiptsService.startConnect({
           idToken,
           userId: input.applicationOwnerId,
-          loginHint,
+          loginHint: resolvedLoginHint ?? null,
           includeGrantedScopes: true,
           purpose,
         });
@@ -346,6 +346,8 @@ export function connectCalendarInPlace(
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
     accountId?: string;
+    additional?: boolean;
+    forceSelectAccount?: boolean;
     includeCalendarList?: boolean;
     includeMeetingFiles?: boolean;
     /** Include Follow-ups Mail permission for a new shared-web Calendar connection. */
@@ -356,7 +358,15 @@ export function connectCalendarInPlace(
   if (!input) return started("unsupported", async () => "stale");
   const { owner, accessLevel, includeCalendarList, includeMeetingFiles } = input;
   const accountId = input.accountId ?? "default";
+  const isAdditional = Boolean(input.additional || accountId !== "default");
+  const resolvedLoginHint =
+    input.forceSelectAccount || isAdditional
+      ? undefined
+      : owner.email?.trim() || undefined;
   const granted = (status: Awaited<ReturnType<typeof GoogleCalendarService.status>>) => {
+    if (input.additional && accountId === "default") {
+      return Boolean(status.accounts?.some(item => item.connected && item.status !== "needs_reauth"));
+    }
     const selected = calendarAccountStatus(status, accountId);
     return selected?.connected === true && selected.status !== "needs_reauth" &&
       (accessLevel !== "manage" || selected.access_level === "manage") &&
@@ -368,7 +378,7 @@ export function connectCalendarInPlace(
       fenced(input, () => undefined, async (current) => {
         const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
-        if (privateAgent && accountId !== 'default') return 'not_connected';
+        if (privateAgent && isAdditional) return 'not_connected';
         if (privateAgent) {
           const connection = await connectPrivate('calendar', current, input);
           if (typeof connection === 'string') return connection;
@@ -381,7 +391,8 @@ export function connectCalendarInPlace(
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
-          ...(accountId !== "default" ? { accountId, additional: true } : {}),
+          ...(isAdditional ? { additional: true } : {}),
+          ...(accountId !== "default" ? { accountId } : {}),
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
           ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
         });
@@ -392,6 +403,7 @@ export function connectCalendarInPlace(
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
           ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
           ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
+          ...(resolvedLoginHint ? { loginHint: resolvedLoginHint } : {}),
         });
         if (!current()) return "stale";
         const status = await GoogleCalendarService.completeNativeConnect({
@@ -409,14 +421,15 @@ export function connectCalendarInPlace(
   const attempt = createGoogleOAuthPopupAttempt("calendar", {
     ownerId: input.applicationOwnerId,
     accessLevel,
-    ...(accountId !== "default" ? { calendarAdditional: true, targetAccountId: accountId } : {}),
+    ...(isAdditional ? { calendarAdditional: true } : {}),
+    ...(accountId !== "default" ? { targetAccountId: accountId } : {}),
     ...(includeMeetingFiles ? { meetingFiles: true } : {}),
   });
   const popup = openGoogleOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
     const privateAgent = await ownerRequiresByocIsolation();
     if (!current()) return 'stale';
-    if (privateAgent && accountId !== 'default') return 'not_connected';
+    if (privateAgent && isAdditional) return 'not_connected';
     if (privateAgent) { const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
     return 'window_blocked';
   }));
@@ -425,7 +438,7 @@ export function connectCalendarInPlace(
       try {
         const privateAgent = await ownerRequiresByocIsolation();
         if (!current()) return 'stale';
-        if (privateAgent && accountId !== 'default') return 'not_connected';
+        if (privateAgent && isAdditional) return 'not_connected';
         if (privateAgent) { popup.close(); const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         // A popup callback settles to this window; it never routes to the
         // onboarding setup page.
@@ -433,7 +446,7 @@ export function connectCalendarInPlace(
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
         let includeMailAccess = false;
-        if (input.includeMailAccess) {
+        if (input.includeMailAccess && !isAdditional) {
           const prior = await GoogleCalendarService.status(idToken, input.applicationOwnerId);
           if (!current()) return "stale";
           if (input.cancelSignal?.aborted) return "not_connected";
@@ -445,7 +458,9 @@ export function connectCalendarInPlace(
           idToken,
           userId: input.applicationOwnerId,
           accessLevel,
-          ...(accountId !== "default" ? { accountId, additional: true } : {}),
+          ...(isAdditional ? { additional: true } : {}),
+          ...(accountId !== "default" ? { accountId } : {}),
+          ...(resolvedLoginHint ? { loginHint: resolvedLoginHint } : {}),
           ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
           ...(includeMailAccess ? { includeMailAccess: true } : {}),
         });
@@ -481,7 +496,13 @@ export function connectCalendarInPlace(
   );
 }
 
-export type InPlaceConnectKind = "gmail_send" | "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar";
+export type InPlaceConnectKind =
+  | "gmail_read"
+  | "gmail_send"
+  | "gmail_modify"
+  | "gmail_compose"
+  | "gmail_settings"
+  | "calendar";
 
 /** The chat's one line of feedback for each finished in-place connect. */
 export function inPlaceConnectCopy(
@@ -489,6 +510,15 @@ export function inPlaceConnectCopy(
   outcome: Exclude<InPlaceConnectOutcome, 'stale'>,
 ): string {
   const copy: Record<InPlaceConnectKind, Record<typeof outcome, string>> = {
+    gmail_read: {
+      unlock_required: "Unlock your vault, then connect Gmail again.",
+      cleanup_unconfirmed: "Gmail connected. The previous Google connection still needs verification.",
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
+      phone_handoff: "Finish connecting Gmail on your phone, then ask One again.",
+      connected: "Gmail connected. Ask One again to check your inbox.",
+      not_connected: "Gmail was not connected.",
+      failed: "Could not connect Gmail. Try again.",
+    },
     gmail_send: {
       unlock_required: 'Unlock your vault, then connect Gmail again.',
       cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',

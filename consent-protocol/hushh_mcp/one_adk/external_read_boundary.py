@@ -600,6 +600,26 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
                 "invocation": invocation,
                 "outcome": outcome,
             }
+            if (
+                outcome in {"connect_required", "reconnect_required", "permission_required"}
+                and tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+                and "hussh:pending_directive:gmail_mailbox" not in tool_context.state
+            ):
+                is_reauth = outcome == "reconnect_required"
+                tool_context.state["hussh:pending_directive:gmail_mailbox"] = {
+                    "kind": "action",
+                    "delegateAgentId": "agent_email",
+                    "payload": {
+                        "type": "gmail.connect",
+                        "purpose": "read",
+                        "summary": (
+                            "Reconnect Gmail to check your inbox."
+                            if is_reauth
+                            else "Connect Gmail to check your inbox."
+                        ),
+                        "confirmLabel": "Reconnect Gmail" if is_reauth else "Connect Gmail",
+                    },
+                }
         return
 
     is_calendar = name in _CALENDAR_READ_TOOLS or provider == "calendar"

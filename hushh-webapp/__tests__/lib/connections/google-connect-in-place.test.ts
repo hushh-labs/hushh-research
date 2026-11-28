@@ -304,7 +304,12 @@ describe("connectGmailInPlace (native)", () => {
     const start = connectGmailInPlace({ owner, purpose: "send" });
     expect(start.surface).toBe("native");
     await expect(start.result).resolves.toBe("connected");
-    expect(mocks.connectGmail).toHaveBeenCalledWith({ serverClientId: "native-client", purpose: "send", preserveModify: true });
+    expect(mocks.connectGmail).toHaveBeenCalledWith({
+      serverClientId: "native-client",
+      purpose: "send",
+      preserveModify: true,
+      loginHint: "owner@synthetic.invalid",
+    });
     expect(window.open).not.toHaveBeenCalled();
   });
 

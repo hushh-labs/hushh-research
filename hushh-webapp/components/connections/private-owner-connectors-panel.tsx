@@ -51,12 +51,6 @@ export function PrivateOwnerConnectorsPanel(props: {
     const disabled = !google.enabled || google.busy !== null;
     const webDetailBody = entry ? (
       <section className="space-y-4" data-connector-detail={entry.connector} data-testid={`private-connector-detail-${entry.connector}`}>
-        {inDrawer ? (
-          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
-            <ArrowLeftIcon className="size-4" aria-hidden="true" />
-            <span>All connectors</span>
-          </Button>
-        ) : null}
         <SettingsGroup title={entry.label} separatorInset>
           <SettingsRow title="Connection" description={entry.status} />
           <SettingsRow title="Purpose" description={entry.purpose} />
@@ -93,7 +87,7 @@ export function PrivateOwnerConnectorsPanel(props: {
           >
             {google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect"}
           </Button>
-          <Button variant="outline" size="compact" data-connector-action="secondary" disabled={disabled} onClick={() => void google.refresh()}>
+          <Button variant="ghost" size="compact" data-connector-action="secondary" disabled={disabled} onClick={() => void google.refresh()}>
             Check connection
           </Button>
         </div>
@@ -103,22 +97,10 @@ export function PrivateOwnerConnectorsPanel(props: {
       </section>
     ) : selected === "plaid" ? (
       <section className="space-y-4" data-connector-detail="plaid" data-testid="private-connector-detail-plaid">
-        {inDrawer ? (
-          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
-            <ArrowLeftIcon className="size-4" aria-hidden="true" />
-            <span>All connectors</span>
-          </Button>
-        ) : null}
         <PrivatePlaidConnectorDetail model={plaid} showAccessDetails={props.showAccessDetails} />
       </section>
     ) : selected === "stripe" ? (
       <section className="space-y-4" data-connector-detail="stripe" data-testid="private-connector-detail-stripe">
-        {inDrawer ? (
-          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
-            <ArrowLeftIcon className="size-4" aria-hidden="true" />
-            <span>All connectors</span>
-          </Button>
-        ) : null}
         <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
       </section>
     ) : null;
@@ -132,14 +114,25 @@ export function PrivateOwnerConnectorsPanel(props: {
     const webBody = <div className={inDrawer ? "flex h-full min-h-0 flex-col bg-background text-foreground" : "min-w-0 space-y-5"}>
       {inDrawer ? (
         <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
+          {selected ? (
+            <ShellActionSurface
+              className="size-11 text-foreground"
+              onClick={() => select(null)}
+              aria-label="Back to connectors"
+            >
+              <ArrowLeftIcon className="size-[22px]" aria-hidden="true" />
+            </ShellActionSurface>
+          ) : null}
           <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : selected === "plaid" ? "Plaid" : selected === "stripe" ? "Stripe" : "Connectors"}</h2>
-          <ShellActionSurface
-            className="size-11 text-foreground"
-            onClick={() => { (props.onClose ?? props.onBack)(); }}
-            aria-label="Close connectors"
-          >
-            <XIcon className="size-[22px]" aria-hidden="true" />
-          </ShellActionSurface>
+          {!selected ? (
+            <ShellActionSurface
+              className="size-11 text-foreground"
+              onClick={() => { (props.onClose ?? props.onBack)(); }}
+              aria-label="Close connectors"
+            >
+              <XIcon className="size-[22px]" aria-hidden="true" />
+            </ShellActionSurface>
+          ) : null}
         </header>
       ) : null}
       <div ref={inDrawer ? drawerScrollRef : undefined} className={inDrawer ? "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "space-y-5"}>

@@ -338,16 +338,27 @@ def _handle_connection_error(
             include_calendar_list=True,
             account_id=account_id,
         )
-    label = "scheduling and editing events" if access_level == "manage" else "reading events"
     if exc.reason_code in {"google_permission_required", "calendar_permission_required"}:
-        message = f"Allow Google Calendar permission for {label} to continue."
+        message = (
+            "Allow Google Calendar scheduling to continue."
+            if access_level == "manage"
+            else "Allow Google Calendar access to check your schedule."
+        )
     elif exc.reason_code in {
         "google_reauthorization_required",
         "calendar_reauthorization_required",
     }:
-        message = f"Renew Google Calendar permission for {label} to continue."
+        message = (
+            "Reconnect Google Calendar to schedule or edit events."
+            if access_level == "manage"
+            else "Reconnect Google Calendar to check your schedule."
+        )
     else:
-        message = f"Connect Google Calendar with permission for {label} to continue."
+        message = (
+            "Connect Google Calendar to schedule or edit events."
+            if access_level == "manage"
+            else "Connect Google Calendar to check your schedule."
+        )
     return _connection_directive(
         tool_context,
         access_level=access_level,

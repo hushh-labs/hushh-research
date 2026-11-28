@@ -43,6 +43,9 @@ RECORD_VERSION = 1
 STATUS_CONNECTED = "connected"
 STATUS_NEEDS_REAUTH = "needs_reauth"
 STATUS_ABSENT = "absent"
+HUB_BRIDGED_PROFILE = "hub_bridged"
+_HUB_GRANT_TTL_S = 15.0
+_HUB_GRANT_CACHE: dict[str, tuple[Optional["ConnectorCredential"], float]] = {}
 _APPEND_ATTEMPTS = 3
 
 
@@ -362,13 +365,85 @@ def set_active_connector_credentials(
     _LOAD_FAILED = False
 
 
+def clear_hub_bridged_credential_cache(
+    connector_id: str | None = None, *, account_id: str | None = None
+) -> None:
+    if connector_id is None:
+        _HUB_GRANT_CACHE.clear()
+        return
+    target = credential_key(connector_id, account_id or "")
+    for key in [
+        k
+        for k in _HUB_GRANT_CACHE
+        if k == target or (account_id is None and k.startswith(f"{connector_id}:"))
+    ]:
+        _HUB_GRANT_CACHE.pop(key, None)
+
+
+def _hub_bridged_credential(
+    connector_id: str, *, account_id: str = ""
+) -> Optional[ConnectorCredential]:
+    if connector_id not in {"calendar", "gmail", "drive"}:
+        return None
+    from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+        PodHubClient,
+        PodHubUnavailable,
+        hub_base_url,
+    )
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        hosted_ace_runtime,
+        owner_cloud_agent,
+    )
+
+    if not hosted_ace_runtime() or owner_cloud_agent() or not hub_base_url():
+        return None
+    slot = credential_key(connector_id, account_id)
+    now = time.monotonic()
+    cached = _HUB_GRANT_CACHE.get(slot)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+    try:
+        body = PodHubClient().broker_google_connector_token(
+            service=connector_id,
+            action="grant",
+            account_id=account_id or "default",
+        )
+    except PodHubUnavailable:
+        return None
+    status = str(body.get("status") or STATUS_ABSENT)
+    if status not in {STATUS_CONNECTED, STATUS_NEEDS_REAUTH}:
+        _HUB_GRANT_CACHE[slot] = (None, now + 5.0)
+        return None
+    bridged = ConnectorCredential(
+        credential_id=str(body.get("credentialId") or f"hub-{connector_id}"),
+        connector_id=connector_id,
+        provider="google",
+        account_subject=str(body.get("accountSubject") or ""),
+        granted_scopes=tuple(str(s) for s in (body.get("grantedScopes") or ())),
+        client_profile=HUB_BRIDGED_PROFILE,
+        client_id="",
+        generation=max(1, int(body.get("generation") or 1)),
+        status=status,
+        connected_at_ms=int(body.get("connectedAtMs") or 1),
+        issued_at_ms=_now_ms(),
+        refresh_token="",
+        account_id=account_id or "",
+        account_email=str(body.get("accountEmail") or ""),
+    )
+    _HUB_GRANT_CACHE[slot] = (bridged, now + _HUB_GRANT_TTL_S)
+    return bridged
+
+
 def active_connector_credential(
     connector_id: str, *, account_id: str = ""
 ) -> Optional[ConnectorCredential]:
     """The login a connector uses now, or None. Raises when the logins could not be read."""
     if _LOAD_FAILED:
         raise ConnectorCredentialsUnavailable("this pod could not read its connector logins")
-    return _ACTIVE.get(credential_key(connector_id, account_id))
+    local = _ACTIVE.get(credential_key(connector_id, account_id))
+    if local is not None:
+        return local
+    return _hub_bridged_credential(connector_id, account_id=account_id)
 
 
 def mail_account_credentials() -> tuple[ConnectorCredential, ...]:
@@ -420,7 +495,7 @@ def connector_permissions(
     if (
         credential is not None
         and credential.status == STATUS_CONNECTED
-        and credential.refresh_token
+        and (credential.refresh_token or credential.client_profile == HUB_BRIDGED_PROFILE)
     ):
         for level in capabilities:
             try:

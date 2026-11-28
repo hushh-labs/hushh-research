@@ -518,3 +518,39 @@ class PodHubClient:
         if not isinstance(body, dict) or not isinstance(body.get("sealedDek"), str):
             raise PodHubUnavailable("hub returned malformed DEK custody body")
         return {str(k): str(v) for k, v in body.items() if isinstance(v, str)}
+
+    def broker_google_connector_token(
+        self,
+        *,
+        service: str,
+        action: str = "access_token",
+        level: str = "read",
+        account_id: str = "default",
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Resolve short-lived Google grant/access-token for `hussh_pods` (zero refresh tokens)."""
+        payload: dict[str, Any] = {
+            "action": action,
+            "service": service,
+            "level": level,
+            "accountId": account_id or "default",
+            "forceRefresh": bool(force_refresh),
+        }
+        response = self.post("/api/one/google/pod-access-token", json=payload)
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            try:
+                err_body = response.json()
+                code = str(((err_body or {}).get("detail") or {}).get("code") or "")
+            except Exception:  # noqa: BLE001
+                code = ""
+            raise PodHubUnavailable(
+                f"hub refused google connector token service={service} status={status} code={code}"
+            )
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned non-JSON google connector body") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("status"), str):
+            raise PodHubUnavailable("hub returned malformed google connector body")
+        return body

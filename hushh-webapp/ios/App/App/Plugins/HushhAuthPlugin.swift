@@ -693,9 +693,10 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         if call.getBool("preserveModify") == true {
             gmailScopes.append("https://www.googleapis.com/auth/gmail.modify")
         }
+        let loginHint = call.getString("loginHint")?.trimmingCharacters(in: .whitespacesAndNewlines)
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,
-            hint: nil,
+            hint: (loginHint?.isEmpty == false) ? loginHint : nil,
             additionalScopes: gmailScopes
         ) { result, error in
             defer { self.googleInteractiveInFlight = false }
@@ -751,9 +752,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Unsupported Calendar access level")
             return
         }
-        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-              let plist = NSDictionary(contentsOfFile: path),
-              let clientId = plist["CLIENT_ID"] as? String else {
+        guard let clientId = HushhFirebaseIdentity.app?.options.clientID, !clientId.isEmpty else {
             call.reject("Missing GoogleService-Info.plist or CLIENT_ID")
             return
         }
@@ -778,9 +777,10 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             calendarScopes.append("https://www.googleapis.com/auth/drive.meet.readonly")
             calendarScopes.append("https://www.googleapis.com/auth/drive.metadata.readonly")
         }
+        let loginHint = call.getString("loginHint")?.trimmingCharacters(in: .whitespacesAndNewlines)
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,
-            hint: nil,
+            hint: (loginHint?.isEmpty == false) ? loginHint : nil,
             additionalScopes: calendarScopes
         ) { result, error in
             defer { self.googleInteractiveInFlight = false }

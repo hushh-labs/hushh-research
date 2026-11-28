@@ -1037,7 +1037,7 @@ describe("supported connector catalog", () => {
     expect(screen.queryByRole("button", { name: "Close connectors" })).not.toBeInTheDocument();
     expect(screen.queryByRole("searchbox", { name: "Search connectors" })).not.toBeInTheDocument();
     expect(screen.getByTestId("profile-connector-row-calendar")).toHaveTextContent(
-      "Plan around your schedule.",
+      "Schedule & availability",
     );
     const calendarRow = screen.getByRole("button", { name: /^Calendar/ });
     fireEvent.click(calendarRow);
@@ -1112,7 +1112,11 @@ describe("supported connector catalog", () => {
         idToken: "synthetic-firebase-token", userId: "owner-a", purpose: "send",
       }));
       expect(state.connectGmail).toHaveBeenCalledWith({
-        serverClientId: "native-client", purpose: "send", preserveSend: false, preserveModify: false,
+        serverClientId: "native-client",
+        purpose: "send",
+        preserveSend: false,
+        preserveModify: false,
+        loginHint: "login@example.invalid",
       });
       expect(state.completeNativeConnect).toHaveBeenCalledWith({
         idToken: "synthetic-firebase-token", userId: "owner-a", serverAuthCode: "one-time-code", purpose: "send",
@@ -1135,7 +1139,11 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
       fireEvent.click(screen.getByRole("button", { name: "Enable Gmail drafts" }));
       await waitFor(() => expect(state.connectGmail).toHaveBeenCalledWith({
-        serverClientId: "native-client", purpose: "compose", preserveSend: true, preserveModify: true,
+        serverClientId: "native-client",
+        purpose: "compose",
+        preserveSend: true,
+        preserveModify: true,
+        loginHint: "login@example.invalid",
       }));
     } finally {
       vi.mocked(Capacitor.isNativePlatform).mockRestore();
@@ -1382,11 +1390,14 @@ describe("supported connector catalog", () => {
       within(calendar).getByRole("heading", { name: "Google Calendar" }),
     ).toBeInTheDocument();
     expect(
-      within(calendar).getByText("Plan around your schedule."),
+      within(calendar).getByText("Schedule & availability"),
     ).toBeInTheDocument();
-    expect(within(calendar).getByText("Not connected")).toBeInTheDocument();
+    expect(within(calendar).queryByText("Not connected")).not.toBeInTheDocument();
     expect(
       within(calendar).getByRole("button", { name: "Connect Calendar" }),
+    ).toBeInTheDocument();
+    expect(
+      within(calendar).getByRole("button", { name: "Use another account" }),
     ).toBeInTheDocument();
     expect(
       within(calendar).queryByText("Private by default. Disconnect anytime."),
@@ -1402,13 +1413,15 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Reconnect to keep planning around your schedule.",
+        "Reconnect to check your schedule.",
       ),
     ).toBeInTheDocument();
-    expect(within(calendar).getByText("Reconnect needed")).toBeInTheDocument();
     expect(
-      within(calendar).getByRole("button", { name: "Reconnect Calendar" }),
+      within(calendar).getByText("Sign-in needed · account details unavailable"),
     ).toBeInTheDocument();
+    expect(
+      within(calendar).getAllByRole("button", { name: "Reconnect Calendar" }).length,
+    ).toBeGreaterThanOrEqual(1);
 
     state.calendar = {
       connected: true,
@@ -1420,12 +1433,15 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Agent One can help schedule meetings. You approve every change.",
+        "Schedule & availability · changes require approval",
       ),
     ).toBeInTheDocument();
-    expect(within(calendar).getByText("Connected")).toBeInTheDocument();
+    expect(within(calendar).getByText("Account details unavailable")).toBeInTheDocument();
     expect(
       within(calendar).getByRole("button", { name: "Disconnect Calendar" }),
+    ).toBeInTheDocument();
+    expect(
+      within(calendar).getByRole("button", { name: "Add another account" }),
     ).toBeInTheDocument();
     expect(
       within(calendar).queryByText("Disconnect anytime."),
@@ -1441,7 +1457,7 @@ describe("supported connector catalog", () => {
 
     expect(
       await within(calendar).findByText(
-        "Agent One can check your availability.",
+        "Availability & schedule",
       ),
     ).toBeInTheDocument();
   });
@@ -1700,6 +1716,7 @@ describe("supported connector catalog", () => {
         idToken: "synthetic-firebase-token",
         userId: "owner-a",
         accessLevel: "manage",
+        loginHint: "login@example.invalid",
         includeMeetingFiles: true,
         includeMailAccess: true,
       });
@@ -1744,7 +1761,7 @@ describe("supported connector catalog", () => {
       await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
       await post(settlement(attemptOf(popup)!.attemptId), popup);
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
-      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Not connected", { exact: true })).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar connected.")).not.toBeInTheDocument();
     });
@@ -1793,7 +1810,7 @@ describe("supported connector catalog", () => {
       const attempt = attemptOf(popup)!;
       fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
-      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Not connected", { exact: true })).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(popup.close).toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: "Cancel sign-in" })).not.toBeInTheDocument();
@@ -1823,7 +1840,13 @@ describe("supported connector catalog", () => {
       await openCalendar();
       expect(await screen.findByText("Calendar connected.")).toBeInTheDocument();
       expect(open).not.toHaveBeenCalled();
-      expect(state.connectCalendar).toHaveBeenCalledExactlyOnceWith({ serverClientId: "native-client", accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true });
+      expect(state.connectCalendar).toHaveBeenCalledExactlyOnceWith({
+        serverClientId: "native-client",
+        accessLevel: "manage",
+        includeCalendarList: true,
+        includeMeetingFiles: true,
+        loginHint: "login@example.invalid",
+      });
       expect(state.calendarCompleteNativeConnect).toHaveBeenCalledExactlyOnceWith({
         idToken: "synthetic-firebase-token",
         userId: "owner-a",
@@ -1840,7 +1863,7 @@ describe("supported connector catalog", () => {
       state.connectCalendar.mockRejectedValue(Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }));
       await openCalendar();
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
-      expect(screen.getAllByText("Not connected", { exact: true })).toHaveLength(1);
+      expect(screen.queryByText("Not connected", { exact: true })).not.toBeInTheDocument();
       expect(screen.queryByText("Calendar not connected.")).not.toBeInTheDocument();
       expect(state.calendarCompleteNativeConnect).not.toHaveBeenCalled();
     });

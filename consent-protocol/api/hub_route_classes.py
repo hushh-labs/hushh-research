@@ -376,6 +376,7 @@ GET /api/one/calendar/status/{user_id}
 POST /api/one/google/connect/complete
 POST /api/one/google/connect/transition/prepare
 POST /api/one/google/connect/transition/complete
+POST /api/one/google/pod-access-token
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
 POST /api/one/runtime/openai/validate

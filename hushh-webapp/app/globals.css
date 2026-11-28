@@ -11026,20 +11026,20 @@ html:has([data-profile-type-scale]),
 [data-one-chat-split-section="true"][data-agent-surface-mode="one"][data-one-scrolled="true"]:has(> .agent-chat-header[data-one-centered-header="true"]) [data-one-transcript-viewport="true"] {
   -webkit-mask-image: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.04) 0px,
-    rgba(0, 0, 0, 0.16) calc(24px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.48) calc(48px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.84) calc(68px + var(--agent-chat-header-safe-top)),
-    #000 calc(86px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) calc(54px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.38) calc(70px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.82) calc(86px + var(--agent-chat-header-safe-top)),
+    #000 calc(100px + var(--agent-chat-header-safe-top)),
     #000 100%
   );
   mask-image: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.04) 0px,
-    rgba(0, 0, 0, 0.16) calc(24px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.48) calc(48px + var(--agent-chat-header-safe-top)),
-    rgba(0, 0, 0, 0.84) calc(68px + var(--agent-chat-header-safe-top)),
-    #000 calc(86px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) calc(54px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.38) calc(70px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.82) calc(86px + var(--agent-chat-header-safe-top)),
+    #000 calc(100px + var(--agent-chat-header-safe-top)),
     #000 100%
   );
 }
