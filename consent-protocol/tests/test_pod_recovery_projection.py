@@ -180,3 +180,30 @@ async def test_prefix_token_store_projection_caches_tail_and_rejects_foreign_pre
     log_b = PodCommitLog(store_b, DEK, owner_id=OWNER)
     with pytest.raises(PodLogTampered):
         await OwnerRecoveryProjection(owner=OWNER).replay(log_b)
+
+
+async def test_restart_rebuilds_mailboxes_past_legacy_checkpoint(tmp_path, monkeypatch):
+    from hushh_mcp.services import pod_recovery_projection as projection
+    from hushh_mcp.services.pod_connector_credentials import (
+        ACCOUNT_CLEARED_KIND,
+        ACCOUNT_RECORD_KIND,
+        RECORD_KIND,
+    )
+
+    log = log_at(tmp_path)
+    for kind, slot in (
+        (RECORD_KIND, "default"),
+        (ACCOUNT_RECORD_KIND, "retained"),
+        (ACCOUNT_RECORD_KIND, "removed"),
+        (ACCOUNT_CLEARED_KIND, "removed"),
+    ):
+        await log.append(kind, {"slot": slot})
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(projection, "KEY", projection.LEGACY_KEY)
+        legacy.setattr(projection, "record_kinds", lambda: {RECORD_KIND})
+        assert len(await OwnerRecoveryProjection(owner=OWNER).replay(log)) == 1
+
+    expected = await log.replay()
+    for _ in range(2):
+        assert await OwnerRecoveryProjection(owner=OWNER).replay(log) == expected

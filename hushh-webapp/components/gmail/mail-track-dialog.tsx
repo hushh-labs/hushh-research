@@ -141,8 +141,13 @@ export function MailTrackDialog({
       const value = await read(controller.signal);
       if (!controller.signal.aborted && isVaultSessionEpochCurrent(epoch.current)) accept(value);
     } catch (failure) {
-      if (!controller.signal.aborted && !aborted(failure))
-        setError(failure instanceof Error ? failure.message : "Mail could not complete this request.");
+      if (!controller.signal.aborted && !aborted(failure)) {
+        setError(
+          (failure instanceof DOMException || failure instanceof Error) && failure.name === "TimeoutError" && !promise
+            ? "Mail took too long to check this email. Try the check again."
+            : failure instanceof Error ? failure.message : "Mail could not complete this request.",
+        );
+      }
     } finally {
       if (!controller.signal.aborted) setBusy(false);
     }
@@ -246,6 +251,7 @@ export function MailTrackDialog({
             <textarea
               className={styles.textarea}
               required
+              disabled={busy}
               maxLength={500}
               rows={3}
               value={expectation}

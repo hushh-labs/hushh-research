@@ -42,6 +42,8 @@ function mailFollowupsClient() {
         const error = await response.json().catch(() => null);
         if (!signal.aborted && ["MAIL_CONNECTION_CHANGED", "MAIL_RECONNECT_REQUIRED", "MAIL_CONNECT_REQUIRED"].includes(error?.detail?.code)) notifyMailGrantsChanged();
       }
+      if (path === "track" && [502, 503, 504].includes(response.status))
+        throw new Error("Mail could not finish checking this email. Try the check again.");
       if (response.status === 422)
         throw new Error(
           "The selected email does not establish that promise. Choose another message or describe the request more precisely.",

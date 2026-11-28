@@ -75,6 +75,8 @@ describe("fetchWithWebTimeout", () => {
     expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/session/challenge`)).toBe(120_000);
     expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/session/admit`)).toBe(120_000);
     expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/status`)).toBe(120_000);
+    expect(webFetchTimeoutMsForPath(`${origin}/u/fixture/api/one/pod/session/admit`)).toBe(120_000);
+    expect(webFetchTimeoutMsForPath(`${origin}/u/fixture/api/one/pod/gmail/followups/track`)).toBe(60_000);
     expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/files/list`)).toBe(60_000);
   });
 

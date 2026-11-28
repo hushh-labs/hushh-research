@@ -94,7 +94,9 @@ async def test_the_key_goes_first_and_every_chained_object_follows(store):
         MCP_OBJECT,
     )
     from hushh_mcp.services.pod_recovery_projection import KEY as OWNER_PROJECTION
+    from hushh_mcp.services.pod_recovery_projection import LEGACY_KEY
 
+    await store.put_if_generation(LEGACY_KEY, b"legacy-projection-fixture", ABSENT)
     await store.put_if_generation(OWNER_PROJECTION, b"sealed-projection-fixture", ABSENT)
     prior_command = await store.put_if_generation(
         COMMANDS_OBJECT, b"sealed-command-fixture", ABSENT
@@ -109,6 +111,7 @@ async def test_the_key_goes_first_and_every_chained_object_follows(store):
     records = [key for key in recorded.deleted if key.startswith("records/")]
     assert len(records) == 3 and counts["records"] == 3
     assert counts["deleted"] == 5  # key, identity, three records
+    assert await store.get(LEGACY_KEY) == ERASED_PROJECTION
     assert OWNER_PROJECTION not in recorded.deleted
     assert await store.get(OWNER_PROJECTION) == ERASED_PROJECTION
     assert counts["deleted"] + counts["alreadyAbsent"] == len(recorded.deleted)

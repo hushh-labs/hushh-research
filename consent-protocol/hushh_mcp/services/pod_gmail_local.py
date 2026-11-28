@@ -180,6 +180,11 @@ class PodGmailConnection(GmailReceiptsService):
     async def _ensure_access_token(self, *, user_id: str) -> tuple[str, dict[str, Any]]:
         token = await self._token(user_id, "read")
         if not self._email:
+            # Google supplied this address with the selected account's OAuth grant.
+            # Older grants without an address still resolve it from Gmail.
+            held = _held(self._account_id)
+            self._email = held.account_email if held else ""
+        if not self._email:
             profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=token)
             self._email = _clean_text(profile.get("emailAddress")).lower()
         row = self._fetch_connection_row(user_id=user_id)
