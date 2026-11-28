@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "planning-board",
   "primary_scope": "planning-board-intake",
-  "description": "Use when inspecting, summarizing, creating, triaging, or updating work on the Hussh Engineering Core (Project 73) or Hussh Action Items (Project 79) GitHub boards.",
+  "description": "Use when inspecting, summarizing, creating, triaging, or updating work on the active Hussh Action Items (Project 79) GitHub board or reading historical Project 73 records.",
   "owned_paths": [
     ".agents/skills/planning-board"
   ],

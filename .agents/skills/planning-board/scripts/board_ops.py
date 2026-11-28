@@ -14,12 +14,10 @@ from collections import Counter
 from typing import Any
 
 OWNER = "hushh-labs"
-# Defaults to Hushh Engineering Core (#73). Override to drive another board on the
-# same owner -- e.g. HUSSH_BOARD_PROJECT_NUMBER=79 for "Hussh Action Items" -- so
-# one tool maintains every board rather than a copy per board. Fields are still
-# resolved dynamically per project, so no ids are assumed across boards.
-PROJECT_NUMBER = int(os.environ.get("HUSSH_BOARD_PROJECT_NUMBER", "73"))
-PROJECT_TITLE = os.environ.get("HUSSH_BOARD_PROJECT_TITLE", "Hushh Engineering Core")
+# Defaults to Hussh Action Items (#79). Project 73 (Hushh Engineering Core) is
+# archived and retained only as an explicit historical profile (--board engineering-core).
+PROJECT_NUMBER = int(os.environ.get("HUSSH_BOARD_PROJECT_NUMBER", "79"))
+PROJECT_TITLE = os.environ.get("HUSSH_BOARD_PROJECT_TITLE", "Hussh Action Items")
 DEFAULT_REPO = "hushh-labs/hushh-research"
 
 # Board profiles. Only identity + the safe creation status live here; every
@@ -27,18 +25,18 @@ DEFAULT_REPO = "hushh-labs/hushh-research"
 # board's own schema (Sprint vs none, Target date vs Target Fix Date, Hierarchy
 # vs Lead/Owner/Severity) is honored without further hardcoding.
 BOARD_PROFILES: dict[str, dict[str, Any]] = {
-    "engineering-core": {
-        "number": 73,
-        "title": "Hushh Engineering Core",
-        "default_status": "In progress",
-    },
     "action-items": {
         "number": 79,
         "title": "Hussh Action Items",
         "default_status": "Inbox",
     },
+    "engineering-core": {
+        "number": 73,
+        "title": "Hushh Engineering Core",
+        "default_status": "In progress",
+    },
 }
-DEFAULT_BOARD = "engineering-core"
+DEFAULT_BOARD = "action-items"
 PROJECT_NUMBER = BOARD_PROFILES[DEFAULT_BOARD]["number"]
 PROJECT_TITLE = BOARD_PROFILES[DEFAULT_BOARD]["title"]
 DEFAULT_STATUS = BOARD_PROFILES[DEFAULT_BOARD]["default_status"]

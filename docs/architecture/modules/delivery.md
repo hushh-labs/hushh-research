@@ -48,6 +48,7 @@ flowchart LR
 
 ## Implementation and operation
 
+- [Uniform YY.M.N release control and ring visibility](../../operations/releases/release-control-and-versioning.md)
 - [CI and deployment contracts](../../operations/releases/ci.md)
 - [Branch governance](../../operations/releases/branch-governance.md)
 - [Environments](../../operations/environments.md)
