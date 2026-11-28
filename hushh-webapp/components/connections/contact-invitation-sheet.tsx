@@ -92,6 +92,20 @@ export function ContactInvitationSheet({
   const [smsAvailable, setSmsAvailable] = useState<boolean | null>(null);
   const selectionId = useId();
   const listRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+    const resize = () => {
+      preview.style.height = "auto";
+      preview.style.height = `${preview.scrollHeight + preview.offsetHeight - preview.clientHeight}px`;
+    };
+    resize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(resize);
+    if (preview.parentElement) observer.observe(preview.parentElement);
+    return () => observer.disconnect();
+  }, [step, controller.share]);
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0;
   }, [step]);
@@ -442,19 +456,20 @@ export function ContactInvitationSheet({
                     Message preview
                   </p>
                   <textarea
+                    ref={previewRef}
                     aria-label="Invitation message"
                     readOnly
-                    rows={5}
-                    className="mt-3 block w-full resize-none select-text appearance-none rounded-none border-0 border-t border-border/70 bg-transparent p-0 pt-3 text-[15px] leading-6 [text-indent:0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                    rows={1}
+                    className="mt-3 block w-full resize-none select-text appearance-none overflow-hidden rounded-none border-0 border-t border-border/70 bg-transparent p-0 pt-3 text-[15px] leading-6 [text-indent:0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
                     value={invitationBody(controller.share)}
                   />
                 </div>
               ) : null}
-              <p data-location-type-role="row-description" className="mt-3 text-sm text-muted-foreground">
-                {native
-                  ? "Opens one Messages draft from your device’s messaging account. This may create a group: recipients can see each other’s numbers. Check recipients and tap Send there. Carrier charges may apply."
-                  : "Opens one email draft with the selected addresses in BCC. Check BCC and send from your email account. Your email app must support BCC links."}
-              </p>
+              {!native ? (
+                <p data-location-type-role="row-description" className="mt-3 text-sm text-muted-foreground">
+                  Opens one email draft with the selected addresses in BCC. Check BCC and send from your email account. Your email app must support BCC links.
+                </p>
+              ) : null}
               <h3 data-location-type-role="source-heading" className="mt-4 text-sm font-medium">
                 {queue.length} selected{" "}
                 {queue.length === 1 ? "contact" : "contacts"}
