@@ -223,6 +223,7 @@ export type AgentTurnStreamPanelProps = {
     id: string;
     experience: AgentStructuredExperienceWithPresentation;
   }>;
+  activeConnectorActionId?: string | null;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -407,6 +408,7 @@ export function AgentTurnStreamPanel({
   structuredExperience = null,
   structuredExperiences = [],
   onOpenConnections,
+  activeConnectorActionId,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
   onDownloadDriveNotes,
@@ -530,6 +532,7 @@ export function AgentTurnStreamPanel({
                 allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
                 onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}
+                allowConnectorAction={activeConnectorActionId === undefined || id === activeConnectorActionId}
                 onInformationRequestSubmitted={onInformationRequestSubmitted
                   ? (receipt) => onInformationRequestSubmitted(id, receipt) : undefined}
                 onCompileDriveNotes={onCompileDriveNotes}

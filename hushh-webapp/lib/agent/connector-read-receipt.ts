@@ -56,6 +56,10 @@ export type ConnectorReadExperience = {
   ownerCompileWindow?: DriveOwnerCompileWindow;
 };
 
+export function connectorReadNeedsConnection(status: ConnectorReadExperience["status"]): boolean {
+  return status === "connect_required" || status === "reconnect_required" || status === "permission_denied";
+}
+
 export const WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE =
   "one.workspace_connector_setup.v1" as const;
 

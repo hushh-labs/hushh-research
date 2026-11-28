@@ -124,6 +124,7 @@ export function AgentStructuredExperienceView({
   allowFinancePreviewStart,
   onConfirmFinanceAnalysis,
   onOpenConnections,
+  allowConnectorAction = true,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
   onDownloadDriveNotes,
@@ -135,6 +136,7 @@ export function AgentStructuredExperienceView({
   allowPortfolioChanges?: boolean;
   allowFinancePreviewStart?: boolean;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
+  allowConnectorAction?: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -162,11 +164,11 @@ export function AgentStructuredExperienceView({
         ))}
       </div>;
     case "one.connector_read.v1":
-      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections}
+      return <ConnectorReadReceipt experience={experience} onOpenConnections={allowConnectorAction ? onOpenConnections : undefined}
         onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes}
         driveCompilation={driveCompilation} onMailQuickAction={onMailQuickAction} />;
     case "one.workspace_connector_setup.v1":
-      return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+      return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} allowAction={allowConnectorAction} />;
     case "one.turn_location_permission.v1":
       return <TurnLocationPermissionCard experience={experience} />;
     case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;

@@ -1,4 +1,5 @@
 import type { AgentStructuredExperience } from "./agui-structured-experiences";
+import { connectorReadNeedsConnection } from "./connector-read-receipt";
 
 type StructuredExperienceItem = { id: string; experience: AgentStructuredExperience };
 
@@ -16,6 +17,13 @@ export function latestMailQuickActionId(items: readonly StructuredExperienceItem
   return items.findLast(({ experience }) =>
     experience.type === "one.connector_read.v1" && experience.connector === "mail" &&
     experience.status === "ok" && Boolean(experience.liveSources?.length))?.id;
+}
+
+export function latestConnectorActionId(items: readonly StructuredExperienceItem[]): string | undefined {
+  return items.findLast(({ experience }) =>
+    experience.type === "one.workspace_connector_setup.v1" ||
+    (experience.type === "one.connector_read.v1" && connectorReadNeedsConnection(experience.status))
+  )?.id;
 }
 
 /**

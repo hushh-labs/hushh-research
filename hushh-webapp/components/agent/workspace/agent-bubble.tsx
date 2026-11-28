@@ -32,6 +32,7 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
+import { chatStructuredExperienceItems } from "@/lib/agent/structured-experience-order";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import type { ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
@@ -210,6 +211,7 @@ export function GmailInformationRequestAttachment({
 export const AgentBubble = memo(function AgentBubble({
   message,
   onOpenConnections,
+  activeConnectorActionId,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
   onDownloadDriveNotes,
@@ -247,6 +249,7 @@ export const AgentBubble = memo(function AgentBubble({
   onMailQuickAction,
 }: {
   message: AgentMessage;
+  activeConnectorActionId?: string | null;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -321,16 +324,7 @@ export const AgentBubble = memo(function AgentBubble({
   const streamEvents = (message.streamEvents ?? []).filter(
     (event) => event.label !== "Memory" && event.label !== "Add to Memory",
   );
-  const structuredExperiences =
-    message.structuredExperiences ??
-    (message.structuredExperience
-      ? [
-          {
-            id: "legacy-structured-experience",
-            experience: message.structuredExperience,
-          },
-        ]
-      : []);
+  const structuredExperiences = chatStructuredExperienceItems(message);
   // Use the activity surface only while a turn is active or when the settled
   // turn has safe, inspectable activity. Plain completed answers stay readable.
   const hasStreamContent =
@@ -598,6 +592,7 @@ export const AgentBubble = memo(function AgentBubble({
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
               onOpenConnections={onOpenConnections}
+              activeConnectorActionId={activeConnectorActionId}
               onInformationRequestSubmitted={onInformationRequestSubmitted}
               onCompileDriveNotes={onCompileDriveNotes}
               onDownloadDriveNotes={onDownloadDriveNotes}

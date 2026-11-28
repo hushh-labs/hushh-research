@@ -229,7 +229,7 @@ import {
 import calendarType from "@/components/calendar/calendar-presentation.module.css";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
-import { chatStructuredExperienceItems, latestMailQuickActionId } from "@/lib/agent/structured-experience-order";
+import { chatStructuredExperienceItems, latestConnectorActionId, latestMailQuickActionId } from "@/lib/agent/structured-experience-order";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import { isPuppyLiveOnBuild } from "@/lib/one/owner-cloud";
 import {
@@ -1446,6 +1446,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       sourceAssistantMessageId: string;
       sourceAssistantServerMessageId?: string;
     }) | null>(null);
+  const pendingSpecialistDirectiveRef = useRef(pendingSpecialistDirective);
+  pendingSpecialistDirectiveRef.current = pendingSpecialistDirective;
+  const [settledConnectorMessage, setSettledConnectorMessage] = useState<{ localId: string; serverId?: string } | null>(null);
   const [fileScheduleReview, setFileScheduleReview] = useState<{
     proposal: FileScheduleProposal; assistantId: string; ownerId: string; epoch: number;
   } | null>(null);
@@ -3214,6 +3217,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (started === "blocked") toast.info(OAUTH_WINDOW_BLOCKED_COPY);
   };
 
+  const settleConnectorMessage = (directive: NonNullable<typeof pendingSpecialistDirective>) => {
+    const localId = directive.sourceAssistantMessageId;
+    const serverId = directive.sourceAssistantServerMessageId ??
+      messagesRef.current.find(message => message.id === localId)?.serverMessageId;
+    setSettledConnectorMessage({ localId, serverId });
+  };
+
   /**
    * Runs a connect requested by a specialist card. The card stays visible and
    * cancellable while Google's window is open; on success it is cleared, as
@@ -3221,11 +3231,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    */
   const runDirectiveConnect = (kind: "gmail_read" | "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar", accountId = "default") => {
     const owner = user;
-    if (!owner?.uid || !applicationOwnerId) return;
+    const sourceDirective = pendingSpecialistDirective;
+    if (!owner?.uid || !applicationOwnerId || !sourceDirective) return;
     const ownerId = applicationOwnerId;
     const originConversation = conversationIdRef.current;
     const isCurrent = () => workspaceOwnerIdRef.current === ownerId &&
       (kind !== "calendar" || conversationIdRef.current === originConversation);
+    const ownsDirective = (pending: typeof pendingSpecialistDirectiveRef.current) =>
+      pending?.sourceAssistantMessageId === sourceDirective.sourceAssistantMessageId && pending.directive === sourceDirective.directive;
     const started = directiveConnect.start(
       kind,
       (controls) =>
@@ -3287,9 +3300,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           });
         }
         // Cancel already dismissed the card and said so.
-        if (cancelled || !isCurrent()) return;
+        const pending = pendingSpecialistDirectiveRef.current;
+        if (cancelled || !isCurrent() || !pending || !ownsDirective(pending)) return;
         if (outcome === "connected") {
-          setPendingSpecialistDirective(null);
+          settleConnectorMessage(pending);
+          setPendingSpecialistDirective(current => ownsDirective(current) ? null : current);
           toast.success(kind === "calendar" ? "Calendar access updated." : inPlaceConnectCopy(kind, outcome), kind === "calendar" ? { className: calendarType.toast } : undefined);
           if (kind === "calendar") calendarChatRecoveryRef.current();
         } else if (outcome === "failed") {
@@ -9647,6 +9662,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     pendingSpecialistDirective.directive.payload.type === "calendar.connect"
       ? pendingSpecialistDirective
       : null;
+  const hasConnectorDirective = Boolean(calendarConnectDirective ||
+    pendingSpecialistDirective?.delegateAgentId === "agent_email" && pendingSpecialistDirective.directive.payload.type === "gmail.connect");
   const calendarConnectAnchorId = calendarConnectDirective
     ? messages.find(message => message.role === "assistant" && (
         message.id === calendarConnectDirective.sourceAssistantMessageId ||
@@ -9655,6 +9672,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     : undefined;
   const cancelCalendarDirective = () => {
     directiveConnect.cancel();
+    if (calendarConnectDirective) settleConnectorMessage(calendarConnectDirective);
     setPendingSpecialistDirective(null);
     setCalendarSlot(null);
     toast.info("Calendar change cancelled. Nothing was changed.", { className: calendarType.toast });
@@ -9770,11 +9788,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       switch (experience.type) {
         case "one.person_selection.v1":
           return experience.candidates.length > 0;
-        case "one.connector_read.v1":
-          return experience.status === "connect_required" || experience.status === "reconnect_required" || experience.status === "permission_denied";
         case "one.information_request_review.v1":
           return experience.phase === "draft" && experience.status === "awaiting_review";
-        case "one.workspace_connector_setup.v1":
         case "one.turn_location_permission.v1":
         case "one.scope_discovery.v1":
         case "one.document_request_review.v1":
@@ -9787,16 +9802,33 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     })
   );
+  const responseActionBusy = isChatLoading || isStreaming || specialistBusy || appActionBusy ||
+    directiveConnectWaiting || activeFrontendToolCount > 0 || activePkmToolCount > 0 ||
+    emailDraftSaveState === "saving" || emailDeliveryHistory.some(item => item.status === "sending");
+  const hasActiveReview = Boolean(pendingReview || hasSpecificReply || activeActionRun?.phase === "awaiting_confirmation");
+  const connectorMessageSettled = settledConnectorMessage && latestVisibleMessage && (
+    latestVisibleMessage.id === settledConnectorMessage.localId ||
+    Boolean(settledConnectorMessage.serverId &&
+      (latestVisibleMessage.id === settledConnectorMessage.serverId || latestVisibleMessage.serverMessageId === settledConnectorMessage.serverId))
+  );
+  const connectorActionId = hasChatAccess && latestVisibleMessage?.role === "assistant" && latestVisibleMessage.status === "done" &&
+    !latestVisibleMessage.renderAsPlainAssistantMessage && !latestVisibleMessage.locationChatText &&
+    !latestVisibleMessage.locationChatProposal && !redactedAnswerIds.has(latestVisibleMessage.id) && !connectorMessageSettled
+    ? latestConnectorActionId(latestItems) : undefined;
+  // A review can carry the approved scope and resume the interrupted turn. Its
+  // receipt stays visible, while only the review offers the next action.
+  const activeConnectorActionId = !hasActiveReview && !responseActionBusy ? connectorActionId ?? null : null;
   // An answer with its own next step owns the prompt space before generic suggestions.
-  const responseControls = pendingReview || hasSpecificReply || activeActionRun?.phase === "awaiting_confirmation" ? "request"
+  const responseControls = hasActiveReview || connectorActionId !== undefined ? "request"
     : !chatOnboarding.resolved && chatOnboarding.turns.length ? "onboarding"
     : latestVisibleMessage?.role === "assistant" && latestVisibleMessage.status === "done"
       ? hasChatAccess && latestMailQuickActionId(latestItems) ? "mail" : "follow-ups"
       : !hasStartedConversation ? chatOnboarding.dailyTip ? "tip" : "starters"
       : null;
   const responseScope = useMemo(
-    () => ({ owner: applicationOwnerId, conversationId, vaultSessionEpoch, responseControls, messageId: latestVisibleMessage?.id }),
-    [applicationOwnerId, conversationId, vaultSessionEpoch, responseControls, latestVisibleMessage?.id],
+    () => ({ owner: applicationOwnerId, conversationId, vaultSessionEpoch, responseControls,
+      messageId: latestVisibleMessage?.id, activeConnectorActionId }),
+    [applicationOwnerId, conversationId, vaultSessionEpoch, responseControls, latestVisibleMessage?.id, activeConnectorActionId],
   );
   const latestResponseScope = useRef(responseScope);
   latestResponseScope.current = responseScope;
@@ -10029,9 +10061,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const latestTranscriptMessageId = visibleMessages.findLast((message) => !message.ephemeral)?.id;
   const latestFinanceMessageIdRef = useRef(latestTranscriptMessageId);
   latestFinanceMessageIdRef.current = latestTranscriptMessageId;
-  const responseActionBusy = isChatLoading || isStreaming || specialistBusy || appActionBusy ||
-    directiveConnectWaiting || activeFrontendToolCount > 0 || activePkmToolCount > 0 ||
-    emailDraftSaveState === "saving" || emailDeliveryHistory.some(item => item.status === "sending");
   const retryPresentationRef = useRef({
     messages,
     retryableMessageId: latestRetryableAssistantId,
@@ -11469,7 +11498,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           });
                         }
                       }}
-                      onOpenConnections={openConnectorSurface}
+                      onOpenConnections={(provider, trigger) => {
+                        if (latestResponseScope.current === responseScope) openConnectorSurface(provider, trigger);
+                      }}
+                      activeConnectorActionId={message.id === latestVisibleMessage?.id ? activeConnectorActionId : null}
                       onCompileDriveNotes={hasChatAccess && message.status === "done"
                         ? (query, window) => void compileOwnerDriveNotes(
                           message.id, query, window,
@@ -11511,7 +11543,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         handleReportMessage(message.serverMessageId ?? message.id, reason)
                       }
                       onRetry={
-                        message.id === latestRetryableAssistantId
+                        message.id === latestRetryableAssistantId && activeConnectorActionId === null && !hasConnectorDirective
                           ? () => handleRetryAssistantResponse(message.id)
                           : undefined
                       }
@@ -12617,6 +12649,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     cancelWhileBusy={directiveConnectWaiting}
                     onCancel={() => {
                       directiveConnect.cancel();
+                      if (pendingSpecialistDirective.directive.payload.type === "gmail.connect") {
+                        settleConnectorMessage(pendingSpecialistDirective);
+                      }
                       setPendingSpecialistDirective(null);
                       toast.info("Gmail change cancelled. Nothing was changed.");
                     }}
@@ -12855,6 +12890,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   <AgentBubble
                     message={message}
                     onOpenConnections={openConnectorSurface}
+                    activeConnectorActionId={null}
                     retryDisabled={isChatLoading || isStreaming}
                   />
                 </Fragment>

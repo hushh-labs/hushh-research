@@ -704,6 +704,82 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(await screen.findByRole("button", { name: "Show the previous email" })).toBeEnabled();
   });
 
+  it.each(["cancelled", "connected", "superseded"] as const)("keeps one Gmail action across repeated Mail reads until %s", async (outcome) => {
+    const mailRead = (id: string, answer: string, withReview: boolean) => {
+      const events: unknown[] = [{ type: "RUN_STARTED", threadId: "same-conversation", runId: id }];
+      for (const call of [`${id}-first`, `${id}-second`]) {
+        events.push(
+          { type: "TOOL_CALL_START", toolCallId: call, toolCallName: "ask_email_agent" },
+          { type: "TOOL_CALL_END", toolCallId: call },
+          { type: "TOOL_CALL_RESULT", messageId: `${call}-result`, toolCallId: call, role: "tool",
+            content: JSON.stringify({ status: "connect_required", structured: { schema_version: "specialist_read.v1",
+              connector: "mail", status: "connect_required", sources: [], truncated: false, metadata_only: true } }) },
+        );
+      }
+      if (withReview) events.push({ type: "STATE_DELTA", delta: [{ op: "add", path: "/hussh:pending_directive:email",
+        value: { kind: "action", delegateAgentId: "agent_email", payload: { type: "gmail.connect", purpose: "read",
+          summary: "Connect Gmail to check your inbox.", confirmLabel: "Connect Gmail" } } }] });
+      events.push(
+        { type: "TEXT_MESSAGE_START", messageId: id, role: "assistant" },
+        { type: "TEXT_MESSAGE_CONTENT", messageId: id, delta: answer },
+        { type: "TEXT_MESSAGE_END", messageId: id },
+        { type: "TOOL_CALL_START", toolCallId: `${id}-follow-up`, toolCallName: "suggest_follow_ups" },
+        { type: "TOOL_CALL_END", toolCallId: `${id}-follow-up` },
+        { type: "TOOL_CALL_RESULT", messageId: `${id}-follow-up-result`, toolCallId: `${id}-follow-up`, role: "tool",
+          content: JSON.stringify({ status: "shown", suggestions: ["How do I check Mail?", "What can One read?"] }) },
+        { type: "RUN_FINISHED", threadId: "same-conversation", runId: id },
+      );
+      return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        { headers: { "Content-Type": "text/event-stream" } });
+    };
+    let finishConnect!: (outcome: "connected") => void;
+    const connection = new Promise<"connected">(resolve => { finishConnect = resolve; });
+    const connect = vi.spyOn(connections, "connectGmailInPlace").mockReturnValue({ surface: "window", result: connection });
+    vi.spyOn(ApiService, "apiFetchStream")
+      .mockImplementationOnce(async () => mailRead("mail-first", "Connect Gmail to see which emails need a reply.", false))
+      .mockImplementationOnce(async () => mailRead("mail-latest", "Connect Gmail in Connections to check for replies.", true))
+      .mockImplementationOnce(async () => sse("tool", {
+        status: "connection_required", directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
+          type: "calendar.connect", accessLevel: "read", summary: "Connect Calendar to read events.", confirmLabel: "Connect Calendar",
+        } },
+      }));
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    const send = (prompt = "Which emails need a reply?") => {
+      fireEvent.change(composer, { target: { value: prompt } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    };
+    send();
+    await screen.findByRole("button", { name: "Connect Gmail", exact: true });
+    expect(screen.queryByRole("button", { name: "Cancel", exact: true })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: "Mail read details" })).toHaveLength(2);
+    send();
+    await screen.findByText("Connect Gmail in Connections to check for replies.");
+    expect(screen.getByText("Connect Gmail to see which emails need a reply.")).toBeVisible();
+    expect(screen.getAllByRole("region", { name: "Mail read details" })).toHaveLength(4);
+    const confirm = screen.getByRole("button", { name: "Connect Gmail", exact: true });
+    const cancel = screen.getByRole("button", { name: "Cancel", exact: true });
+    expect(screen.getByText("Connect Gmail to check your inbox.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "How do I check Mail?" })).not.toBeInTheDocument();
+    expect(connect).not.toHaveBeenCalled();
+    if (outcome === "cancelled") {
+      fireEvent.click(cancel);
+      expect(connect).not.toHaveBeenCalled();
+    } else {
+      fireEvent.click(confirm);
+      expect(connect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ purpose: "read" }));
+      if (outcome === "superseded") {
+        send("What is on my Calendar?");
+        await screen.findByText("Connect Calendar to read events.");
+      }
+      await act(async () => { finishConnect("connected"); });
+    }
+    expect(screen.queryByRole("button", { name: "Connect Gmail", exact: true })).not.toBeInTheDocument();
+    const nextAction = outcome === "superseded" ? "Connect Calendar" : "How do I check Mail?";
+    expect(await screen.findByRole("button", { name: nextAction, exact: true })).toBeEnabled();
+  });
+
   it("denied consent retains one actionable authorization card without continuing or executing", async () => {
     const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool", {
       status: "connection_required", directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
