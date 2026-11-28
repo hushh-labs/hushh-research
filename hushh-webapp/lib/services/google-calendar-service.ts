@@ -18,6 +18,7 @@ export type GoogleCalendarAccount = {
   connected: boolean;
   access_level: "read" | "manage" | null;
   calendar_list_access: boolean;
+  gmail_read_enabled?: boolean;
   guest_photo_access?: boolean;
   scope_csv?: string;
   grant_generation?: string;

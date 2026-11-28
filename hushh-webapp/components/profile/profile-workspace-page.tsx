@@ -96,6 +96,7 @@ import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { buildProfileConnectorsStackEntry, RetainedProfileConnectors, useRetainedProfileConnectorNavigation } from "@/components/profile/profile-connectors-section";
 import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
+import { warmConnectorsForOwner } from "@/lib/connections/warm-connectors";
 import {
   buildProfileLegalStackEntries,
 } from "@/components/profile/profile-legal-section";
@@ -4776,7 +4777,29 @@ function ProfilePageContent({
         <SurfaceStack compact>
           <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary}
             secondary={nws.secondary} onOpen={() => openVaultBackedPanel("net-worth-score")} />
-          <div className="profile-home-content">
+          <div
+            className="profile-home-content"
+            onPointerMoveCapture={() => {
+              if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) return;
+              warmConnectorsForOwner({
+                firebaseUid: user.uid ?? null,
+                ownerId: applicationOwnerId ?? null,
+                vaultKey,
+                vaultOwnerToken,
+                idTokenProvider: voiceGetIdToken,
+              });
+            }}
+            onFocusCapture={() => {
+              if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) return;
+              warmConnectorsForOwner({
+                firebaseUid: user.uid ?? null,
+                ownerId: applicationOwnerId ?? null,
+                vaultKey,
+                vaultOwnerToken,
+                idTokenProvider: voiceGetIdToken,
+              });
+            }}
+          >
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
                 icon={entry.icon} iconTone="capability" title={entry.label} chevron

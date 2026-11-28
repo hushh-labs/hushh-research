@@ -123,12 +123,12 @@ import {
   ChevronDown,
   ChevronLeft,
   Cloud,
-  Cpu,
   FileText,
   KeyRound,
   Laptop,
   LogIn,
   Send,
+  Sparkle,
   StopSquare,
   User,
   X,
@@ -10980,7 +10980,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   >
                     {/* The verified catalog owns labels; a short Gemini label
                         saves space without assuming the provider of other rows. */}
-                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-3.5 shrink-0 text-muted-foreground" />
+                    <Sparkle aria-hidden="true" className="agent-chat-model-icon size-3.5 shrink-0 text-foreground/60 dark:text-foreground/70" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(

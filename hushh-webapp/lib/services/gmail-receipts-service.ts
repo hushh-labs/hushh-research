@@ -1,4 +1,4 @@
-import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { notifyMailGrantsChanged, privateGoogleStatus, disconnectPrivateGoogle, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
@@ -827,7 +827,7 @@ export class GmailReceiptsService {
     signal?: AbortSignal;
   }): Promise<NoticeCheck> {
     if (params.privateMailbox) return parseNoticeResponse(await privateReceiptRead(params.privateMailbox, params.userId, "notice", { receipt_keys: params.receiptKeys.slice(0,40), prior: params.prior.slice(0,12) }, params.signal), params.accountKey);
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNotice, {
       method: "POST",
       cache: "no-store",
@@ -862,7 +862,7 @@ export class GmailReceiptsService {
     signal?: AbortSignal;
   }): Promise<NoticeSource> {
     if (params.privateMailbox) return parseNoticeSource(await privateReceiptRead(params.privateMailbox, params.userId, "notice-source", { source_id: params.openKey }, params.signal));
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNoticeSource, {
       method: "POST",
       cache: "no-store",
@@ -890,7 +890,7 @@ export class GmailReceiptsService {
     /** Bypass the short-TTL cache when the caller needs guaranteed-fresh data. */
     force?: boolean;
   }): Promise<GmailConnectionStatus> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       const value = await privateGoogleStatus('gmail');
       const manage = value.capabilities.manage;
       const connected = value.status === 'connected' && value.capabilities.read;
@@ -934,7 +934,7 @@ export class GmailReceiptsService {
     includeGrantedScopes: boolean;
     purpose?: "read" | "send" | "compose" | "modify" | "settings" | "full";
   }): Promise<GmailConnectStartResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",
       result: "success",
@@ -984,7 +984,7 @@ export class GmailReceiptsService {
     userId: string;
     purpose?: "read" | "send" | "compose";
   }): Promise<GmailNativeConnectStartResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.purpose === "send" ? "incremental" : "full",
       result: "success",
@@ -1027,7 +1027,7 @@ export class GmailReceiptsService {
     serverAuthCode: string;
     purpose?: "read" | "send";
   }): Promise<GmailConnectionStatus> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     try {
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.connectNativeComplete,
@@ -1095,7 +1095,7 @@ export class GmailReceiptsService {
     code: string;
     state: string;
   }, options: { recordTelemetry?: boolean } = {}): Promise<GmailConnectionStatus> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     const recordTelemetry = options.recordTelemetry !== false;
     try {
       const response = await ApiService.apiFetch(
@@ -1143,7 +1143,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       await disconnectPrivateGoogle('gmail');
       return this.getStatus({ ...params, force: true });
     }
@@ -1189,7 +1189,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       return this.getStatus({ ...params, force: true });
     }
     const response = await ApiService.apiFetch(
@@ -1226,7 +1226,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailSyncQueueResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     trackEvent("gmail_sync_requested", {
       action: "manual",
       result: "success",
@@ -1267,7 +1267,7 @@ export class GmailReceiptsService {
     userId: string;
     runId: string;
   }): Promise<{ run: GmailSyncRun }> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({ user_id: params.userId }).toString();
     const response = await ApiService.apiFetch(
       `${buildGmailSyncRunPath(params.runId)}?${query}`,
@@ -1302,7 +1302,7 @@ export class GmailReceiptsService {
     perPage?: number;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptScanResponse> {
-    if (!params.privateMailbox && await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (!params.privateMailbox && await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const page = Math.max(1, Math.min(50, Math.trunc(params.page ?? 1)));
     const perPage = Math.max(
       1,
@@ -1373,7 +1373,7 @@ export class GmailReceiptsService {
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptDetailResponse> {
     if (params.privateMailbox) return parseLiveReceiptDetailResponse(await privateReceiptRead(params.privateMailbox, params.userId, "detail", { source_id: params.sourceId }, params.signal), params.sourceId);
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt details');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt details');
     const sourceId = params.sourceId.trim();
     if (!sourceId || sourceId.length > 340) {
       throw new Error("The selected Mail receipt is not available.");
@@ -1415,7 +1415,7 @@ export class GmailReceiptsService {
     perPage?: number;
     signal?: AbortSignal;
   }): Promise<ReceiptListResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({
       page: String(params.page ?? 1),
       per_page: String(params.perPage ?? 25),
@@ -1462,7 +1462,7 @@ export class GmailReceiptsService {
     userId: string;
     limit?: number;
   }): Promise<GmailNudgesResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({
       limit: String(params.limit ?? 10),
     }).toString();
