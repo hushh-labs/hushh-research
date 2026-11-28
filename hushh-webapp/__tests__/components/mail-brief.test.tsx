@@ -213,6 +213,13 @@ describe("honest states for the brief", () => {
     expect(screen.getByText("No changes to report.")).toBeVisible();
   });
 
+  it("labels additional matching mail only when Gmail reports another page", () => {
+    const brief = briefOf([], [], 24);
+    brief.coverage.mayBePartial = true;
+    render(<MailBriefSections {...props({ brief: part(brief) })} />);
+    expect(screen.getByText(/More messages match this period/)).toBeVisible();
+  });
+
   it("says there is no recent mail to check when the mailbox window was empty", () => {
     render(<MailBriefSections {...props({ brief: part(briefOf([], [], 0)) })} />);
     expect(screen.getByText("No recent mail to check yet.")).toBeVisible();

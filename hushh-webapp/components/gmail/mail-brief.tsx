@@ -434,6 +434,9 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
         </section>
       </div>
 
+      {brief.data?.coverage.mayBePartial ? (
+        <p className={styles.updated}>More messages match this period. Use Search to find them.</p>
+      ) : null}
       {Number.isFinite(fetchedAt) ? (
         <p className={styles.updated} data-testid="brief-updated">
           Updated {formatUpdatedTime(fetchedAt)}

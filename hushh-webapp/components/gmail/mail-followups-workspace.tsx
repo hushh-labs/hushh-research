@@ -182,7 +182,10 @@ export function MailFollowupsWorkspace({
         confirmLegacyTransition: confirmTransition,
       });
       if (!current()) return;
-      if (outcome.ok) refresh((n) => n + 1);
+      if (outcome.ok || (outcome.code === "MAIL_ACCOUNT_ALREADY_CONNECTED" && outcome.accountId)) {
+        if (outcome.accountId) setChoice(outcome.accountId);
+        refresh((n) => n + 1);
+      }
       else if (outcome.code === "PHONE_HANDOFF_REQUIRED")
         requestGoogleConnectorPhoneHandoff("gmail", undefined, false, true);
       else setError(connectRefusalMessage(outcome.code, "Mail"));

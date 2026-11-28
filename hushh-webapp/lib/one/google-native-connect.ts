@@ -50,7 +50,7 @@ export type NativeGoogleClient = { profile: GoogleClientProfile; clientId: strin
 
 export type ConnectOutcome =
   | { ok: true; status: "connected"; legacyCleanup?: 'unconfirmed'; accountId?: string }
-  | { ok: false; code: string }
+  | { ok: false; code: string; accountId?: string }
   | { ok: false; code: "PHONE_HANDOFF_REQUIRED"; handoff: PhoneHandoff };
 
 export type PhoneHandoff = { connector: GoogleConnector; deepLink: string };
@@ -196,6 +196,9 @@ export async function sendConnectorCredentialToAgent(
   }
   const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (response.ok && body?.status === "connected") return { ok: true, status: "connected", ...(typeof body.accountId === 'string' && /^[a-f0-9]{32}$/.test(body.accountId) ? { accountId: body.accountId } : {}), ...(body.legacyCleanup === 'unconfirmed' ? { legacyCleanup: 'unconfirmed' as const } : {}) };
+  if (body?.code === "MAIL_ACCOUNT_ALREADY_CONNECTED" && typeof body.accountId === "string" && /^[a-f0-9]{32}$/.test(body.accountId)) {
+    return { ok: false, code: body.code, accountId: body.accountId };
+  }
   return { ok: false, code: refusalCode(body, response.status) };
 }
 
@@ -203,6 +206,20 @@ export async function sendConnectorCredentialToAgent(
 export function phoneHandoff(connector: GoogleConnector, includeOtherContacts?: boolean, includeCalendarList?: boolean, addMailbox = false): PhoneHandoff {
   const suffix = connector === 'gmail' && addMailbox ? '/add' : connector === 'contacts' && includeOtherContacts ? '/other' : connector === 'calendar' && includeCalendarList ? '/list' : '';
   return { connector, deepLink: `hushh://one/connect/google/${connector}${suffix}` };
+}
+
+// Keep only a blocked Gmail attempt long enough for the original Add/Reconnect
+// control to supply a fresh gesture. No OAuth code has been issued at this point.
+let blockedMailPopup: {
+  key: string;
+  current: () => boolean;
+  resume: () => Promise<ConnectOutcome>;
+  timer: ReturnType<typeof setTimeout>;
+} | undefined;
+
+function clearBlockedMailPopup() {
+  if (blockedMailPopup) clearTimeout(blockedMailPopup.timer);
+  blockedMailPopup = undefined;
 }
 
 /** Sign in on this phone, seal the code to the agent, and let the agent redeem it. */
@@ -232,6 +249,10 @@ export async function connectGoogleConnector(
   const capability = deps.vaultOwnerCapability;
   if (!capability) return { ok: false, code: 'PRIVATE_AGENT_UNLOCK_REQUIRED' };
   if (!current()) return { ok: false, code: changedCode() };
+  const popupKey = JSON.stringify([owner, vaultEpoch, connector, deps.mailAccount ?? null, webOrigin]);
+  const blocked = blockedMailPopup;
+  clearBlockedMailPopup();
+  if (browserSupported && blocked?.key === popupKey && blocked.current()) return blocked.resume();
   // Prove this installation can reach its owner's session-only connector door
   // before asking Google for any new authority.
   try {
@@ -275,47 +296,58 @@ export async function connectGoogleConnector(
   } catch (error) {
     return { ok: false, code: current() ? (error instanceof Error ? error.message : 'GOOGLE_TRANSITION_UNAVAILABLE') : changedCode() };
   }
-  let verifier: string | null = null;
-  let code: string;
+  const approvedClient = client;
   const requestedScopes = connectorScopes(connector, deps.includeOtherContacts, deps.includeCalendarList);
-  try {
-    if (!current()) throw new Error(changedCode());
-    if (browserSupported) {
-      code = await requestHostedBrowserGoogleCode(client.clientId, requestedScopes, current, connector);
-    } else {
-      const pkce = await createPkce();
-      verifier = pkce.verifier;
+  async function authorize(): Promise<ConnectOutcome> {
+    let verifier: string | null = null;
+    let code: string;
+
+    try {
       if (!current()) throw new Error(changedCode());
-      const state = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
-      const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
-        googleAuthorizationUrl({ client, connector, challenge: pkce.challenge, state, includeOtherContacts: deps.includeOtherContacts, includeCalendarList: deps.includeCalendarList }),
-        client.redirectUri,
-      );
-      code = codeFromRedirect(redirect, state, client.redirectUri);
+      if (browserSupported) {
+        code = await requestHostedBrowserGoogleCode(approvedClient.clientId, requestedScopes, current, connector);
+      } else {
+        const pkce = await createPkce();
+        verifier = pkce.verifier;
+        if (!current()) throw new Error(changedCode());
+        const state = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+        const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
+          googleAuthorizationUrl({ client: approvedClient, connector, challenge: pkce.challenge, state, includeOtherContacts: deps.includeOtherContacts, includeCalendarList: deps.includeCalendarList }),
+          approvedClient.redirectUri,
+        );
+        code = codeFromRedirect(redirect, state, approvedClient.redirectUri);
+      }
+      if (!current()) throw new Error(changedCode());
+    } catch (error) {
+      if (connector === "gmail" && error instanceof Error && error.message === "GOOGLE_POPUP_BLOCKED" && current()) {
+        clearBlockedMailPopup();
+        blockedMailPopup = { key: popupKey, current, resume: authorize,
+          timer: setTimeout(clearBlockedMailPopup, 60_000) };
+      }
+      return { ok: false, code: error instanceof Error ? error.message : "SIGN_IN_INCOMPLETE" };
     }
-    if (!current()) throw new Error(changedCode());
-  } catch (error) {
-    return { ok: false, code: error instanceof Error ? error.message : "SIGN_IN_INCOMPLETE" };
+    const delivered = await sendConnectorCredentialToAgent(connector, {
+      kind: "authorization_code",
+      clientProfile: approvedClient.profile,
+      clientId: approvedClient.clientId,
+      code,
+      codeVerifier: verifier,
+      redirectUri: approvedClient.redirectUri,
+      scopes: requestedScopes,
+      ...(deps.mailAccount ? { mailAccount: deps.mailAccount } : {}),
+      transition,
+    }, firebaseUid, current);
+    if (!current()) return { ok: false, code: changedCode() };
+    if (connector === "gmail" && (delivered.ok || delivered.code === "MAIL_ACCOUNT_ALREADY_CONNECTED")) notifyMailGrantsChanged();
+    return delivered;
   }
-  const delivered = await sendConnectorCredentialToAgent(connector, {
-    kind: "authorization_code",
-    clientProfile: client.profile,
-    clientId: client.clientId,
-    code,
-    codeVerifier: verifier,
-    redirectUri: client.redirectUri,
-    scopes: requestedScopes,
-    ...(deps.mailAccount ? { mailAccount: deps.mailAccount } : {}),
-    transition,
-  }, firebaseUid, current);
-  if (!current()) return { ok: false, code: changedCode() };
-  if (delivered.ok && connector === "gmail") notifyMailGrantsChanged();
-  return delivered;
+  return authorize();
 }
 
 /** Plain words for every outcome the person can see. */
 export function connectRefusalMessage(code: string, connectorName: string): string {
   switch (code) {
+    case "GOOGLE_POPUP_BLOCKED": return "Google sign-in was blocked. Try the same Mail action again, or allow pop-ups for this site.";
     case 'MAIL_BROWSER_NOT_CONFIGURED': return 'Browser sign-in is not configured on this private agent yet.';
     case 'MAIL_ACCOUNT_ALREADY_CONNECTED': return 'This mailbox is already connected. Choose another Google account.';
     case 'MAIL_ACCOUNT_MISMATCH': return 'Choose the same Google account to reconnect this mailbox.';

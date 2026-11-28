@@ -25,7 +25,7 @@ type Session = {
   rememberRecent: (key: string, rows: RecentRows) => void;
   inventoryFailed: boolean; resolving: boolean; private: boolean; accounts: PrivateMailAccount[]; selected: PrivateMailAccount | null;
   /** Mailboxes whose Google permission lapsed. Mail cannot be read from them until the owner reconnects. */
-  expired: PrivateMailAccount[];
+  expired: PrivateMailAccount[]; reconnectMailbox: PrivateMailAccount | null;
   savedTasks?: Promise<TodoListState>;
   brief?: MailBrief; briefUpdating: boolean; briefError: boolean; retryBrief: () => void;
   /** What needs the owner in each mailbox One has read this session, by mailbox. A mailbox not yet read has no entry. */
@@ -79,7 +79,16 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
         setInventory({ scope, mode: "shared", accounts: [] });
         return;
       }
-      const accounts = await privateMailAccounts(controller.signal);
+      const inventory = await privateMailAccounts(controller.signal);
+      const accounts = await Promise.all(inventory.map(async row => {
+        if (row.email || !row.capabilities.read || !valid()) return row;
+        try {
+          const mailbox = await MailFollowupsService.account(row.accountId, row.credentialId, controller.signal);
+          return { ...row, email: mailbox.address };
+        } catch {
+          return row;
+        }
+      }));
       if (valid()) setInventory({ scope, mode: "private", accounts });
     }
     void load().catch(() => { if (valid()) setInventory({ scope, mode: "private", accounts: [], failed: true }); });
@@ -99,10 +108,13 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   const accounts = current?.accounts ?? [];
   const slot = choice?.scope === scope ? choice.slot : owner ? lastSlot(owner) : null;
   const available = accounts.filter(row => row.status === "connected" && row.capabilities.read);
-  const expired = accounts.filter(row => row.status === "needs_reauth");
+  const expired = accounts.filter(row => !row.capabilities.read);
+  const reconnectMailbox = expired.find(row => row.accountId === slot) ?? (!available.length ? expired[0] ?? null : null);
   const selected = (slot ? available.find(row => row.accountId === slot) : available.find(row => row.isDefault) ?? available[0]) ?? null;
   const choose = (id: string) => {
-    if (!owner || !available.some(row => row.accountId === id)) return;
+    // A newly authorized slot can arrive before the refreshed inventory. Only
+    // the verified, readable inventory above can resolve a choice into a selected account.
+    if (!owner || (!accounts.some(row => row.accountId === id) && !/^[a-f0-9]{32}$/.test(id))) return;
     setChoice({ scope, slot: id });
     try { localStorage.setItem(preference(owner), id); } catch { /* In-memory choice still works. */ }
   };
@@ -159,6 +171,6 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     const brief = saved[JSON.stringify([scope, row.accountId, row.credentialId])]?.brief;
     return brief ? [[row.accountId, brief.attention.length]] : [];
   }));
-  return <Context.Provider value={{ recentScope: selected ? briefScope : undefined, recentRows: selected ? saved[briefScope]?.rows : undefined, rememberRecent, inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh: retryNow,
+  return <Context.Provider value={{ recentScope: selected ? briefScope : undefined, recentRows: selected ? saved[briefScope]?.rows : undefined, rememberRecent, inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, reconnectMailbox, choose, refresh: retryNow,
     attentionCounts, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief ?? (selected ? saved[briefScope]?.brief : undefined), briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
 }
