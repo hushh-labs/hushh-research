@@ -52,6 +52,7 @@ Review the current PR head, not stale history, and decide whether the change is 
 24. Do not stop monitoring after `gh pr merge`, `gh pr merge --auto`, queue entry, or green PR checks. Stay attached until the authoritative workflow chain is terminal for that PR:
    - `Queue Validation` terminal when merge queue is involved
    - `Main Post-Merge Smoke` terminal if the PR lands on `main`
+   - Same-session downstream source synchronization (`main` to `uat` and `dev`; `uat` to `dev`) per `.agents/skills/repo-operations/references/maintainer-branch-freshness.md` (`Agent-owned downstream completion`): reuse or coalesce open sync PRs, validate combined-result CI, and land each safe downstream sync by default without waiting for contributor sync PRs or dispatching deployments unless requested.
 25. Return the parent worktree to the recorded developer branch after any temporary PR checkout, detached HEAD, review worktree, or queue-monitoring branch movement.
 26. Before the final response, update the active working report when one exists. For `tmp/pr-governance-live-report.md`, this means updating the progress ledger, per-PR register entries, head SHAs, lanes, batch counts, recommended next order, and terminal queue/smoke evidence.
 27. If the working report has a live update checklist, execute it before closing the turn.
@@ -71,3 +72,4 @@ Review the current PR head, not stale history, and decide whether the change is 
 8. treating an `approve_only` request as implicit merge authority
 9. using rigid template comments where a concise technical approval note would be clearer
 10. updating only the summary ledger while leaving per-PR register entries stale after merge, close, or supersede
+11. landing a PR on `main` or `uat` and waiting for a contributor or operator sync PR instead of completing agent-owned downstream synchronization (`main` to `uat` and `dev`; `uat` to `dev`) in the same session
