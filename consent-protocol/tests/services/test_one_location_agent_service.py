@@ -9920,3 +9920,28 @@ def test_scheduled_lane_match_sql_isolates_future_and_immediate_shares():
     immediate_sql = _scheduled_lane_match_sql(future_scheduled=False)
     assert "IS NOT NULL" in future_sql and "> NOW()" in future_sql
     assert "IS NULL" in immediate_sql and "<= NOW()" in immediate_sql
+
+
+def test_active_grant_between_excludes_future_scheduled_grants(monkeypatch):
+    service = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def _fake_one(sql, params=None):
+        captured["sql"] = str(sql)
+        captured["params"] = dict(params or {})
+        return {
+            "id": "live-grant-1",
+            "expires_at": None,
+            "duration_mode": "until_stopped",
+            "duration_hours": None,
+        }
+
+    monkeypatch.setattr(service, "_execute_one", _fake_one)
+    row = service._active_grant_between(
+        owner_user_id="owner_1",
+        recipient_user_id="recipient_1",
+        is_sos_lane=False,
+    )
+    assert row is not None and row["id"] == "live-grant-1"
+    assert "starts_at" in captured["sql"]
+    assert "<= NOW()" in captured["sql"]

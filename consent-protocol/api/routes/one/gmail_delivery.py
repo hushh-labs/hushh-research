@@ -7,6 +7,7 @@ or a sender address from the caller.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -460,7 +461,11 @@ async def gmail_reveal_ephemeral(
     owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Pragma"] = "no-cache"
-    revealed = reveal_ephemeral_code(reveal_ref=payload.reveal_ref, owner_user_id=owner)
+    revealed = await asyncio.to_thread(
+        reveal_ephemeral_code,
+        reveal_ref=payload.reveal_ref,
+        owner_user_id=owner,
+    )
     if revealed is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

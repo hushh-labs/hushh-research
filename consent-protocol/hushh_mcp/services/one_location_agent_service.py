@@ -10847,6 +10847,7 @@ class OneLocationAgentService:
             # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
             # caller-supplied reaches this statement.
             + lane_predicate
+            + _scheduled_lane_match_sql(future_scheduled=False)
             + """
             ORDER BY created_at DESC
             LIMIT 1

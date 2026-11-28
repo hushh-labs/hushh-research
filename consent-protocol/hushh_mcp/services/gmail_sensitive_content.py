@@ -405,6 +405,14 @@ def _store_ephemeral(
             except Exception:  # noqa: BLE001 - fall back to container tmpfs RAM
                 logger.debug("one_gmail.ephemeral_otp.redis_write_skipped")
         if not stored_in_redis:
+            if redis_client is not None:
+                # If Redis committed the SET before timing out, reusing ``ref``
+                # in tmpfs would create two independently consumable copies.
+                # Mint a fresh ref exclusively for tmpfs so the orphaned Redis
+                # entry is unreachable and expires automatically.
+                ref = EPHEMERAL_REF_PREFIX + secrets.token_urlsafe(24)
+                storage_key = _ref_storage_key(key, ref)
+                sealed = _seal_entry(key, ref, entry)
             _tmpfs_store_put(
                 key,
                 storage_key=storage_key,
