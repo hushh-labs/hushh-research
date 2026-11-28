@@ -567,7 +567,8 @@ async def gmail_search_mail(
             ),
         }
 
-    items, reveal_experience, _ = redact_sensitive_mail_items(
+    items, reveal_experience, _ = await asyncio.to_thread(
+        redact_sensitive_mail_items,
         raw_items,
         owner_user_id=user_id,
         conversation_id=conversation_id,
@@ -694,7 +695,8 @@ async def gmail_read_thread(
             return _error_payload("retryable", tool_context)
 
         raw_items = list(result.get("untrusted_external_content") or [])
-        items, reveal_experience, _ = redact_sensitive_mail_items(
+        items, reveal_experience, _ = await asyncio.to_thread(
+            redact_sensitive_mail_items,
             raw_items,
             owner_user_id=user_id,
             conversation_id=conversation_id,
@@ -798,7 +800,8 @@ async def gmail_read_thread(
         return _error_payload("retryable", tool_context)
 
     raw_items = list(result.get("untrusted_external_content") or [])
-    items, reveal_experience, _ = redact_sensitive_mail_items(
+    items, reveal_experience, _ = await asyncio.to_thread(
+        redact_sensitive_mail_items,
         raw_items,
         owner_user_id=user_id,
         conversation_id=conversation_id,

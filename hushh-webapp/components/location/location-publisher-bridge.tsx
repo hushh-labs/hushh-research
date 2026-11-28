@@ -516,7 +516,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
   // The Location workspace maintains its own public link while it is open.
   // In Chat an active link needs updates even when there are no private grants.
-  const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing"
+  const publicLink = pathname === ROUTES.HOME && sharing.effective === "sharing" && !serverTimedPaused
     ? state?.publicInvites?.find((invite) => invite.ownerUserId === uid && invite.status === "active" &&
       invite.expiresAt && Date.parse(invite.expiresAt) > Date.now()) : undefined;
   const publicId = publicLink?.id;
@@ -530,7 +530,12 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     const expiresAt = Date.parse(publicEnd);
     let closed = false;
     let pending = false;
+    const isTimedPaused = () => {
+      const until = settingsRef.current.settings?.paused_until;
+      return Boolean(until && Date.parse(until) > Date.now());
+    };
     const current = () => !closed && uidRef.current === uid && tokenRef.current === ownerToken &&
+      !isTimedPaused() &&
       publicLinkRef.current?.id === inviteId && publicLinkRef.current.expiresAt === publicEnd &&
       document.visibilityState === "visible" && expiresAt > Date.now();
     async function publishPublicPosition() {
@@ -547,9 +552,14 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
           isEffectCurrent: () => current() && (!precise || allowsPrecise()),
         });
       } catch (error) {
-        if (current() && apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
+        const code = apiErrorCode(error);
+        if (current() && code === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
           closed = true;
           invalidateState();
+        } else if (code === "LOCATION_UPDATES_PAUSED" && uidRef.current && tokenRef.current) {
+          void LocationAccountSettingsResource.load(uidRef.current, tokenRef.current, {
+            force: true,
+          }).catch(() => undefined);
         }
       } finally {
         pending = false;

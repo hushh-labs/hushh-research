@@ -429,7 +429,11 @@ def _schedule_payload_fields_v2(payload: Any) -> dict[str, Any]:
             "in_reply_to": str(reply_raw.get("in_reply_to") or "").strip() or None,
             "references": str(reply_raw.get("references") or "").strip() or None,
         }
-    return {
+    raw_html = payload.get("html_body")
+    if raw_html is not None and not isinstance(raw_html, str):
+        raise ValueError("scheduled payload html_body must be text")
+    html_body = sanitize_gmail_owner_html(raw_html)
+    fields: dict[str, Any] = {
         "to": to_list,
         "cc": cc_list,
         "bcc": bcc_list,
@@ -440,6 +444,9 @@ def _schedule_payload_fields_v2(payload: Any) -> dict[str, Any]:
         "sender_sub": sender_sub,
         "reply_context": reply_context,
     }
+    if html_body is not None:
+        fields["html_body"] = html_body
+    return fields
 
 
 def _schedule_payload_fields(payload: Any) -> dict[str, str]:
@@ -1565,7 +1572,7 @@ class GmailDeliveryService:
         """The draft a scheduled send hashes at confirmation and sends when due."""
         raw_to = payload.get("to")
         to_list = [str(x) for x in raw_to] if isinstance(raw_to, list) else [str(raw_to or "")]
-        return {
+        draft_dict: dict[str, Any] = {
             "to": to_list,
             "cc": [str(x) for x in (payload.get("cc") or [])]
             if isinstance(payload.get("cc"), list)
@@ -1576,6 +1583,9 @@ class GmailDeliveryService:
             "subject": str(payload.get("subject") or ""),
             "body": str(payload.get("body") or ""),
         }
+        if payload.get("html_body") is not None:
+            draft_dict["html_body"] = payload.get("html_body")
+        return draft_dict
 
     @staticmethod
     def scheduled_reply_context(payload: dict[str, Any]) -> GmailReplyContext | None:
@@ -1755,6 +1765,7 @@ class GmailDeliveryService:
             or bool(payload.get("cc"))
             or bool(payload.get("bcc"))
             or bool(payload.get("reply_context"))
+            or payload.get("html_body") is not None
             or payload.get("recipient_kind") in {"explicit_address", "self"}
             or not str(payload.get("recipient_user_id") or "").strip()
         )
@@ -1776,6 +1787,8 @@ class GmailDeliveryService:
                     "sender_sub": sender_sub,
                     "reply_context": fields_v2["reply_context"],
                 }
+                if draft.html_body is not None:
+                    sealed_fields["html_body"] = draft.html_body
                 seal_version = 2
             else:
                 fields = _schedule_payload_fields(payload)

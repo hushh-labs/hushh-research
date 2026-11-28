@@ -19,14 +19,28 @@ security and authority guards; never a semantic intent router):
 
 from __future__ import annotations
 
+import base64
+import fcntl
+import hashlib
 import hmac
+import json
 import logging
+import os
 import re
 import secrets
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
+
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+from hushh_mcp.runtime_settings import get_core_security_settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +51,9 @@ EPHEMERAL_REF_PATTERN = r"^otp1\.[A-Za-z0-9_-]{16,128}$"
 EPHEMERAL_TTL_SECONDS = 120
 AUTO_CLEAR_SECONDS = 60
 _MAX_STORE_ENTRIES = 512
+_EPHEMERAL_HKDF_INFO = b"one-gmail-ephemeral-otp-v1"
+_REDIS_KEY_PREFIX = "one:ephemeral-otp:v1:"
+_REDIS_OP_TIMEOUT_SECONDS = 0.5
 
 OTP_PLACEHOLDER = "\u27e6otp:redacted\u27e7"
 CREDENTIAL_PLACEHOLDER = "\u27e6credential:redacted\u27e7"
@@ -128,12 +145,218 @@ class _EphemeralSecret:
 
 _STORE_LOCK = threading.Lock()
 _EPHEMERAL_STORE: dict[str, _EphemeralSecret] = {}
+_REDIS_CLIENT: Any = None
+_REDIS_CLIENT_URL: str | None = None
+
+
+def _ephemeral_crypto_key() -> bytes | None:
+    try:
+        secret = get_core_security_settings().app_signing_key
+    except Exception:  # noqa: BLE001 - unit tests without security env fall back to process RAM
+        return None
+    if not secret:
+        return None
+    return HKDF(algorithm=SHA256(), length=32, salt=None, info=_EPHEMERAL_HKDF_INFO).derive(
+        secret.encode("utf-8")
+    )
+
+
+def _ref_storage_key(key: bytes, reveal_ref: str) -> str:
+    return hmac.new(
+        key, _EPHEMERAL_HKDF_INFO + b":ref:" + reveal_ref.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+def _seal_entry(key: bytes, reveal_ref: str, entry: _EphemeralSecret) -> str:
+    plaintext = json.dumps(
+        {
+            "owner": entry.owner_user_id,
+            "conversation": entry.conversation_id,
+            "kind": entry.kind,
+            "codes": list(entry.codes),
+            "sender": entry.sender,
+            "subject": entry.subject,
+            "received_at": entry.received_at,
+            "exp": entry.expires_at,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    nonce = secrets.token_bytes(12)
+    aad = _EPHEMERAL_HKDF_INFO + f":{entry.owner_user_id}:{reveal_ref}".encode("utf-8")
+    ciphertext = AESGCM(key).encrypt(nonce, plaintext, aad)
+    return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii").rstrip("=")
+
+
+def _open_entry(
+    key: bytes, *, reveal_ref: str, owner_user_id: str, sealed: str
+) -> _EphemeralSecret | None:
+    try:
+        packed = base64.b64decode(sealed + "=" * (-len(sealed) % 4), altchars=b"-_", validate=True)
+        if len(packed) < 12 + 16 + 1:
+            return None
+        aad = _EPHEMERAL_HKDF_INFO + f":{owner_user_id}:{reveal_ref}".encode("utf-8")
+        decoded = json.loads(AESGCM(key).decrypt(packed[:12], packed[12:], aad))
+    except (ValueError, TypeError, InvalidTag):
+        return None
+    if not isinstance(decoded, dict) or decoded.get("owner") != owner_user_id:
+        return None
+    raw_kind = decoded.get("kind")
+    kind: Literal["otp", "credentials"] = "credentials" if raw_kind == "credentials" else "otp"
+    raw_codes = decoded.get("codes")
+    if not isinstance(raw_codes, list):
+        return None
+    return _EphemeralSecret(
+        owner_user_id=owner_user_id,
+        conversation_id=str(decoded.get("conversation") or ""),
+        kind=kind,
+        codes=tuple(str(c) for c in raw_codes[:6]),
+        sender=str(decoded.get("sender") or "")[:120],
+        subject=str(decoded.get("subject") or "")[:180],
+        received_at=str(decoded["received_at"]) if decoded.get("received_at") else None,
+        expires_at=float(decoded.get("exp") or 0.0),
+    )
+
+
+def _redis_storage_url() -> str:
+    raw = (os.getenv("RATE_LIMIT_STORAGE_URI") or os.getenv("REDIS_URL") or "").strip()
+    if raw.startswith(("redis://", "rediss://")):
+        return raw
+    return ""
+
+
+def _get_sync_redis_client() -> Any:
+    global _REDIS_CLIENT, _REDIS_CLIENT_URL
+    url = _redis_storage_url()
+    if not url:
+        return None
+    if _REDIS_CLIENT is not None and _REDIS_CLIENT_URL == url:
+        return _REDIS_CLIENT
+    try:
+        import redis as sync_redis
+
+        _REDIS_CLIENT = sync_redis.Redis.from_url(
+            url,
+            decode_responses=True,
+            socket_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+            socket_connect_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+        )
+        _REDIS_CLIENT_URL = url
+        return _REDIS_CLIENT
+    except Exception:  # noqa: BLE001 - fall back to container tmpfs RAM
+        return None
+
+
+def _shared_ram_store_path(key: bytes) -> Path:
+    namespace = hashlib.sha256(_EPHEMERAL_HKDF_INFO + key).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / f"hushh-one-ephemeral-otp-{namespace}.ram"
+
+
+def _tmpfs_store_put(
+    key: bytes, *, storage_key: str, sealed: str, expires_at: float, now: float
+) -> None:
+    path = _shared_ram_store_path(key)
+    lock_path = path.with_suffix(".lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(fd, "r+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                data: dict[str, dict[str, Any]] = {}
+                if path.exists():
+                    try:
+                        loaded = json.loads(path.read_text(encoding="utf-8"))
+                        if isinstance(loaded, dict):
+                            data = {
+                                k: v
+                                for k, v in loaded.items()
+                                if isinstance(v, dict) and float(v.get("exp") or 0.0) > now
+                            }
+                    except Exception:  # noqa: BLE001
+                        data = {}
+                while len(data) >= _MAX_STORE_ENTRIES:
+                    oldest = min(data, key=lambda k: float(data[k].get("exp") or 0.0))
+                    data.pop(oldest, None)
+                data[storage_key] = {"exp": expires_at, "sealed": sealed}
+                tmp_path = path.with_suffix(f".{os.getpid()}.tmp")
+                tmp_fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as handle:
+                    json.dump(data, handle, separators=(",", ":"))
+                os.replace(tmp_path, path)
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except Exception:  # noqa: BLE001 - process-local RAM store still holds the entry
+        logger.debug("one_gmail.ephemeral_otp.shared_ram_write_skipped")
+
+
+def _tmpfs_store_consume(
+    key: bytes, *, storage_key: str, reveal_ref: str, owner_user_id: str, now: float
+) -> _EphemeralSecret | None:
+    path = _shared_ram_store_path(key)
+    lock_path = path.with_suffix(".lock")
+    if not path.exists():
+        return None
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(fd, "r+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                if not path.exists():
+                    return None
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(loaded, dict):
+                    return None
+                data = {
+                    k: v
+                    for k, v in loaded.items()
+                    if isinstance(v, dict) and float(v.get("exp") or 0.0) > now
+                }
+                item = data.get(storage_key)
+                if not isinstance(item, dict) or not isinstance(item.get("sealed"), str):
+                    if len(data) != len(loaded):
+                        _write_tmpfs_data(path, data)
+                    return None
+                entry = _open_entry(
+                    key,
+                    reveal_ref=reveal_ref,
+                    owner_user_id=owner_user_id,
+                    sealed=item["sealed"],
+                )
+                if entry is None or entry.expires_at <= now:
+                    # Wrong owner fails AAD without consuming the owner's entry.
+                    if entry is not None and entry.expires_at <= now:
+                        data.pop(storage_key, None)
+                        _write_tmpfs_data(path, data)
+                    return None
+                data.pop(storage_key, None)
+                _write_tmpfs_data(path, data)
+                return entry
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _write_tmpfs_data(path: Path, data: dict[str, dict[str, Any]]) -> None:
+    tmp_path = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp_fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(tmp_fd, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, separators=(",", ":"))
+    os.replace(tmp_path, path)
 
 
 def clear_ephemeral_store_for_tests() -> None:
     """Reset the RAM-only ephemeral reveal store between unit tests."""
     with _STORE_LOCK:
         _EPHEMERAL_STORE.clear()
+    key = _ephemeral_crypto_key()
+    if key is not None:
+        path = _shared_ram_store_path(key)
+        for candidate in (path, path.with_suffix(".lock")):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _prune_expired_locked(now: float) -> None:
@@ -153,7 +376,7 @@ def _store_ephemeral(
     received_at: str | None,
     now: float | None = None,
 ) -> str:
-    current = time.monotonic() if now is None else now
+    current = time.time() if now is None else now
     ref = EPHEMERAL_REF_PREFIX + secrets.token_urlsafe(24)
     entry = _EphemeralSecret(
         owner_user_id=owner_user_id,
@@ -165,6 +388,38 @@ def _store_ephemeral(
         received_at=received_at,
         expires_at=current + EPHEMERAL_TTL_SECONDS,
     )
+    key = _ephemeral_crypto_key()
+    if key is not None:
+        storage_key = _ref_storage_key(key, ref)
+        sealed = _seal_entry(key, ref, entry)
+        stored_in_redis = False
+        redis_client = _get_sync_redis_client()
+        if redis_client is not None:
+            try:
+                redis_client.set(
+                    _REDIS_KEY_PREFIX + storage_key,
+                    sealed,
+                    ex=EPHEMERAL_TTL_SECONDS,
+                )
+                stored_in_redis = True
+            except Exception:  # noqa: BLE001 - fall back to container tmpfs RAM
+                logger.debug("one_gmail.ephemeral_otp.redis_write_skipped")
+        if not stored_in_redis:
+            if redis_client is not None:
+                # If Redis committed the SET before timing out, reusing ``ref``
+                # in tmpfs would create two independently consumable copies.
+                # Mint a fresh ref exclusively for tmpfs so the orphaned Redis
+                # entry is unreachable and expires automatically.
+                ref = EPHEMERAL_REF_PREFIX + secrets.token_urlsafe(24)
+                storage_key = _ref_storage_key(key, ref)
+                sealed = _seal_entry(key, ref, entry)
+            _tmpfs_store_put(
+                key,
+                storage_key=storage_key,
+                sealed=sealed,
+                expires_at=entry.expires_at,
+                now=current,
+            )
     with _STORE_LOCK:
         _prune_expired_locked(current)
         if len(_EPHEMERAL_STORE) >= _MAX_STORE_ENTRIES:
@@ -180,7 +435,12 @@ def reveal_ephemeral_code(
     owner_user_id: str,
     now: float | None = None,
 ) -> dict[str, Any] | None:
-    """Single-consume RAM-only reveal for the matching vault owner, or None."""
+    """Single-consume RAM-only reveal for the matching vault owner, or None.
+
+    Works across multiple backend workers inside a container (locked tmpfs RAM)
+    and across instances when Redis is configured, while never writing plaintext
+    codes to Postgres, logs, or persistent storage.
+    """
     if (
         not isinstance(reveal_ref, str)
         or not re.fullmatch(EPHEMERAL_REF_PATTERN, reveal_ref)
@@ -188,16 +448,67 @@ def reveal_ephemeral_code(
         or not owner_user_id.strip()
     ):
         return None
-    current = time.monotonic() if now is None else now
-    with _STORE_LOCK:
-        _prune_expired_locked(current)
-        entry = _EPHEMERAL_STORE.get(reveal_ref)
+    current = time.time() if now is None else now
+    entry: _EphemeralSecret | None = None
+
+    key = _ephemeral_crypto_key()
+    if key is not None:
+        storage_key = _ref_storage_key(key, reveal_ref)
+        redis_client = _get_sync_redis_client()
+        if redis_client is not None:
+            try:
+                redis_key = _REDIS_KEY_PREFIX + storage_key
+                raw_sealed = redis_client.get(redis_key)
+                if isinstance(raw_sealed, str) and raw_sealed:
+                    opened = _open_entry(
+                        key,
+                        reveal_ref=reveal_ref,
+                        owner_user_id=owner_user_id,
+                        sealed=raw_sealed,
+                    )
+                    if opened is None:
+                        return None
+                    if opened.expires_at <= current:
+                        redis_client.delete(redis_key)
+                        return None
+                    # Atomic single-consume: only the worker that actually removes
+                    # the key succeeds when two reveal requests race.
+                    if int(redis_client.delete(redis_key) or 0) > 0:
+                        entry = opened
+                    else:
+                        return None
+            except Exception:  # noqa: BLE001 - fall back to tmpfs RAM
+                logger.debug("one_gmail.ephemeral_otp.redis_read_skipped")
         if entry is None:
-            return None
-        if not hmac.compare_digest(entry.owner_user_id, owner_user_id):
-            # Refuse without consuming so another user cannot invalidate the owner's ref.
-            return None
-        _EPHEMERAL_STORE.pop(reveal_ref, None)
+            entry = _tmpfs_store_consume(
+                key,
+                storage_key=storage_key,
+                reveal_ref=reveal_ref,
+                owner_user_id=owner_user_id,
+                now=current,
+            )
+            if entry is not None:
+                with _STORE_LOCK:
+                    _EPHEMERAL_STORE.pop(reveal_ref, None)
+
+    if entry is None:
+        with _STORE_LOCK:
+            _prune_expired_locked(current)
+            local = _EPHEMERAL_STORE.get(reveal_ref)
+            if local is None:
+                return None
+            if not hmac.compare_digest(local.owner_user_id, owner_user_id):
+                # Refuse without consuming so another user cannot invalidate the owner's ref.
+                return None
+            # When the shared tmpfs store is active and didn't have the key,
+            # another worker may have already consumed it. Only fall back to
+            # process-local RAM if no crypto key was available.
+            if key is not None:
+                _EPHEMERAL_STORE.pop(reveal_ref, None)
+                return None
+            entry = _EPHEMERAL_STORE.pop(reveal_ref, None)
+    if entry is None:
+        return None
     return {
         "kind": entry.kind,
         "codes": list(entry.codes),

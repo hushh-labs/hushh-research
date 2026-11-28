@@ -2121,3 +2121,168 @@ async def test_prepare_and_execute_save_draft_uses_compose_authority_without_sen
             intent="save_draft",
         )
     assert compose_refused.value.code == "GMAIL_COMPOSE_PERMISSION_REQUIRED"
+
+
+def test_ephemeral_otp_reveal_works_across_workers_and_single_consumes(monkeypatch):
+    from hushh_mcp.services import gmail_sensitive_content as gsc
+
+    monkeypatch.setattr(
+        gsc,
+        "get_core_security_settings",
+        lambda: type(
+            "Settings", (), {"app_signing_key": "test-cross-worker-otp-signing-key-32c"}
+        )(),
+    )
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    gsc.clear_ephemeral_store_for_tests()
+    try:
+        ref = gsc._store_ephemeral(
+            owner_user_id="owner-worker-test",
+            conversation_id="conv-1",
+            kind="otp",
+            codes=["482913"],
+            sender="security@example.com",
+            subject="Sign-in code",
+            received_at="2026-11-28T00:00:00Z",
+        )
+        # Simulate the reveal hitting a DIFFERENT uvicorn worker with an empty in-memory dict.
+        gsc._EPHEMERAL_STORE.clear()
+
+        # Negative control: foreign user cannot reveal or consume the owner's ref.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="other-user") is None
+
+        # Owner reveals cleanly from the second worker.
+        revealed = gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-worker-test")
+        assert revealed is not None
+        assert revealed["codes"] == ["482913"]
+
+        # Single-consume invariant: second reveal on any worker returns None.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-worker-test") is None
+    finally:
+        gsc.clear_ephemeral_store_for_tests()
+
+
+def test_scheduled_send_v2_preserves_sanitized_html_body(monkeypatch):
+    from hushh_mcp.services import gmail_delivery_service as module
+
+    monkeypatch.setattr(
+        module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    service = GmailDeliveryService()
+    sealed = service.seal_schedule_payload(
+        user_id="owner",
+        action_id="action-html-1",
+        version=2,
+        payload={
+            "to": ["alice@example.com"],
+            "cc": [],
+            "bcc": [],
+            "subject": "Formatted update",
+            "body": "Hello Alice",
+            "html_body": '<p><strong>Hello</strong> <a href="https://example.com">link</a><script>alert(1)</script></p>',
+            "recipient_kind": "explicit_address",
+            "recipient_user_id": "",
+            "sender_sub": "sub-1",
+            "reply_context": None,
+        },
+    )
+    opened = service.open_schedule_payload(
+        user_id="owner", action_id="action-html-1", sealed=sealed
+    )
+    draft_payload = service.scheduled_draft_payload(opened)
+    assert "html_body" in draft_payload
+    assert "<strong>Hello</strong>" in draft_payload["html_body"]
+    assert "<script>" not in draft_payload["html_body"]
+    normalized = normalize_draft(draft_payload)
+    assert normalized.html_body is not None and "<strong>Hello</strong>" in normalized.html_body
+
+
+def test_ephemeral_otp_ambiguous_redis_timeout_still_single_consumes(monkeypatch):
+    from hushh_mcp.services import gmail_sensitive_content as gsc
+
+    class _AmbiguousRedis:
+        def __init__(self) -> None:
+            self.data: dict[str, str] = {}
+
+        def set(self, key: str, value: str, ex: int | None = None) -> None:
+            # Simulates Redis committing the SET before the client times out.
+            self.data[key] = value
+            raise TimeoutError("redis response timed out after commit")
+
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
+
+        def delete(self, key: str) -> int:
+            return 1 if self.data.pop(key, None) is not None else 0
+
+    fake_redis = _AmbiguousRedis()
+    monkeypatch.setattr(
+        gsc,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-ambiguous-redis-otp-signing-32c"})(),
+    )
+    monkeypatch.setattr(gsc, "_get_sync_redis_client", lambda: fake_redis)
+    gsc.clear_ephemeral_store_for_tests()
+    try:
+        ref = gsc._store_ephemeral(
+            owner_user_id="owner-timeout-test",
+            conversation_id="conv-timeout",
+            kind="otp",
+            codes=["739201"],
+            sender="security@example.com",
+            subject="Code",
+            received_at="2026-11-28T00:00:00Z",
+        )
+        # First reveal succeeds via the fallback ref.
+        first = gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-timeout-test")
+        assert first is not None and first["codes"] == ["739201"]
+        # Second reveal MUST return None even though Redis retained the orphaned initial key.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-timeout-test") is None
+    finally:
+        gsc.clear_ephemeral_store_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_gmail_reveal_ephemeral_offloads_blocking_storage_off_event_loop(monkeypatch):
+    import asyncio
+    import time
+
+    from fastapi import Response
+
+    from api.routes.one import gmail_delivery as route_mod
+
+    def _slow_reveal(*, reveal_ref: str, owner_user_id: str):
+        time.sleep(0.15)
+        return {
+            "kind": "otp",
+            "codes": ["123456"],
+            "sender": "security@example.com",
+            "subject": "Code",
+            "received_at": None,
+            "auto_clear_seconds": 60,
+        }
+
+    monkeypatch.setattr(route_mod, "reveal_ephemeral_code", _slow_reveal)
+    payload = route_mod.EmailRevealEphemeralRequest(reveal_ref="otp1.abc1234567890def1234")
+    response = Response()
+
+    async def _heartbeat() -> float:
+        t0 = time.perf_counter()
+        await asyncio.sleep(0.01)
+        return time.perf_counter() - t0
+
+    reveal_task = asyncio.create_task(
+        route_mod.gmail_reveal_ephemeral(
+            payload=payload,
+            response=response,
+            firebase_uid="owner-loop-test",
+            token_data={"user_id": "owner-loop-test"},
+        )
+    )
+    hb_elapsed = await _heartbeat()
+    result = await reveal_task
+    assert result["codes"] == ["123456"]
+    assert hb_elapsed < 0.10, f"event loop stalled for {hb_elapsed:.3f}s"
