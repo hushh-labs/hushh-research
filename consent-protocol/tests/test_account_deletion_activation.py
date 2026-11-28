@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
     activation = _production_step("Activate tombstone-aware account deletion")
     assert activation["if"] == (
-        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && "
+        "env.TRAFFIC_POSTURE != 'stage_dark' && env.PHONE_DEPLOY_PHASE != 'cold' && "
+        "(steps.classify.outputs.release_failed == 'false' && "
         "steps.scope.outputs.deploy_backend == 'true')"
     )
     # The recovery schema driver belongs to the verified project environment.
