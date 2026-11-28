@@ -982,6 +982,7 @@ class LocationChatPlanService:
                     else None
                 ),
                 _reviewed_circle_id=terms["circleId"],
+                precision=terms.get("precision"),
             )
             return {
                 "grantId": outcome["grant"]["id"],
