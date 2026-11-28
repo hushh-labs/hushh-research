@@ -126,9 +126,17 @@ describe("Workspace connector setup card", () => {
   it("offers Gmail disconnect only after current status, with app confirmation", async () => {
     gmailState.connected = true;
     gmailState.disconnect.mockClear();
-    render(<WorkspaceConnectorSetupCard experience={{ type: "one.workspace_connector_setup.v1", provider: "gmail", status: "manage_available" }} />);
+    const card = (allowAction: boolean) => <WorkspaceConnectorSetupCard allowAction={allowAction}
+      experience={{ type: "one.workspace_connector_setup.v1", provider: "gmail", status: "manage_available" }} />;
+    const { rerender } = render(card(true));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect Gmail" }));
     expect(gmailState.disconnect).not.toHaveBeenCalled();
+    rerender(card(false));
+    expect(screen.getByRole("status")).toHaveTextContent("Gmail · Connected");
+    expect(screen.queryByRole("button", { name: "Disconnect Gmail" })).not.toBeInTheDocument();
+    rerender(card(true));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Gmail" }));
     const confirmButton = screen.getAllByRole("button", { name: "Disconnect Gmail" }).at(-1)!;
     expect(confirmButton).toHaveTextContent("Disconnect");
     expect(confirmButton).toHaveClass("min-w-0", "w-full");
@@ -200,9 +208,14 @@ describe("Workspace connector setup card", () => {
   it("shows a restored Calendar prompt as connected once the owner has connected it", () => {
     calendarState.connected = true;
     const onOpenConnections = vi.fn();
-    render(<WorkspaceConnectorSetupCard experience={{ type: "one.workspace_connector_setup.v1", provider: "calendar", status: "connect_required" }} onOpenConnections={onOpenConnections} />);
+    const card = (allowAction: boolean) => <WorkspaceConnectorSetupCard allowAction={allowAction}
+      experience={{ type: "one.workspace_connector_setup.v1", provider: "calendar", status: "connect_required" }}
+      onOpenConnections={onOpenConnections} />;
+    const { rerender } = render(card(false));
     expect(screen.getByRole("status")).toHaveTextContent("Calendar · Connected");
     expect(screen.queryByText("Connect Calendar to continue")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue in chat" })).not.toBeInTheDocument();
+    rerender(card(true));
     fireEvent.click(screen.getByRole("button", { name: "Continue in chat" }));
     expect(onOpenConnections).toHaveBeenCalledWith("calendar", expect.any(HTMLButtonElement));
     calendarState.connected = false;

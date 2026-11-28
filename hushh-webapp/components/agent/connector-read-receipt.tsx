@@ -24,11 +24,12 @@ import { Switch } from "@/components/ui/switch";
 import { LocationBus, type LocationBusState } from "@/lib/one-location/location-bus";
 import type { TurnLocationPermissionExperience } from "@/lib/agent/agui-structured-experiences";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import type {
-  ConnectorReadExperience,
-  DriveOwnerCompileWindow,
-  WorkspaceConnectorProvider,
-  WorkspaceConnectorSetupExperience,
+import {
+  connectorReadNeedsConnection,
+  type ConnectorReadExperience,
+  type DriveOwnerCompileWindow,
+  type WorkspaceConnectorProvider,
+  type WorkspaceConnectorSetupExperience,
 } from "@/lib/agent/connector-read-receipt";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 
@@ -98,7 +99,7 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
   driveCompilation?: DriveCompilationUiState;
   onMailQuickAction?: (prompt: string) => void;
 }) {
-  const needsConnection = ["connect_required", "reconnect_required", "permission_denied"].includes(experience.status);
+  const needsConnection = connectorReadNeedsConnection(experience.status);
   const drive = experience.connector === "drive";
   const liveMailSources = !drive && experience.liveSources?.length ? experience.liveSources : null;
   if (!drive && experience.status === "ok" && !experience.truncated && !liveMailSources) return null;
@@ -489,15 +490,18 @@ function useLiveConnection(provider: WorkspaceConnectorProvider): LiveConnection
 export function WorkspaceConnectorSetupCard({
   experience,
   onOpenConnections,
+  allowAction = true,
 }: {
   experience: WorkspaceConnectorSetupExperience;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+  allowAction?: boolean;
 }) {
-  if (experience.provider === "gmail") return <GmailConnectorChatCard onOpenConnections={onOpenConnections} />;
-  if (experience.provider === "custom") return <CustomConnectorsCard experience={experience} onOpenConnections={onOpenConnections} />;
-  if (experience.provider === "plaid") return <PlaidConnectorChatCard onOpenConnections={onOpenConnections} />;
-  if (experience.provider === "stripe") return <StripeConnectorChatCard onOpenConnections={onOpenConnections} />;
-  return <GoogleConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+  const openConnections = allowAction ? onOpenConnections : undefined;
+  if (experience.provider === "gmail") return <GmailConnectorChatCard onOpenConnections={openConnections} allowAction={allowAction} />;
+  if (experience.provider === "custom") return <CustomConnectorsCard experience={experience} onOpenConnections={openConnections} />;
+  if (experience.provider === "plaid") return <PlaidConnectorChatCard onOpenConnections={openConnections} allowAction={allowAction} />;
+  if (experience.provider === "stripe") return <StripeConnectorChatCard onOpenConnections={openConnections} allowAction={allowAction} />;
+  return <GoogleConnectorSetupCard experience={experience} onOpenConnections={openConnections} />;
 }
 
 function GoogleConnectorSetupCard({
@@ -569,7 +573,9 @@ function CustomConnectorsCard({
 
 function PlaidConnectorChatCard({
   onOpenConnections,
+  allowAction,
 }: {
+  allowAction: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
   const { userId } = useAuth();
@@ -722,7 +728,7 @@ function PlaidConnectorChatCard({
       brand="plaid"
       title={title}
       detail={detail}
-      action={
+      action={allowAction ? (
         <div className="flex flex-wrap items-center gap-2">
           {connected ? (
             <Button
@@ -745,7 +751,7 @@ function PlaidConnectorChatCard({
             {busyAction === "connect" ? "Opening Plaid…" : connected ? "Add bank" : "Connect bank"}
           </Button>
         </div>
-      }
+      ) : null}
     >
       {connections.length > 0 ? (
         <ul className="mt-2 divide-y divide-border/70" aria-label="Connected Plaid institutions">
@@ -768,7 +774,9 @@ function PlaidConnectorChatCard({
 
 function StripeConnectorChatCard({
   onOpenConnections,
+  allowAction,
 }: {
+  allowAction: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
   const { userId } = useAuth();
@@ -858,7 +866,7 @@ function StripeConnectorChatCard({
           ? "Stripe Express payouts are ready to receive marketplace and data earnings."
           : "Set up Stripe Connect to receive payouts from shared marketplace requests.")
       }
-      action={
+      action={allowAction ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
@@ -886,12 +894,13 @@ function StripeConnectorChatCard({
             </Button>
           ) : null}
         </div>
-      }
+      ) : null}
     />
   );
 }
 
-function GmailConnectorChatCard({ onOpenConnections }: {
+function GmailConnectorChatCard({ onOpenConnections, allowAction }: {
+  allowAction: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
 }) {
   const { user, userId } = useAuth();
@@ -907,8 +916,8 @@ function GmailConnectorChatCard({ onOpenConnections }: {
     void refreshGmailStatus().catch(() => undefined);
   }, [ownerUid, refreshGmailStatus]);
   useEffect(() => {
-    if (confirmOwner && confirmOwner !== userId) setConfirm(false);
-  }, [confirmOwner, userId]);
+    if (!allowAction || (confirmOwner && confirmOwner !== userId)) setConfirm(false);
+  }, [allowAction, confirmOwner, userId]);
   const connected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
   const action = connected ? "Disconnect Gmail" : gmail.status?.needs_reauth ? "Reconnect Gmail" : "Connect Gmail";
   const gmailState = gmail.loadingStatus && !gmail.status ? "Checking" : connected ? "Connected" : gmail.status?.needs_reauth ? "Reconnect needed" : "Not connected";
@@ -917,10 +926,10 @@ function GmailConnectorChatCard({ onOpenConnections }: {
     brand="gmail"
     title={`Gmail · ${gmailState}`}
     detail={!connected ? "Connecting does not share information with anyone." : undefined}
-    action={<Button type="button" variant="muted" size="compact" disabled={busy || !user || (!connected && !onOpenConnections) || (gmail.loadingStatus && !gmail.status)}
-      onClick={event => { if (connected) { setConfirmOwner(userId); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button>}
+    action={allowAction ? <Button type="button" variant="muted" size="compact" disabled={busy || !user || (!connected && !onOpenConnections) || (gmail.loadingStatus && !gmail.status)}
+      onClick={event => { if (connected) { setConfirmOwner(userId); setConfirm(true); } else onOpenConnections?.("gmail", event.currentTarget); }}>{action}</Button> : null}
   >
-    <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent size="sm"><AlertDialogHeader>
+    <AlertDialog open={allowAction && confirm} onOpenChange={setConfirm}><AlertDialogContent size="sm"><AlertDialogHeader>
       <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
       <AlertDialogDescription>One will stop reading Mail and delete its synced Mail receipt data. Information saved to private memory stays. You can also remove app access in your Google Account.</AlertDialogDescription>
     </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel size="standard" className="min-w-0 w-full px-3" disabled={busy}>Cancel</AlertDialogCancel>
