@@ -2088,6 +2088,26 @@ async def _specialist_turn(
             "source_changed",
         }:
             tool_context.state[STATE_MAIL_READ_OFFER] = None
+            if (
+                result.structured.status in {"connect_required", "reconnect_required"}
+                and tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+                and "hussh:pending_directive:gmail_mailbox" not in tool_context.state
+            ):
+                is_reauth = result.structured.status == "reconnect_required"
+                tool_context.state["hussh:pending_directive:gmail_mailbox"] = {
+                    "kind": "action",
+                    "delegateAgentId": "agent_email",
+                    "payload": {
+                        "type": "gmail.connect",
+                        "purpose": "read",
+                        "summary": (
+                            "Reconnect Gmail to check your inbox."
+                            if is_reauth
+                            else "Connect Gmail to check your inbox."
+                        ),
+                        "confirmLabel": "Reconnect Gmail" if is_reauth else "Connect Gmail",
+                    },
+                }
     payload: dict[str, Any] = _with_dependency(
         {
             "status": "ok",

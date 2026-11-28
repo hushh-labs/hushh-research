@@ -165,7 +165,7 @@ async def test_explicitly_disconnected_account_can_connect_a_new_subject(monkeyp
         "connected": True,
         "status": "connected",
         "accounts": [{"account_id": "default", "connected": True}],
-        "account_limit": 3,
+        "account_limit": 5,
         "completed_account_id": "default",
         "mail_access": "not_requested",
     }
@@ -238,7 +238,7 @@ async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch
         "connected": True,
         "status": "connected",
         "accounts": [{"account_id": "default", "connected": True}],
-        "account_limit": 3,
+        "account_limit": 5,
         "completed_account_id": "default",
         "mail_access": "not_requested",
     }

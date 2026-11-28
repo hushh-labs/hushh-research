@@ -23,7 +23,7 @@ class CalendarAccountStatusOwner(Protocol):
 
 _ACCOUNTS_SQL = """SELECT account_id, provider_subject, provider_email,
                       refresh_token_ciphertext, status, scope_csv, access_level,
-                      guest_photo_access,
+                      guest_photo_access, gmail_read_enabled,
                       connected_at
                FROM google_calendar_additional_accounts WHERE user_id = :user_id
                ORDER BY connected_at, account_id"""
@@ -104,6 +104,9 @@ def _project_accounts(
                 if row["status"] == "connected"
                 else "",
                 "calendar_list_access": calendar_list_access(row["scope_csv"]),
+                "gmail_read_enabled": bool(
+                    row["status"] == "connected" and row.get("gmail_read_enabled")
+                ),
             }
         )
     return accounts
@@ -146,5 +149,5 @@ async def calendar_accounts_status(
         # Legacy top-level fields describe the default grant. Other accounts
         # cannot act through its authorization.
         "accounts": accounts,
-        "account_limit": 3,
+        "account_limit": 5,
     }

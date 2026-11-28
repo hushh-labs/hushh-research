@@ -51,6 +51,13 @@ export function connectorConfirmCopy(target: string): ConnectorConfirmCopy {
       description: "Other connections stay active.",
       action: "Disconnect",
     };
+  if (target.startsWith("calendar:"))
+    return {
+      title: "Disconnect Google account?",
+      description:
+        "Only this additional Google account is disconnected. Your primary account and other connections stay active.",
+      action: "Disconnect",
+    };
   if (target.startsWith("curated:"))
     return {
       title: "Disconnect this connector?",

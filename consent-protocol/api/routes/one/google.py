@@ -118,7 +118,7 @@ async def complete_connect(
 
 class PodGoogleAccessTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
-    action: Literal["grant", "access_token"] = "access_token"
+    action: Literal["grant", "access_token", "accounts"] = "access_token"
     service: Literal["calendar", "gmail", "drive"]
     level: Literal["read", "manage", "read_calendar_list"] = "read"
     account_id: str = Field(default="default", alias="accountId", max_length=128)
@@ -191,6 +191,58 @@ async def broker_pod_google_access_token(
 
     acct = (payload.account_id or "default").strip() or "default"
 
+    if payload.action == "accounts":
+        svc = get_google_connection_service()
+        if payload.service == "calendar":
+            cal_status = await svc.calendar_accounts_status(
+                user_id=owner_id, include_pictures=False
+            )
+            return {
+                "status": "ok",
+                "accounts": cal_status.get("accounts", []),
+                "accountLimit": int(cal_status.get("account_limit") or 5),
+            }
+        if payload.service == "gmail":
+            from hushh_mcp.services.gmail_receipts_service import (  # noqa: PLC0415
+                get_gmail_receipts_service,
+            )
+
+            gsvc = get_gmail_receipts_service()
+            grow = await asyncio.to_thread(gsvc._fetch_connection_row, user_id=owner_id)
+            mail_accounts: list[dict[str, Any]] = []
+            if (
+                grow
+                and not grow.get("revoked")
+                and str(grow.get("status") or "") in {"connected", "needs_reauth"}
+            ):
+                mail_accounts.append(
+                    {
+                        "account_id": "default",
+                        "google_email": str(grow.get("google_email") or "") or None,
+                        "status": str(grow.get("status") or "disconnected"),
+                        "connected": str(grow.get("status") or "") == "connected",
+                        "gmail_read_enabled": str(grow.get("status") or "") == "connected",
+                    }
+                )
+            cal_status = await svc.calendar_accounts_status(
+                user_id=owner_id, include_pictures=False
+            )
+            for item in cal_status.get("accounts", []):
+                if not isinstance(item, dict) or item.get("account_id") == "default":
+                    continue
+                if item.get("gmail_read_enabled"):
+                    mail_accounts.append(
+                        {
+                            "account_id": str(item["account_id"]),
+                            "google_email": item.get("google_email"),
+                            "status": str(item.get("status") or "connected"),
+                            "connected": bool(item.get("connected")),
+                            "gmail_read_enabled": True,
+                        }
+                    )
+            return {"status": "ok", "accounts": mail_accounts, "accountLimit": 5}
+        return {"status": "ok", "accounts": [], "accountLimit": 1}
+
     if payload.service == "calendar":
         svc = get_google_connection_service()
         try:
@@ -250,6 +302,64 @@ async def broker_pod_google_access_token(
         return {**base, "accessToken": token, "expiresInS": 900}
 
     if payload.service == "gmail":
+        if acct != "default":
+            svc = get_google_connection_service()
+            try:
+                st = await svc.status(user_id=owner_id, service="gmail", account_id=acct)
+            except GoogleConnectionError as exc:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail={"code": exc.reason_code or "GOOGLE_CONNECTION_ERROR"},
+                ) from None
+            if not st.get("connected"):
+                raw_status = str(st.get("status") or "disconnected")
+                if raw_status == "needs_reauth":
+                    return {
+                        "status": "needs_reauth",
+                        "connected": False,
+                        "credentialId": f"hub-gmail:{acct}:reauth",
+                        "generation": 1,
+                        "accountSubject": str(st.get("google_email") or acct),
+                        "accountEmail": str(st.get("google_email") or ""),
+                        "grantedScopes": [],
+                        "connectedAtMs": 0,
+                    }
+                return {"status": "absent", "connected": False}
+            if payload.level == "manage":
+                raise HTTPException(status_code=403, detail={"code": "SCOPE_NOT_GRANTED"})
+            scopes = sorted(
+                {s for s in str(st.get("scope_csv") or "").split() if s}
+                | {"https://www.googleapis.com/auth/gmail.readonly"}
+            )
+            email = str(st.get("google_email") or "")
+            digest = hashlib.sha256(f"{acct}|{email}|{' '.join(scopes)}".encode()).hexdigest()[:16]
+            base = {
+                "status": "connected",
+                "connected": True,
+                "credentialId": f"hub-gmail:{acct}:{digest}",
+                "generation": 1,
+                "accountSubject": email or acct,
+                "accountEmail": email,
+                "grantedScopes": scopes,
+                "connectedAtMs": 1,
+            }
+            if payload.action == "grant":
+                return base
+            try:
+                token = await svc.access_token(
+                    user_id=owner_id,
+                    service="gmail",
+                    access_level="read",
+                    account_id=acct,
+                    force_refresh=payload.force_refresh,
+                )
+            except GoogleConnectionError as exc:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail={"code": exc.reason_code or "GOOGLE_CONNECTION_ERROR"},
+                ) from None
+            return {**base, "accessToken": token, "expiresInS": 900}
+
         from hushh_mcp.services.gmail_receipts_service import (  # noqa: PLC0415
             GmailApiError,
             get_gmail_receipts_service,

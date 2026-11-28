@@ -541,9 +541,13 @@ async def test_mail_consent_is_per_account_across_a_b_and_c(one_consent_pg):
     )
     assert await account.selected_mail_status(user_id=OWNER, account_id=c["completed_account_id"])
     assert _row(engine, "SELECT count(*) AS n FROM calendar_email_followup_monitors")["n"] == 0
-    # Three accounts is the limit; a fourth consent is refused before any grant is written.
-    with pytest.raises(Exception, match="up to three"):
-        await _consent(service, subject="synthetic-d", granted=_FULL, additional=True)
+    _, d = await _consent(service, subject="synthetic-d", granted=_FULL, additional=True)
+    _, e = await _consent(service, subject="synthetic-e", granted=_FULL, additional=True)
+    assert await account.selected_mail_status(user_id=OWNER, account_id=d["completed_account_id"])
+    assert await account.selected_mail_status(user_id=OWNER, account_id=e["completed_account_id"])
+    # Five accounts is the limit; a sixth consent is refused before any grant is written.
+    with pytest.raises(Exception, match="up to five"):
+        await _consent(service, subject="synthetic-f", granted=_FULL, additional=True)
 
 
 def _prepare_pwm_replay(engine):
