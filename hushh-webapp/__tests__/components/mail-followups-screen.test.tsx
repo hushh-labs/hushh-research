@@ -54,6 +54,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("a draft the Overview asked for", () => {
+  it("keeps a slow Overview reply in the review surface and retries the same source", async () => {
+    const mail = services();
+    mail.draft.mockRejectedValueOnce(new Error("Mailbox temporarily unavailable."));
+    render(<MailFollowupsScreen session={session} account={box.account} connection={box.connection}
+      verifiedAddress={box.address} savedTasks={Promise.resolve({tasks: []}) as never}
+      draftRequest={request} mail={mail as never} onDraftSaved={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Preparing your reply");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mailbox temporarily unavailable");
+    expect(screen.queryByRole("button", {name: "Track a conversation"})).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name: "Try again"}));
+    expect(await screen.findByLabelText("Message")).toHaveValue("Thirty days works for us.");
+    expect(mail.draft).toHaveBeenLastCalledWith(box, request.sourceId, request.expectation, expect.anything());
+  });
+
   it("opens for review and creates no Task until it is saved", async () => {
     const { mail } = mount();
     expect(await screen.findByRole("heading", { name: "Review draft" })).toBeVisible();
@@ -66,7 +80,7 @@ describe("a draft the Overview asked for", () => {
   it("is saved to one Task for that email even when saving refreshes the saved Tasks mid-way", async () => {
     const { mail, rerenderWith } = mount();
     await screen.findByRole("heading", { name: "Review draft" });
-    const task = { id: KEY, title: finding.title, status: "pending", revision: 1, mailFollowup: finding };
+    const task = { id: `gmail_mail_thread:${KEY}`, title: finding.title, status: "pending", revision: 1, mailFollowup: finding };
     // The write replaces the session's saved-Tasks promise while the save is still running.
     todos.trackMail.mockImplementation(async () => {
       rerenderWith(Promise.resolve({ tasks: [task] }));
@@ -77,7 +91,7 @@ describe("a draft the Overview asked for", () => {
     await waitFor(() => expect(screen.getByText("Draft saved for review.")).toBeVisible());
     expect(mail.track).toHaveBeenCalledTimes(1);
     expect(todos.trackMail).toHaveBeenCalledTimes(1);
-    expect(todos.trackMail).toHaveBeenCalledWith(session, expect.objectContaining({ source: request.sourceId }));
+    expect(todos.trackMail).toHaveBeenCalledWith(session, expect.objectContaining({ source: request.sourceId, draft: expect.objectContaining({ body: "Thirty days works for us." }) }));
     expect(todos.updateMail).toHaveBeenCalledWith(session, task, { draft: { to: "morgan@example.test", subject: "Re: Payment terms", body: "Thirty days works for us." } });
     expect(screen.queryByRole("heading", { name: "Review draft" })).toBeNull();
   });

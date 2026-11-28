@@ -157,6 +157,19 @@ describe("Needs your attention", () => {
     expect(onOpenFollowups).toHaveBeenCalledOnce();
   });
 
+  it("opens the chosen card’s email and reveals the fourth private suggestion in place", () => {
+    const onWhy = vi.fn();
+    const onDraft = vi.fn();
+    const items = ["a", "b", "c", "d"].map(name => attention(name));
+    render(<MailBriefSections {...props({inlineSuggestions: true, brief: part(briefOf(items)), onWhy, onDraft})} />);
+    fireEvent.click(screen.getByRole("button", {name: "Open email: Task b"}));
+    expect(onWhy).toHaveBeenCalledWith({title: "Task b", evidence: items[1]!.evidence, openFirst: true});
+    expect(onDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name: "Show all 4"}));
+    fireEvent.click(within(screen.getAllByTestId("attention-card")[3]!).getByTestId("attention-action"));
+    expect(onDraft).toHaveBeenCalledWith({key: "att_d", sourceId: sid("d"), draft: null});
+  });
+
   it("offers no Follow-ups link when everything is already on screen", () => {
     render(<MailBriefSections {...props({ brief: part(briefOf([attention("a"), attention("b")])) })} />);
     expect(screen.queryByTestId("all-in-followups")).toBeNull();

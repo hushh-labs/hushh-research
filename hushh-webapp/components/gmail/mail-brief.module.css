@@ -218,16 +218,42 @@
 .link:disabled, .pill:disabled { opacity: 0.55; }
 
 /* ── Needs your attention ── */
+.brief { container-type: inline-size; }
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 272px), 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+@container (min-width: 480px) {
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (min-width: 1100px) {
-  .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 252px), 1fr)); }
+  @container (min-width: 720px) {
+    .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+}
+/* The third card shows that more mail is tucked underneath. Show all reveals it on touch and keyboard. */
+.cards[data-stacked="true"] { padding-bottom: 8px; }
+.cards[data-stacked="true"] > :last-child {
+  position: relative;
+  isolation: isolate;
+
+}
+.cards[data-stacked="true"] > :last-child::before {
+  content: "";
+  position: absolute;
+  inset: 5px 6px -6px;
+  z-index: -1;
+  background: var(--app-card-surface-default-solid);
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 18px;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .card { transition: transform 180ms ease-out, box-shadow 180ms ease-out; }
+  .card:hover, .card:focus-within { transform: translateY(-3px); box-shadow: 0 3px 12px var(--app-neutral-fill); }
 }
 .cardItem { display: flex; min-width: 0; }
 .card {
@@ -236,8 +262,8 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 14px;
-  padding: 20px;
+  gap: 6px;
+  padding: 14px;
   border: 1px solid var(--app-card-border-standard);
   border-radius: 24px;
   background: var(--app-card-surface-default-solid);
@@ -254,7 +280,7 @@
 }
 .cardTitle {
   margin: 0;
-  min-height: 52px;
+  min-height: 0;
   --foundation-headline-size: var(--type-row-label-size);
   --foundation-headline-line: var(--type-row-label-line);
   --foundation-headline-weight: var(--type-row-label-weight);
@@ -270,8 +296,8 @@
 .people { display: flex; flex: none; align-items: center; padding-top: 2px; }
 .person {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   border: 2px solid var(--app-card-surface-default-solid);
   border-radius: 999px;
@@ -294,6 +320,9 @@
 }
 .fact > span { min-width: 0; overflow-wrap: anywhere; }
 .cardOpen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   display: block;
   width: 100%;
   padding: 0;
@@ -322,6 +351,11 @@
   font-weight: 600;
   cursor: pointer;
 }
+.card .rule { margin-top: auto; }
+.card .meta { align-items: center; }
+.card .pill { min-height: 44px; padding-inline: 15px; }
+
+.card .link, .card .pill { position: relative; z-index: 1; }
 .pillPrimary { background: var(--app-accent); color: var(--app-accent-fg); }
 .fail { margin: 0; color: var(--app-destructive); font-size: 13px; line-height: 18px; }
 
@@ -455,7 +489,7 @@
   .chip { font-size: 13px; }
   .chipEmail { max-width: 148px; }
   .brief { gap: 24px; }
-  .card { padding: 18px; }
+  .card { padding: 14px; }
   .row { grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "icon text" ". action"; }
   .rowIcon { width: 40px; height: 40px; }
   .rowAction { align-items: flex-start; }
@@ -502,3 +536,68 @@
 .mailRowButton:focus-visible { outline: 2px solid var(--app-accent); outline-offset: -2px; border-radius: 12px; }
 .mailRowSubject { overflow: hidden; font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: var(--type-row-label-weight); text-overflow: ellipsis; white-space: nowrap; }
 .mailRowSender { overflow: hidden; font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); color: var(--app-secondary-label); text-overflow: ellipsis; white-space: nowrap; }
+
+.composerSurface[data-task-surface] {
+  border-color: var(--app-glass-border);
+  background: var(--app-card-surface-default-solid);
+  box-shadow: var(--app-glass-shadow);
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .composerSurface[data-task-surface] {
+    background: linear-gradient(150deg, var(--app-glass-surface), transparent 65%),
+      color-mix(in srgb, var(--app-glass-surface) 45%, var(--app-card-surface-default-solid));
+    -webkit-backdrop-filter: blur(20px) saturate(125%);
+    backdrop-filter: blur(20px) saturate(125%);
+  }
+}
+.draftForm { display: grid; gap: 14px; min-width: 0; }
+.letter {
+  display: grid;
+  min-width: 0;
+  padding: clamp(14px, 3vw, 22px);
+  gap: 12px;
+  background: var(--app-card-surface-default-solid);
+  border: 1px solid var(--app-glass-border);
+  border-radius: 18px;
+}
+.draftEnvelope {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline; gap: 2px 12px;
+  margin: 0; padding-bottom: 12px;
+  border-bottom: 1px solid var(--app-separator);
+  font-size: 14px; line-height: 1.5;
+}
+.draftEnvelope dt { color: var(--app-secondary-label); }
+.draftEnvelope dd { margin: 0; overflow-wrap: anywhere; }
+.draftEnvelope dd:first-of-type { font-weight: 600; }
+.subjectLine { display: grid; min-width: 0; }
+/* Mirror the subject's wrapping so it grows with long mail titles on WebKit as well. */
+.subjectLine > span, .subjectLine > textarea {
+  grid-area: 1 / 1; min-width: 0; padding: 4px 0; margin: 0;
+  font: inherit; font-size: clamp(17px, 2.4vw, 20px); font-weight: 600;
+  line-height: 1.35; letter-spacing: -.015em; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.subjectLine > span { visibility: hidden; }
+.subjectLine > textarea, .letterBody {
+  width: 100%; border: 0; border-radius: 4px; background: transparent; color: var(--app-label);
+}
+.subjectLine > textarea { resize: none; overflow: hidden; }
+.letterBody {
+  field-sizing: content;
+  min-height: min(24dvh, 10rem); max-height: min(36dvh, 22rem); padding: 3px 0; resize: vertical;
+  font: inherit; font-size: 16px; line-height: 1.6;
+}
+.letter textarea:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
+.draftFooter { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 16px; }
+.draftFooter small { flex: 1 1 10rem; color: var(--app-secondary-label); font-size: 13px; line-height: 1.4; }
+.draftFooter button [data-slot="mail-action-pill"] { border-color: transparent; color: var(--app-accent-fg); background: var(--app-accent); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .draftFooter button { transition: transform 160ms ease; }
+  .draftFooter button:hover:not(:disabled) { transform: translateY(-1px); }
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .composerSurface[data-task-surface] { background: var(--app-card-surface-default-solid); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composerSurface[data-task-surface] { animation-duration: 1ms; transition-duration: 0s; }
+}

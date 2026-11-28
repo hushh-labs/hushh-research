@@ -285,9 +285,15 @@ export async function readEncryptedOwnerUiRecord<T>(input: {
 export async function deleteEncryptedOwnerUiRecords(
   ownerId?: string,
   namespacePrefix?: string,
+  retainNamespaces?: ReadonlySet<string>,
 ): Promise<void> {
   const cleanOwner = typeof ownerId === "string" ? ownerId.trim() : "";
   const cleanPrefix = typeof namespacePrefix === "string" ? namespacePrefix : "";
+
+  const matchesNamespace = (namespace: string) =>
+    namespace.startsWith(cleanPrefix) && !retainNamespaces?.has(namespace);
+  // Allowlist reconciliation always belongs to one owner and one resource type.
+  if (retainNamespaces && (!cleanOwner || !cleanPrefix)) return;
 
   if (!cleanOwner && !cleanPrefix) {
     for (const key of writeSeqByKey.keys()) {
@@ -297,7 +303,7 @@ export async function deleteEncryptedOwnerUiRecords(
   } else {
     for (const [key, entry] of memoryRecords.entries()) {
       const ownerMatches = !cleanOwner || entry.ownerId === cleanOwner;
-      const prefixMatches = !cleanPrefix || entry.namespace.startsWith(cleanPrefix);
+      const prefixMatches = matchesNamespace(entry.namespace);
       if (ownerMatches && prefixMatches) {
         writeSeqByKey.set(key, (writeSeqByKey.get(key) ?? 0) + 1);
         memoryRecords.delete(key);
@@ -306,7 +312,7 @@ export async function deleteEncryptedOwnerUiRecords(
     for (const key of writeSeqByKey.keys()) {
       const [recOwner = "", recNs = ""] = key.split("::");
       const ownerMatches = !cleanOwner || recOwner === cleanOwner;
-      const prefixMatches = !cleanPrefix || recNs.startsWith(cleanPrefix);
+      const prefixMatches = matchesNamespace(recNs);
       if (ownerMatches && prefixMatches) {
         writeSeqByKey.set(key, (writeSeqByKey.get(key) ?? 0) + 1);
       }
@@ -328,7 +334,7 @@ export async function deleteEncryptedOwnerUiRecords(
           const cursor = cursorReq.result;
           if (!cursor) return;
           const val = cursor.value as StoredEncryptedUiRecord;
-          if (!cleanPrefix || val.namespace.startsWith(cleanPrefix)) {
+          if (matchesNamespace(val.namespace)) {
             cursor.delete();
           }
           cursor.continue();

@@ -77,6 +77,10 @@ export function AttentionCard({
     ? `${item.context} · ${item.kind === "follow_up" ? "Follow-up" : "Reply"}`
     : item.person;
   const titleId = `brief-card-${scope}-${item.id}`;
+  const openMail = () => {
+    const source = item.evidence.find(row => row.sourceId === item.action.sourceId);
+    onWhy(source ? { title: item.title, evidence: [source], openFirst: true } : { title: item.title, evidence: item.evidence });
+  };
   const why = () => onWhy({ title: item.title, reason: item.reason, evidence: item.evidence });
   return (
     <li className={styles.cardItem}>
@@ -84,6 +88,7 @@ export function AttentionCard({
         <p className={styles.cardLabel}>{label}</p>
         <h3 id={titleId} className={styles.cardTitle}>
           {item.title}
+          <button type="button" className={styles.cardOpen} aria-label={`Open email: ${item.title}`} onClick={openMail} />
         </h3>
         <hr className={styles.rule} />
         <div className={styles.meta}>
@@ -335,6 +340,7 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
               type="button"
               className={styles.link}
               onClick={props.inlineSuggestions ? () => setExpanded(!expanded) : props.onOpenFollowups}
+              aria-expanded={props.inlineSuggestions ? expanded : undefined}
               data-testid="all-in-followups"
             >
               {props.inlineSuggestions ? (expanded ? "Show fewer" : `Show all ${attention.length}`) : `All ${attention.length} in Follow-ups`}
@@ -351,7 +357,7 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
           </p>
         ) : null}
         {brief.data && shown.length ? (
-          <ul className={styles.cards} data-testid="attention-list">
+          <ul className={styles.cards} data-stacked={attention.length > OVERVIEW_ATTENTION_LIMIT && !expanded} data-testid="attention-list">
             {shown.map((item, index) => (
               <AttentionCard
                 key={item.id}
