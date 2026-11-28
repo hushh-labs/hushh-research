@@ -433,7 +433,7 @@ Sources: [invitation sheet](../../components/connections/contact-invitation-shee
 | Link not yet available / preparation error | `An invitation link is unavailable. Retry to prepare it again.` / `Could not prepare the invitation. Check your connection and retry.` |
 | Repeat-handoff warning | `Before opening again, check your app to avoid sending the same invitation twice.` |
 | Message heading / textarea aria | `Message preview` / `Invitation message` |
-| Native composer warning | `Opens one Messages draft from your device’s messaging account. This may create a group: recipients can see each other’s numbers. Check recipients and tap Send there. Carrier charges may apply.` |
+| Native review | Shows the invitation preview and selected contacts before opening Messages. |
 | Web composer warning | `Opens one email draft with the selected addresses in BCC. Check BCC and send from your email account. Your email app must support BCC links.` |
 | Selection count | `{count} selected contact` / `{count} selected contacts` |
 | Removal visible / aria | `Remove` / `Remove {name}` |
