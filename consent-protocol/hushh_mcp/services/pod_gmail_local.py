@@ -172,13 +172,37 @@ class PodGmailConnection(GmailReceiptsService):
     """The hub Gmail service's three credential seams, answered from the agent's login."""
 
     def __init__(
-        self, owner_user_id: str, *, token_source: Any = None, account_id: str = ""
+        self,
+        owner_user_id: str,
+        *,
+        token_source: Any = None,
+        account_id: str = "",
+        local_grant: store.ConnectorCredential | None = None,
     ) -> None:
         super().__init__()
         self._owner = owner_user_id
-        self._account_id = account_id
+        self._account_id = local_grant.account_id if local_grant else account_id
+        self._local_selection = (
+            (store.public_account_id(local_grant), local_grant.credential_id)
+            if local_grant
+            else None
+        )
         self._source = token_source
         self._email = ""
+
+    def _credential(self) -> Optional[store.ConnectorCredential]:
+        if self._local_selection is None:
+            return _held(self._account_id)
+        # The Mail picker verified a pod-held grant. Re-read that same grant
+        # across provider awaits, including when a hosted hub broker also exists.
+        account, expected = self._local_selection
+        try:
+            credential = store.active_mail_account(account)
+        except store.ConnectorCredentialsUnavailable:
+            raise GmailMetadataError("retryable") from None
+        if credential is None or credential.credential_id != expected:
+            raise GmailMetadataError("connection_changed")
+        return credential
 
     @property
     def db(self) -> Any:
@@ -193,7 +217,7 @@ class PodGmailConnection(GmailReceiptsService):
     def _fetch_connection_row(self, *, user_id: str) -> dict[str, Any] | None:
         if user_id != self._owner:
             return None
-        credential = _held(self._account_id)
+        credential = self._credential()
         if credential is None:
             return None
         scopes = list(credential.granted_scopes)
@@ -223,7 +247,9 @@ class PodGmailConnection(GmailReceiptsService):
     async def _token(self, user_id: str, level: str) -> str:
         if user_id != self._owner:
             raise GmailMetadataError("permission_denied")
-        if self._account_id and self._account_id != "default" and _hosted_ace_brokered_gmail():
+        if self._local_selection is not None:
+            self._credential()
+        elif self._account_id and self._account_id != "default" and _hosted_ace_brokered_gmail():
             import asyncio  # noqa: PLC0415
 
             from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
@@ -262,7 +288,7 @@ class PodGmailConnection(GmailReceiptsService):
         if not self._email:
             # Google supplied this address with the selected account's OAuth grant.
             # Older grants without an address still resolve it from Gmail.
-            held = _held(self._account_id)
+            held = self._credential()
             self._email = held.account_email if held else ""
         if not self._email:
             profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=token)
@@ -287,7 +313,7 @@ class PodGmailConnection(GmailReceiptsService):
         return "connected" if row.get("status") == "connected" else "needs_reauth"
 
     def modify_permission_granted(self, row: dict[str, Any] | None) -> bool:
-        credential = _held(self._account_id)
+        credential = self._credential()
         return (
             self._derive_connection_state(row) == "connected"
             and credential is not None

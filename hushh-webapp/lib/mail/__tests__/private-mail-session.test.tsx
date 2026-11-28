@@ -136,6 +136,18 @@ it("restores the authorized mailbox after a reload while one live refresh is pen
   await screen.findByText(account);
   act(() => { window.dispatchEvent(new Event("focus")); });
   expect(mocks.brief).toHaveBeenCalledTimes(1);
+  let finishInventory!: (rows: unknown[]) => void;
+  mocks.list.mockImplementationOnce(() => new Promise(resolve => { finishInventory = resolve; }));
+  const attempts = mocks.list.mock.calls.length;
+  const recheck = () => window.dispatchEvent(new CustomEvent("test:grants", {detail: "recheck"}));
+  act(() => { recheck(); });
+  expect(screen.getByText(account)).toBeDefined();
+  await waitFor(() => expect(finishInventory).toBeTypeOf("function"));
+  act(() => { recheck(); });
+  expect(mocks.list).toHaveBeenCalledTimes(attempts + 1);
+  await act(async () => finishInventory([{accountId: account, credentialId: connection, email: "me@example.test",
+    status: "connected", capabilities: {read: true}}]));
+  expect(mocks.brief).toHaveBeenCalledTimes(1);
   await act(async () => finish({account: "updated", attention: []}));
   expect(screen.getByText("updated")).toBeDefined();
 });

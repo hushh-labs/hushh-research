@@ -64,8 +64,9 @@ export async function readOwnerConnectorWithWake(read: () => Promise<Response>, 
 // No grant or mailbox identifiers are exposed to other browser surfaces.
 export const PRIVATE_MAIL_GRANTS_CHANGED = 'one:private-mail-grants-changed';
 
-export function notifyMailGrantsChanged() {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(PRIVATE_MAIL_GRANTS_CHANGED));
+/** Read failures ask for verification. Completed grant mutations invalidate immediately. */
+export function notifyMailGrantsChanged(reason: 'changed' | 'recheck' = 'changed') {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(PRIVATE_MAIL_GRANTS_CHANGED, { detail: reason }));
 }
 
 export class PrivateGoogleUnsupportedError extends Error {

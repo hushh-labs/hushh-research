@@ -236,7 +236,7 @@ async def run_mail(operation, selection, *, owner, check, consent_token, model_f
         ):
             raise _refuse(409, "MAIL_CONNECTION_CHANGED")
 
-    connection = PodGmailConnection(owner, account_id=held.account_id)
+    connection = PodGmailConnection(owner, local_grant=held)
 
     def new_reader():
         from hushh_mcp.services.mail_overview import OverviewMailReader

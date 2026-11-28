@@ -40,7 +40,7 @@ function mailFollowupsClient() {
     if (!response.ok) {
       if (response.status === 409) {
         const error = await response.json().catch(() => null);
-        if (!signal.aborted && ["MAIL_CONNECTION_CHANGED", "MAIL_RECONNECT_REQUIRED", "MAIL_CONNECT_REQUIRED"].includes(error?.detail?.code)) notifyMailGrantsChanged();
+        if (!signal.aborted && ["MAIL_CONNECTION_CHANGED", "MAIL_RECONNECT_REQUIRED", "MAIL_CONNECT_REQUIRED"].includes(error?.detail?.code)) notifyMailGrantsChanged("recheck");
       }
       if (path === "track" && [502, 503, 504].includes(response.status))
         throw new Error("Mail could not finish checking this email. Try the check again.");
