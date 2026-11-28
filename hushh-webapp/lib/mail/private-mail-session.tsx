@@ -21,7 +21,8 @@ type Inventory = { scope: string; mode: "private" | "shared"; accounts: PrivateM
 type RecentRows = Awaited<ReturnType<typeof MailFollowupsService.recent>>["items"];
 type Session = {
   recentRows?: RecentRows;
-  rememberRecent: (rows: RecentRows) => void;
+  recentScope?: string;
+  rememberRecent: (key: string, rows: RecentRows) => void;
   inventoryFailed: boolean; resolving: boolean; private: boolean; accounts: PrivateMailAccount[]; selected: PrivateMailAccount | null;
   /** Mailboxes whose Google permission lapsed. Mail cannot be read from them until the owner reconnects. */
   expired: PrivateMailAccount[];
@@ -125,26 +126,19 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     });
   }, [owner, account, connection, vaultKey, vaultOwnerToken, briefScope]);
   const [briefRevision, setBriefRevision] = useState(0);
-  const [counted, setCounted] = useState<{ scope: string; counts: Record<string, number> }>();
-  // Session-only, partitioned by owner, unlock epoch, mailbox and grant generation.
-  const savedBriefs = useRef(new Map<string, MailBrief>());
-  const savedRows = useRef(new Map<string, RecentRows>());
-  const rememberRecent = useCallback((rows: RecentRows) => {
-    if (account && connection && snapshotVaultSessionEpoch() === epoch) savedRows.current.set(briefScope, rows);
-  }, [account, connection, epoch, briefScope]);
+  // Visible results belong to one authenticated session, mailbox and grant generation.
+  const [saved, setSaved] = useState<Record<string, {brief?: MailBrief; rows?: RecentRows}>>({});
+  const rememberRecent = useCallback((key: string, rows: RecentRows) => {
+    setSaved(old => ({ ...old, [key]: { ...old[key], rows } }));
+  }, []);
   useEffect(() => {
-    const rows = savedRows.current;
-    const cache = savedBriefs.current;
-    return () => { cache.clear(); rows.clear(); };
-  }, [scope]);
-  useEffect(() => {
+    if (!owner) { setSaved({}); return; }
     if (!current) return;
     const allowed = new Set(current.accounts.filter(row => row.status === "connected" && row.capabilities.read)
       .map(row => JSON.stringify([scope, row.accountId, row.credentialId])));
-    for (const cache of [savedBriefs.current, savedRows.current]) {
-      for (const key of cache.keys()) if (!allowed.has(key)) cache.delete(key);
-    }
-  }, [current, scope]);
+    setSaved(old => Object.keys(old).every(key => allowed.has(key)) ? old :
+      Object.fromEntries(Object.entries(old).filter(([key]) => allowed.has(key))));
+  }, [owner, current, scope]);
   const [summary, setSummary] = useState<{scope: string; brief?: MailBrief; updating: boolean; error: boolean}>();
   useEffect(() => {
     if (!account || !connection || !address) { setSummary(undefined); return; }
@@ -154,14 +148,17 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     void MailFollowupsService.brief({account, connection, address}, abort.signal)
       .then(brief => {
         if (!current()) return;
-        savedBriefs.current.set(briefScope, brief);
+        setSaved(old => ({ ...old, [briefScope]: { ...old[briefScope], brief } }));
         setSummary({scope: briefScope, brief, updating: false, error: false});
-        setCounted(old => ({ scope, counts: { ...(old?.scope === scope ? old.counts : {}), [account]: brief.attention.length } }));
       })
       .catch(() => { if (current()) setSummary(old => ({scope: briefScope, brief: old?.scope === briefScope ? old.brief : undefined, updating: false, error: true})); });
     return () => abort.abort();
   }, [account, address, connection, briefScope, briefRevision, epoch, scope, revision]);
   const visible = summary?.scope === briefScope ? summary : undefined;
-  return <Context.Provider value={{ recentRows: selected ? savedRows.current.get(briefScope) : undefined, rememberRecent, inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh: retryNow,
-    attentionCounts: counted?.scope === scope ? counted.counts : {}, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief ?? (selected ? savedBriefs.current.get(briefScope) : undefined), briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
+  const attentionCounts = Object.fromEntries(available.flatMap(row => {
+    const brief = saved[JSON.stringify([scope, row.accountId, row.credentialId])]?.brief;
+    return brief ? [[row.accountId, brief.attention.length]] : [];
+  }));
+  return <Context.Provider value={{ recentScope: selected ? briefScope : undefined, recentRows: selected ? saved[briefScope]?.rows : undefined, rememberRecent, inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh: retryNow,
+    attentionCounts, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief ?? (selected ? saved[briefScope]?.brief : undefined), briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
 }

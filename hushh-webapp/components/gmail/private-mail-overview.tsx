@@ -84,6 +84,7 @@ function useCompleted(
 function PrivateMailTools({ mailbox, onOpen }: { mailbox: Mailbox; onOpen: (row: Rows[number]) => void }) {
   const mailSession = usePrivateMailSession();
   const remember = mailSession?.rememberRecent;
+  const recentScope = mailSession?.recentScope;
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -102,13 +103,13 @@ function PrivateMailTools({ mailbox, onOpen }: { mailbox: Mailbox; onOpen: (row:
       .then((result) => {
         if (controller.signal.aborted) return;
         setRows({ key, items: result.items });
-        if (!submitted) remember?.(result.items);
+        if (!submitted && recentScope) remember?.(recentScope, result.items);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !aborted(error)) setFailed(true);
       });
     return () => controller.abort();
-  }, [account, connection, address, submitted, key, attempt, remember]);
+  }, [account, connection, address, submitted, key, attempt, remember, recentScope]);
   const current = rows?.key === key ? rows.items : !submitted ? mailSession?.recentRows : undefined;
   return (
     <div className={styles.toolsPanel} id="mail-tools-panel" data-testid="private-mail-tools">
