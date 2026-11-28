@@ -930,7 +930,11 @@ class _HonestListing(FakeGmail):
         if request.url.path.endswith("/messages"):
             self.requests.append(request)
             limit = int(request.url.params.get("maxResults", "100"))
-            return _response({"messages": self.listing["messages"][:limit]})
+            entries = self.listing["messages"]
+            page = {"messages": entries[:limit]}
+            if len(entries) > limit:
+                page["nextPageToken"] = "next"
+            return _response(page)
         return super().handler(request)
 
 

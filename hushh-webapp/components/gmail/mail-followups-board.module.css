@@ -1,4 +1,14 @@
 .board {
+  composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css";
+  --foundation-title2-size: var(--type-section-label-size);
+  --foundation-title2-line: var(--type-section-label-line);
+  --foundation-title2-weight: var(--type-section-label-weight);
+  --foundation-title3-size: var(--type-section-label-size);
+  --foundation-title3-line: var(--type-section-label-line);
+  --foundation-title3-weight: var(--type-section-label-weight);
+  --foundation-headline-size: var(--type-row-label-size);
+  --foundation-headline-line: var(--type-row-label-line);
+  --foundation-headline-weight: var(--type-row-label-weight);
   container-type: inline-size;
   color: var(--foreground);
 }
@@ -18,7 +28,7 @@
   padding-block: 0.75rem;
 }
 .title h2 {
-  font-size: 1.6rem;
+  font-size: var(--type-section-label-size, 14px);
   font-weight: 650;
   letter-spacing: -0.035em;
 }
@@ -27,7 +37,7 @@
 .board small,
 .empty {
   color: var(--muted-foreground);
-  font-size: 0.875rem;
+  font-size: var(--type-row-description-size, 12px);
 }
 .board button {
   min-height: 44px;
@@ -37,7 +47,7 @@
 .board .primary {
   background: var(--app-accent);
   border-radius: 2rem;
-  color: white;
+  color: var(--app-accent-fg);
   padding: 0.6rem 1rem;
   font-weight: 600;
 }
@@ -99,7 +109,7 @@
 }
 .stack h4 {
   font-weight: 650;
-  font-size: 1.05rem;
+  font-size: var(--type-row-label-size, 14px);
   margin: 0.25rem 0;
 }
 .stack article p {
@@ -156,5 +166,5 @@
 }
 .board .plan {
   padding-inline: 0.4rem;
-  font-size: 0.875rem;
+  font-size: var(--type-row-description-size, 12px);
 }

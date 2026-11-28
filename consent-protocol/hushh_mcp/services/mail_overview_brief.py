@@ -556,6 +556,7 @@ def verify_brief(
 ) -> dict[str, Any]:
     """Only items whose every claim is in the packet. Rejections are counted, never echoed."""
     rejected: dict[str, int] = {}
+    incomplete: set[str] = set()
     attention: list[dict[str, Any]] = []
     seen_threads: set[str] = set()
     for item in _items(raw, "attention")[: MAX_ATTENTION * 2]:
@@ -564,6 +565,8 @@ def verify_brief(
                 item, packet, owner_user_id=owner_user_id, account=account, seal=seal
             )
         except Reject as exc:
+            if str(exc) not in {"already_answered", "counterpart_has_written_since"}:
+                incomplete.add("attention")
             rejected[str(exc)] = rejected.get(str(exc), 0) + 1
             continue
         if checked["_thread"] in seen_threads:
@@ -581,6 +584,7 @@ def verify_brief(
                 item, packet, owner_user_id=owner_user_id, account=account, seal=seal
             )
         except Reject as exc:
+            incomplete.add("updates")
             rejected[str(exc)] = rejected.get(str(exc), 0) + 1
             continue
         if checked["_thread"] in seen_threads:
@@ -594,7 +598,12 @@ def verify_brief(
     for item in attention + updates:
         item.pop("_thread", None)
         item.pop("_sort", None)
-    return {"attention": attention, "updates": updates, "rejected": rejected}
+    return {
+        "attention": attention,
+        "updates": updates,
+        "rejected": rejected,
+        "incomplete": sorted(incomplete),
+    }
 
 
 # --- the model call ----------------------------------------------------------------
@@ -614,6 +623,8 @@ async def _run_gene(
                 **({"model": model} if model is not None else {}),
                 timeout_seconds=_MODEL_TIMEOUT_SECONDS,
             )
+        if not all(isinstance(answer.get(key), list) for key in ("attention", "updates")):
+            raise ValueError("Invalid brief sections")
         return answer
     except TimeoutError:
         raise MailOverviewError(
@@ -708,13 +719,12 @@ async def build_brief(
             raise reader_failure(exc) from None
     if reader is None:
         raise MailOverviewError("MAIL_UNAVAILABLE", "Mail couldn't be read. Try again.", 502)
-    reads = window
     account = reader.account
     packet = build_packet(rows, now=now)
     coverage = {
         "messages": len(packet.messages),
         "window_days": BRIEF_WINDOW_DAYS,
-        "may_be_partial": len(rows) >= reads,
+        "may_be_partial": reader.brief_has_more,
     }
     base = {"account": account, "generated_at": now.isoformat(), "coverage": coverage}
     if not packet.messages:
@@ -740,7 +750,7 @@ async def build_brief(
         _logger.info(
             "one.mail_overview.brief_rejected %s", json.dumps(result["rejected"], sort_keys=True)
         )
-    payload = {"attention": result["attention"], "updates": result["updates"]}
+    payload = {key: result[key] for key in ("attention", "updates", "incomplete")}
     _cache.put(key, stamp, payload)
     return base | payload
 

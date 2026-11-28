@@ -1,6 +1,6 @@
 import { parseMailBrief } from "@/lib/mail/mail-brief-client";
 import { z } from "zod";
-import { notifyMailGrantsChanged } from "./private-google-connections";
+import { notifyMailGrantsChanged, readOwnerConnectorWithWake } from "./private-google-connections";
 import { ApiService } from "./api-service";
 import {
   evidenceSchema,
@@ -26,7 +26,7 @@ function mailFollowupsClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     };
-    const response = await ApiService.ownerPodRequest(
+    const request = () => ApiService.ownerPodRequest(
       "gmail/followups/" + path,
       init,
       false,
@@ -34,10 +34,13 @@ function mailFollowupsClient() {
       undefined,
       () => !signal.aborted,
     );
+    const response = ["brief", "recent", "search"].includes(path)
+      ? await readOwnerConnectorWithWake(request, signal, true)
+      : await request();
     if (!response.ok) {
       if (response.status === 409) {
         const error = await response.json().catch(() => null);
-        if (!signal.aborted && error?.detail?.code === "MAIL_CONNECTION_CHANGED") notifyMailGrantsChanged();
+        if (!signal.aborted && ["MAIL_CONNECTION_CHANGED", "MAIL_RECONNECT_REQUIRED", "MAIL_CONNECT_REQUIRED"].includes(error?.detail?.code)) notifyMailGrantsChanged();
       }
       if (response.status === 422)
         throw new Error(
@@ -69,6 +72,8 @@ function mailFollowupsClient() {
       read("search", { ...selection(box), query }, sourceListSchema, signal),
     open: (box: FollowupMailbox, source: string, signal: AbortSignal) =>
       read("open", { ...selection(box), source }, evidenceSchema, signal),
+    summary: (box: FollowupMailbox, source: string, signal: AbortSignal) =>
+      read("open", { ...selection(box), source, summarize: true }, evidenceSchema.extend({ summary: z.string().min(1).max(4000) }), signal),
     check: (box: FollowupMailbox, item: MailFollowup, signal: AbortSignal) =>
       read(
         "check",

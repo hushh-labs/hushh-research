@@ -479,7 +479,7 @@ test("Mail Overview: 'All N in Follow-ups' shows the real count and opens those 
 });
 
 for (const [scenario, expectations] of [
-  ["empty", ["Nothing needs a reply or a follow-up. One checked 14 recent messages", "No changes to report.", "Nothing sent through One in the last 30 days."]],
+  ["empty", ["No action found in the 14 messages checked", "No changes to report.", "Nothing sent through One in the last 30 days."]],
   ["failed", ["One couldn't check your mail just now. Try again."]],
 ] as const) {
   test(`Mail Overview says "${scenario}" truthfully, section by section`, async ({ page }) => {
@@ -499,7 +499,7 @@ for (const [scenario, expectations] of [
 test("Mail Overview shows loading, not an empty brief, while One is checking", async ({ page }) => {
   await openOverview(page, { width: 393, height: 852, tools: false, attrs: 'data-brief="slow"' });
   const overview = page.getByRole("tabpanel", { name: "Overview" });
-  await expect(overview.getByLabel("Checking your recent mail")).toBeVisible();
+  await expect(overview.getByLabel("Checking recent mail")).toBeVisible();
   await expect(overview.getByText(/nothing needs/i)).toHaveCount(0);
   await expect(overview.getByTestId("attention-card")).toHaveCount(0);
 });
@@ -907,4 +907,25 @@ for (const width of [360, 1024]) {
       await page.screenshot({ path: testInfo.outputPath(`mail-${workspace}-${width}-long.png`) });
     });
   }
+}
+
+for (const width of [393, 1440]) {
+  test(`Private Mail summary and original at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 852 });
+    await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript", body: script }));
+    await page.route("http://localhost/mail-workspace", route => route.fulfill({
+      contentType: "text/html",
+      body: `<html data-summary-reader="1"><head><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+    }));
+    await page.goto("http://localhost/mail-workspace");
+    const body = page.getByTestId("brief-message-body");
+    await expect(body).toContainText("Upload A by June 2.");
+    await expect(body).toContainText("Ask Sam for B.");
+    await expect(page.getByText(/Partial summary/)).toBeVisible();
+    await expect(page.getByText("Reviewer", { exact: true })).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.getByRole("button", { name: "View original email" }).click();
+    await expect(body).toContainText("Original excerpt");
+    await expect(page.getByText(/Showing the available portion/)).toBeVisible();
+  });
 }

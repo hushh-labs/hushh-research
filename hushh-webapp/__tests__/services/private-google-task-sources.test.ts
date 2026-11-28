@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiService } from "@/lib/services/api-service";
+import { MailFollowupsService } from "@/lib/services/mail-followups-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { privateCalendarEvents, privateMailTasks } from "@/lib/services/private-google-task-sources";
 
@@ -9,6 +10,24 @@ const pod = vi.mocked(ApiService.ownerPodRequest);
 
 describe("bounded private Google task reads", () => {
   beforeEach(() => vi.clearAllMocks());
+  it("recovers a transient private recent-mail read on the same grant", async () => {
+    vi.useFakeTimers();
+    try {
+      pod.mockResolvedValueOnce(Response.json({detail: {code: "MAIL_FOLLOWUP_UNAVAILABLE"}}, {status: 503}))
+        .mockResolvedValueOnce(Response.json({items: []}));
+      const signal = new AbortController().signal;
+      const result = MailFollowupsService.recent({account: "slot", connection: "grant", address: "a@example.test"}, signal);
+      await vi.advanceTimersByTimeAsync(1200);
+      await expect(result).resolves.toEqual({items: []});
+      expect(pod).toHaveBeenCalledTimes(2);
+      for (const [path, init] of pod.mock.calls) {
+        expect(path).toBe("gmail/followups/recent");
+        expect(JSON.parse(String(init?.body))).toEqual({account: "slot", connection: "grant"});
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it.each([undefined, 1] as const)("confirms the exact private Calendar review with contract %s", async reviewContract => {
     const proposalId = `gcal_${"a".repeat(24)}`;
     pod.mockResolvedValue(Response.json({ proposalId, kind: "calendar", result: { action: "create", event: {} } }));

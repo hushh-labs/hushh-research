@@ -12,10 +12,10 @@ import {
 } from "@/lib/mail/mail-overview-client";
 import {
   formatEvidenceDay,
-  formatMailMoment,
   mailReadFailureCopy,
 } from "@/lib/mail/mail-overview-copy";
 import styles from "./mail-brief.module.css";
+import connectType from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import mailStyles from "./mail-workspace.module.css";
 
 /** What a card is being asked about: its own words, and the messages behind them. */
@@ -75,21 +75,24 @@ export function MailWhySheet({
    * Reads one message for a mailbox the shared hub cannot serve: a private agent
    * answers from its own runtime. Absent, the shared Mail reader is used.
    */
-  readMessage?: (sourceId: string, signal: AbortSignal) => Promise<OpenedOverviewMessage>;
+  readMessage?: (sourceId: string, signal: AbortSignal, original?: boolean) => Promise<OpenedOverviewMessage>;
   onClose: () => void;
   onReconnect: () => void;
   onUnlock: () => void;
 }) {
   const [viewing, setViewing] = useState<BriefEvidence | null>(null);
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
+  const [originalSource, setOriginalSource] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   // A new card starts at its list, or at its one message when asked to.
   useEffect(() => {
+    setOriginalSource(null);
     setViewing(target?.openFirst ? (target.evidence[0] ?? null) : null);
   }, [target]);
 
   const sourceId = viewing?.sourceId ?? null;
+  const original = originalSource === sourceId;
   useEffect(() => {
     if (!sourceId) return;
     if (!readMessage && !vaultOwnerToken) {
@@ -99,7 +102,7 @@ export function MailWhySheet({
     const controller = new AbortController();
     setLoaded({ status: "loading" });
     (readMessage
-      ? readMessage(sourceId, controller.signal)
+      ? readMessage(sourceId, controller.signal, original)
       : openMailMessage({ vaultOwnerToken: vaultOwnerToken as string, expectedAccount, sourceId, signal: controller.signal }).then(({ message }) => message)
     )
       .then((message) => {
@@ -111,7 +114,7 @@ export function MailWhySheet({
         if (error.reason !== "aborted") setLoaded({ status: "error", error });
       });
     return () => controller.abort();
-  }, [sourceId, vaultOwnerToken, expectedAccount, readMessage, attempt]);
+  }, [sourceId, vaultOwnerToken, expectedAccount, readMessage, original, attempt]);
 
   const close = useCallback(() => {
     setViewing(null);
@@ -119,7 +122,7 @@ export function MailWhySheet({
   }, [onClose]);
 
   const failure = loaded.status === "error" ? mailReadFailureCopy(loaded.error) : null;
-  const message = loaded.status === "ready" ? loaded.message : null;
+  const message = loaded.status === "ready" && loaded.message.sourceId === sourceId ? loaded.message : null;
   // A message opened from a list has no day of its own; none is invented.
   const eyebrow = viewing
     ? [viewing.from, viewing.on ? formatEvidenceDay(viewing.on) : ""].filter(Boolean).join(" · ")
@@ -134,7 +137,7 @@ export function MailWhySheet({
       eyebrow={target ? eyebrow : undefined}
       headerTextOverflow="wrap"
       title={target ? (viewing && message?.subject ? message.subject : target.title) : "Why this?"}
-      surfaceClassName={`${mailStyles.typography} ${mailStyles.portal}`}
+      surfaceClassName={`${connectType.surface} ${mailStyles.typography} ${mailStyles.portal}`}
       mobilePresentation="sheet"
       desktopMaxWidthClassName="sm:!max-w-[520px]"
     >
@@ -151,7 +154,7 @@ export function MailWhySheet({
                 <button
                   type="button"
                   className={styles.link}
-                  onClick={() => setViewing(item)}
+                  onClick={() => { setOriginalSource(null); setViewing(item); }}
                   data-testid="brief-view-email"
                 >
                   View email
@@ -197,16 +200,14 @@ export function MailWhySheet({
           ) : null}
           {message ? (
             <>
-              <p className={styles.whyFrom}>
-                {[message.sender ?? "Unknown sender", formatMailMoment(message.receivedAt)]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
               <p className={styles.whyBody} data-testid="brief-message-body">
-                <Marked text={message.body} quote={viewing.quote} />
-                {message.bodyTruncated ? " …" : ""}
+                {message.summary && !original ? message.summary : <Marked text={message.body} quote={viewing.quote} />}
               </p>
+              {message.bodyTruncated ? <p className={styles.whyFrom}>{message.summary && !original ? "Partial summary · based on the available text." : "Showing the available portion of this email."}</p> : null}
             </>
+          ) : null}
+          {readMessage && !original ? (
+            <button className={styles.link} onClick={() => setOriginalSource(sourceId)}>View original email</button>
           ) : null}
         </div>
       ) : null}

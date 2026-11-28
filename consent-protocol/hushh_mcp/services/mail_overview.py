@@ -225,6 +225,8 @@ def open_source_id(token: str, *, owner_user_id: str) -> SourceRef:
 class OverviewMailReader(GmailMetadataReader):
     """The reader's fenced session, with one more read shaped for a persistent list."""
 
+    brief_has_more: bool = False
+
     async def list_rows(self, *, query: str, limit: int) -> dict[str, Any]:
         """Newest-first metadata and a short preview for one page of Inbox or search.
 
@@ -355,6 +357,7 @@ class OverviewMailReader(GmailMetadataReader):
             payloads = await in_listing_order(ids, fetch)
             await self.require_current()
             rows = [self._brief_row(payload) for payload in payloads]
+            self.brief_has_more = bool(listing.get("nextPageToken"))
             return [row for row in rows if row is not None]
 
         result: list[dict[str, Any]] = await self._session(body, reads_bodies=True)

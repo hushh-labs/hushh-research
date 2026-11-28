@@ -116,7 +116,7 @@ def test_revoked_refresh_is_a_typed_reauth_result_and_never_a_server_error(mail)
         headers={"Authorization": "Bearer owner"},
     )
     assert response.status_code == 409 and response.json() == {
-        "detail": {"code": "GMAIL_CONNECTION_CHANGED"}
+        "detail": {"code": "GMAIL_REAUTH_REQUIRED"}
     }
     assert (
         mail.client.post(

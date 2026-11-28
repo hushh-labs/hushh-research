@@ -80,6 +80,7 @@ export type MailBrief = {
   coverage: { messages: number; windowDays: number; mayBePartial: boolean };
   attention: AttentionItem[];
   updates: UpdateItem[];
+  incomplete?: ("attention" | "updates")[];
 };
 
 export type CompletedItem = {
@@ -256,6 +257,7 @@ export function parseMailBrief(body: unknown): MailBrief {
       windowDays: coverage.window_days,
       mayBePartial: coverage.may_be_partial,
     },
+    incomplete: Array.isArray(root.incomplete) ? root.incomplete.filter((key): key is "attention" | "updates" => key === "attention" || key === "updates") : [],
     attention: unique(root.attention.map(parseAttention)),
     updates: unique(root.updates.map(parseUpdate)),
   };

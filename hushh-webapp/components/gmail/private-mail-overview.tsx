@@ -82,13 +82,16 @@ function useCompleted(
  * private runtime; a row opens that exact message and nothing else.
  */
 function PrivateMailTools({ mailbox, onOpen }: { mailbox: Mailbox; onOpen: (row: Rows[number]) => void }) {
+  const mailSession = usePrivateMailSession();
+  const remember = mailSession?.rememberRecent;
+  const recentScope = mailSession?.recentScope;
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [rows, setRows] = useState<{ key: string; items: Rows }>();
   const [failed, setFailed] = useState(false);
   const { account, connection, address } = mailbox;
-  const key = JSON.stringify([account, connection, submitted, attempt]);
+  const key = JSON.stringify([account, connection, submitted]);
   useEffect(() => {
     const controller = new AbortController();
     const box = { account, connection, address };
@@ -98,14 +101,16 @@ function PrivateMailTools({ mailbox, onOpen }: { mailbox: Mailbox; onOpen: (row:
       : MailFollowupsService.recent(box, controller.signal);
     read
       .then((result) => {
-        if (!controller.signal.aborted) setRows({ key, items: result.items });
+        if (controller.signal.aborted) return;
+        setRows({ key, items: result.items });
+        if (!submitted && recentScope) remember?.(recentScope, result.items);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !aborted(error)) setFailed(true);
       });
     return () => controller.abort();
-  }, [account, connection, address, submitted, key]);
-  const current = rows?.key === key ? rows.items : undefined;
+  }, [account, connection, address, submitted, key, attempt, remember, recentScope]);
+  const current = rows?.key === key ? rows.items : !submitted ? mailSession?.recentRows : undefined;
   return (
     <div className={styles.toolsPanel} id="mail-tools-panel" data-testid="private-mail-tools">
       <form
@@ -132,15 +137,16 @@ function PrivateMailTools({ mailbox, onOpen }: { mailbox: Mailbox; onOpen: (row:
         </button>
       </form>
       <h3 className={styles.listTitle}>{submitted ? "Search results" : "Recent mail"}</h3>
-      {failed ? (
+      {failed && current ? <p className={styles.whyFrom} role="status">Showing the last mail loaded.</p> : null}
+      {failed && !current ? (
         <div className={styles.state} role="alert">
-          <p>Couldn’t load your mail. Try again.</p>
+          <p>Mail is temporarily unavailable.</p>
           <button type="button" className={styles.link} onClick={() => setAttempt((value) => value + 1)}>
             Try again
           </button>
         </div>
       ) : !current ? (
-        <div className={styles.skeleton} aria-busy="true" aria-label="Loading mail" />
+        <p className={styles.state} role="status">Checking mail…</p>
       ) : current.length === 0 ? (
         <div className={styles.state} role="status">
           <p>{submitted ? "No matching emails." : "No mail found."}</p>
@@ -200,10 +206,10 @@ export function PrivateMailOverview({
 
   // One mailbox, one reader: a message opens through the owner's private runtime and only for this mailbox.
   const readMessage = useCallback(
-    async (sourceId: string, signal: AbortSignal): Promise<OpenedOverviewMessage> => {
+    async (sourceId: string, signal: AbortSignal, original = false): Promise<OpenedOverviewMessage> => {
       try {
-        const opened = await MailFollowupsService.open(box, sourceId, signal);
-        return { sourceId, subject: opened.subject || null, sender: opened.sender || null, receivedAt: null, unread: false, body: opened.body, bodyTruncated: opened.body_truncated };
+        const opened = await (original ? MailFollowupsService.open : MailFollowupsService.summary)(box, sourceId, signal);
+        return { summary: "summary" in opened && typeof opened.summary === "string" ? opened.summary : undefined, sourceId, subject: opened.subject || null, sender: opened.sender || null, receivedAt: null, unread: false, body: opened.body, bodyTruncated: opened.body_truncated };
       } catch (error) {
         if (aborted(error)) throw new MailOverviewError("aborted");
         throw new MailOverviewError("retryable", { cause: error });
@@ -229,6 +235,7 @@ export function PrivateMailOverview({
   return (
     <>
       <MailBriefPanel
+        inlineSuggestions
         brief={brief}
         completed={completed}
         ownerInitial={ownerInitial}
