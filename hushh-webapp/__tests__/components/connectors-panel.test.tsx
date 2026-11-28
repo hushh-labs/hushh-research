@@ -1168,7 +1168,7 @@ describe("supported connector catalog", () => {
     state.overview.mockResolvedValue(overview([{ ...catalogItem, connectorId: "google_drive", displayName: "Duplicate Drive" }]));
     render(panel());
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
-    expect(screen.getAllByText("Google Drive")).toHaveLength(1);
+    expect(await screen.findAllByText("Google Drive")).toHaveLength(1);
     expect(screen.queryByText("Duplicate Drive")).not.toBeInTheDocument();
   });
 
@@ -1181,7 +1181,7 @@ describe("supported connector catalog", () => {
     ]));
     render(panel());
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
-    const connected = within(screen.getByRole("region", { name: "Connected" }));
+    const connected = within(await screen.findByRole("region", { name: "Connected" }));
     expect(connected.getByText("Calendar")).toBeInTheDocument();
     expect(connected.getByText("Plaid")).toBeInTheDocument();
     expect(screen.queryByText("Duplicate Calendar")).not.toBeInTheDocument();
@@ -2061,6 +2061,7 @@ describe("supported connector catalog", () => {
         vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
         render(<ConnectorsPanel open {...callbacks} />);
         await waitFor(() => expect(state.overview).toHaveBeenCalled());
+        await screen.findByText("Google Drive");
         expect(screen.queryByTestId("connector-google-clearance-note")).not.toBeInTheDocument();
       } finally {
         vi.unstubAllEnvs();
