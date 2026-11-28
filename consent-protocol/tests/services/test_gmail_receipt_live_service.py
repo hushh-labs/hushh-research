@@ -1029,6 +1029,37 @@ async def test_provider_timeout_is_typed_and_never_partial_empty():
     assert "poison" not in str(caught.value)
 
 
+@pytest.mark.parametrize("continuation", [False, True])
+async def test_no_content_message_list_finishes_receipt_scan(continuation):
+    requests = []
+
+    def provider(request):
+        assert request.url.path.endswith("/messages")
+        requests.append(request)
+        if continuation and len(requests) == 1:
+            return _response({"nextPageToken": "next-page"})
+        return httpx.Response(204)
+
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        source_secret=b"s" * 32,
+        transport=httpx.MockTransport(provider),
+        extractor=_extractor,
+    )
+    result = await _scan(service)
+    if continuation:
+        result = await _scan(service, page=2, cursor=result["next_cursor"])
+    assert result["items"] == []
+    assert result["coverage"]["listed_count"] == 0
+    assert result["has_more"] is False
+    assert result["next_cursor"] is None
+    assert len(requests) == (3 if continuation else 2)
+    assert "resultSizeEstimate" in requests[-2].url.params["fields"]
+    assert dict(requests[-1].url.params) == {
+        k: v for k, v in requests[-2].url.params.items() if k != "fields"
+    }
+
+
 async def test_rejected_deep_provider_cursor_is_permanent_and_not_generic_502():
     calls = []
 
