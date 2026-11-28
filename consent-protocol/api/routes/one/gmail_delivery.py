@@ -527,6 +527,7 @@ async def gmail_schedule_email(
                 "bcc": list(draft.bcc),
                 "subject": draft.subject,
                 "body": draft.body,
+                "html_body": draft.html_body,
                 "recipient_kind": "explicit_address",
                 "recipient_user_id": "",
                 "sender_sub": sender_sub,

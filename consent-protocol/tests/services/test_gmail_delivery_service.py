@@ -2121,3 +2121,80 @@ async def test_prepare_and_execute_save_draft_uses_compose_authority_without_sen
             intent="save_draft",
         )
     assert compose_refused.value.code == "GMAIL_COMPOSE_PERMISSION_REQUIRED"
+
+
+def test_ephemeral_otp_reveal_works_across_workers_and_single_consumes(monkeypatch):
+    from hushh_mcp.services import gmail_sensitive_content as gsc
+
+    monkeypatch.setattr(
+        gsc,
+        "get_core_security_settings",
+        lambda: type(
+            "Settings", (), {"app_signing_key": "test-cross-worker-otp-signing-key-32c"}
+        )(),
+    )
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    gsc.clear_ephemeral_store_for_tests()
+    try:
+        ref = gsc._store_ephemeral(
+            owner_user_id="owner-worker-test",
+            conversation_id="conv-1",
+            kind="otp",
+            codes=["482913"],
+            sender="security@example.com",
+            subject="Sign-in code",
+            received_at="2026-11-28T00:00:00Z",
+        )
+        # Simulate the reveal hitting a DIFFERENT uvicorn worker with an empty in-memory dict.
+        gsc._EPHEMERAL_STORE.clear()
+
+        # Negative control: foreign user cannot reveal or consume the owner's ref.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="other-user") is None
+
+        # Owner reveals cleanly from the second worker.
+        revealed = gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-worker-test")
+        assert revealed is not None
+        assert revealed["codes"] == ["482913"]
+
+        # Single-consume invariant: second reveal on any worker returns None.
+        assert gsc.reveal_ephemeral_code(reveal_ref=ref, owner_user_id="owner-worker-test") is None
+    finally:
+        gsc.clear_ephemeral_store_for_tests()
+
+
+def test_scheduled_send_v2_preserves_sanitized_html_body(monkeypatch):
+    from hushh_mcp.services import gmail_delivery_service as module
+
+    monkeypatch.setattr(
+        module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    service = GmailDeliveryService()
+    sealed = service.seal_schedule_payload(
+        user_id="owner",
+        action_id="action-html-1",
+        version=2,
+        payload={
+            "to": ["alice@example.com"],
+            "cc": [],
+            "bcc": [],
+            "subject": "Formatted update",
+            "body": "Hello Alice",
+            "html_body": '<p><strong>Hello</strong> <a href="https://example.com">link</a><script>alert(1)</script></p>',
+            "recipient_kind": "explicit_address",
+            "recipient_user_id": "",
+            "sender_sub": "sub-1",
+            "reply_context": None,
+        },
+    )
+    opened = service.open_schedule_payload(
+        user_id="owner", action_id="action-html-1", sealed=sealed
+    )
+    draft_payload = service.scheduled_draft_payload(opened)
+    assert "html_body" in draft_payload
+    assert "<strong>Hello</strong>" in draft_payload["html_body"]
+    assert "<script>" not in draft_payload["html_body"]
+    normalized = normalize_draft(draft_payload)
+    assert normalized.html_body is not None and "<strong>Hello</strong>" in normalized.html_body

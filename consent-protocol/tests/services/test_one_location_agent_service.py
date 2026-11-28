@@ -9867,3 +9867,56 @@ def test_geofence_trigger_rearms_rule_when_action_fails_and_succeeds_on_retry(mo
 
     second = geofence.trigger_rule(owner_user_id="owner_1", rule_id=rule_id)
     assert second["alreadyTriggered"] is True
+
+
+def test_refresh_public_invite_location_rejects_active_timed_pause(monkeypatch):
+    service = OneLocationAgentService()
+    future_pause = datetime.now(timezone.utc) + timedelta(hours=1)
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda sql, params=None: (
+            {"paused_until": future_pause} if "one_location_account_settings" in str(sql) else None
+        ),
+    )
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.refresh_public_invite_location(
+            owner_user_id="owner_1",
+            invite_id="00000000-0000-0000-0000-000000000777",
+            location_snapshot={
+                "latitude": 37.77,
+                "longitude": -122.41,
+                "capturedAt": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    assert (exc.value.code, exc.value.status_code) == ("LOCATION_UPDATES_PAUSED", 409)
+
+    # Negative control: expired paused_until does not block public invite refresh.
+    past_pause = datetime.now(timezone.utc) - timedelta(minutes=5)
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda sql, params=None: (
+            {"paused_until": past_pause} if "one_location_account_settings" in str(sql) else None
+        ),
+    )
+    with pytest.raises(OneLocationAgentError) as not_active:
+        service.refresh_public_invite_location(
+            owner_user_id="owner_1",
+            invite_id="00000000-0000-0000-0000-000000000777",
+            location_snapshot={
+                "latitude": 37.77,
+                "longitude": -122.41,
+                "capturedAt": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    assert not_active.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+
+def test_scheduled_lane_match_sql_isolates_future_and_immediate_shares():
+    from hushh_mcp.services.one_location_agent_service import _scheduled_lane_match_sql
+
+    future_sql = _scheduled_lane_match_sql(future_scheduled=True)
+    immediate_sql = _scheduled_lane_match_sql(future_scheduled=False)
+    assert "IS NOT NULL" in future_sql and "> NOW()" in future_sql
+    assert "IS NULL" in immediate_sql and "<= NOW()" in immediate_sql
