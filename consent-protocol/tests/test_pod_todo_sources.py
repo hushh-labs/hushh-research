@@ -1,5 +1,6 @@
 """Owner HTTP -> real local Google ports -> bounded/redacted To-do metadata."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -388,30 +389,22 @@ def test_selected_followup_mailbox_store_failure_is_retryable(owner_app, monkeyp
     owner_app.client.app.include_router(pod_mail_followups.router)
     primary = store.active_connector_credential("gmail")
     slot = "selected-mailbox"
-    selected = SimpleNamespace(
-        credential_id=primary.credential_id,
-        account_id=slot,
-        account_subject=primary.account_subject,
-        status=store.STATUS_CONNECTED,
+    selected = replace(primary, account_id=slot)
+    # Admit the selection and access check, then fail the reader's local grant lookup.
+    lookup = Mock(
+        side_effect=[
+            selected,
+            selected,
+            store.ConnectorCredentialsUnavailable("fixture unavailable"),
+        ]
     )
-    looked_up = []
-
-    def lookup(account):
-        assert account == "selected"
-        return selected
-
-    def unavailable(connector_id, *, account_id):
-        looked_up.append((connector_id, account_id))
-        raise store.ConnectorCredentialsUnavailable("fixture unavailable")
-
     monkeypatch.setattr(store, "active_mail_account", lookup)
-    monkeypatch.setattr(store, "active_connector_credential", unavailable)
     response = owner_app.client.post(
         "/api/one/pod/gmail/followups/account",
         headers={"Authorization": "Bearer owner-fixture"},
-        json={"account": "selected", "connection": primary.credential_id},
+        json={"account": slot, "connection": primary.credential_id},
     )
-    assert looked_up == [("gmail", slot)]
+    assert [args for args, _kwargs in lookup.call_args_list] == [(slot,)] * 3
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "MAIL_FOLLOWUP_UNAVAILABLE"
     assert owner_app.google.requests == []
