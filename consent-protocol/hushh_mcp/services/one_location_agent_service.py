@@ -824,6 +824,24 @@ def _share_lane_match_sql(alias: str = "", *, pin: bool = False) -> str:
     )
 
 
+def _scheduled_lane_match_sql(*, future_scheduled: bool, alias: str = "") -> str:
+    """Keep immediate live shares and future-scheduled shares in separate replacement lanes.
+
+    Scheduling tomorrow's trip must not prematurely revoke today's active live share,
+    and starting an immediate share today must not wipe out tomorrow's scheduled trip.
+    """
+    qualifier = f"{alias}." if alias else ""
+    if future_scheduled:
+        return (
+            f" AND ({qualifier}metadata->>'starts_at') IS NOT NULL"
+            f" AND ({qualifier}metadata->>'starts_at')::timestamptz > NOW()"
+        )
+    return (
+        f" AND ({qualifier}metadata->>'starts_at' IS NULL"
+        f" OR ({qualifier}metadata->>'starts_at')::timestamptz <= NOW())"
+    )
+
+
 def _is_sos_lane(share_kind: str | None) -> bool:
     """True when a grant belongs to the emergency replacement lane.
 
@@ -6437,6 +6455,9 @@ class OneLocationAgentService:
                         # lane itself is BOUND as `:is_sos_lane`; nothing
                         # caller-supplied reaches this statement.
                         + _share_lane_match_sql()
+                        + _scheduled_lane_match_sql(
+                            future_scheduled=bool(params.get("is_future_scheduled"))
+                        )
                         + " RETURNING expires_at"
                     ),
                     params,
@@ -6744,11 +6765,13 @@ class OneLocationAgentService:
         # BOTH write paths below -- the enforced transaction reads it out of
         # `grant_params`, the non-enforced branch binds it on its own revoke.
         is_sos_lane = _is_sos_lane(resolved_kind)
+        is_future_scheduled = bool(starts_at_dt is not None and starts_at_dt > now_utc)
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": key_id,
             "is_sos_lane": is_sos_lane,
+            "is_future_scheduled": is_future_scheduled,
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
@@ -6789,6 +6812,7 @@ class OneLocationAgentService:
                 # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
                 # statement.
                 + _share_lane_match_sql()
+                + _scheduled_lane_match_sql(future_scheduled=is_future_scheduled)
                 + """
                 RETURNING id
                 """,
@@ -7265,6 +7289,7 @@ class OneLocationAgentService:
             # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
             # caller-supplied reaches this statement.
             + _share_lane_match_sql("g", pin=resolved_kind == "pin")
+            + _scheduled_lane_match_sql(future_scheduled=False, alias="g")
             + """
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
                 AND NOT EXISTS (SELECT 1 FROM replayed_grant)
@@ -8946,6 +8971,22 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
             )
+        settings_row = self._execute_one(
+            "SELECT * FROM one_location_account_settings WHERE user_id = :owner_user_id LIMIT 1",
+            {"owner_user_id": owner_user_id},
+        )
+        paused_until_raw = (settings_row or {}).get("paused_until")
+        if paused_until_raw:
+            try:
+                if _parse_datetime(paused_until_raw, field_name="pausedUntil") > _utcnow():
+                    raise OneLocationAgentError(
+                        "LOCATION_UPDATES_PAUSED",
+                        "Location updates are paused on this account.",
+                        status_code=409,
+                    )
+            except OneLocationAgentError as exc:
+                if exc.code == "LOCATION_UPDATES_PAUSED":
+                    raise
         public_location = self._public_location_snapshot_payload(location_snapshot)
         if not public_location:
             raise OneLocationAgentError(
@@ -10806,6 +10847,7 @@ class OneLocationAgentService:
             # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
             # caller-supplied reaches this statement.
             + lane_predicate
+            + _scheduled_lane_match_sql(future_scheduled=False)
             + """
             ORDER BY created_at DESC
             LIMIT 1
@@ -11529,6 +11571,7 @@ class OneLocationAgentService:
         duration_mode: str | None = None,
         auto_approve_rule_version: int | None = None,
         expected_request_revision: int | None = None,
+        precision: str | None = None,
         _reviewed_extension: tuple[str, datetime, datetime] | None = None,
         _reviewed_circle_id: str | None = None,
     ) -> dict[str, Any]:
@@ -11990,6 +12033,7 @@ class OneLocationAgentService:
                     duration_hours=resolved_hours,
                     duration_mode=resolved_mode,
                     reason="request_approved",
+                    precision=precision,
                     source_circle_id=(
                         automatic_circle_id
                         if automatic_scope in {"circle", "circles"}
@@ -12010,6 +12054,23 @@ class OneLocationAgentService:
                     _key_writer_guarded=True,
                 )
             )
+            if _reviewed_extension is not None and precision:
+                self._execute_one(
+                    """
+                    UPDATE one_location_share_grants
+                    SET metadata = COALESCE(metadata, '{}'::jsonb)
+                        || jsonb_build_object('precision', CAST(:precision AS TEXT)),
+                        updated_at = NOW()
+                    WHERE id = CAST(:grant_id AS UUID)
+                      AND owner_user_id = :owner_user_id
+                    """,
+                    {
+                        "precision": precision,
+                        "grant_id": grant["id"],
+                        "owner_user_id": owner_user_id,
+                    },
+                )
+                grant["precision"] = precision
             approved_recipient = self._recipient_payload(
                 self._recipient_key_row(
                     recipient_user_id=requester_user_id,
