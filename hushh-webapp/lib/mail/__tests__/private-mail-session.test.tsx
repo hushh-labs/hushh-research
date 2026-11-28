@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { PrivateMailSessionProvider, usePrivateMailSession } from "../private-mail-session";
+import { writeEncryptedOwnerUiRecord } from "@/lib/storage/encrypted-owner-ui-cache";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const mocks = vi.hoisted(() => ({ vault: vi.fn(), list: vi.fn(), brief: vi.fn(), tasks: vi.fn() }));
@@ -115,4 +116,26 @@ it("shows A's last brief while a new read for A and a superseded read for B are 
   await act(async () => resolveB({account: "B stale", attention: []}));
   expect(screen.queryByText("B stale")).toBeNull();
   expect(screen.getByText("A saved")).toBeDefined();
+});
+
+it("restores the authorized mailbox after a reload while one live refresh is pending", async () => {
+  localStorage.clear();
+  const vaultKey = "ab".repeat(32);
+  const account = "cache-test";
+  const connection = "current-grant";
+  mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey, vaultOwnerToken: "token"});
+  mocks.list.mockResolvedValue([{accountId: account, credentialId: connection, email: "me@example.test",
+    status: "connected", capabilities: {read: true}}]);
+  mocks.tasks.mockResolvedValue({tasks: []});
+  await writeEncryptedOwnerUiRecord({ownerId: "owner", vaultKey, namespace: `mail.brief.v1/${account}/${connection}/`,
+    value: {account, generated_at: new Date().toISOString(), coverage: {messages: 24, window_days: 21, may_be_partial: true},
+      attention: [], updates: []}});
+  let finish!: (value: object) => void;
+  mocks.brief.mockReset().mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  render(<PrivateMailSessionProvider><Probe /></PrivateMailSessionProvider>);
+  await screen.findByText(account);
+  act(() => { window.dispatchEvent(new Event("focus")); });
+  expect(mocks.brief).toHaveBeenCalledTimes(1);
+  await act(async () => finish({account: "updated", attention: []}));
+  expect(screen.getByText("updated")).toBeDefined();
 });

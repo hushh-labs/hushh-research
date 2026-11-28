@@ -7,7 +7,8 @@ import { MailFollowupsService } from "@/lib/services/mail-followups-service";
 import { TodoListPkmService, type TodoListState } from "@/lib/services/todo-list-pkm-service";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { TODO_LIST_PKM_DOMAIN } from "@/lib/services/todo-list-pkm-service";
-import type { MailBrief } from "./mail-brief-client";
+import { deleteEncryptedOwnerUiRecords, readEncryptedOwnerUiRecord, writeEncryptedOwnerUiRecord } from "@/lib/storage/encrypted-owner-ui-cache";
+import { parseMailBrief, type MailBrief } from "./mail-brief-client";
 import { PRIVATE_MAIL_GRANTS_CHANGED, privateMailAccounts, type PrivateMailAccount } from "@/lib/services/private-google-connections";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -16,6 +17,9 @@ import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vau
 export const MAX_MAIL_ACCOUNTS = 3;
 /** A failed mailbox check tries again by itself, then leaves the next try to the owner. */
 const INVENTORY_RETRY_MS = [2_000, 6_000, 15_000] as const;
+
+const BRIEF_FRESH_MS = 5 * 60_000;
+const briefNamespace = (account: string, credential: string) => `mail.brief.v1/${account}/${credential}/`;
 
 type Inventory = { scope: string; mode: "private" | "shared"; accounts: PrivateMailAccount[]; failed?: boolean };
 type RecentRows = Awaited<ReturnType<typeof MailFollowupsService.recent>>["items"];
@@ -51,6 +55,7 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const failures = useRef(0);
+  const checkedAt = useRef(new Map<string, number>());
   // The owner's own retry starts the automatic ones over.
   const retryNow = useCallback(() => { failures.current = 0; setRevision(value => value + 1); }, []);
   useEffect(() => {
@@ -145,32 +150,84 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   }, []);
   useEffect(() => {
     if (!owner) { setSaved({}); return; }
-    if (!current) return;
+    if (!current || current.failed) return;
     const allowed = new Set(current.accounts.filter(row => row.status === "connected" && row.capabilities.read)
       .map(row => JSON.stringify([scope, row.accountId, row.credentialId])));
+    for (const key of checkedAt.current.keys()) {
+      if (!allowed.has(key)) checkedAt.current.delete(key);
+    }
     setSaved(old => Object.keys(old).every(key => allowed.has(key)) ? old :
       Object.fromEntries(Object.entries(old).filter(([key]) => allowed.has(key))));
   }, [owner, current, scope]);
-  const [summary, setSummary] = useState<{scope: string; brief?: MailBrief; updating: boolean; error: boolean}>();
+  const [summary, setSummary] = useState<{scope: string; updating: boolean; error: boolean}>();
+  const manualRefresh = useRef(false);
+  const retryBrief = useCallback(() => {
+    manualRefresh.current = true;
+    setBriefRevision(n => n + 1);
+  }, []);
   useEffect(() => {
-    if (!account || !connection || !address) { setSummary(undefined); return; }
+    if (!owner || !vaultKey || !account || !connection || !address) { setSummary(undefined); return; }
+    const cache = { ownerId: owner, vaultKey, namespace: briefNamespace(account, connection) };
     const abort = new AbortController();
     const current = () => !abort.signal.aborted && snapshotVaultSessionEpoch() === epoch;
-    setSummary(old => ({scope: briefScope, brief: old?.scope === briefScope ? old.brief : undefined, updating: true, error: false}));
-    void MailFollowupsService.brief({account, connection, address}, abort.signal)
-      .then(brief => {
+    // Only a live, readable grant reaches this effect. A later disk read must never replace a live result.
+    let liveResult = false;
+    void readEncryptedOwnerUiRecord<unknown>(cache).then(record => {
+      if (!current() || liveResult || !record) return;
+      const brief = parseMailBrief(record.value);
+      if (brief.account !== account) return;
+      setSaved(old => old[briefScope]?.brief ? old : { ...old, [briefScope]: { ...old[briefScope], brief } });
+    }).catch(() => {});
+    let pending = false;
+    const update = (force = false) => {
+      if (pending || !current()) return;
+      if (!force && Date.now() - (checkedAt.current.get(briefScope) ?? 0) < BRIEF_FRESH_MS) {
+        setSummary({scope: briefScope, updating: false, error: false});
+        return;
+      }
+      pending = true;
+      setSummary({scope: briefScope, updating: true, error: false});
+      void MailFollowupsService.brief({account, connection, address}, abort.signal, wire => {
+        if (current()) void writeEncryptedOwnerUiRecord({ ...cache, value: wire }).catch(() => {});
+      }).then(brief => {
         if (!current()) return;
+        liveResult = true;
+        checkedAt.current.set(briefScope, Date.now());
         setSaved(old => ({ ...old, [briefScope]: { ...old[briefScope], brief } }));
-        setSummary({scope: briefScope, brief, updating: false, error: false});
-      })
-      .catch(() => { if (current()) setSummary(old => ({scope: briefScope, brief: old?.scope === briefScope ? old.brief : undefined, updating: false, error: true})); });
-    return () => abort.abort();
-  }, [account, address, connection, briefScope, briefRevision, epoch, scope, revision]);
+        setSummary({scope: briefScope, updating: false, error: false});
+      }).catch(() => {
+        if (current()) setSummary({scope: briefScope, updating: false, error: true});
+      }).finally(() => { pending = false; });
+    };
+    update(manualRefresh.current);
+    manualRefresh.current = false;
+    const wake = () => { if (document.visibilityState === "visible") update(); };
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      abort.abort();
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [owner, vaultKey, account, address, connection, briefScope, briefRevision, epoch]);
+
+  const knownGrants = useRef<{ owner: string; namespaces: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!owner || !current || current.failed) return;
+    const namespaces = new Set(current.accounts.filter(row => row.status === "connected" && row.capabilities.read)
+      .map(row => briefNamespace(row.accountId, row.credentialId)));
+    if (knownGrants.current?.owner === owner) {
+      for (const previous of knownGrants.current.namespaces) {
+        if (!namespaces.has(previous)) void deleteEncryptedOwnerUiRecords(owner, previous).catch(() => {});
+      }
+    }
+    knownGrants.current = {owner, namespaces};
+  }, [owner, current]);
   const visible = summary?.scope === briefScope ? summary : undefined;
   const attentionCounts = Object.fromEntries(available.flatMap(row => {
     const brief = saved[JSON.stringify([scope, row.accountId, row.credentialId])]?.brief;
     return brief ? [[row.accountId, brief.attention.length]] : [];
   }));
   return <Context.Provider value={{ recentScope: selected ? briefScope : undefined, recentRows: selected ? saved[briefScope]?.rows : undefined, rememberRecent, inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, reconnectMailbox, choose, refresh: retryNow,
-    attentionCounts, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief ?? (selected ? saved[briefScope]?.brief : undefined), briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
+    attentionCounts, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: selected ? saved[briefScope]?.brief : undefined, briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief }}>{children}</Context.Provider>;
 }

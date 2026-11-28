@@ -54,6 +54,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("a draft the Overview asked for", () => {
+  it("keeps a slow Overview reply in the review surface and retries the same source", async () => {
+    const mail = services();
+    mail.draft.mockRejectedValueOnce(new Error("Mailbox temporarily unavailable."));
+    render(<MailFollowupsScreen session={session} account={box.account} connection={box.connection}
+      verifiedAddress={box.address} savedTasks={Promise.resolve({tasks: []}) as never}
+      draftRequest={request} mail={mail as never} onDraftSaved={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Preparing your reply");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mailbox temporarily unavailable");
+    expect(screen.queryByRole("button", {name: "Track a conversation"})).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name: "Try again"}));
+    expect(await screen.findByLabelText("Message")).toHaveValue("Thirty days works for us.");
+    expect(mail.draft).toHaveBeenLastCalledWith(box, request.sourceId, request.expectation, expect.anything());
+  });
+
   it("opens for review and creates no Task until it is saved", async () => {
     const { mail } = mount();
     expect(await screen.findByRole("heading", { name: "Review draft" })).toBeVisible();

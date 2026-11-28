@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { z } from "zod";
+import styles from "./mail-brief.module.css";
 import { MailActionButton } from "./mail-action-button";
 import { MailTaskReminder } from "./mail-task-reminder";
 import { MailTrackDialog } from "./mail-track-dialog";
@@ -50,12 +51,14 @@ export function MailFollowupsScreen({
   savedTasks,
   handoff,
   draftRequest,
+  onDraftSaved,
   mail = MailFollowupsService,
 }: {
   mail?: typeof MailFollowupsService;
   handoff?: { key: string; action: "evidence" | "plan" };
   /** One draft the Overview asked for; it is consumed once. */
   draftRequest?: MailDraftRequest;
+  onDraftSaved?: () => void;
   session: TodoWriteParams;
   account: string;
   connection: string;
@@ -99,6 +102,7 @@ export function MailFollowupsScreen({
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const flight = useRef<AbortController | null>(null);
+  useEffect(() => () => flight.current?.abort(), []);
   const { userId, vaultKey, vaultOwnerToken } = session;
   const epoch = snapshotVaultSessionEpoch();
   function cancel() {
@@ -308,7 +312,7 @@ export function MailFollowupsScreen({
   }
   // The app's own Back returns from a detail to the board before it leaves Mail; the board has no Back of its own.
   const pathname = usePathname();
-  useBackLayer(normalizeStaticExportPathname(pathname), view === "board" ? 0 : 1, () => {
+  useBackLayer(normalizeStaticExportPathname(pathname), onDraftSaved || view === "board" ? 0 : 1, () => {
     cancel();
     setPendingDraft(undefined);
     setView("board");
@@ -316,10 +320,11 @@ export function MailFollowupsScreen({
   });
 
   // A draft the Overview asked for opens for review here. It creates nothing until it is saved.
+  const [draftAttempt, setDraftAttempt] = useState(0);
   const draftConsumed = useRef<string>("");
   useEffect(() => {
-    if (!box || !draftRequest || draftConsumed.current === draftRequest.id) return;
-    draftConsumed.current = draftRequest.id;
+    if (!box || !draftRequest || draftConsumed.current === `${draftRequest.id}:${draftAttempt}`) return;
+    draftConsumed.current = `${draftRequest.id}:${draftAttempt}`;
     cancel();
     setActiveTask(undefined);
     setScheduleMode(false);
@@ -335,11 +340,11 @@ export function MailFollowupsScreen({
     );
     // `run` and `cancel` are recreated on every render; the request id is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [box, draftRequest]);
+  }, [box, draftRequest, draftAttempt]);
 
   return (
     <section>
-      {view !== "board" && (
+      {!onDraftSaved && view !== "board" && (
         <MailActionButton
           onClick={() => {
             cancel();
@@ -353,15 +358,18 @@ export function MailFollowupsScreen({
       {error && (
         <p role="alert">
           {error}{" "}
-          {!(box && tasksReady) && (
+          {onDraftSaved && box && !draft && (
+            <MailActionButton onClick={() => setDraftAttempt(n => n + 1)}>Try again</MailActionButton>
+          )}
+          {!(box && tasksReady) && !(onDraftSaved && box && !draft) && (
             <MailActionButton onClick={() => { setTasksReady(false); setRevision((n) => n + 1); }}>
               Try again
             </MailActionButton>
           )}
         </p>
       )}
-      {(busy || (!error && !(box && tasksReady))) && <p role="status">Checking…</p>}
-      {box && tasksReady && view === "board" && (
+      {(busy || (!error && !(box && tasksReady))) && <p role="status">{onDraftSaved && !draft ? "Preparing your reply…" : "Checking…"}</p>}
+      {!onDraftSaved && box && tasksReady && view === "board" && (
         <MailFollowupsBoard
           tasks={items}
           mailboxes={[box]}
@@ -528,19 +536,21 @@ export function MailFollowupsScreen({
         </section>
       )}
       {view === "draft" && box && (activeTask || pendingDraft) && draft && (
-        <section className="grid gap-3">
-          <h2>Review draft</h2>
+        <section className={styles.draftForm}>
+          {!onDraftSaved && <h2>Review draft</h2>}
           {!activeTask && pendingDraft && (
             <p className="text-sm text-muted-foreground">
-              {pendingDraft.title}. Saving creates one Task linked to this email.
+              Saving links this draft to a follow-up task.
             </p>
           )}
-          <p>From {box.address}</p>
-          <p>To {draft.to}</p>
+          <dl className={styles.draftEnvelope}>
+            <dt>From</dt><dd>{box.address}</dd>
+            <dt>To</dt><dd>{draft.to}</dd>
+          </dl>
           <label>
             Subject
             <input
-              className="block w-full rounded border p-2"
+              className={styles.draftField}
               value={draft.subject}
               maxLength={998}
               onChange={(e) => editDraft({ ...draft, subject: e.target.value })}
@@ -549,7 +559,7 @@ export function MailFollowupsScreen({
           <label>
             Message
             <textarea
-              className="block w-full rounded border p-2"
+              className={styles.draftField}
               rows={6}
               maxLength={12000}
               value={draft.body}
@@ -650,6 +660,7 @@ export function MailFollowupsScreen({
                   setView("board");
                   if (activeTask) CacheService.getInstance().invalidate(editKey(activeTask, draft.to));
                   setNotice("Draft saved for review.");
+                  onDraftSaved?.();
                 },
               )
             }

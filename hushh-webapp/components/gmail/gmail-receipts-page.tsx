@@ -65,6 +65,7 @@ import { PenLine, Search as SearchIcon } from "@/components/icons";
 import { mailReplyFailureCopy } from "@/lib/mail/mail-overview-copy";
 import { useMailBrief } from "@/lib/mail/use-mail-brief";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -1331,12 +1332,15 @@ function MailPageContent({
   const reconnectPrivateMailbox = useCallback((box: { accountId: string; credentialId: string } | null | undefined) => {
     if (box) void connectPrivateMailbox({ mode: "reconnect", accountId: box.accountId, credentialId: box.credentialId });
   }, [connectPrivateMailbox]);
-  // The Overview asks for a draft; Follow-ups opens it for review. Nothing is created until it is saved.
-  const [draftRequest, setDraftRequest] = useState<MailDraftRequest>();
+  // Scope the review dialog to the owner, vault session and selected Gmail grant.
+  const [draftRequest, setDraftRequest] = useState<(MailDraftRequest & { scope: string })>();
   const requestPrivateDraft = useCallback((request: PrivateDraftRequest) => {
-    setDraftRequest({ ...request, id: `${Date.now()}:${request.sourceId}` });
-    setWorkspace("followups");
-  }, [setWorkspace]);
+    if (!privateMailbox || !userId || !vaultKey || !vaultOwnerToken) {
+      setShowVaultUnlock(true);
+      return;
+    }
+    setDraftRequest({ ...request, id: crypto.randomUUID(), scope: JSON.stringify([userId, privateMailbox.credentialId, snapshotVaultSessionEpoch()]) });
+  }, [privateMailbox, userId, vaultKey, vaultOwnerToken]);
   // A different mailbox never inherits the previous one's draft.
   useEffect(() => { setDraftRequest(undefined); }, [privateMailbox?.credentialId, userId]);
 
@@ -2510,7 +2514,7 @@ function MailPageContent({
                 ),
                 followups: privateMail ? (privateMailbox && userId && vaultKey && vaultOwnerToken ?
                   <MailFollowupsScreen key={privateMailbox.credentialId} savedTasks={mailSession?.savedTasks} account={privateMailbox.accountId} connection={privateMailbox.credentialId} verifiedAddress={privateMailbox.email ?? undefined}
-                    session={{ userId, vaultKey, vaultOwnerToken }} draftRequest={draftRequest} /> :
+                    session={{ userId, vaultKey, vaultOwnerToken }} /> :
                   privateMailbox ? <PrivateMailState cause="checking" onReconnect={() => {}} onAdd={addPrivateMailbox} onRetry={() => mailSession?.refresh()} /> : privateMailState) : (
                   <>
                     {!isConnected ? mailStatusPanel : null}
@@ -2549,6 +2553,16 @@ function MailPageContent({
         </SurfaceStack>
       </AppPageContentRegion>
 
+      {draftRequest && privateMailbox && userId && vaultKey && vaultOwnerToken &&
+        draftRequest.scope === JSON.stringify([userId, privateMailbox.credentialId, snapshotVaultSessionEpoch()]) && (
+          <AdaptiveDetailSurface open title="Review draft" eyebrow={draftRequest.title} headerTextOverflow="wrap"
+            mobilePresentation="sheet" onOpenChange={open => { if (!open) setDraftRequest(undefined); }}>
+            <MailFollowupsScreen key={draftRequest.id} account={privateMailbox.accountId} connection={privateMailbox.credentialId}
+              verifiedAddress={privateMailbox.email ?? undefined} savedTasks={mailSession?.savedTasks}
+              session={{ userId, vaultKey, vaultOwnerToken }} draftRequest={draftRequest}
+              onDraftSaved={() => { setDraftRequest(undefined); toast.success("Draft saved for review."); }} />
+          </AdaptiveDetailSurface>
+        )}
       <MailWhySheet
         target={whyTarget}
         vaultOwnerToken={vaultOwnerToken ?? null}

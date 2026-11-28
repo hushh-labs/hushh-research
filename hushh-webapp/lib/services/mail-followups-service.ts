@@ -61,9 +61,11 @@ function mailFollowupsClient() {
     connection,
   });
   return {
-    brief: async (box: FollowupMailbox, signal: AbortSignal) => {
-      const result = parseMailBrief(await read("brief", selection(box), z.unknown(), signal));
+    brief: async (box: FollowupMailbox, signal: AbortSignal, onVerified?: (wire: unknown) => void) => {
+      const wire = await read("brief", selection(box), z.unknown(), signal);
+      const result = parseMailBrief(wire);
       if (result.account !== box.account) throw new Error("Mailbox changed.");
+      onVerified?.(wire);
       return result;
     },
     recent: (box: FollowupMailbox, signal: AbortSignal) =>
