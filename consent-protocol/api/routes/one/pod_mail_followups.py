@@ -14,9 +14,9 @@ from api.utils.private_no_store import PrivateNoStoreRoute
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
 from hushh_mcp.services.pod_mail_followups import (
     Document,
+    OpenMessage,
     Search,
     Selection,
-    Source,
     Track,
     Tracked,
     run_mail,
@@ -33,7 +33,7 @@ REQUEST_TYPES: dict[MailOperation, type[Selection]] = {
     "recent": Selection,
     "account": Selection,
     "search": Search,
-    "open": Source,
+    "open": OpenMessage,
     "track": Track,
     "check": Tracked,
     "draft": Track,

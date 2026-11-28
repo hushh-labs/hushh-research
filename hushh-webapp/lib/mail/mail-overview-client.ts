@@ -107,6 +107,7 @@ export type MailOverviewPage = {
 };
 
 export type OpenedOverviewMessage = {
+  summary?: string;
   sourceId: string;
   subject: string | null;
   sender: string | null;

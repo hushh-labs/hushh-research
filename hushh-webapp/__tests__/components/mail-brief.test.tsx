@@ -209,7 +209,7 @@ describe("honest states for the brief", () => {
 
   it("says nothing needs you only after a read that found nothing, and how much it checked", () => {
     render(<MailBriefSections {...props({ brief: part(briefOf([], [], 12)) })} />);
-    expect(screen.getByText(/Nothing needs a reply or a follow-up\. One checked 12 recent messages from the last 21 days/)).toBeVisible();
+    expect(screen.getByText(/No action found in the 12 messages checked from the last 21 days/)).toBeVisible();
     expect(screen.getByText("No changes to report.")).toBeVisible();
   });
 

@@ -332,3 +332,42 @@ async def test_professor_promise_preserves_source_due_day_and_no_time(monkeypatc
         "2026-11-29",
         None,
     )
+
+
+@pytest.mark.parametrize("summarize", [False, True])
+async def test_open_selected_email_read_only_summary_and_original(monkeypatch, summarize):
+    message = row("mail:1", "Upload A by June 2. Ask Sam for B.", "2026-05-01T00:00:00Z")
+    message.update(subject="Review", sender="Reviewer", body_truncated=True)
+    reader = SimpleNamespace(
+        read_threads=AsyncMock(return_value={"untrusted_external_content": [message]}),
+        offered_message_ids=lambda: ("abcd",),
+        require_current=AsyncMock(),
+    )
+    model = object()
+    gene = AsyncMock(
+        return_value={"answer": "Upload A by June 2. Ask Sam for B.", "source_refs": ["mail:1"]}
+    )
+    monkeypatch.setattr(mail, "run_email_gene", gene)
+    result = await mail.assess_mail(
+        "open",
+        mail.OpenMessage(account="c", connection="slot-c", source=SOURCE, summarize=summarize),
+        owner="owner",
+        new_reader=lambda: reader,
+        credential_id="slot-c",
+        key_resolver=lambda: KEY,
+        owner_address=lambda: "",
+        consent_token=None,
+        model_factory=lambda: model,
+    )
+    reader.read_threads.assert_awaited_once_with(
+        message_ids=["abcd"], whole_thread=False, include_headers=True
+    )
+    reader.require_current.assert_awaited_once()
+    assert result["body_truncated"] is True
+    if summarize:
+        assert result["summary"] == gene.return_value["answer"]
+        assert gene.await_args.kwargs["gene_id"] == "agent_email_read_interpreter"
+        assert gene.await_args.kwargs["model"] is model
+    else:
+        gene.assert_not_awaited()
+        assert "summary" not in result

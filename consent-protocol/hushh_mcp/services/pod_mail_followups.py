@@ -18,7 +18,7 @@ from hushh_mcp.agents.email.runtime import EMAIL_DRAFT_SCHEMA, run_email_gene
 from hushh_mcp.services import pod_connector_credentials as credentials
 from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
 from hushh_mcp.services.calendar_email_followup_relevance import quoted_or_signature_regions
-from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader
+from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError, GmailMetadataReader
 from hushh_mcp.services.mail_promise_date import promise_deadline
 from hushh_mcp.services.mail_source_identity import open_source_id, seal_source_id
 from hushh_mcp.services.pod_gmail_local import PodGmailConnection
@@ -40,6 +40,10 @@ class Search(Selection):
 
 class Source(Selection):
     source: str = Field(min_length=16, max_length=2048)
+
+
+class OpenMessage(Source):
+    summarize: bool = False
 
 
 class Document(Source):
@@ -309,9 +313,17 @@ async def assess_mail(
         from hushh_mcp.services.pod_ai_selection import ai_selection_revision
 
         revision = ai_selection_revision()
-        rows = await reader.brief_window(
-            days=brief.BRIEF_WINDOW_DAYS, limit=brief.BRIEF_MAX_MESSAGES
-        )
+        try:
+            rows = await reader.brief_window(
+                days=brief.BRIEF_WINDOW_DAYS, limit=brief.BRIEF_MAX_MESSAGES
+            )
+        except GmailMetadataError as error:
+            if error.code != "response_too_large":
+                raise
+            reader = new_reader()
+            rows = await reader.brief_window(
+                days=brief.BRIEF_WINDOW_DAYS, limit=brief.BRIEF_SMALL_WINDOW
+            )
         now = datetime.now(timezone.utc)
         packet = brief.build_packet(rows, now=now)
         verified = {"attention": [], "updates": []}
@@ -338,8 +350,9 @@ async def assess_mail(
             "coverage": {
                 "messages": len(packet.messages),
                 "window_days": brief.BRIEF_WINDOW_DAYS,
-                "may_be_partial": len(rows) == brief.BRIEF_MAX_MESSAGES,
+                "may_be_partial": reader.brief_has_more,
             },
+            "incomplete": verified.get("incomplete", []),
             "attention": verified["attention"],
             "updates": verified["updates"],
         }
@@ -437,7 +450,53 @@ async def assess_mail(
         raise _refuse(409, "MAIL_SOURCE_CHANGED")
     row = rows[0]
     if operation == "open":
+        summary = {}
+        if isinstance(selection, OpenMessage) and selection.summarize:
+            from hushh_mcp.services.email_delegated_read import MailReadAnswer
+            from hushh_mcp.services.pod_ai_selection import ai_selection_revision
+
+            revision = ai_selection_revision()
+            model = model_factory()
+            if model is None or not (row.get("body") or "").strip():
+                raise _refuse(503, "MAIL_SUMMARY_UNAVAILABLE")
+            ref = row["source_ref"]
+            answer = MailReadAnswer.model_validate(
+                await run_email_gene(
+                    gene_id="agent_email_read_interpreter",
+                    prompt=json.dumps(
+                        {
+                            "user_request": (
+                                "Summarize this email. Lead with what changed or what is needed. "
+                                "Give a short bullet for each distinct request or blocker. Retain "
+                                "names, owners, exact dates, amounts, attachments, technical terms "
+                                "and conditions when relevant. Skip greetings and repeated headers."
+                            ),
+                            "retrieved_metadata": {
+                                "untrusted_external_content": [
+                                    {
+                                        k: row.get(k)
+                                        for k in ("source_ref", "subject", "body", "body_truncated")
+                                    }
+                                ]
+                            },
+                        }
+                    ),
+                    user_id=owner,
+                    consent_token=consent_token,
+                    model=model,
+                    output_schema=MailReadAnswer,
+                    retry_on_failure=False,
+                    timeout_seconds=25,
+                )
+            )
+            if answer.source_refs != [ref] or not answer.answer.strip():
+                raise _refuse(502, "MAIL_SUMMARY_UNVERIFIED")
+            if ai_selection_revision() != revision:
+                raise _refuse(409, "OWNER_AI_SELECTION_CHANGED")
+            summary = {"summary": answer.answer.strip()}
+        await reader.require_current()
         return {
+            **summary,
             **{k: row.get(k) for k in ("subject", "sender", "body", "body_truncated")},
             "files": [f["filename"] for f in row.get("attachment_details", [])],
         }

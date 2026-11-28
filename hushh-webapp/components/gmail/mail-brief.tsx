@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -290,6 +291,7 @@ function CompletedRow({ item, onView }: { item: CompletedItem; onView: (item: Co
 }
 
 export type MailBriefSectionsProps = {
+  inlineSuggestions?: boolean;
   brief: BriefPart<MailBrief>;
   completed: BriefPart<MailCompleted>;
   receiptUpdates: ReceiptPriceUpdate[];
@@ -315,10 +317,11 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
   const completedFailure = failureOf(completed);
   const attention = brief.data?.attention ?? [];
   const updates = brief.data?.updates ?? [];
-  const shown = attention.slice(0, OVERVIEW_ATTENTION_LIMIT);
+  const [expanded, setExpanded] = useState(false);
+  const shown = props.inlineSuggestions && expanded ? attention : attention.slice(0, OVERVIEW_ATTENTION_LIMIT);
   const state = { onRetry: props.onRetry, onReconnect: props.onReconnect, onUnlock: props.onUnlock };
   const briefLoading = brief.status === "loading" && !brief.data;
-  const fetchedAt = Math.min(brief.fetchedAt || Infinity, completed.fetchedAt || Infinity);
+  const fetchedAt = brief.fetchedAt || Infinity;
 
   return (
     <div className={styles.brief} data-testid="mail-brief">
@@ -331,15 +334,15 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
             <button
               type="button"
               className={styles.link}
-              onClick={props.onOpenFollowups}
+              onClick={props.inlineSuggestions ? () => setExpanded(!expanded) : props.onOpenFollowups}
               data-testid="all-in-followups"
             >
-              All {attention.length} in Follow-ups
+              {props.inlineSuggestions ? (expanded ? "Show fewer" : `Show all ${attention.length}`) : `All ${attention.length} in Follow-ups`}
             </button>
           ) : null}
         </div>
         {briefLoading ? (
-          <div className={styles.skeleton} aria-busy="true" aria-label="Checking your recent mail" />
+          <p className={styles.state} role="status" aria-label="Checking recent mail">Checking recent mail…</p>
         ) : null}
         {briefFailure && !brief.data ? <SectionState failure={briefFailure} {...state} /> : null}
         {briefFailure && brief.data ? (
@@ -364,15 +367,14 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
             ))}
           </ul>
         ) : null}
-        {brief.data && !attention.length ? (
+        {brief.data?.incomplete?.includes("attention") ? <SectionState {...state}>Some actions could not be verified.</SectionState> : null}
+        {brief.data && !brief.data.incomplete?.includes("attention") && !attention.length ? (
           <SectionState {...state}>
             {brief.data.coverage.messages === 0
               ? "No recent mail to check yet."
-              : `Nothing needs a reply or a follow-up. One checked ${brief.data.coverage.messages} recent ${
+              : `No action found in the ${brief.data.coverage.messages} ${
                   brief.data.coverage.messages === 1 ? "message" : "messages"
-                } from the last ${brief.data.coverage.windowDays} days${
-                  brief.data.coverage.mayBePartial ? ", the newest of a larger set" : ""
-                }.`}
+                } checked from the last ${brief.data.coverage.windowDays} days.`}
           </SectionState>
         ) : null}
       </section>
@@ -384,7 +386,7 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
               Recent updates
             </h2>
           </div>
-          {briefLoading ? <div className={styles.skeleton} aria-busy="true" aria-label="Checking for changes" /> : null}
+
           {briefFailure && !brief.data ? <SectionState failure={briefFailure} {...state} /> : null}
           {(brief.data || receiptUpdates.length) && (updates.length || receiptUpdates.length) ? (
             <ul className={styles.panel} data-testid="updates-list">
@@ -403,7 +405,8 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
               ))}
             </ul>
           ) : null}
-          {brief.data && !updates.length && !receiptUpdates.length ? (
+          {brief.data?.incomplete?.includes("updates") ? <SectionState {...state}>Some updates could not be verified.</SectionState> : null}
+          {brief.data && !brief.data.incomplete?.includes("updates") && !updates.length && !receiptUpdates.length ? (
             <SectionState {...state}>No changes to report.</SectionState>
           ) : null}
         </section>
@@ -426,7 +429,7 @@ export function MailBriefSections(props: MailBriefSectionsProps) {
             </ul>
           ) : null}
           {completed.data && !completed.data.items.length ? (
-            <SectionState {...state}>Nothing sent through One in the last 30 days.</SectionState>
+            <SectionState {...state}>{props.inlineSuggestions ? "No completed mail follow-ups in the last 30 days." : "Nothing sent through One in the last 30 days."}</SectionState>
           ) : null}
         </section>
       </div>

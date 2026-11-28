@@ -18,7 +18,10 @@ export const MAX_MAIL_ACCOUNTS = 3;
 const INVENTORY_RETRY_MS = [2_000, 6_000, 15_000] as const;
 
 type Inventory = { scope: string; mode: "private" | "shared"; accounts: PrivateMailAccount[]; failed?: boolean };
+type RecentRows = Awaited<ReturnType<typeof MailFollowupsService.recent>>["items"];
 type Session = {
+  recentRows?: RecentRows;
+  rememberRecent: (rows: RecentRows) => void;
   inventoryFailed: boolean; resolving: boolean; private: boolean; accounts: PrivateMailAccount[]; selected: PrivateMailAccount | null;
   /** Mailboxes whose Google permission lapsed. Mail cannot be read from them until the owner reconnects. */
   expired: PrivateMailAccount[];
@@ -123,6 +126,25 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   }, [owner, account, connection, vaultKey, vaultOwnerToken, briefScope]);
   const [briefRevision, setBriefRevision] = useState(0);
   const [counted, setCounted] = useState<{ scope: string; counts: Record<string, number> }>();
+  // Session-only, partitioned by owner, unlock epoch, mailbox and grant generation.
+  const savedBriefs = useRef(new Map<string, MailBrief>());
+  const savedRows = useRef(new Map<string, RecentRows>());
+  const rememberRecent = useCallback((rows: RecentRows) => {
+    if (account && connection && snapshotVaultSessionEpoch() === epoch) savedRows.current.set(briefScope, rows);
+  }, [account, connection, epoch, briefScope]);
+  useEffect(() => {
+    const rows = savedRows.current;
+    const cache = savedBriefs.current;
+    return () => { cache.clear(); rows.clear(); };
+  }, [scope]);
+  useEffect(() => {
+    if (!current) return;
+    const allowed = new Set(current.accounts.filter(row => row.status === "connected" && row.capabilities.read)
+      .map(row => JSON.stringify([scope, row.accountId, row.credentialId])));
+    for (const cache of [savedBriefs.current, savedRows.current]) {
+      for (const key of cache.keys()) if (!allowed.has(key)) cache.delete(key);
+    }
+  }, [current, scope]);
   const [summary, setSummary] = useState<{scope: string; brief?: MailBrief; updating: boolean; error: boolean}>();
   useEffect(() => {
     if (!account || !connection || !address) { setSummary(undefined); return; }
@@ -132,13 +154,14 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     void MailFollowupsService.brief({account, connection, address}, abort.signal)
       .then(brief => {
         if (!current()) return;
+        savedBriefs.current.set(briefScope, brief);
         setSummary({scope: briefScope, brief, updating: false, error: false});
         setCounted(old => ({ scope, counts: { ...(old?.scope === scope ? old.counts : {}), [account]: brief.attention.length } }));
       })
       .catch(() => { if (current()) setSummary(old => ({scope: briefScope, brief: old?.scope === briefScope ? old.brief : undefined, updating: false, error: true})); });
     return () => abort.abort();
-  }, [account, address, connection, briefScope, briefRevision, epoch, scope]);
+  }, [account, address, connection, briefScope, briefRevision, epoch, scope, revision]);
   const visible = summary?.scope === briefScope ? summary : undefined;
-  return <Context.Provider value={{ inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh: retryNow,
-    attentionCounts: counted?.scope === scope ? counted.counts : {}, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief, briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ recentRows: selected ? savedRows.current.get(briefScope) : undefined, rememberRecent, inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh: retryNow,
+    attentionCounts: counted?.scope === scope ? counted.counts : {}, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief ?? (selected ? savedBriefs.current.get(briefScope) : undefined), briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
 }

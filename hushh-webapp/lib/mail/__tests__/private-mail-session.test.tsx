@@ -93,3 +93,26 @@ it("tries a failed mailbox check again by itself, with growing pauses, and stops
   }
 });
 
+
+it("shows A's last brief while a new read for A and a superseded read for B are pending", async () => {
+  localStorage.clear();
+  mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey: "fixture", vaultOwnerToken: "fixture"});
+  mocks.list.mockResolvedValue(["A", "B"].map(accountId => ({
+    accountId, credentialId: "grant-" + accountId, email: accountId + "@example.test", status: "connected", capabilities: {read: true},
+  })));
+  mocks.tasks.mockResolvedValue({tasks: []});
+  let resolveB!: (brief: object) => void;
+  mocks.brief.mockResolvedValueOnce({account: "A saved", attention: []})
+    .mockImplementationOnce(() => new Promise(resolve => { resolveB = resolve; }))
+    .mockImplementationOnce(() => new Promise(() => {}));
+  render(<PrivateMailSessionProvider><Probe /></PrivateMailSessionProvider>);
+  await screen.findByText("A saved");
+  fireEvent.click(screen.getByRole("button", {name: "B"}));
+  await screen.findByText("B@example.test");
+  expect(screen.queryByText("A saved")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "A"}));
+  expect(screen.getByText("A saved")).toBeDefined();
+  await act(async () => resolveB({account: "B stale", attention: []}));
+  expect(screen.queryByText("B stale")).toBeNull();
+  expect(screen.getByText("A saved")).toBeDefined();
+});

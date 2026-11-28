@@ -1,6 +1,6 @@
 /* Mail adopts Connect's compact roles; shared chrome keeps its own frame. */
 .typography {
-  font-family: var(--font-app-body), system-ui, sans-serif;
+  composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css";
   --type-helper-text-size: 12px;
   --type-helper-text-line: 18px;
   --type-page-subtitle-size: 12px;
@@ -11,29 +11,6 @@
   --type-card-title-size: 14px;
   --type-card-title-line: 22px;
   --type-card-title-weight: 600;
-  --type-row-label-size: 14px;
-  --type-row-label-line: 21px;
-  --type-row-label-weight: 550;
-  --type-row-label-compact-size: 14px;
-  --type-row-label-compact-line: 21px;
-  --type-row-label-compact-weight: 550;
-  --type-row-description-size: 12px;
-  --type-row-description-line: 18px;
-  --type-row-description-weight: 400;
-  --type-row-description-compact-size: 12px;
-  --type-row-description-compact-line: 18px;
-  --type-section-label-size: 14px;
-  --type-section-label-line: 22px;
-  --type-section-label-weight: 600;
-  --type-compact-button-label-size: 12px;
-  --type-compact-button-label-line: 18px;
-  --type-compact-button-label-weight: 550;
-  --type-form-label-size: 15px;
-  --type-form-label-line: 22px;
-  --type-form-label-weight: 550;
-  --type-input-value-size: 14px;
-  --type-input-value-line: 22px;
-  --type-input-value-weight: 400;
   --foundation-title2-size: 14px;
   --foundation-title2-line: 22px;
   --foundation-title2-weight: 600;

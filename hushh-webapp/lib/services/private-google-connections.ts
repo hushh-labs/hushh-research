@@ -29,22 +29,28 @@ function isWakingGatewayResponse(response: Response): boolean {
 
 /** Read a session-only connector endpoint, silently waking an idle sandbox first when needed. */
 export async function ownerPodConnectorGetWithWake(path: string, signal?: AbortSignal): Promise<Response> {
+  return readOwnerConnectorWithWake(() => ApiService.ownerPodRequest(path, { method: 'GET', ...(signal && { signal }) }), signal);
+}
+
+/** Caller must supply an idempotent read. Never replay provider writes. */
+export async function readOwnerConnectorWithWake(read: () => Promise<Response>, signal?: AbortSignal, retryServiceUnavailable = false): Promise<Response> {
   let wokeOnce = false;
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const response = await ApiService.ownerPodRequest(path, { method: 'GET', ...(signal && { signal }) });
-      if (!isWakingGatewayResponse(response)) return response;
-      const delay = POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
+      const response = await read();
+      const waking = isWakingGatewayResponse(response);
+      if (!waking && !(retryServiceUnavailable && response.status === 503 && attempt < 2)) return response;
+      const delay = retryServiceUnavailable && attempt >= 2 ? undefined : POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
       if (delay === undefined) return response;
       void response.body?.cancel().catch(() => undefined);
-      if (!wokeOnce && typeof ApiService.wakePod === 'function') {
+      if (waking && !wokeOnce && typeof ApiService.wakePod === 'function') {
         wokeOnce = true;
         void ApiService.wakePod().catch(() => undefined);
       }
       await waitWithSignal(delay, signal);
     } catch (error) {
       if (signal?.aborted || !isFilesWakingError(error)) throw error;
-      const delay = POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
+      const delay = retryServiceUnavailable && attempt >= 2 ? undefined : POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
       if (delay === undefined) throw error;
       if (!wokeOnce && typeof ApiService.wakePod === 'function') {
         wokeOnce = true;
