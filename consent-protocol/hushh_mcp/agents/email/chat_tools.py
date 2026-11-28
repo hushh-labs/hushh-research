@@ -47,7 +47,11 @@ from hushh_mcp.services.gmail_receipt_scanner import (
     collapse_duplicate_deliveries,
     extract_receipt_record,
 )
-from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.gmail_receipts_service import (
+    GmailApiError,
+    GmailReceiptsService,
+    get_gmail_receipts_service,
+)
 from hushh_mcp.services.gmail_sensitive_content import (
     normalize_sensitive_masking,
     redact_sensitive_mail_items,
@@ -222,12 +226,114 @@ def _remember_mail_offer(
         tool_context.state[_STATE_MAIL_READ_OFFER] = offer
 
 
+def _emit_gmail_read_connect_directive(
+    tool_context: ToolContext, *, is_reauth: bool = False
+) -> None:
+    if (
+        tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+        and "hussh:pending_directive:gmail_mailbox" not in tool_context.state
+    ):
+        tool_context.state["hussh:pending_directive:gmail_mailbox"] = {
+            "kind": "action",
+            "delegateAgentId": "agent_email",
+            "payload": {
+                "type": "gmail.connect",
+                "purpose": "read",
+                "summary": (
+                    "Reconnect Gmail to check your inbox."
+                    if is_reauth
+                    else "Connect Gmail to check your inbox."
+                ),
+                "confirmLabel": "Reconnect Gmail" if is_reauth else "Connect Gmail",
+            },
+        }
+
+
+class _AdditionalHubGmailAccount(GmailReceiptsService):
+    """Read-only Gmail adapter over an additional Google account grant (`gmail_read_enabled`)."""
+
+    def __init__(self, *, account_id: str, account_email: str, scope_csv: str) -> None:
+        super().__init__()
+        self._account_id = account_id
+        self._account_email = account_email
+        self._scope_csv = scope_csv
+
+    def is_configured(self) -> bool:
+        return True
+
+    def _fetch_connection_row(self, *, user_id: str) -> dict[str, Any] | None:
+        del user_id
+        return {
+            "status": "connected",
+            "revoked": False,
+            "google_sub": f"additional:{self._account_id}",
+            "google_email": self._account_email,
+            "scope_csv": self._scope_csv or "https://www.googleapis.com/auth/gmail.readonly",
+            "credential_id": f"additional:{self._account_id}",
+            "generation": 1,
+        }
+
+    @staticmethod
+    def _refresh_observation(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "observed_credential_id": row.get("credential_id"),
+            "observed_generation": "g1",
+        }
+
+    async def _ensure_access_token(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> tuple[str, dict[str, Any]]:
+        from hushh_mcp.services.google_connection_service import (
+            GoogleConnectionError,
+            get_google_connection_service,
+        )
+
+        row = self._fetch_connection_row(user_id=user_id)
+        if row is None:
+            raise GmailMetadataError("connect_required")
+        try:
+            token = await get_google_connection_service().access_token(
+                user_id=user_id,
+                service="gmail",
+                access_level="read",
+                account_id=self._account_id,
+                force_refresh=force_refresh,
+            )
+        except GoogleConnectionError as exc:
+            if exc.status_code == 401:
+                raise GmailMetadataError("reconnect_required") from None
+            raise GmailMetadataError("connect_required") from None
+        return token, row
+
+
+async def _additional_gmail_accounts(user_id: str) -> list[dict[str, Any]]:
+    try:
+        from hushh_mcp.services.google_connection_service import get_google_connection_service
+
+        status = await get_google_connection_service().calendar_accounts_status(
+            user_id=user_id, include_pictures=False
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict[str, Any]] = []
+    for item in status.get("accounts", []):
+        if (
+            isinstance(item, dict)
+            and item.get("account_id")
+            and item.get("account_id") != "default"
+            and item.get("connected") is True
+            and item.get("gmail_read_enabled") is True
+        ):
+            out.append(item)
+    return out
+
+
 def _error_payload(code: str, tool_context: ToolContext) -> dict[str, Any]:
     if code in _CLEAR_OFFER_STATUSES:
         tool_context.state[_STATE_MAIL_READ_OFFER] = None
     mapped_status = code if code in MAIL_READ_ERROR_CODES else "unavailable"
     message = _READ_ERRORS.get(code, "I couldn't check your mail just now. Please try again.")
-    return {
+    payload: dict[str, Any] = {
         "status": mapped_status,
         "reason": code,
         "message": message,
@@ -238,6 +344,14 @@ def _error_payload(code: str, tool_context: ToolContext) -> dict[str, Any]:
             metadata_only=True,
         ),
     }
+    if mapped_status in {"connect_required", "reconnect_required"}:
+        _emit_gmail_read_connect_directive(
+            tool_context, is_reauth=(mapped_status == "reconnect_required")
+        )
+        payload["next_step"] = (
+            "The app is showing a Gmail permission control. Ask the person to approve it."
+        )
+    return payload
 
 
 def resolve_owner_gmail_address(user_id: str) -> str | None:
@@ -341,12 +455,15 @@ async def gmail_search_mail(
     except GmailMetadataError as exc:
         return _error_payload(exc.code, tool_context)
 
+    primary_svc = get_gmail_receipts_service()
     reader = GmailMetadataReader(
-        gmail=get_gmail_receipts_service(),
+        gmail=primary_svc,
         user_id=user_id,
         require_access=_make_require_access(tool_context, user_id),
         timezone_name=tz_name,
     )
+    extra_accounts = await _additional_gmail_accounts(user_id)
+    primary_error_code: str | None = None
     try:
         result = await reader.search_hybrid(
             intent=str(intent or "").strip()[:500],
@@ -358,17 +475,79 @@ async def gmail_search_mail(
             embedding_client=_loaded_embedding_client(),
         )
     except GmailMetadataError as exc:
-        return _error_payload(exc.code, tool_context)
+        if not extra_accounts:
+            return _error_payload(exc.code, tool_context)
+        primary_error_code = exc.code
+        result = {"untrusted_external_content": [], "coverage": {}}
     except GmailApiError as exc:
         code = "connect_required" if exc.code == "GMAIL_NOT_CONNECTED" else "reconnect_required"
-        return _error_payload(code, tool_context)
+        if not extra_accounts:
+            return _error_payload(code, tool_context)
+        primary_error_code = code
+        result = {"untrusted_external_content": [], "coverage": {}}
     except PermissionError:
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
     except Exception:  # noqa: BLE001 - provider errors never leak into transcript
         logger.exception("one_adk.gmail_search_mail_failed reason=unexpected")
-        return _error_payload("retryable", tool_context)
+        if not extra_accounts:
+            return _error_payload("retryable", tool_context)
+        primary_error_code = "retryable"
+        result = {"untrusted_external_content": [], "coverage": {}}
 
     raw_items = list(result.get("untrusted_external_content") or [])
+    if raw_items and extra_accounts:
+        primary_email = resolve_owner_gmail_address(user_id)
+        if primary_email:
+            for item in raw_items:
+                if isinstance(item, dict) and "account_email" not in item:
+                    item["account_email"] = primary_email
+
+    if extra_accounts:
+        extra_tasks = []
+        for acct in extra_accounts:
+            acct_email = str(acct.get("google_email") or "").strip()
+            acct_reader = GmailMetadataReader(
+                gmail=_AdditionalHubGmailAccount(
+                    account_id=str(acct["account_id"]),
+                    account_email=acct_email,
+                    scope_csv=str(acct.get("scope_csv") or ""),
+                ),
+                user_id=user_id,
+                require_access=_make_require_access(tool_context, user_id),
+                timezone_name=tz_name,
+            )
+            extra_tasks.append((acct_email, acct_reader))
+
+        extra_results = await asyncio.gather(
+            *(
+                r.search_hybrid(
+                    intent=str(intent or "").strip()[:500],
+                    queries=tuple(pinned_queries),
+                    mailbox=target_mailbox,
+                    limit=bounded_limit,
+                    read_top_bodies=bounded_bodies,
+                    include_spam=bool(include_spam),
+                    embedding_client=_loaded_embedding_client(),
+                )
+                for _, r in extra_tasks
+            ),
+            return_exceptions=True,
+        )
+        any_extra_succeeded = False
+        for (acct_email, _), extra_res in zip(extra_tasks, extra_results, strict=True):
+            if isinstance(extra_res, dict):
+                any_extra_succeeded = True
+                for item in extra_res.get("untrusted_external_content") or []:
+                    if isinstance(item, dict):
+                        tagged = dict(item)
+                        if acct_email:
+                            tagged["account_email"] = acct_email
+                        raw_items.append(tagged)
+        if primary_error_code and not any_extra_succeeded:
+            return _error_payload(primary_error_code, tool_context)
+        if len(raw_items) > bounded_limit:
+            raw_items.sort(key=lambda x: int(x.get("internal_date_ms") or 0), reverse=True)
+            raw_items = raw_items[:bounded_limit]
     if not raw_items:
         return {
             "status": "no_match",
@@ -1079,14 +1258,41 @@ async def gmail_mailbox_insights(
             logger.exception("one_adk.gmail_mailbox_insights_status_failed")
             return _error_payload("retryable", tool_context)
         connected = status_payload.get("connected") is True
+        extra_accounts = await _additional_gmail_accounts(user_id)
+        connected_accounts: list[dict[str, Any]] = []
+        if connected:
+            connected_accounts.append(
+                {
+                    "account_id": "default",
+                    "google_email": status_payload.get("google_email"),
+                    "primary": True,
+                }
+            )
+        for acct in extra_accounts:
+            connected_accounts.append(
+                {
+                    "account_id": acct.get("account_id"),
+                    "google_email": acct.get("google_email"),
+                    "primary": False,
+                }
+            )
+        any_connected = connected or bool(extra_accounts)
+        if not any_connected:
+            _emit_gmail_read_connect_directive(
+                tool_context,
+                is_reauth=(status_payload.get("connection_state") == "needs_reauth"),
+            )
         out: dict[str, Any] = {
             "status": "ok",
             "mode": "status",
-            "connected": connected,
+            "connected": any_connected,
             "connection_state": status_payload.get("connection_state"),
-            "google_email": status_payload.get("google_email") if connected else None,
+            "google_email": status_payload.get("google_email")
+            if connected
+            else (extra_accounts[0].get("google_email") if extra_accounts else None),
+            "accounts": connected_accounts,
             "permissions": {
-                "read": connected,
+                "read": any_connected,
                 "send": bool(status_payload.get("send_permission_granted")),
                 "compose_drafts": bool(status_payload.get("compose_permission_granted")),
                 "modify_organize": bool(status_payload.get("modify_permission_granted")),

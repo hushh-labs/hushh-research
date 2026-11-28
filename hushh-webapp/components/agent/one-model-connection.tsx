@@ -1,4 +1,4 @@
-import { Cpu } from "@/components/icons";
+import { Sparkle } from "@/components/icons";
 import type { ModelPreference } from "@/lib/services/model-preference-service";
 
 const INTERNAL_DEPLOYMENT_SLUGS = new Set([
@@ -38,7 +38,7 @@ export function formatOwnerModelDisplayLabel(
           .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
           .join(" ")
       : "";
-    return `${provider} · ${[version, tier].filter(Boolean).join(" ")}`;
+    return tier ? `${provider} · ${version} ${tier}` : `${provider} ${version}`;
   }
   const gptMatch = /^(gpt[-_ ]*[0-9][a-z0-9.-]*)/i.exec(trimmed);
   if (gptMatch) {
@@ -68,9 +68,9 @@ export function OneModelConnection({
       role="group"
       aria-label={`One's AI: ${displayLabel}`}
       title={displayLabel}
-      className={`flex min-h-11 items-center gap-1.5 rounded-full bg-foreground/[0.045] px-2.5 py-1 text-[11px] font-medium text-muted-foreground ${fullWidth ? "w-full" : "h-11 max-w-[7.5rem] sm:max-w-[9.5rem]"}`}
+      className={`flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-medium tracking-[-0.01em] text-foreground/85 shadow-[0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-md dark:border-white/[0.11] dark:bg-white/[0.06] dark:text-foreground/90 dark:shadow-none ${fullWidth ? "min-h-10 w-full py-2" : "h-9 max-w-[7.5rem] shrink-0 sm:max-w-[9.5rem]"}`}
     >
-      <Cpu aria-hidden="true" className="size-4 shrink-0" />
+      <Sparkle aria-hidden="true" className="size-3.5 shrink-0 text-foreground/60 dark:text-foreground/70" />
       <span className={`min-w-0 leading-4 ${fullWidth ? "break-all" : "truncate"}`}>
         {displayLabel}
       </span>

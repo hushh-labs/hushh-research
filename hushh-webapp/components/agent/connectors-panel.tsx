@@ -30,7 +30,8 @@ import { Switch } from "@/components/ui/switch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { HushhAuth } from "@/lib/capacitor";
 import {
   NATIVE_CONNECTOR_RETURN_EVENT,
@@ -364,20 +365,102 @@ function selectedNativePickerFiles(
   return files;
 }
 
+const MAX_SETTLED_CATALOG_SNAPSHOTS = 8;
+const settledCatalogSnapshots = new Map<
+  string,
+  { overview: ConnectorOverview; documents: DriveDocument[] }
+>();
+
+function catalogCacheKey(ownerId: string | null | undefined, hasOwnerToken: boolean): string | null {
+  if (!ownerId || !hasOwnerToken) return null;
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || principal.ownerId !== ownerId) return null;
+  return `${ownerId}:${principal.generation}:${snapshotVaultSessionEpoch()}`;
+}
+
+function purgeOwnerCatalogSnapshots(ownerId: string | null | undefined): void {
+  if (!ownerId) return;
+  for (const key of settledCatalogSnapshots.keys()) {
+    if (key.startsWith(`${ownerId}:`)) settledCatalogSnapshots.delete(key);
+  }
+}
+
+export function seedConnectorCatalogSnapshot(
+  ownerId: string | null | undefined,
+  hasOwnerToken: boolean,
+  next: { overview?: ConnectorOverview; documents?: DriveDocument[] },
+): void {
+  const key = catalogCacheKey(ownerId, hasOwnerToken);
+  if (!key) return;
+  const existing = settledCatalogSnapshots.get(key);
+  const overview = next.overview ?? existing?.overview;
+  if (!overview) return;
+  if (!existing && settledCatalogSnapshots.size >= MAX_SETTLED_CATALOG_SNAPSHOTS) {
+    const oldest = settledCatalogSnapshots.keys().next().value;
+    if (oldest !== undefined) settledCatalogSnapshots.delete(oldest);
+  }
+  settledCatalogSnapshots.set(key, {
+    overview,
+    documents: next.documents ?? existing?.documents ?? [],
+  });
+}
+
+function ConnectorsCatalogSkeleton({
+  statusText,
+  inProfile,
+}: {
+  statusText: string;
+  inProfile: boolean;
+}) {
+  return (
+    <div className={inProfile ? "space-y-4" : "space-y-4 py-1"}>
+      <p role="status" aria-live="polite" className="sr-only">
+        {statusText}
+      </p>
+      <div
+        aria-hidden="true"
+        className="overflow-hidden rounded-2xl border border-border/50 bg-card/50 divide-y divide-border/40"
+      >
+        {[0, 1, 2, 3].map((row) => (
+          <div key={row} className="flex min-h-14 items-center gap-3 px-4 py-2.5">
+            <span className="size-9 shrink-0 rounded-xl bg-foreground/[0.06] motion-safe:animate-pulse" />
+            <span className="min-w-0 flex-1 space-y-1.5">
+              <span className="block h-3.5 w-28 rounded-full bg-foreground/[0.07] motion-safe:animate-pulse" />
+              <span className="block h-2.5 w-40 rounded-full bg-foreground/[0.045] motion-safe:animate-pulse" />
+            </span>
+            <span className="h-8 w-20 shrink-0 rounded-full bg-foreground/[0.055] motion-safe:animate-pulse" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ConnectorsPanel(props: Props) {
   const { user, userId: applicationOwnerId } = useAuth();
   // Discard all local state on account switch or lock; don't display the prior
   // owner's account labels, pending selection or status on the new session.
   const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
+  useLayoutEffect(() => {
+    if (!vaultOwnerToken) purgeOwnerCatalogSnapshots(applicationOwnerId);
+  }, [applicationOwnerId, vaultOwnerToken]);
   const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
     getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
   const { placement, refresh: retryPlacement } = useConnectorPlacement(props.open, user?.uid ?? null, applicationOwnerId ?? null);
   if (placement !== 'shared') {
     if (!props.open) return null;
     if (placement === null || placement === 'unavailable') {
-      const webBody = <div className="p-4 text-sm"><p role="status">{placement === null
-        ? "Checking where your agent runs…" : "Your agent's hosting could not be verified. Try again."}</p>
-        {placement === 'unavailable' ? <Button variant="outline" onClick={() => void retryPlacement()}>Retry</Button> : null}</div>;
+      const webBody = placement === null ? (
+        <ConnectorsCatalogSkeleton
+          statusText="Checking where your agent runs…"
+          inProfile={props.surface === "profile"}
+        />
+      ) : (
+        <div className="p-4 text-sm">
+          <p role="status">Your agent&apos;s hosting could not be verified. Try again.</p>
+          <Button variant="outline" onClick={() => void retryPlacement()}>Retry</Button>
+        </div>
+      );
       // The retained owner is hidden; every state must reach its authored
       // presentation port rather than disappearing inside that hidden subtree.
       return props.render ? props.render({ nativeComplete: true, selectedConnector: null, detail: null, custom: null,
@@ -437,8 +520,10 @@ function OwnerConnectorsPanel({
     liveUnlockOwner.current = unlockOwner;
     return () => { if (liveUnlockOwner.current === unlockOwner) liveUnlockOwner.current = null; };
   }, [unlockOwner]);
-  const [overview, setOverview] = useState<ConnectorOverview | null>(null);
-  const [documents, setDocuments] = useState<DriveDocument[]>([]);
+  const warmCatalogKey = catalogCacheKey(applicationOwnerId, hasOwnerToken);
+  const warmCatalog = warmCatalogKey ? settledCatalogSnapshots.get(warmCatalogKey) : undefined;
+  const [overview, setOverview] = useState<ConnectorOverview | null>(() => warmCatalog?.overview ?? null);
+  const [documents, setDocuments] = useState<DriveDocument[]>(() => warmCatalog?.documents ?? []);
   const [allowBackground, setAllowBackground] = useState(false);
   const [liveBackground, setLiveBackground] = useState<boolean | null>(null);
   const [liveBackgroundError, setLiveBackgroundError] = useState(false);
@@ -447,7 +532,7 @@ function OwnerConnectorsPanel({
   const [liveBackgroundRead, retryLiveBackground] = useState(0);
   const [loading, setLoading] = useState(false);
   const [catalogLoadFailed, setCatalogLoadFailed] = useState(false);
-  const [statusChecked, setStatusChecked] = useState(false);
+  const [statusChecked, setStatusChecked] = useState(() => Boolean(warmCatalog));
   const [driveMessage, setDriveMessage] = useState("");
   const [mailMessage, setMailMessage] = useState("");
   const [plaidMessage, setPlaidMessage] = useState("");
@@ -550,7 +635,7 @@ function OwnerConnectorsPanel({
   // The connector the open sign-in window belongs to, so only its detail view
   // offers Cancel.
   const [curatedPopupFor, setCuratedPopupFor] = useState<string | null>(null);
-  const latestOverview = useRef<ConnectorOverview | null>(null);
+  const latestOverview = useRef<ConnectorOverview | null>(warmCatalog?.overview ?? null);
   const ownerUid = applicationOwnerId;
   useEffect(
     () => () => curatedPopupSession.current?.abort(),
@@ -659,10 +744,10 @@ function OwnerConnectorsPanel({
       return false;
     }
     const request = ++overviewRead.current;
-    setStatusChecked(false);
+    if (!latestOverview.current) setStatusChecked(false);
     setCatalogLoadFailed(false);
     setLoading(true);
-    onCatalogStateChange?.("loading");
+    if (!latestOverview.current) onCatalogStateChange?.("loading");
     try {
       let result = await ExternalConnectorService.overview(token);
       const isEffectCurrent = () => !signal?.aborted &&
@@ -689,6 +774,7 @@ function OwnerConnectorsPanel({
       )
         return false;
       latestOverview.current = result;
+      seedConnectorCatalogSnapshot(ownerUid, true, { overview: result });
       setOverview(result);
       setCatalogLoadFailed(false);
       setStatusChecked(true);
@@ -700,6 +786,9 @@ function OwnerConnectorsPanel({
         currentToken.current === token &&
         request === overviewRead.current
       ) {
+        latestOverview.current = null;
+        purgeOwnerCatalogSnapshots(ownerUid);
+        setStatusChecked(false);
         setCatalogLoadFailed(true);
         setDriveMessage(
           "Could not check Drive. Retry before starting another connection.",
@@ -717,7 +806,7 @@ function OwnerConnectorsPanel({
       )
         setLoading(false);
     }
-  }, [onCatalogStateChange]);
+  }, [onCatalogStateChange, ownerUid]);
   const refreshDocuments = useCallback(async (signal: AbortSignal) => {
     const token = currentToken.current;
     if (!token) return;
@@ -727,9 +816,11 @@ function OwnerConnectorsPanel({
       !signal.aborted &&
       currentToken.current === token &&
       request === documentRead.current
-    )
+    ) {
+      seedConnectorCatalogSnapshot(ownerUid, true, { documents: next });
       setDocuments(next);
-  }, []);
+    }
+  }, [ownerUid]);
   useLayoutEffect(() => {
     if (!open) return;
     const lifetime = new AbortController();
@@ -1679,7 +1770,12 @@ function OwnerConnectorsPanel({
    */
   const connectCalendar = (
     accessLevel: "read" | "manage" = "manage",
-    options?: { forceSelectAccount?: boolean; additional?: boolean; accountId?: string },
+    options?: {
+      forceSelectAccount?: boolean;
+      additional?: boolean;
+      accountId?: string;
+      includeMailAccess?: boolean;
+    },
   ) => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || calendarLock.current) return;
@@ -1693,7 +1789,7 @@ function OwnerConnectorsPanel({
       ...(options?.forceSelectAccount ? { forceSelectAccount: true } : {}),
       includeCalendarList: true,
       includeMeetingFiles: true,
-      includeMailAccess: !options?.additional,
+      includeMailAccess: options?.includeMailAccess ?? true,
       signal,
       cancelSignal: attemptCancel.signal,
     });
@@ -1717,7 +1813,10 @@ function OwnerConnectorsPanel({
       if (outcome === "stale" || signal.aborted) return;
       setCalendarPopupPending(false);
       setCalendarBusy(false);
-      if (outcome === "connected") calendar.refresh();
+      if (outcome === "connected") {
+        calendar.refresh();
+        void gmail.refreshStatus({ force: true, reconcile: false });
+      }
       setCalendarMessage(
         outcome === "window_blocked"
           ? OAUTH_WINDOW_BLOCKED_COPY
@@ -1966,7 +2065,10 @@ function OwnerConnectorsPanel({
         });
       return;
     }
-    if (target === "calendar") {
+    if (target === "calendar" || target.startsWith("calendar:")) {
+      const targetAccountId = target.startsWith("calendar:")
+        ? target.slice("calendar:".length)
+        : "default";
       const ownerId = applicationOwnerId;
       const ownerToken = vaultOwnerToken;
       const signal = controller.current?.signal;
@@ -1977,13 +2079,23 @@ function OwnerConnectorsPanel({
       void user.getIdToken()
         .then((idToken) => {
           if (signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return null;
-          return GoogleCalendarService.disconnect(idToken, ownerId);
+          return targetAccountId === "default"
+            ? GoogleCalendarService.disconnect(idToken, ownerId)
+            : GoogleCalendarService.disconnect(idToken, ownerId, targetAccountId);
         })
         .then((result) => {
           if (!result || signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return;
-          setCalendarMessage("Calendar disconnected.");
+          setCalendarMessage(
+            targetAccountId === "default"
+              ? "Calendar disconnected."
+              : "Additional Google account disconnected.",
+          );
+          if (activeConnectorRef.current === "gmail" && targetAccountId !== "default") {
+            setMailMessage("Additional Google account disconnected.");
+          }
           endDisconnect("calendar");
           calendar.refresh();
+          void gmail.refreshStatus({ force: true, reconcile: false });
         })
         .catch(() => {
           if (!signal.aborted && currentToken.current === ownerToken) {
@@ -2074,14 +2186,29 @@ function OwnerConnectorsPanel({
   const confirmBusy =
     confirm === "mail"
       ? mailBusy
-      : confirm === "calendar"
+      : confirm === "calendar" || confirm?.startsWith("calendar:")
         ? calendarBusy
         : confirm?.startsWith("curated:")
           ? curatedBusy
         : confirm?.startsWith("plaid:")
           ? plaidBusy
           : driveBusy;
-  const mailConnected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
+  const additionalMailAccounts = useMemo(
+    () =>
+      (calendar.status?.accounts ?? []).filter(
+        (item) =>
+          item.account_id !== "default" &&
+          (item.gmail_read_enabled === true ||
+            (typeof item.scope_csv === "string" &&
+              item.scope_csv.includes("gmail.readonly"))),
+      ),
+    [calendar.status?.accounts],
+  );
+  const connectedMailAccountsCount =
+    (gmail.status?.connected && !gmail.status?.needs_reauth ? 1 : 0) +
+    additionalMailAccounts.filter((item) => item.connected && item.status !== "needs_reauth")
+      .length;
+  const mailConnected = connectedMailAccountsCount > 0;
   const driveConnected = ["connected", "verifying"].includes(drive?.status ?? "");
   const calendarNeedsReconnect = calendar.status?.status === "needs_reauth";
   const mailAccountDetail = !gmail.loadingStatus && !gmail.statusError &&
@@ -2154,7 +2281,10 @@ function OwnerConnectorsPanel({
       id: "gmail",
       name: "Gmail",
       detail: gmail.status?.needs_reauth ? "Sign-in needed" : undefined,
-      accountDetail: mailAccountDetail,
+      accountDetail:
+        connectedMailAccountsCount > 1
+          ? `${connectedMailAccountsCount} connected accounts`
+          : mailAccountDetail,
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
       pending: disconnecting.gmail ? "disconnect" : mailPopupPending ? "connect" : undefined,
@@ -2659,10 +2789,12 @@ function OwnerConnectorsPanel({
     ["Connected", connectedEntries],
     ["Available", availableEntries],
   ] as const;
-  const catalogState = !overview && loading ? (
-    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-      Loading connector catalog…
-    </p>
+  const initialCatalogLoading = !overview && loading && !catalogLoadFailed;
+  const catalogState = initialCatalogLoading ? (
+    <ConnectorsCatalogSkeleton
+      statusText="Loading connector catalog…"
+      inProfile={inProfile}
+    />
   ) : catalogLoadFailed ? (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-foreground/10 px-3 py-2">
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
@@ -2744,26 +2876,32 @@ function OwnerConnectorsPanel({
         ) : !activeConnector && inProfile ? (
           <>
             {catalogState}
-            {googleClearanceBanner}
-            {listSections.map(([heading, items]) =>
-              items.length === 0 ? null : (
-                <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
-                  {items.map((entry) => (
-                    <ProfileConnectorRow
-                      key={entry.id}
-                      entry={entry}
-                      showAccessDetails={showAccessDetails}
-                    />
-                  ))}
-                </SettingsGroup>
-              ),
+            {initialCatalogLoading ? null : (
+              <>
+                {googleClearanceBanner}
+                {listSections.map(([heading, items]) =>
+                  items.length === 0 ? null : (
+                    <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
+                      {items.map((entry) => (
+                        <ProfileConnectorRow
+                          key={entry.id}
+                          entry={entry}
+                          showAccessDetails={showAccessDetails}
+                        />
+                      ))}
+                    </SettingsGroup>
+                  ),
+                )}
+              </>
             )}
-            {customPresentation ? customPresentation.body : open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
-              key={applicationOwnerId}
-              access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
-              isAccessCurrent={customAccessIsCurrent}
-              onPrepareRecovery={onPrepareRecovery}
-            /> : null}
+            <div hidden={initialCatalogLoading}>
+              {customPresentation ? customPresentation.body : open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+                key={applicationOwnerId}
+                access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
+                isAccessCurrent={customAccessIsCurrent}
+                onPrepareRecovery={onPrepareRecovery}
+              /> : null}
+            </div>
           </>
         ) : !activeConnector ? (
           <>
@@ -2781,30 +2919,36 @@ function OwnerConnectorsPanel({
               />
             </label>
             {catalogState}
-            {googleClearanceBanner}
-            {listSections.map(([heading, items]) =>
-              query && items.length === 0 ? null : (
-                <section key={heading} aria-label={heading} className="space-y-2">
-                  <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
-                  <ul className="overflow-hidden rounded-2xl bg-foreground/10">
-                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} leading={<ConnectorGlyph id={entry.id} />} status={connectorRowStatus(entry)} actionLabel={<ConnectorActionLabel entry={entry} />} accessPurpose={showAccessDetails ? connectorAccessPurpose(entry.id) : undefined} />) : (
-                      <li className="px-4 py-4 text-sm text-muted-foreground">
-                        {heading === "Connected" ? "No connected connectors" : "No available connectors"}
-                      </li>
-                    )}
-                  </ul>
-                </section>
-              ),
+            {initialCatalogLoading ? null : (
+              <>
+                {googleClearanceBanner}
+                {listSections.map(([heading, items]) =>
+                  query && items.length === 0 ? null : (
+                    <section key={heading} aria-label={heading} className="space-y-2">
+                      <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
+                      <ul className="overflow-hidden rounded-2xl bg-foreground/10">
+                        {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} leading={<ConnectorGlyph id={entry.id} />} status={connectorRowStatus(entry)} actionLabel={<ConnectorActionLabel entry={entry} />} accessPurpose={showAccessDetails ? connectorAccessPurpose(entry.id) : undefined} />) : (
+                          <li className="px-4 py-4 text-sm text-muted-foreground">
+                            {heading === "Connected" ? "No connected connectors" : "No available connectors"}
+                          </li>
+                        )}
+                      </ul>
+                    </section>
+                  ),
+                )}
+                {query && matchingEntries.length === 0 ? (
+                  <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
+                ) : null}
+              </>
             )}
-            {query && matchingEntries.length === 0 ? (
-              <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
-            ) : null}
-            {!query && customPresentation ? customPresentation.body : !query && open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
-              key={applicationOwnerId}
-              access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
-              isAccessCurrent={customAccessIsCurrent}
-              onPrepareRecovery={onPrepareRecovery}
-            /> : null}
+            <div hidden={initialCatalogLoading || Boolean(query)}>
+              {!query && customPresentation ? customPresentation.body : !query && open && applicationOwnerId && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+                key={applicationOwnerId}
+                access={{ userId: applicationOwnerId, vaultKey, vaultOwnerToken }}
+                isAccessCurrent={customAccessIsCurrent}
+                onPrepareRecovery={onPrepareRecovery}
+              /> : null}
+            </div>
           </>
         ) : (
           <div
@@ -2857,23 +3001,76 @@ function OwnerConnectorsPanel({
                     </p>
                   </div>
                 </div>
-                {gmail.status?.connected && !gmail.status?.needs_reauth ? (
-                  <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
-                    <p
-                      role="status"
-                      className="min-w-0 break-all text-sm font-medium text-foreground"
-                    >
-                      {connectorAccountDetail(gmail.status.google_email, "connected")}
-                    </p>
-                    <Button
-                      className={touch}
-                      size="compact"
-                      variant="outline"
-                      disabled={mailBusy}
-                      onClick={() => setConfirm("mail")}
-                    >
-                      Disconnect Mail
-                    </Button>
+                {(gmail.status?.connected && !gmail.status?.needs_reauth) || additionalMailAccounts.length > 0 ? (
+                  <div className="space-y-2">
+                    {gmail.status?.connected && !gmail.status?.needs_reauth ? (
+                      <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <p
+                            role="status"
+                            className="min-w-0 break-all text-sm font-medium text-foreground"
+                          >
+                            {connectorAccountDetail(gmail.status.google_email, "connected")}
+                          </p>
+                          <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                            Primary
+                          </span>
+                        </div>
+                        <Button
+                          className={touch}
+                          size="compact"
+                          variant="outline"
+                          disabled={mailBusy}
+                          onClick={() => setConfirm("mail")}
+                        >
+                          Disconnect Mail
+                        </Button>
+                      </div>
+                    ) : null}
+                    {additionalMailAccounts.map((acct) => (
+                      <div
+                        key={acct.account_id}
+                        className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3"
+                      >
+                        <p
+                          role="status"
+                          className="min-w-0 break-all text-sm font-medium text-foreground"
+                        >
+                          {connectorAccountDetail(
+                            acct.google_email,
+                            acct.status === "needs_reauth" ? "needs_reauth" : "connected",
+                          )}
+                        </p>
+                        {acct.status === "needs_reauth" ? (
+                          <Button
+                            size="compact"
+                            variant="outline"
+                            className={touch}
+                            disabled={calendarBusy || mailBusy}
+                            onClick={() =>
+                              connectCalendar("manage", {
+                                accountId: acct.account_id,
+                                additional: true,
+                                includeMailAccess: true,
+                              })
+                            }
+                          >
+                            Reconnect
+                          </Button>
+                        ) : (
+                          <Button
+                            size="compact"
+                            variant="outline"
+                            className={touch}
+                            aria-label={`Disconnect ${acct.google_email || "additional Mail account"}`}
+                            disabled={calendarBusy || mailBusy}
+                            onClick={() => setConfirm(`calendar:${acct.account_id}`)}
+                          >
+                            Disconnect
+                          </Button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 ) : gmail.status?.needs_reauth ? (
                   <p role="status" className="text-sm font-medium text-amber-600 dark:text-amber-400">
@@ -2909,6 +3106,24 @@ function OwnerConnectorsPanel({
                       </Button>
                     </>
                   )}
+                  {(gmail.status?.connected && !gmail.status?.needs_reauth) &&
+                    connectedCalendarAccounts.length < (calendar.status?.account_limit ?? 5) && (
+                      <Button
+                        size="compact"
+                        className={`${touch} rounded-full`}
+                        variant="outline"
+                        disabled={mailBusy || calendarBusy}
+                        onClick={() =>
+                          connectCalendar("manage", {
+                            additional: true,
+                            forceSelectAccount: true,
+                            includeMailAccess: true,
+                          })
+                        }
+                      >
+                        Add another account
+                      </Button>
+                    )}
                   {gmail.status?.connected && !gmail.status?.needs_reauth && (
                     <Button
                       size="compact"
@@ -3279,15 +3494,22 @@ function OwnerConnectorsPanel({
                           key={acct.account_id}
                           className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3"
                         >
-                          <p
-                            role="status"
-                            className="min-w-0 break-all text-sm font-medium text-foreground"
-                          >
-                            {connectorAccountDetail(
-                              acct.google_email,
-                              acct.status === "needs_reauth" ? "needs_reauth" : "connected",
-                            )}
-                          </p>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <p
+                              role="status"
+                              className="min-w-0 break-all text-sm font-medium text-foreground"
+                            >
+                              {connectorAccountDetail(
+                                acct.google_email,
+                                acct.status === "needs_reauth" ? "needs_reauth" : "connected",
+                              )}
+                            </p>
+                            {acct.account_id === "default" ? (
+                              <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                Primary
+                              </span>
+                            ) : null}
+                          </div>
                           {acct.status === "needs_reauth" ? (
                             <Button
                               size="compact"
@@ -3313,7 +3535,18 @@ function OwnerConnectorsPanel({
                             >
                               Disconnect Calendar
                             </Button>
-                          ) : null}
+                          ) : (
+                            <Button
+                              className={touch}
+                              size="compact"
+                              variant="outline"
+                              aria-label={`Disconnect ${acct.google_email || "additional Calendar account"}`}
+                              disabled={calendarBusy}
+                              onClick={() => setConfirm(`calendar:${acct.account_id}`)}
+                            >
+                              Disconnect
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -3346,7 +3579,8 @@ function OwnerConnectorsPanel({
                           Use another account
                         </Button>
                       </>
-                    ) : (
+                    ) : connectedCalendarAccounts.length <
+                      (calendar.status?.account_limit ?? 5) ? (
                       <Button
                         size="compact"
                         className={`${touch} rounded-full`}
@@ -3356,12 +3590,13 @@ function OwnerConnectorsPanel({
                           connectCalendar("manage", {
                             additional: true,
                             forceSelectAccount: true,
+                            includeMailAccess: true,
                           })
                         }
                       >
                         Add another account
                       </Button>
-                    )}
+                    ) : null}
                   </div>
 
                   {calendarDetail.permissions.length > 0 && (

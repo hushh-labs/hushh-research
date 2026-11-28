@@ -582,7 +582,11 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
         return
 
     is_mail = (
-        name in {MAIL_TOOL, "propose_gmail_todo", "propose_gmail_mailbox_change"}
+        name
+        in (
+            {MAIL_TOOL, "propose_gmail_todo", "propose_gmail_mailbox_change"}
+            | DIRECT_MAIL_READ_TOOLS
+        )
         or provider == "gmail"
     )
     if is_mail:

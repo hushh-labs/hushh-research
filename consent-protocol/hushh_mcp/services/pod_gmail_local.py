@@ -98,9 +98,64 @@ class HubTableRefused(RuntimeError):
     """An inherited hub path asked for a database table this agent does not have."""
 
 
-def _held(account_id: str = "") -> Optional[store.ConnectorCredential]:
+def _hosted_ace_brokered_gmail() -> bool:
+    from hushh_mcp.services.pod_hub_client import hub_base_url  # noqa: PLC0415
+    from hushh_mcp.services.pod_owner_cloud import (  # noqa: PLC0415
+        hosted_ace_runtime,
+        owner_cloud_agent,
+    )
+
+    return bool(hosted_ace_runtime() and not owner_cloud_agent() and hub_base_url())
+
+
+def _brokered_gmail_accounts() -> list[dict[str, Any]]:
+    if not _hosted_ace_brokered_gmail():
+        return []
+    from hushh_mcp.services.pod_hub_client import PodHubClient, PodHubUnavailable  # noqa: PLC0415
+
     try:
-        return store.active_connector_credential(GMAIL, account_id=account_id)
+        body = PodHubClient().broker_google_connector_token(service=GMAIL, action="accounts")
+    except PodHubUnavailable:
+        return []
+    return [a for a in (body.get("accounts") or []) if isinstance(a, dict) and a.get("connected")]
+
+
+def _held(account_id: str = "") -> Optional[store.ConnectorCredential]:
+    if account_id and account_id != "default" and _hosted_ace_brokered_gmail():
+        from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+            PodHubClient,
+            PodHubUnavailable,
+        )
+
+        try:
+            body = PodHubClient().broker_google_connector_token(
+                service=GMAIL, action="grant", account_id=account_id
+            )
+        except PodHubUnavailable:
+            return None
+        status = str(body.get("status") or store.STATUS_ABSENT)
+        if status not in {store.STATUS_CONNECTED, store.STATUS_NEEDS_REAUTH}:
+            return None
+        return store.ConnectorCredential(
+            credential_id=str(body.get("credentialId") or f"hub-gmail:{account_id}"),
+            connector_id=GMAIL,
+            provider="google",
+            account_subject=str(body.get("accountSubject") or ""),
+            granted_scopes=tuple(str(s) for s in (body.get("grantedScopes") or ())),
+            client_profile=store.HUB_BRIDGED_PROFILE,
+            client_id="",
+            generation=max(1, int(body.get("generation") or 1)),
+            status=status,
+            connected_at_ms=int(body.get("connectedAtMs") or 1),
+            issued_at_ms=0,
+            refresh_token="",
+            account_id=account_id,
+            account_email=str(body.get("accountEmail") or ""),
+        )
+    try:
+        return store.active_connector_credential(
+            GMAIL, account_id="" if account_id == "default" else account_id
+        )
     except store.ConnectorCredentialsUnavailable:
         raise GmailMetadataError("retryable") from None
 
@@ -168,8 +223,33 @@ class PodGmailConnection(GmailReceiptsService):
     async def _token(self, user_id: str, level: str) -> str:
         if user_id != self._owner:
             raise GmailMetadataError("permission_denied")
+        if self._account_id and self._account_id != "default" and _hosted_ace_brokered_gmail():
+            import asyncio  # noqa: PLC0415
+
+            from hushh_mcp.services.pod_hub_client import (  # noqa: PLC0415
+                PodHubClient,
+                PodHubUnavailable,
+            )
+
+            try:
+                bridged = await asyncio.to_thread(
+                    PodHubClient().broker_google_connector_token,
+                    service=GMAIL,
+                    action="access_token",
+                    level=level,
+                    account_id=self._account_id,
+                )
+            except PodHubUnavailable as exc:
+                msg = str(exc)
+                if "reauth" in msg or "status=401" in msg:
+                    raise GmailMetadataError("reconnect_required") from None
+                raise GmailMetadataError("retryable") from None
+            tok = str(bridged.get("accessToken") or "").strip()
+            if not tok:
+                raise GmailMetadataError("connect_required")
+            return tok
         try:
-            if self._account_id:
+            if self._account_id and self._account_id != "default":
                 return str(
                     await self._tokens().access_token(GMAIL, level, account_id=self._account_id)
                 )
@@ -271,7 +351,15 @@ class PodLocalEmailReadPort(PodEmailReadPort):
         if user_id != self._owner:
             raise PermissionError("Email owner mismatch")
         try:
-            return await self._connection.preflight_mail_read_status(user_id=user_id)
+            status = await self._connection.preflight_mail_read_status(user_id=user_id)
+            if status == "connect_required" and not self._connection._account_id:
+                extra = [a for a in _brokered_gmail_accounts() if a.get("account_id") != "default"]
+                if extra:
+                    self._connection = PodGmailConnection(
+                        self._owner, account_id=str(extra[0]["account_id"])
+                    )
+                    return await self._connection.preflight_mail_read_status(user_id=user_id)
+            return status
         except GmailMetadataError as exc:
             return exc.code if exc.code in MAIL_READ_ERROR_CODES else "unavailable"
         except Exception:  # noqa: BLE001 - storage failure never leaks store details
@@ -307,7 +395,13 @@ class PodLocalEmailReadPort(PodEmailReadPort):
         from hushh_mcp.services.pod_mail_observation import MailObservationContext
         from hushh_mcp.services.pod_session_authority import expected_environment
 
-        credential = _held()
+        credential = _held(self._connection._account_id)
+        if credential is None and not self._connection._account_id:
+            extra = [a for a in _brokered_gmail_accounts() if a.get("account_id") != "default"]
+            if extra:
+                fallback_id = str(extra[0]["account_id"])
+                self._connection = PodGmailConnection(self._owner, account_id=fallback_id)
+                credential = _held(fallback_id)
         if credential is None:
             raise GmailMetadataError("connect_required")
         context = MailObservationContext(
@@ -330,7 +424,7 @@ class PodLocalEmailReadPort(PodEmailReadPort):
             context, bound = self._context()
 
             async def still_bound() -> None:
-                held = _held()
+                held = _held(self._connection._account_id)
                 if held is None or held.status != store.STATUS_CONNECTED:
                     raise GmailMetadataError("connection_changed")
                 if held.credential_id != bound:
@@ -344,6 +438,70 @@ class PodLocalEmailReadPort(PodEmailReadPort):
                 require_access=still_bound,
                 reader_factory=PodLocalMetadataReader,
             )
+            if query.operation in {"search", "list_recent"} and _hosted_ace_brokered_gmail():
+                active_slot = self._connection._account_id or "default"
+                extras = [
+                    a
+                    for a in _brokered_gmail_accounts()
+                    if str(a.get("account_id") or "") not in {"", active_slot}
+                ]
+                for extra_acct in extras:
+                    extra_id = str(extra_acct["account_id"])
+                    extra_email = str(extra_acct.get("google_email") or "").strip()
+                    extra_conn = PodGmailConnection(self._owner, account_id=extra_id)
+                    extra_cred = _held(extra_id)
+                    if extra_cred is None or extra_cred.status != store.STATUS_CONNECTED:
+                        continue
+                    from hushh_mcp.services.pod_mail_observation import MailObservationContext
+                    from hushh_mcp.services.pod_session_authority import expected_environment
+
+                    extra_ctx = MailObservationContext(
+                        owner_id=self._owner,
+                        pod_id=(os.environ.get("HUSSH_ID") or "").strip(),
+                        service_uid=f"pod-gmail:{extra_cred.credential_id}",
+                        scope_digest=self._scope_digest,
+                        environment=expected_environment() or "pod",
+                    )
+
+                    async def extra_bound(
+                        cid: str = extra_cred.credential_id, aid: str = extra_id
+                    ) -> None:
+                        cur = _held(aid)
+                        if (
+                            cur is None
+                            or cur.status != store.STATUS_CONNECTED
+                            or cur.credential_id != cid
+                        ):
+                            raise GmailMetadataError("connection_changed")
+
+                    try:
+                        extra_proj = await read_email_metadata(
+                            self._owner,
+                            query,
+                            service=extra_conn,
+                            context=extra_ctx,
+                            require_access=extra_bound,
+                            reader_factory=PodLocalMetadataReader,
+                        )
+                    except Exception:  # noqa: BLE001
+                        continue
+                    extra_items = extra_proj.get("items") or extra_proj.get("messages")
+                    target_key = (
+                        "items"
+                        if "items" in projection
+                        else ("messages" if "messages" in projection else None)
+                    )
+                    if (
+                        isinstance(extra_items, list)
+                        and target_key
+                        and isinstance(projection.get(target_key), list)
+                    ):
+                        for item in extra_items:
+                            if isinstance(item, dict):
+                                tagged = dict(item)
+                                if extra_email and "account_email" not in tagged:
+                                    tagged["account_email"] = extra_email
+                                projection[target_key].append(tagged)
             return projection
         except GmailMetadataError as exc:
             # Exactly the codes the hub door returns as 409s; everything else is one state.
