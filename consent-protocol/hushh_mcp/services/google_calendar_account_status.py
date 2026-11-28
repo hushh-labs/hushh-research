@@ -104,8 +104,10 @@ def _project_accounts(
                 if row["status"] == "connected"
                 else "",
                 "calendar_list_access": calendar_list_access(row["scope_csv"]),
-                "gmail_read_enabled": bool(
-                    row["status"] == "connected" and row.get("gmail_read_enabled")
+                **(
+                    {"gmail_read_enabled": True}
+                    if row["status"] == "connected" and row.get("gmail_read_enabled")
+                    else {}
                 ),
             }
         )

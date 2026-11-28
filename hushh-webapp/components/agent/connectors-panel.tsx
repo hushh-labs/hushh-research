@@ -1988,7 +1988,9 @@ function OwnerConnectorsPanel({
       void user.getIdToken()
         .then((idToken) => {
           if (signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return null;
-          return GoogleCalendarService.disconnect(idToken, ownerId, targetAccountId);
+          return targetAccountId === "default"
+            ? GoogleCalendarService.disconnect(idToken, ownerId)
+            : GoogleCalendarService.disconnect(idToken, ownerId, targetAccountId);
         })
         .then((result) => {
           if (!result || signal.aborted || applicationOwnerId !== ownerId || currentToken.current !== ownerToken) return;
