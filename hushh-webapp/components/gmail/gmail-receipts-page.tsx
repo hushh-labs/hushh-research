@@ -2557,6 +2557,7 @@ function MailPageContent({
       {draftRequest && privateMailbox && userId && vaultKey && vaultOwnerToken &&
         draftRequest.scope === JSON.stringify([userId, privateMailbox.credentialId, snapshotVaultSessionEpoch()]) && (
           <AdaptiveDetailSurface open title="Review draft" eyebrow={draftRequest.title} headerTextOverflow="wrap"
+            surfaceClassName={briefStyles.composerSurface} desktopMaxWidthClassName="sm:!max-w-[600px]"
             mobilePresentation="sheet" showCloseButton={!draftSaving} onOpenChange={open => { if (!open && !draftSaving) setDraftRequest(undefined); }}>
             <MailFollowupsScreen key={draftRequest.id} account={privateMailbox.accountId} connection={privateMailbox.credentialId}
               verifiedAddress={privateMailbox.email ?? undefined} savedTasks={mailSession?.savedTasks}

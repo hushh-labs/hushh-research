@@ -537,18 +537,67 @@
 .mailRowSubject { overflow: hidden; font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: var(--type-row-label-weight); text-overflow: ellipsis; white-space: nowrap; }
 .mailRowSender { overflow: hidden; font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); color: var(--app-secondary-label); text-overflow: ellipsis; white-space: nowrap; }
 
+.composerSurface[data-task-surface] {
+  border-color: var(--app-glass-border);
+  background: var(--app-card-surface-default-solid);
+  box-shadow: var(--app-glass-shadow);
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .composerSurface[data-task-surface] {
+    background: linear-gradient(150deg, var(--app-glass-surface), transparent 65%),
+      color-mix(in srgb, var(--app-glass-surface) 45%, var(--app-card-surface-default-solid));
+    -webkit-backdrop-filter: blur(20px) saturate(125%);
+    backdrop-filter: blur(20px) saturate(125%);
+  }
+}
 .draftForm { display: grid; gap: 14px; min-width: 0; }
-.draftForm label { display: grid; gap: 5px; color: var(--app-secondary-label); font-size: 14px; }
+.letter {
+  display: grid;
+  min-width: 0;
+  padding: clamp(14px, 3vw, 22px);
+  gap: 12px;
+  background: var(--app-card-surface-default-solid);
+  border: 1px solid var(--app-glass-border);
+  border-radius: 18px;
+}
 .draftEnvelope {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px;
-  margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--app-separator);
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline; gap: 2px 12px;
+  margin: 0; padding-bottom: 12px;
+  border-bottom: 1px solid var(--app-separator);
+  font-size: 14px; line-height: 1.5;
 }
 .draftEnvelope dt { color: var(--app-secondary-label); }
 .draftEnvelope dd { margin: 0; overflow-wrap: anywhere; }
-.draftField {
-  width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--app-card-border-standard);
-  color: var(--app-label); background: var(--app-card-surface-default-solid); font: inherit; font-size: 16px; line-height: 1.5;
+.draftEnvelope dd:first-of-type { font-weight: 600; }
+.subjectLine { display: grid; min-width: 0; }
+/* Mirror the subject's wrapping so it grows with long mail titles on WebKit as well. */
+.subjectLine > span, .subjectLine > textarea {
+  grid-area: 1 / 1; min-width: 0; padding: 4px 0; margin: 0;
+  font: inherit; font-size: clamp(17px, 2.4vw, 20px); font-weight: 600;
+  line-height: 1.35; letter-spacing: -.015em; overflow-wrap: anywhere; white-space: pre-wrap;
 }
-textarea.draftField { resize: vertical; min-height: 8rem; }
-.draftField:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
-.draftForm > button { justify-self: end; }
+.subjectLine > span { visibility: hidden; }
+.subjectLine > textarea, .letterBody {
+  width: 100%; border: 0; border-radius: 4px; background: transparent; color: var(--app-label);
+}
+.subjectLine > textarea { resize: none; overflow: hidden; }
+.letterBody {
+  field-sizing: content;
+  min-height: min(24dvh, 10rem); max-height: min(36dvh, 22rem); padding: 3px 0; resize: vertical;
+  font: inherit; font-size: 16px; line-height: 1.6;
+}
+.letter textarea:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
+.draftFooter { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 16px; }
+.draftFooter small { flex: 1 1 10rem; color: var(--app-secondary-label); font-size: 13px; line-height: 1.4; }
+.draftFooter button [data-slot="mail-action-pill"] { border-color: transparent; color: var(--app-accent-fg); background: var(--app-accent); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .draftFooter button { transition: transform 160ms ease; }
+  .draftFooter button:hover:not(:disabled) { transform: translateY(-1px); }
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .composerSurface[data-task-surface] { background: var(--app-card-surface-default-solid); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composerSurface[data-task-surface] { animation-duration: 1ms; transition-duration: 0s; }
+}
