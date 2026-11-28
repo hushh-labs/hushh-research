@@ -908,3 +908,24 @@ for (const width of [360, 1024]) {
     });
   }
 }
+
+for (const width of [393, 1440]) {
+  test(`Private Mail summary and original at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 852 });
+    await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript", body: script }));
+    await page.route("http://localhost/mail-workspace", route => route.fulfill({
+      contentType: "text/html",
+      body: `<html data-summary-reader="1"><head><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+    }));
+    await page.goto("http://localhost/mail-workspace");
+    const body = page.getByTestId("brief-message-body");
+    await expect(body).toContainText("Upload A by June 2.");
+    await expect(body).toContainText("Ask Sam for B.");
+    await expect(page.getByText(/Partial summary/)).toBeVisible();
+    await expect(page.getByText("Reviewer", { exact: true })).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.getByRole("button", { name: "View original email" }).click();
+    await expect(body).toContainText("Original excerpt");
+    await expect(page.getByText(/Showing the available portion/)).toBeVisible();
+  });
+}

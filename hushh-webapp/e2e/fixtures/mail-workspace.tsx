@@ -3,6 +3,7 @@ import { TopShellTabs } from '@/components/app-ui/top-shell-tabs';
 import { TOP_SHELL_TAB_REGISTRY } from '@/lib/navigation/top-shell-tabs';
 import { LocationPrimaryShareCard } from '@/components/one-location/redesign/location-hub-summary';
 import React from 'react';
+import { MailWhySheet } from '../../components/gmail/mail-brief-why';
 import { createRoot } from 'react-dom/client';
 import { Navbar } from '@/components/navbar';
 import { AppBottomShell } from '@/components/app-ui/app-bottom-shell';
@@ -113,5 +114,15 @@ void captureReceiptSnapshot(syntheticReceipts, 'synthetic-account', {
  MailReceiptResourceService.prime(snapshot);
  if (document.documentElement.dataset.briefRise === '1') await seedPriceRise();
  const root = createRoot(document.getElementById('root')!);
+ if (document.documentElement.dataset.summaryReader) {
+   root.render(<MailWhySheet target={{ title: "Review", openFirst: true, evidence: [{ sourceId: "fixture", from: "Reviewer", on: "", direction: "received", quote: "" }] }}
+     expectedAccount="synthetic-account" vaultOwnerToken={null} onClose={() => {}} onReconnect={() => {}} onUnlock={() => {}}
+     readMessage={async (sourceId, _signal, original) => ({
+       sourceId, subject: "Review", sender: "Reviewer", receivedAt: null, unread: false, bodyTruncated: true,
+       body: original ? "Original excerpt with the review requirements." : "",
+       summary: original ? undefined : "Review is blocked.\n• Upload A by June 2.\n• Ask Sam for B.",
+     })} />);
+   return;
+ }
  root.render(shell ? <LocationCommandProvider enabled={false}><AgentDockProvider><Fixture/></AgentDockProvider></LocationCommandProvider> : <Fixture/>);
 });

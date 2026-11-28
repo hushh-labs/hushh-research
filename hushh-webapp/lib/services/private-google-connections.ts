@@ -39,7 +39,7 @@ export async function readOwnerConnectorWithWake(read: () => Promise<Response>, 
     try {
       const response = await read();
       const waking = isWakingGatewayResponse(response);
-      if (!waking && !(retryServiceUnavailable && response.status === 503 && attempt < 2)) return response;
+      if (!waking && !(retryServiceUnavailable && [502, 503, 504].includes(response.status) && attempt < 2)) return response;
       const delay = retryServiceUnavailable && attempt >= 2 ? undefined : POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
       if (delay === undefined) return response;
       void response.body?.cancel().catch(() => undefined);

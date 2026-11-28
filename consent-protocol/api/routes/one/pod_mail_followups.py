@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from api.routes.one.pod_todo_sources import _admit, _door, _refuse, private_workspace_model
 from api.utils.private_no_store import PrivateNoStoreRoute
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
+from hushh_mcp.services.mail_overview import MailOverviewError
 from hushh_mcp.services.pod_mail_followups import (
     Document,
     OpenMessage,
@@ -76,11 +78,27 @@ async def mail_followups(
             return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
     except HTTPException:
         raise
+    except MailOverviewError as exc:
+        logging.getLogger(__name__).warning(
+            "private_mail_read operation=%s code=%s", operation, exc.code
+        )
+        raise _refuse(exc.status_code, exc.code) from None
+    except TimeoutError:
+        logging.getLogger(__name__).warning(
+            "private_mail_read operation=%s code=deadline", operation
+        )
+        raise _refuse(503, "MAIL_FOLLOWUP_UNAVAILABLE") from None
     except GmailMetadataError as exc:
         if exc.code == "retryable":
+            logging.getLogger(__name__).warning(
+                "private_mail_read operation=%s code=provider_unavailable", operation
+            )
             raise _refuse(503, "MAIL_FOLLOWUP_UNAVAILABLE") from None
         raise _refuse(409, "MAIL_" + exc.code.upper()) from None
     except Exception:
+        logging.getLogger(__name__).warning(
+            "private_mail_read operation=%s code=unexpected", operation
+        )
         raise _refuse(503, "MAIL_FOLLOWUP_UNAVAILABLE") from None
 
 

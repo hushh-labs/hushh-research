@@ -198,9 +198,6 @@ export function MailWhySheet({
               ) : null}
             </div>
           ) : null}
-          {readMessage && !original ? (
-            <button className={styles.link} onClick={() => setOriginalSource(sourceId)}>View original email</button>
-          ) : null}
           {message ? (
             <>
               <p className={styles.whyBody} data-testid="brief-message-body">
@@ -208,6 +205,9 @@ export function MailWhySheet({
               </p>
               {message.bodyTruncated ? <p className={styles.whyFrom}>{message.summary && !original ? "Partial summary · based on the available text." : "Showing the available portion of this email."}</p> : null}
             </>
+          ) : null}
+          {readMessage && !original ? (
+            <button className={styles.link} onClick={() => setOriginalSource(sourceId)}>View original email</button>
           ) : null}
         </div>
       ) : null}

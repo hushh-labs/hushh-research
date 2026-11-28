@@ -43,7 +43,7 @@ class PodReceiptConnection(GmailReceiptsService):
             token = await source.access_token("gmail", "read", account_id=held.account_id)
         except ConnectorTokenError as exc:
             if exc.code in {"NOT_CONNECTED", "NEEDS_REAUTH"}:
-                status, code = 409, "GMAIL_CONNECTION_CHANGED"
+                status, code = 409, "GMAIL_REAUTH_REQUIRED"
             elif exc.code == "SCOPE_NOT_GRANTED":
                 status, code = 403, "GMAIL_READ_PERMISSION_REQUIRED"
             else:
