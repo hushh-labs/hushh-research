@@ -52,6 +52,7 @@ export function MailFollowupsScreen({
   handoff,
   draftRequest,
   onDraftSaved,
+  onDraftSavingChange,
   mail = MailFollowupsService,
 }: {
   mail?: typeof MailFollowupsService;
@@ -59,6 +60,7 @@ export function MailFollowupsScreen({
   /** One draft the Overview asked for; it is consumed once. */
   draftRequest?: MailDraftRequest;
   onDraftSaved?: () => void;
+  onDraftSavingChange?: (saving: boolean) => void;
   session: TodoWriteParams;
   account: string;
   connection: string;
@@ -627,6 +629,7 @@ export function MailFollowupsScreen({
             onClick={() =>
               void run(
                 async (signal) => {
+                  onDraftSavingChange?.(true);
                   let task = activeTask;
                   if (!task && pendingDraft) {
                     // Saving is the confirmation: it creates or reuses the one Task for this exact email.
@@ -643,10 +646,14 @@ export function MailFollowupsScreen({
                     );
                     if (found.account !== box.account || found.connection !== box.connection || found.source !== pendingDraft.sourceId)
                       throw new Error("The mailbox changed. Open the email again.");
-                    const tracked = await tasks.trackMail(session, found);
+                    const tracked = await tasks.trackMail(session, { ...found, draft });
                     if (!tracked.success) throw new Error("The shared task could not be saved.");
                     signal.throwIfAborted();
-                    task = (await tasks.load(session)).tasks.find((row) => row.id === found.key);
+                    const saved = await tasks.load(session);
+                    task = saved.tasks.find(({ mailFollowup: link }) => link?.key === found.key &&
+                      link.account === box.account && link.connection === box.connection && link.source === found.source);
+                    const stored = task?.mailFollowup?.draft;
+                    if (stored && stored.to === draft.to && stored.subject === draft.subject && stored.body === draft.body) return saved;
                   }
                   if (!task) throw new Error("Your draft could not be saved.");
                   const result = await tasks.updateMail(session, task, { draft });
@@ -662,7 +669,7 @@ export function MailFollowupsScreen({
                   setNotice("Draft saved for review.");
                   onDraftSaved?.();
                 },
-              )
+              ).finally(() => onDraftSavingChange?.(false))
             }
           >
             Save for review

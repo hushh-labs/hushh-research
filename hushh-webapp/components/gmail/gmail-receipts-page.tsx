@@ -1334,6 +1334,7 @@ function MailPageContent({
   }, [connectPrivateMailbox]);
   // Scope the review dialog to the owner, vault session and selected Gmail grant.
   const [draftRequest, setDraftRequest] = useState<(MailDraftRequest & { scope: string })>();
+  const [draftSaving, setDraftSaving] = useState(false);
   const requestPrivateDraft = useCallback((request: PrivateDraftRequest) => {
     if (!privateMailbox || !userId || !vaultKey || !vaultOwnerToken) {
       setShowVaultUnlock(true);
@@ -2556,10 +2557,11 @@ function MailPageContent({
       {draftRequest && privateMailbox && userId && vaultKey && vaultOwnerToken &&
         draftRequest.scope === JSON.stringify([userId, privateMailbox.credentialId, snapshotVaultSessionEpoch()]) && (
           <AdaptiveDetailSurface open title="Review draft" eyebrow={draftRequest.title} headerTextOverflow="wrap"
-            mobilePresentation="sheet" onOpenChange={open => { if (!open) setDraftRequest(undefined); }}>
+            mobilePresentation="sheet" showCloseButton={!draftSaving} onOpenChange={open => { if (!open && !draftSaving) setDraftRequest(undefined); }}>
             <MailFollowupsScreen key={draftRequest.id} account={privateMailbox.accountId} connection={privateMailbox.credentialId}
               verifiedAddress={privateMailbox.email ?? undefined} savedTasks={mailSession?.savedTasks}
               session={{ userId, vaultKey, vaultOwnerToken }} draftRequest={draftRequest}
+              onDraftSavingChange={setDraftSaving}
               onDraftSaved={() => { setDraftRequest(undefined); toast.success("Draft saved for review."); }} />
           </AdaptiveDetailSurface>
         )}

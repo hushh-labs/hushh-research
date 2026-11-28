@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { PrivateMailSessionProvider, usePrivateMailSession } from "../private-mail-session";
-import { writeEncryptedOwnerUiRecord } from "@/lib/storage/encrypted-owner-ui-cache";
+import { readEncryptedOwnerUiRecord, writeEncryptedOwnerUiRecord } from "@/lib/storage/encrypted-owner-ui-cache";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const mocks = vi.hoisted(() => ({ vault: vi.fn(), list: vi.fn(), brief: vi.fn(), tasks: vi.fn() }));
@@ -138,4 +138,17 @@ it("restores the authorized mailbox after a reload while one live refresh is pen
   expect(mocks.brief).toHaveBeenCalledTimes(1);
   await act(async () => finish({account: "updated", attention: []}));
   expect(screen.getByText("updated")).toBeDefined();
+});
+
+it("purges an old grant on cold start and preserves other encrypted resources", async () => {
+  const vaultKey = "cd".repeat(32);
+  mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey, vaultOwnerToken: "token"});
+  mocks.list.mockResolvedValue([]);
+  const revoked = {ownerId: "owner", vaultKey, namespace: "mail.brief.v1/old/revoked/"};
+  const other = {...revoked, namespace: "another-resource"};
+  await writeEncryptedOwnerUiRecord({...revoked, value: "old"});
+  await writeEncryptedOwnerUiRecord({...other, value: "keep"});
+  render(<PrivateMailSessionProvider><Probe /></PrivateMailSessionProvider>);
+  await waitFor(async () => expect(await readEncryptedOwnerUiRecord(revoked)).toBeNull());
+  expect((await readEncryptedOwnerUiRecord(other))?.value).toBe("keep");
 });

@@ -19,7 +19,8 @@ export const MAX_MAIL_ACCOUNTS = 3;
 const INVENTORY_RETRY_MS = [2_000, 6_000, 15_000] as const;
 
 const BRIEF_FRESH_MS = 5 * 60_000;
-const briefNamespace = (account: string, credential: string) => `mail.brief.v1/${account}/${credential}/`;
+const BRIEF_PREFIX = "mail.brief.v1/";
+const briefNamespace = (account: string, credential: string) => `${BRIEF_PREFIX}${account}/${credential}/`;
 
 type Inventory = { scope: string; mode: "private" | "shared"; accounts: PrivateMailAccount[]; failed?: boolean };
 type RecentRows = Awaited<ReturnType<typeof MailFollowupsService.recent>>["items"];
@@ -211,18 +212,15 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     };
   }, [owner, vaultKey, account, address, connection, briefScope, briefRevision, epoch]);
 
-  const knownGrants = useRef<{ owner: string; namespaces: Set<string> } | null>(null);
+  // A grant can be revoked while the app is closed. Reconcile disk against a successful inventory too.
+  const grantSet = current && !current.failed ? JSON.stringify(current.accounts
+    .filter(row => row.status === "connected" && row.capabilities.read)
+    .map(row => briefNamespace(row.accountId, row.credentialId)).sort()) : null;
   useEffect(() => {
-    if (!owner || !current || current.failed) return;
-    const namespaces = new Set(current.accounts.filter(row => row.status === "connected" && row.capabilities.read)
-      .map(row => briefNamespace(row.accountId, row.credentialId)));
-    if (knownGrants.current?.owner === owner) {
-      for (const previous of knownGrants.current.namespaces) {
-        if (!namespaces.has(previous)) void deleteEncryptedOwnerUiRecords(owner, previous).catch(() => {});
-      }
+    if (owner && grantSet !== null) {
+      void deleteEncryptedOwnerUiRecords(owner, BRIEF_PREFIX, new Set<string>(JSON.parse(grantSet))).catch(() => {});
     }
-    knownGrants.current = {owner, namespaces};
-  }, [owner, current]);
+  }, [owner, grantSet]);
   const visible = summary?.scope === briefScope ? summary : undefined;
   const attentionCounts = Object.fromEntries(available.flatMap(row => {
     const brief = saved[JSON.stringify([scope, row.accountId, row.credentialId])]?.brief;

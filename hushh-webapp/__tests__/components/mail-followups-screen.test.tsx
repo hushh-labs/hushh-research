@@ -80,7 +80,7 @@ describe("a draft the Overview asked for", () => {
   it("is saved to one Task for that email even when saving refreshes the saved Tasks mid-way", async () => {
     const { mail, rerenderWith } = mount();
     await screen.findByRole("heading", { name: "Review draft" });
-    const task = { id: KEY, title: finding.title, status: "pending", revision: 1, mailFollowup: finding };
+    const task = { id: `gmail_mail_thread:${KEY}`, title: finding.title, status: "pending", revision: 1, mailFollowup: finding };
     // The write replaces the session's saved-Tasks promise while the save is still running.
     todos.trackMail.mockImplementation(async () => {
       rerenderWith(Promise.resolve({ tasks: [task] }));
@@ -91,7 +91,7 @@ describe("a draft the Overview asked for", () => {
     await waitFor(() => expect(screen.getByText("Draft saved for review.")).toBeVisible());
     expect(mail.track).toHaveBeenCalledTimes(1);
     expect(todos.trackMail).toHaveBeenCalledTimes(1);
-    expect(todos.trackMail).toHaveBeenCalledWith(session, expect.objectContaining({ source: request.sourceId }));
+    expect(todos.trackMail).toHaveBeenCalledWith(session, expect.objectContaining({ source: request.sourceId, draft: expect.objectContaining({ body: "Thirty days works for us." }) }));
     expect(todos.updateMail).toHaveBeenCalledWith(session, task, { draft: { to: "morgan@example.test", subject: "Re: Payment terms", body: "Thirty days works for us." } });
     expect(screen.queryByRole("heading", { name: "Review draft" })).toBeNull();
   });
