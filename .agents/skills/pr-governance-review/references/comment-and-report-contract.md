@@ -70,7 +70,7 @@ Every harvest public record must name:
 
 ## Required Headings
 
-Every PR merged through this governance workflow must get one post-merge closeout after `Main Post-Merge Smoke` is green.
+Every PR merged through this governance workflow must get one post-merge closeout after `Main Post-Merge Smoke` is green, and when the merge lands on `main` or `uat`, the merging agent owns same-session downstream source synchronization (`main` to `uat` and `dev`; `uat` to `dev`) under `.agents/skills/repo-operations/references/maintainer-branch-freshness.md` without waiting for contributor sync PRs.
 Every GitHub write must use the lane-specific heading contract below.
 Edit the existing current-lane record when possible.
 Final handoffs for state-changing PR work must include direct links to every affected PR and maintainer-authored record.

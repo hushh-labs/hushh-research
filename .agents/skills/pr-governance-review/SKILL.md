@@ -70,7 +70,7 @@ and Admin SOP apply independently. A merge never deploys an application.
 5. Exclude PRs with failing/missing/stale required checks or failing auxiliary checks from executable trains unless the task is CI repair.
 6. Check `references/anti-rationalization.md` at intake; then apply blocker gates before merge: north-star drift, duplicate architecture, trust-boundary regression, caller/proxy/backend mismatch, unreachable helpers, stacked diff, proof gaps, and local dirty-file overlap.
 7. Prefer direct contributor PR merge, then `maintainer_patch_then_merge`, then maintainer harvest. Harvest is allowed only when the source PR should not be the merge vehicle and the plan names accepted value, canonical attach point, write set, dropped/deferred pieces, proof, source PR close-or-hold state, and co-author attribution when code/tests are materially reused.
-8. Use `comment-and-report-contract.md` for every GitHub write; edit existing maintainer records first and post one post-merge closeout after smoke.
+8. Use `comment-and-report-contract.md` for every GitHub write; edit existing maintainer records first, post one post-merge closeout after smoke, and complete same-session downstream source syncs (`Main` to `UAT` and `Dev`; `UAT` to `Dev`) per `.agents/skills/repo-operations/references/maintainer-branch-freshness.md` by default without waiting for contributor sync PRs.
 9. Keep branch switching, commits, GitHub writes, approvals, merges, deploys, report refreshes, and final decisions in the parent session.
 10. Preserve the current operating-history lessons in `evolution-history.md`; do not append incident history to this compact kernel.
 

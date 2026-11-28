@@ -21,14 +21,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UAT_BACKEND_IMAGE = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
 
 
+@pytest.mark.parametrize("environment", ["uat", "dev", "production"])
 @pytest.mark.parametrize(
     "defect", [None, "missing-verb", "restricted-claim", "wrong-binding", "missing-subject"]
 )
-def test_uat_sandbox_allocator_policy_is_verified_read_only(tmp_path, defect):
+def test_uat_sandbox_allocator_policy_is_verified_read_only(tmp_path, environment, defect):
     namespace = {"namespace": "hussh-agents"}
     extensions = "extensions.agents.x-k8s.io"
     api_group = "rbac.authorization.k8s.io"
-    subject = {"kind": "User", "apiGroup": api_group, "name": "uat-edge@example.invalid"}
+    subject = {"kind": "User", "apiGroup": api_group, "name": f"{environment}-edge@example.invalid"}
     claim = {
         "apiGroups": [extensions],
         "resources": ["sandboxclaims"],
@@ -82,7 +83,7 @@ kctl() {
         text=True,
         env={
             **os.environ,
-            "DEPLOY_ENV": "uat",
+            "DEPLOY_ENV": environment,
             "EDGE_SA": subject["name"],
             "WORK_DIR": str(tmp_path),
         },
@@ -130,15 +131,10 @@ kctl() {
     )
     applied = list(yaml.safe_load_all((tmp_path / "applied.yaml").read_text()))
     kinds = [item["kind"] for item in applied]
-    expected = ["SandboxTemplate", "SandboxWarmPool"]
-    if environment != "uat":
-        expected = ["Role", "RoleBinding", *expected]
-    assert kinds == expected
-    assert applied[-1]["spec"].get("updateStrategy") == (
-        {"type": "Recreate"} if environment == "uat" else None
-    )
+    assert kinds == ["SandboxTemplate", "SandboxWarmPool"]
+    assert applied[-1]["spec"].get("updateStrategy") == {"type": "Recreate"}
     calls = (tmp_path / "calls").read_text().splitlines()
-    assert calls == (["apply"] if environment == "uat" else ["apply", "-n", "-n"])
+    assert calls == ["apply"]
 
 
 @pytest.mark.parametrize(

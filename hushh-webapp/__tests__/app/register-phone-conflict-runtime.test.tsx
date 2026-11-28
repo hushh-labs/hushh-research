@@ -289,4 +289,66 @@ describe("register-phone conflict runtime", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it("replaces an unclaimed Firebase provider phone on /register-phone instead of deadlocking on phone-replace-required", async () => {
+    mocks.firebaseUser = makeUser("CeEVXFXKxnYyxUckUC6JFSugWHC3", "+916383545184");
+    mocks.phoneLinkStart.mockRejectedValue(
+      Object.assign(new Error("Use Change phone number to replace the current number."), {
+        code: "phone-replace-required",
+      }),
+    );
+    mocks.phoneReplacementConfirm.mockImplementation(async ({ phoneNumber }) => {
+      const user = mocks.firebaseUser as import("firebase/auth").User;
+      Object.assign(user, { phoneNumber });
+      return user;
+    });
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      if (String(url).includes("/api/account/identity/refresh")) {
+        return Response.json({
+          success: true,
+          user_id: "CeEVXFXKxnYyxUckUC6JFSugWHC3",
+          identity: {
+            user_id: "CeEVXFXKxnYyxUckUC6JFSugWHC3",
+            phone_number: "+916379764854",
+            phone_verified: true,
+          },
+        });
+      }
+      return Response.json({ success: true });
+    });
+
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "+916379764854" } });
+    fireEvent.submit(phone.closest("form")!);
+
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    expect(mocks.phoneLinkStart).not.toHaveBeenCalled();
+    expect(mocks.phoneReplacementStart).toHaveBeenCalledWith(
+      "+916379764854",
+      expect.objectContaining({ expectedUserId: "CeEVXFXKxnYyxUckUC6JFSugWHC3" }),
+    );
+    expect(screen.queryByText("Use Change phone number to replace the current number.")).toBeNull();
+
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.submit(code.closest("form")!);
+    await waitFor(() => expect(mocks.phoneReplacementConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedUserId: "CeEVXFXKxnYyxUckUC6JFSugWHC3",
+        phoneNumber: "+916379764854",
+        verificationCode: "123456",
+      }),
+    ));
+  });
+
+  it("maps a fetch TypeError during phone test preflight to clear network guidance instead of generic send failure", async () => {
+    mocks.phoneTestStart.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "+916379764854" } });
+    fireEvent.submit(phone.closest("form")!);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Phone verification could not reach the network. Check your connection and try again.");
+    expect(mocks.phoneLinkStart).not.toHaveBeenCalled();
+  });
+
 });
