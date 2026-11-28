@@ -1551,6 +1551,19 @@ class GmailLiveReceiptsService:
                     "Accept-Encoding": "identity",
                 },
             ) as response:
+                if response.status_code == 204 and path == "/messages":
+                    # Confirm a field-filtered empty response with the full list
+                    # representation. Preserve the original query and page token.
+                    if "fields" in params:
+                        full_params = {k: v for k, v in params.items() if k != "fields"}
+                        return await self._get_once(
+                            client=client,
+                            authority=authority,
+                            path=path,
+                            params=full_params,
+                            budget=budget,
+                        )
+                    return {"messages": []}
                 if response.status_code == 401:
                     raise _GmailTokenRejected(
                         "Reconnect Gmail to continue scanning receipts.",
@@ -2038,7 +2051,7 @@ class GmailLiveReceiptsService:
                             "q": f"{_QUERY} after:{window_start} before:{window_end}",
                             "maxResults": per_page,
                             "includeSpamTrash": "false",
-                            "fields": "messages(id,threadId),nextPageToken",
+                            "fields": "messages(id,threadId),nextPageToken,resultSizeEstimate",
                         }
                         if page_token:
                             params["pageToken"] = page_token
