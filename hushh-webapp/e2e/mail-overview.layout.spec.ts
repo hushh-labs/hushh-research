@@ -479,7 +479,7 @@ test("Mail Overview: 'All N in Follow-ups' shows the real count and opens those 
 });
 
 for (const [scenario, expectations] of [
-  ["empty", ["Nothing needs a reply or a follow-up. One checked 14 recent messages", "No changes to report.", "Nothing sent through One in the last 30 days."]],
+  ["empty", ["No action found in the 14 messages checked", "No changes to report.", "Nothing sent through One in the last 30 days."]],
   ["failed", ["One couldn't check your mail just now. Try again."]],
 ] as const) {
   test(`Mail Overview says "${scenario}" truthfully, section by section`, async ({ page }) => {
@@ -499,7 +499,7 @@ for (const [scenario, expectations] of [
 test("Mail Overview shows loading, not an empty brief, while One is checking", async ({ page }) => {
   await openOverview(page, { width: 393, height: 852, tools: false, attrs: 'data-brief="slow"' });
   const overview = page.getByRole("tabpanel", { name: "Overview" });
-  await expect(overview.getByLabel("Checking your recent mail")).toBeVisible();
+  await expect(overview.getByLabel("Checking recent mail")).toBeVisible();
   await expect(overview.getByText(/nothing needs/i)).toHaveCount(0);
   await expect(overview.getByTestId("attention-card")).toHaveCount(0);
 });

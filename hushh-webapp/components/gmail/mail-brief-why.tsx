@@ -122,7 +122,7 @@ export function MailWhySheet({
   }, [onClose]);
 
   const failure = loaded.status === "error" ? mailReadFailureCopy(loaded.error) : null;
-  const message = loaded.status === "ready" ? loaded.message : null;
+  const message = loaded.status === "ready" && loaded.message.sourceId === sourceId ? loaded.message : null;
   // A message opened from a list has no day of its own; none is invented.
   const eyebrow = viewing
     ? [viewing.from, viewing.on ? formatEvidenceDay(viewing.on) : ""].filter(Boolean).join(" · ")
@@ -154,7 +154,7 @@ export function MailWhySheet({
                 <button
                   type="button"
                   className={styles.link}
-                  onClick={() => setViewing(item)}
+                  onClick={() => { setOriginalSource(null); setViewing(item); }}
                   data-testid="brief-view-email"
                 >
                   View email
@@ -201,7 +201,7 @@ export function MailWhySheet({
           {readMessage && !original ? (
             <button className={styles.link} onClick={() => setOriginalSource(sourceId)}>View original email</button>
           ) : null}
-          {message && (message.sourceId === sourceId) ? (
+          {message ? (
             <>
               <p className={styles.whyBody} data-testid="brief-message-body">
                 {message.summary && !original ? message.summary : <Marked text={message.body} quote={viewing.quote} />}

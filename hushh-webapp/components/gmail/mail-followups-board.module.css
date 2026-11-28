@@ -1,4 +1,14 @@
 .board {
+  composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css";
+  --foundation-title2-size: var(--type-section-label-size);
+  --foundation-title2-line: var(--type-section-label-line);
+  --foundation-title2-weight: var(--type-section-label-weight);
+  --foundation-title3-size: var(--type-section-label-size);
+  --foundation-title3-line: var(--type-section-label-line);
+  --foundation-title3-weight: var(--type-section-label-weight);
+  --foundation-headline-size: var(--type-row-label-size);
+  --foundation-headline-line: var(--type-row-label-line);
+  --foundation-headline-weight: var(--type-row-label-weight);
   container-type: inline-size;
   color: var(--foreground);
 }

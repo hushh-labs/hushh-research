@@ -491,13 +491,13 @@ async def assess_mail(
             )
             if answer.source_refs != [ref] or not answer.answer.strip():
                 raise _refuse(502, "MAIL_SUMMARY_UNVERIFIED")
-            if ai_selection_revision() != revision:
-                raise _refuse(409, "OWNER_AI_SELECTION_CHANGED")
-            summary = {"summary": answer.answer.strip()}
+            summary = {"summary": answer.answer.strip(), "body": ""}
         await reader.require_current()
+        if summary and ai_selection_revision() != revision:
+            raise _refuse(409, "OWNER_AI_SELECTION_CHANGED")
         return {
-            **summary,
             **{k: row.get(k) for k in ("subject", "sender", "body", "body_truncated")},
+            **summary,
             "files": [f["filename"] for f in row.get("attachment_details", [])],
         }
     if operation in {"draft", "envelope"}:

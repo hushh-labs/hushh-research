@@ -463,7 +463,6 @@
 }
 @media (max-width: 350px) {
   .chipEmail { max-width: 104px; }
-  .brief { --foundation-title2-size: 19px; --foundation-title3-size: 19px; }
 }
 
 /* ── Search and recent mail on a private mailbox ── */
