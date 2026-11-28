@@ -133,7 +133,7 @@ describe("contact invitation batches", () => {
     expect(
       screen.getByRole("textbox", { name: "Invitation message" }),
     ).toHaveValue("Join me on One.\nhttps://one.example/r/inviter");
-    expect(screen.getByText(/recipients can see each other/)).toBeVisible();
+    expect(screen.queryByText(/recipients can see each other/)).not.toBeInTheDocument();
     dismissTopmostOverlay();
     await screen.findByRole("textbox", { name: "Search contacts to invite" });
     expect(
