@@ -252,17 +252,18 @@ def _guard_failure(
     expected_diagnostic_sha256=None,
     clock_bound=False,
     allow_clock_records=False,
+    prepare_command=PREPARE_COMMAND,
 ) -> bool:
     if type(allow_clock_records) is not bool or (allow_clock_records and not clock_bound):
         return False
     if not _steps_match(job, clock_bound=clock_bound):
         return False
     prepare = _prepare_segment(rows, job)
-    width = len(PREPARE_COMMAND)
+    width = len(prepare_command)
     positions = [
         index
         for index in range(len(prepare))
-        if tuple(prepare[index : index + width]) == PREPARE_COMMAND
+        if tuple(prepare[index : index + width]) == prepare_command
     ]
     if len(positions) != 1 or prepare.count("  APPLY: true") != 1:
         return False

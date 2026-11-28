@@ -26,8 +26,18 @@ STATIC_GUARD_SOURCES = (
     STATIC_GUARD_SOURCE,
     "619e37615f35d11b79909420f23cf0d5a75b679b",
     "ab0ef1a7170693366d62dab640d479a66b799b07",
+    # The history-partition and serving-template readers still admit publication
+    # before provider work; qualify only this immutable four-blob source tuple.
+    "b1d5470f175876aaf349fb43aaecad99dc923150",
 )
 STATIC_GUARD_PATHS = (*production.SOURCE_PATHS, records.PASS_DIAGNOSTICS)
+STATIC_GUARD_PREPARE_COMMANDS = {
+    "b1d5470f175876aaf349fb43aaecad99dc923150": (
+        *production.PREPARE_COMMAND[:5],
+        'if [[ "${RESTORE_SERVING_TEMPLATE:-}" = true ]]; then flags+=(--restore-serving-template); fi',
+        *production.PREPARE_COMMAND[5:],
+    ),
+}
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
 PROFILE_NAME = "publication-aec6-blobless-v2"
 PROFILE_TEMPLATE_RUN_ID = 41489711406
@@ -623,6 +633,9 @@ def qualify_source_refusal(
             clock_bound=True,
             allow_clock_records=True,
             expected_diagnostic_sha256="92a62086059b8a9de7bcc8ef9a6bace61a84731476492166f64be4189e855313",
+            prepare_command=STATIC_GUARD_PREPARE_COMMANDS.get(
+                matches[0], production.PREPARE_COMMAND
+            ),
         )
     ):
         return None
