@@ -5,13 +5,24 @@ import type { ReactNode } from "react";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 
-export type GmailWorkspace = "overview" | "kyc" | "receipts";
-
-const OPTIONS = [
+export const MAIL_WORKSPACE_TABS = [
   { value: "overview", label: "Overview" },
-  { value: "kyc", label: "KYC" },
-  { value: "receipts", label: "Receipts" },
+  { value: "views", label: "Views" },
 ] as const;
+
+export const MAIL_PINNED_VIEWS = [
+  { value: "followups", label: "Follow-ups" },
+  { value: "receipts", label: "Receipts" },
+  { value: "kyc", label: "Info Requests" },
+] as const;
+
+type MailWorkspaceTab = (typeof MAIL_WORKSPACE_TABS)[number]["value"];
+export type MailPinnedView = (typeof MAIL_PINNED_VIEWS)[number]["value"];
+export type GmailWorkspace = MailWorkspaceTab | MailPinnedView;
+
+export function mailTabForWorkspace(workspace: GmailWorkspace): MailWorkspaceTab {
+  return workspace === "overview" ? "overview" : "views";
+}
 const TAB_SET_ID = "gmail-workspace";
 
 export function GmailWorkspaceNavigation({
@@ -22,16 +33,16 @@ export function GmailWorkspaceNavigation({
   onValueChange: (workspace: GmailWorkspace) => void;
 }) {
   return (
-    <div className="flex h-[var(--top-tabs-h)] w-full items-center">
+    <div className="flex h-[var(--top-tabs-h)] w-full items-center justify-center">
       <SegmentedTabs
-        value={value}
-        onValueChange={(next) => onValueChange(next as GmailWorkspace)}
-        options={[...OPTIONS]}
-        mobileColumns={3}
+        value={mailTabForWorkspace(value)}
+        onValueChange={(next) => onValueChange(next as MailWorkspaceTab)}
+        options={[...MAIL_WORKSPACE_TABS]}
+        mobileColumns={2}
         ariaLabel="Gmail workspace"
         tabSetId={TAB_SET_ID}
         variant="agent-top"
-        className={`${mailStyles.track} bg-[color:var(--app-neutral-fill)] p-0.5 [&>button]:mx-0`}
+        className={`${mailStyles.track} max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] bg-[color:var(--app-neutral-fill)] p-0.5 [&>button]:mx-0`}
       />
     </div>
   );
@@ -46,19 +57,19 @@ export function GmailWorkspacePanels({
 }: {
   value: GmailWorkspace;
   onValueChange: (workspace: GmailWorkspace) => void;
-  panels: Record<GmailWorkspace, ReactNode>;
+  panels: Record<MailWorkspaceTab, ReactNode>;
 }) {
   return (
     <SwipeViews
-      options={OPTIONS}
+      options={MAIL_WORKSPACE_TABS}
       tabSetId={TAB_SET_ID}
-      activeValue={value}
-      onSelectionChange={(next) => onValueChange(next as GmailWorkspace)}
+      activeValue={mailTabForWorkspace(value)}
+      onSelectionChange={(next) => onValueChange(next as MailWorkspaceTab)}
       panelInset="none"
       viewportMinHeight="fill"
       heightMode="active"
     >
-      {OPTIONS.map((option) => (
+      {MAIL_WORKSPACE_TABS.map((option) => (
         <div key={option.value} className="space-y-4">
           {panels[option.value]}
         </div>

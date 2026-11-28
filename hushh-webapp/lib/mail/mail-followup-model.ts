@@ -50,6 +50,7 @@ export const sourceListSchema = z.object({
         source,
         subject: z.string(),
         sender: z.string(),
+        received_at: z.string().nullish(),
       }),
     )
     .max(12),
@@ -64,7 +65,7 @@ export const evidenceSchema = z.object({
 
 export function mailboxTasks(
   tasks: readonly TodoItem[],
-  mailboxes: readonly FollowupMailbox[],
+  mailboxes: readonly Pick<FollowupMailbox, "account" | "connection">[],
 ) {
   return tasks.flatMap((task) => {
     const item = task.mailFollowup;

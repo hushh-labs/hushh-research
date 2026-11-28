@@ -233,6 +233,18 @@ it("leaves an empty vault idle until this owner's Tasks change", async () => {
   expect(mocks.update).toHaveBeenCalledOnce();
 });
 
+it("discovers a newly synced watch while another screen stays open", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  mocks.load.mockResolvedValueOnce({ tasks: [] });
+  await act(async () => {
+    render(<MailFollowupsVaultBridge />);
+    await vi.dynamicImportSettled();
+  });
+  expect(mocks.check).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+  expect(mocks.update).toHaveBeenCalledOnce();
+});
+
 it("shows the due reminder in Chat only after confirming the winning claim, and clears it on lock", async () => {
   const { TodoListPkmService, buildTodo } =
     await vi.importActual<typeof import("@/lib/services/todo-list-pkm-service")>(

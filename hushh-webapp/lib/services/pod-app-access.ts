@@ -120,6 +120,10 @@ const OWNER_POD_ROUTES = new Set([
   "calendar/events",
   "gmail/todos",
   "gmail/followups/account",
+  "gmail/followups/recent",
+  "gmail/followups/overview-search",
+  "gmail/followups/thread",
+  "gmail/followups/brief",
   "gmail/followups/search",
   "gmail/followups/open",
   "gmail/followups/track",
@@ -140,11 +144,14 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
  * app-surface list (consent-protocol/api/middlewares/pod_ingress.py).
  */
 const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
+  /^actions\/(gcal|gmod)_[A-Za-z0-9_-]{16,64}\/status$/,
   /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
   /^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/,
+  /^connectors\/gmail\/accounts\/[a-f0-9]{32}\/receipts\/(scan|detail|notice|notice-source)$/,
+  /^connectors\/gmail\/accounts\/[a-f0-9]{32}\/state\/(tracking|topics)\/(read|write)$/,
   /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
@@ -317,6 +324,14 @@ export async function ownerPodRequest(
       throw new Error("POD_PLAID_VAULT_REQUEST_REFUSED");
     }
   }
+  if (/^connectors\/gmail\/accounts\/[a-f0-9]{32}\/receipts\//.test(route) &&
+      (session.role !== "app" || !session.scopes.includes("pkm.read") || method !== "POST")) {
+    throw new Error("POD_MAIL_RECEIPT_READ_REFUSED");
+  }
+  if (/^connectors\/gmail\/accounts\/[a-f0-9]{32}\/state\//.test(route) &&
+      (session.role !== "app" || !session.scopes.includes(route.endsWith("/write") ? "pod.act" : "pkm.read") || method !== "POST")) {
+    throw new Error("POD_MAIL_STATE_REQUEST_REFUSED");
+  }
   if (route.startsWith("gmail/followups/") || ["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
     const post = route.startsWith("gmail/followups/") || route === "calendar/events" || route === "todos/suggestions";
     if (session.role !== "app" || !session.scopes.includes("pkm.read") ||
@@ -377,7 +392,7 @@ export async function ownerPodRequest(
     route.startsWith("actions/") &&
     (session.role !== "app" ||
       !session.scopes.includes("pod.act") ||
-      method !== "POST")
+      (route.endsWith("/status") ? method !== "GET" || body != null : method !== "POST"))
   ) {
     throw new Error("POD_ACTION_REQUEST_REFUSED");
   }

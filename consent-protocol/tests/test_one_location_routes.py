@@ -1057,7 +1057,8 @@ def test_public_location_invite_route_creates_request_without_returning_location
     assert "ciphertext" not in serialized
     assert "latitude" not in serialized
     assert "longitude" not in serialized
-    assert "map" not in serialized
+    # The opaque invite token may randomly contain the letters "map".
+    assert "map" not in serialized.replace(token, "")
     assert "address" not in serialized
     assert "reverse_geocode" not in serialized
 

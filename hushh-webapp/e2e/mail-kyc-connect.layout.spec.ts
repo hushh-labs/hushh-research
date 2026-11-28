@@ -30,6 +30,7 @@ test.beforeAll(async () => {
     resolve: { alias: [{ find: "@", replacement: root }] },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
     build: {
+      copyPublicDir: false,
       outDir, emptyOutDir: false,
       lib: { entry: path.join(root, "e2e/fixtures/mail-kyc-connect.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" },
     },
@@ -48,7 +49,11 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const moduleCss = fs.readdirSync(outDir)
+    .filter((file) => file.endsWith(".css"))
+    .map((file) => fs.readFileSync(path.join(outDir, file), "utf8"))
+    .join("\n");
+  css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
 
 // next-themes (attribute="class") puts `light` or `dark` on <html>; the flat
@@ -102,9 +107,9 @@ for (const theme of ["light", "dark"] as const)
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await open(page, theme, revoked);
-        await expect(page.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
+        await expect(page.getByRole("tab", { name: "Views" })).toHaveAttribute("aria-selected", "true");
         const action = revoked ? "Reconnect Mail" : "Connect Mail";
-        const kyc = page.getByRole("tabpanel", { name: "KYC" });
+        const kyc = page.getByRole("tabpanel", { name: "Views" });
         // Selected state precedes Embla positioning its retained initial pane.
         expect(await page.evaluate(() => innerWidth)).toBe(width);
         await expect.poll(async () => Math.abs((await box(kyc)).x -
@@ -117,9 +122,15 @@ for (const theme of ["light", "dark"] as const)
         await expect(kyc.getByRole("heading", { name: revoked ? "Reconnect Mail" : "Mail not connected", exact: true })).toBeVisible();
         if (revoked) await expect(kyc).toContainText("Refresh access to keep receipts syncing.");
 
-        for (const name of ["Overview", "Receipts", "KYC"]) {
-          await page.getByRole("tab", { name, exact: true }).click();
-          const panel = page.getByRole("tabpanel", { name, exact: true });
+        for (const view of ["Overview", "Receipts", "Info Requests"]) {
+          const tab = view === "Overview" ? "Overview" : "Views";
+          if (view !== "Info Requests") {
+            await page.getByRole("tab", { name: tab, exact: true }).click();
+          } else {
+            await page.getByRole("button", { name: "Back to Views", exact: true }).click();
+          }
+          const panel = page.getByRole("tabpanel", { name: tab, exact: true });
+          if (view !== "Overview") await panel.getByRole("button", { name: view, exact: true }).click();
           const card = panel.getByTestId("mail-connection-status");
           await expect(card).toBeVisible();
           const button = page.getByRole("button", { name: action, exact: true });
@@ -143,22 +154,19 @@ for (const theme of ["light", "dark"] as const)
 test("leaving KYC retains its pane but removes connect authority (negative control)", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await open(page, "light");
-  await expect(page.getByRole("tabpanel", { name: "KYC" }).getByTestId("mail-connection-status")).toBeVisible();
+  await expect(page.getByRole("tabpanel", { name: "Views" }).getByTestId("mail-connection-status")).toBeVisible();
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
-  await expect(page.locator("#top-shell-gmail-workspace-panel-kyc")).toHaveAttribute("inert", "");
-  await expect(page.locator("#top-shell-gmail-workspace-panel-kyc")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#top-shell-gmail-workspace-panel-views")).toHaveAttribute("inert", "");
+  await expect(page.locator("#top-shell-gmail-workspace-panel-views")).toHaveAttribute("aria-hidden", "true");
   await expect(page.getByRole("button", { name: "Connect Mail", exact: true })).toHaveCount(1);
   await expect(page.getByTestId("kyc-connects")).toHaveText("0");
 });
 
-test("Mail drags through all three retained panes and nested receipt scrolling wins", async ({ page }) => {
+test("Mail drags between both retained panes and nested receipt scrolling wins", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await open(page, "light");
-  await expect(page.getByRole("tabpanel", { name: "KYC" })).toBeVisible();
-  await page.evaluate(() => {
-    (window as unknown as { retainedKyc: Element | null }).retainedKyc = document.querySelector("#top-shell-gmail-workspace-panel-kyc [data-testid='mail-connection-status']");
-  });
+  await expect(page.getByRole("tabpanel", { name: "Views" })).toBeVisible();
   const pager = page.locator("[data-swipe-views-root='true']");
   // Fill height is measured on the first animation frame. Starting before
   // that frame would place the gesture on receipt content, not the blank body.
@@ -184,20 +192,22 @@ test("Mail drags through all three retained panes and nested receipt scrolling w
   await drag("right");
   await selected("Overview");
   await drag("left");
-  await selected("KYC");
-  await drag("left");
-  await selected("Receipts");
+  await selected("Views");
+  await page.getByRole("button", { name: "Info Requests", exact: true }).click();
+  await expect(page.getByRole("tabpanel", { name: "Views" }).getByTestId("mail-connection-status")).toBeVisible();
+  await page.getByRole("button", { name: "Back to Views" }).click();
+  await page.getByRole("button", { name: "Receipts", exact: true }).click();
 
   const rail = await box(page.getByTestId("receipt-rail"));
   await drag("right", rail.y + rail.height / 2);
-  await selected("Receipts");
+  await selected("Views");
   await drag("right");
-  await selected("KYC");
-  expect(await page.evaluate(() => (window as unknown as { retainedKyc: Element | null }).retainedKyc === document.querySelector("#top-shell-gmail-workspace-panel-kyc [data-testid='mail-connection-status']"))).toBe(true);
+  await selected("Overview");
+  await drag("left");
+  await selected("Views");
   await expect(page.getByTestId("kyc-connects")).toHaveText("0");
-  await page.getByRole("tab", { name: "Receipts" }).click();
-  await expect(page.getByRole("tabpanel", { name: "Receipts" })).toBeVisible();
-  await page.getByRole("tab", { name: "Receipts" }).press("Home");
+  await expect(page.getByRole("tabpanel", { name: "Views" })).toBeVisible();
+  await page.getByRole("tab", { name: "Views" }).press("Home");
   await expect(page.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
   await expect(page.getByText("Connect Mail to set up receipts and KYC requests.")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

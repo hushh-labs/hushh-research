@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from api.routes.one.pod_owner_door import admit_owner_local, owner_local_door
 from hushh_mcp.services import pod_connector_credentials as store
 from hushh_mcp.services.pod_mail_accounts import ACCOUNT_ID, public_account_id
+from hushh_mcp.services.pod_self_registration import pod_key_is_durable
 from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG, SCOPE_POD_STATUS
 
 router = APIRouter(prefix="/connectors/gmail/accounts", tags=["personal-agent"])
@@ -26,6 +27,7 @@ async def account_inventory(*, consent_token: str, verifier=None, session=None, 
             accounts = store.mail_account_credentials()
         except store.ConnectorCredentialsUnavailable:
             raise HTTPException(503, detail={"code": "CONNECTOR_CREDENTIALS_UNAVAILABLE"}) from None
+    durable_sources = pod_key_is_durable() if accounts else False
     return {
         "accounts": [
             {
@@ -35,10 +37,11 @@ async def account_inventory(*, consent_token: str, verifier=None, session=None, 
                 "provider": "google",
                 "status": item.status,
                 "isDefault": not bool(item.account_id),
-                "receiptSyncAvailable": False,
-                **store.connector_permissions(item),
+                "receiptSyncAvailable": durable_sources and permissions["capabilities"]["read"],
+                **permissions,
             }
             for item in accounts
+            for permissions in [store.connector_permissions(item)]
         ]
     }
 

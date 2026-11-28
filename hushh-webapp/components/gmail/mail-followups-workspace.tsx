@@ -28,6 +28,7 @@ import {
 import { MailFollowupsBoard } from "./mail-followups-board";
 import { MailFollowupsService } from "@/lib/services/mail-followups-service";
 import type { FollowupMailbox } from "@/lib/mail/mail-followup-model";
+import type { MailboxScope } from "@/lib/mail/use-mailbox-scope";
 
 function AllMailBoard({
   mail,
@@ -105,21 +106,27 @@ export function MailFollowupsWorkspace({
   session,
   onBack,
   confirmTransition,
+  scope,
 }: {
   session: TodoWriteParams;
   onBack: () => void;
+  scope?: MailboxScope;
   confirmTransition: (
     terms: GoogleConnectorTransitionReview,
   ) => Promise<boolean>;
 }) {
   const mail = MailFollowupsService;
-  const [accounts, setAccounts] = useState<PrivateMailAccount[]>();
+  const [localAccounts, setAccounts] = useState<PrivateMailAccount[]>();
+  const accounts = scope?.accounts ?? localAccounts;
   const [handoff, setHandoff] = useState<{
     key: string;
     action: "evidence" | "plan";
   }>();
   const [pickTrack, setPickTrack] = useState(false);
-  const [choice, setChoice] = useState<string>();
+  const [localChoice, setChoice] = useState<string>();
+  const choice = scope?.selectedId ?? localChoice;
+  const choose = scope?.choose ?? setChoice;
+  const controlled = Boolean(scope);
   const [disconnect, setDisconnect] = useState<PrivateMailAccount>();
   const [revision, refresh] = useState(0);
   const [error, setError] = useState("");
@@ -134,6 +141,7 @@ export function MailFollowupsWorkspace({
   }, []);
   const current = () => mounted.current && isVaultSessionEpochCurrent(epoch);
   useEffect(() => {
+    if (controlled) return;
     let live = true;
     const controller = new AbortController();
     privateMailAccounts()
@@ -166,13 +174,14 @@ export function MailFollowupsWorkspace({
       live = false;
       controller.abort();
     };
-  }, [revision, epoch, mail]);
+  }, [controlled, revision, epoch, mail]);
   const active = accounts?.filter((account) => account.capabilities.read);
   const all = choice === "all" && Boolean(active?.length);
-  const selected =
-    active?.find((account) => account.accountId === choice) ??
-    active?.find((account) => account.isDefault) ??
-    active?.[0];
+  const selected = controlled
+    ? active?.find((account) => account.accountId === choice)
+    : active?.find((account) => account.accountId === choice) ??
+      active?.find((account) => account.isDefault) ??
+      active?.[0];
   async function add() {
     setBusy(true);
     try {
@@ -215,6 +224,7 @@ export function MailFollowupsWorkspace({
   }
   return (
     <section aria-label="Mail follow-up workspace">
+      {!controlled ? (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <select
           aria-label="Choose mailbox"
@@ -247,6 +257,7 @@ export function MailFollowupsWorkspace({
           </MailActionButton>
         )}
       </div>
+      ) : null}
       {disconnect && (
         <div role="group" aria-label="Confirm disconnect">
           <p>Disconnect {disconnect.email || "this mailbox"}?</p>
@@ -279,7 +290,7 @@ export function MailFollowupsWorkspace({
             onTrack={() => setPickTrack(true)}
             onTask={(key, action, account) => {
               setHandoff({ key, action });
-              setChoice(account);
+              choose(account);
             }}
           />
           {pickTrack && (

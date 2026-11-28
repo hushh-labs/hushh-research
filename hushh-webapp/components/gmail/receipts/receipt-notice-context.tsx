@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { applyNoticeCheck } from "@/lib/mail/receipt-tracking";
 import { type NoticeSource, noticeCheckDue, selectNoticeInput } from "@/lib/mail/receipt-notice";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptsService, type PrivateReceiptMailbox } from "@/lib/services/gmail-receipts-service";
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { useReceiptTracking } from "./receipt-tracking-context";
 
@@ -35,11 +35,12 @@ const SETTLE_MS = 1_500;
  * good one is a day old. A failed check leaves the saved findings alone and says so.
  */
 export function ReceiptNoticeProvider({
-  userId, vaultOwnerToken, accountKey, getIdToken, rows, locators, enabled, children,
+  userId, vaultOwnerToken, accountKey, privateMailbox, getIdToken, rows, locators, enabled, children,
 }: {
   userId: string | null;
   vaultOwnerToken: string | null;
   accountKey: string | null;
+  privateMailbox?: PrivateReceiptMailbox;
   getIdToken: (() => Promise<string>) | null;
   rows: readonly RecentReceiptRow[];
   /** A saved receipt's stable reference to the sealed key that reopens its email. */
@@ -64,7 +65,7 @@ export function ReceiptNoticeProvider({
   const notice = doc?.notice ?? null;
 
   // A different mailbox or owner never inherits another's running check or its failure.
-  useEffect(() => () => { running.current?.abort(); running.current = null; failedAt.current = null; }, [userId, accountKey]);
+  useEffect(() => () => { running.current?.abort(); running.current = null; failedAt.current = null; }, [userId, accountKey, privateMailbox]);
 
   useEffect(() => {
     if (!ready || !notice || !doc || !apply || input.keys.length === 0) { setStatus("idle"); return; }
@@ -82,7 +83,7 @@ export function ReceiptNoticeProvider({
         try {
           const idToken = await getIdToken!();
           const check = await GmailReceiptsService.checkReceiptNotice({
-            idToken, vaultOwnerToken: vaultOwnerToken!, userId: userId!, accountKey: accountKey!, receiptKeys: input.keys,
+            idToken, vaultOwnerToken: vaultOwnerToken!, userId: userId!, accountKey: accountKey!, privateMailbox, receiptKeys: input.keys,
             prior: notice.findings.map((finding) => ({ id: finding.id, kind: finding.kind, provider: finding.provider?.name ?? "", headline: finding.headline })),
             signal: controller.signal,
           });
@@ -107,15 +108,15 @@ export function ReceiptNoticeProvider({
     return () => window.clearTimeout(timer);
   // The saved findings are read when the check starts; a finished check changes them and must not restart it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, input.digest, notice?.digest, notice?.checkedAt, nonce]);
+  }, [privateMailbox, ready, input.digest, notice?.digest, notice?.checkedAt, nonce]);
 
   useEffect(() => () => { running.current?.abort(); }, []);
 
   const retry = useCallback(() => { failedAt.current = null; force.current = true; setNonce((value) => value + 1); }, []);
   const openSource = useCallback<ReceiptNoticeValue["openSource"]>(async (openKey) => {
     if (!userId || !vaultOwnerToken || !accountKey || !getIdToken) throw new Error("Open your vault to read this email.");
-    return GmailReceiptsService.openNoticeSource({ idToken: await getIdToken(), vaultOwnerToken, userId, accountKey, openKey });
-  }, [accountKey, getIdToken, userId, vaultOwnerToken]);
+    return GmailReceiptsService.openNoticeSource({ idToken: await getIdToken(), vaultOwnerToken, userId, accountKey, privateMailbox, openKey });
+  }, [accountKey, getIdToken, privateMailbox, userId, vaultOwnerToken]);
 
   const value = useMemo<ReceiptNoticeValue>(() => ({ status, error, retry, openSource }), [status, error, retry, openSource]);
   return <Context.Provider value={value}>{children}</Context.Provider>;

@@ -202,7 +202,7 @@ export function MailFollowupsSessionWatch({ session }: { session: TodoWriteParam
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, snapshotVaultSessionEpoch);
   useEffect(() => {
     let disposed = false;
-    let noWatches = false;
+    let nextIdleCheckAt = 0;
     let changeVersion = 0;
     let flight: AbortController | undefined;
     let sessionScope = new AbortController();
@@ -235,13 +235,13 @@ export function MailFollowupsSessionWatch({ session }: { session: TodoWriteParam
       }
     }
     function refresh() {
-      if (disposed || flight || noWatches || document.visibilityState === "hidden" || !isVaultSessionEpochCurrent(epoch)) return;
+      if (disposed || flight || Date.now() < nextIdleCheckAt || document.visibilityState === "hidden" || !isVaultSessionEpochCurrent(epoch)) return;
       const controller = new AbortController();
       flight = controller;
       const started = changeVersion;
       void checkWatchedTasks({ userId, vaultKey, vaultOwnerToken }, controller.signal, sessionScope.signal, notify)
         .then((hasWatches) => {
-          if (!controller.signal.aborted && started === changeVersion) noWatches = !hasWatches;
+          if (!controller.signal.aborted && started === changeVersion) nextIdleCheckAt = hasWatches ? 0 : Date.now() + 5 * 60_000;
         })
         .catch(() => { /* No side effects on read failure. Retry on next tick. */ })
         .finally(() => { if (flight === controller) flight = undefined; });
@@ -259,7 +259,7 @@ export function MailFollowupsSessionWatch({ session }: { session: TodoWriteParam
     }
     function wake() {
       changeVersion += 1;
-      noWatches = false;
+      nextIdleCheckAt = 0;
       refresh();
     }
     function onVisibility() {
@@ -277,6 +277,7 @@ export function MailFollowupsSessionWatch({ session }: { session: TodoWriteParam
     const timer = window.setInterval(refresh, 60_000);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener(PRIVATE_MAIL_GRANTS_CHANGED, retireSessionScope);
+    window.addEventListener("online", wake);
     window.addEventListener("pageshow", wake);
     window.addEventListener("pagehide", retireSessionScope);
     refresh();
@@ -288,6 +289,7 @@ export function MailFollowupsSessionWatch({ session }: { session: TodoWriteParam
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(PRIVATE_MAIL_GRANTS_CHANGED, retireSessionScope);
+      window.removeEventListener("online", wake);
       window.removeEventListener("pageshow", wake);
       window.removeEventListener("pagehide", retireSessionScope);
     };

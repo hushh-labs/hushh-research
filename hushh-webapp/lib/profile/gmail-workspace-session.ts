@@ -2,12 +2,14 @@
 
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 
-export type GmailWorkspaceSessionValue = "overview" | "kyc" | "receipts";
+import type { GmailDeepLinkWorkspace } from "@/lib/navigation/routes";
+
+export type GmailWorkspaceSessionValue = "overview" | GmailDeepLinkWorkspace;
 
 const STORAGE_PREFIX = "hushh.gmail.workspace.v1";
 
 function isWorkspace(value: string | null): value is GmailWorkspaceSessionValue {
-  return value === "overview" || value === "kyc" || value === "receipts";
+  return value === "overview" || value === "views" || value === "followups" || value === "kyc" || value === "receipts";
 }
 
 function storageKey(userId: string, pathname: string): string {

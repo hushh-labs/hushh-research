@@ -390,10 +390,16 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/connectors/{connector_id}",
         "/api/one/pod/connectors/gmail/accounts",
         "/api/one/pod/connectors/gmail/accounts/{account_id}",
+        "/api/one/pod/connectors/gmail/accounts/{account_id}/receipts/{operation}",
+        "/api/one/pod/connectors/gmail/accounts/{account_id}/state/{state}/{operation}",
         # Bounded To-do metadata; the routes still require an owner app session,
         # pkm.read and the current local Google grant (test_pod_todo_sources.py).
         "/api/one/pod/calendar/events",
         "/api/one/pod/gmail/todos",
+        "/api/one/pod/gmail/followups/brief",
+        "/api/one/pod/gmail/followups/recent",
+        "/api/one/pod/gmail/followups/overview-search",
+        "/api/one/pod/gmail/followups/thread",
         "/api/one/pod/gmail/followups/account",
         "/api/one/pod/gmail/followups/search",
         "/api/one/pod/gmail/followups/open",
@@ -498,6 +504,8 @@ def _concrete(path: str) -> str:
     values = {
         "task_id": "browser_" + "0" * 32,
         "account_id": "0" * 32,
+        "state": "tracking",
+        "operation": "scan" if "/receipts/" in path else "read",
         "download_id": "0" * 32,
         "command_id": "00000000-0000-4000-8000-000000000001",
         "connector_id": "gmail"

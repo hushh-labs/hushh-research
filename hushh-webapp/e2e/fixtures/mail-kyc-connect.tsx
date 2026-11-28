@@ -9,7 +9,7 @@ import { resolveGmailStatusSummary } from "../../lib/profile/mail-flow";
 
 /**
  * Mail opened by `/one/gmail?workspace=kyc` before Gmail is connected: the page
- * header, the tab bar on KYC, and the shared Mail connection card, laid out exactly as
+ * header, the Views tab and selected Info Requests view, and the shared Mail connection card, laid out exactly as
  * GmailReceiptsPage lays them out.
  * Synthetic and offline: the connect press is recorded, nothing is called.
  */
@@ -54,14 +54,20 @@ function Fixture() {
             onValueChange={setWorkspace}
             panels={{
               overview: statusPanel,
-              kyc: statusPanel,
-              receipts: (
+              views: workspace === "views" ? (
+                <div>
+                  <button onClick={() => setWorkspace("kyc")}>Info Requests</button>
+                  <button onClick={() => setWorkspace("receipts")}>Receipts</button>
+                </div>
+              ) : (
                 <div className="space-y-4">
+                  <button onClick={() => setWorkspace("views")}>Back to Views</button>
                   {statusPanel}
-                  <p>Saved receipts</p>
-                  <div data-swipe-views-horizontal-scroll data-testid="receipt-rail" className="overflow-x-auto">
-                    <div className="w-[1000px] py-6">Synthetic wide receipt table</div>
-                  </div>
+                  {workspace === "receipts" ? (
+                    <div data-swipe-views-horizontal-scroll data-testid="receipt-rail" className="overflow-x-auto">
+                      <div className="w-[1000px] py-6">Synthetic wide receipt table</div>
+                    </div>
+                  ) : null}
                 </div>
               ),
             }}
