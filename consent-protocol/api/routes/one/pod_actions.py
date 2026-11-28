@@ -127,11 +127,12 @@ async def run_gmail_proposal(
                 await _require_reply_runtime()
                 await require_access()
 
-            return await PodGmailMailboxActions(owner).propose_thread_reply(
+            proposal: dict[str, Any] = await PodGmailMailboxActions(owner).propose_thread_reply(
                 selection=payload.reply,
                 body=body,
                 require_access=require_reply_access,
             )
+            return proposal
         return await service.propose_email(
             user_id=owner,
             action=payload.action,
